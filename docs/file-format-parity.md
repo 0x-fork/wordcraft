@@ -49,6 +49,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Text, runs, paragraph and character properties, styles, numbering, sections | ✅ | ✅ | Including complex-script props (`w:rtl`, `w:cs`, `w:szCs`, `w:bCs`…), East Asian fonts kept apart from Latin (#111) |
 | Tables incl. floating (`w:tblpPr`), table styles and conditional formatting | ✅ | ✅ | Custom table styles round-trip (#256); right-to-left tables (`w:bidiVisual`) and sections (`w:bidi`) round-trip (#362) |
 | Headers/footers (first, even/odd), page borders, line numbers, gutter, mirror margins | ✅ | ✅ | |
+| Hyphenation settings (`w:autoHyphenation`, `w:hyphenationZone`, `w:doNotHyphenateCaps`, `w:consecutiveHyphenLimit`) | ✅ | ✅ | Zone, capitals and limit kept and honoured by layout (#407) |
 | Footnotes, endnotes, comments | ✅ | ✅ | The document's own note separators and continuation notice (`w:type` `separator`, `continuationSeparator`, `continuationNotice`) round-trip as ids -1, 0 and 1 (#352); note options (`w:pos`, `w:numFmt`, `w:numStart`, `w:numRestart`) round-trip in the settings and in each `w:sectPr` (#385); `commentsExtended` written; `commentsIds`, modern threaded comments (`w16cex`) partly |
 | Tracked insertions and deletions (`w:ins`/`w:del`), paragraph-mark revisions | ✅ | ✅ | #125, #244 |
 | Formatting revisions (`w:rPrChange`, `w:pPrChange`, `w:sectPrChange`, `w:tblPrChange`, `w:trPrChange`, `w:tcPrChange`, `w:numberingChange`) | ✅ | ✅ | #41: kept on open and save, schema order (change element last); changes inside `styles.xml` are dropped. RTF/ODT ignore them |
@@ -87,6 +88,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Hyphenation zone, words in capitals and consecutive-hyphen limit read and written (#407) |
 | 2026-10-11 | trivial | Alt text, titles and the decorative mark for every drawing, table captions and descriptions round-trip (#386) |
 | 2026-10-11 | trivial | Document grid (`w:docGrid`) and paragraph `w:snapToGrid` read and written (#391) |
 | 2026-10-11 | trivial | Move tracking (`w:moveFrom`/`w:moveTo` and their ranges) read and written (#400) |
