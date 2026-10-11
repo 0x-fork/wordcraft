@@ -1047,6 +1047,12 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                             }
                             maths.push((k, Arc::new(ml)));
                         }
+                        // A note separator's line: a short one, or one across the column.
+                        Some(o) if o.as_note_separator().is_some() => {
+                            let cont = o.as_note_separator() == Some(true);
+                            let maxw = (env.width - rp.indent_left.max(0.0) - rp.indent_right.max(0.0)).max(1.0);
+                            push(&mut b, ClKind::Object(k), if cont { maxw } else { crate::NOTE_SEP_W.min(maxw) }, 0.0);
+                        }
                         Some(InlineObject::Ruby { base, ruby, align, size, raise, props: ruby_props, .. }) => {
                             let mut rr = (*resolve(&props.clone().overlaid(ruby_props))).clone();
                             let size = if size.is_finite() { size.clamp(1.0, 1584.0) } else { rc.size * 0.5 };
