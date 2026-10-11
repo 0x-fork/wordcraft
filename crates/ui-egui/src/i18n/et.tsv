@@ -1349,6 +1349,17 @@
 	Formatted	Vormindatud
 	Interface size:	Kasutajaliidese suurus:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Muudab menüülindi, menüüd ja dialoogid suuremaks või väiksemaks, lisaks süsteemi ekraani skaleerimisele. Dokumendi suum on eraldi.
+	In Line with Text	Tekstiga reas
+	Square	Ruudukujuline
+	Through	Läbiv
+	Top and Bottom	Üleval ja all
+	Behind Text	Teksti taga
+	In Front of Text	Teksti ees
+	Wrap Text Sides	Mähkimise küljed
+	Both Sides	Mõlemal küljel
+	Left Only	Ainult vasakul
+	Right Only	Ainult paremal
+	Largest Only	Ainult laiemal küljel
 	All Commands	Kõik käsud
 	Assign	Määra
 	Choose a command	Vali käsk

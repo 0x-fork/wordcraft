@@ -1339,6 +1339,17 @@
 	Formatted	書式変更
 	Interface size:	表示サイズ:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	リボン、メニュー、ダイアログを、システムの表示倍率に加えて拡大または縮小します。文書のズームは別に設定します。
+	In Line with Text	行内
+	Square	四角形
+	Through	内部
+	Top and Bottom	上下
+	Behind Text	背面
+	In Front of Text	前面
+	Wrap Text Sides	文字を配置する側
+	Both Sides	両側
+	Left Only	左側のみ
+	Right Only	右側のみ
+	Largest Only	広い側のみ
 	Customize Keyboard	キーボードのユーザー設定
 	Choose a command	コマンドを選択
 	Choose a shortcut	ショートカットを選択

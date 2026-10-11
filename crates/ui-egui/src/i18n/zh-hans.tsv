@@ -1351,6 +1351,17 @@
 	Formatted	已设置格式
 	Interface size:	界面大小：
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	在系统显示缩放的基础上放大或缩小功能区、菜单和对话框。文档缩放单独设置。
+	In Line with Text	与文字同行
+	Square	四周型
+	Through	穿越型
+	Top and Bottom	上下型
+	Behind Text	衬于文字下方
+	In Front of Text	浮于文字上方
+	Wrap Text Sides	文字环绕侧
+	Both Sides	两侧
+	Left Only	仅左侧
+	Right Only	仅右侧
+	Largest Only	仅较宽一侧
 	Customize Keyboard	自定义键盘
 	Choose a command	选择命令
 	Choose a shortcut	选择快捷键
