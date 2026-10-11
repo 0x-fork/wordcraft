@@ -702,7 +702,7 @@
 	Style Inspector	Stil Denetçisi
 	Style Set	Stil Kümesi
 	Style based on:	Temel alınan stil:
-	Style: APA	Stil: APA
+	Style: {style}	Stil: {style}
 	Styles	Stiller
 	Styles Pane	Stiller Bölmesi
 	Subscript	Alt Simge
@@ -1322,3 +1322,28 @@
 	Flip Vertical	Dikey Çevir
 	Flip Horizontal	Yatay Çevir
 	Formatted	Biçimlendirildi
+	Copyright Sign	Telif Hakkı İşareti
+	Demote	Düzey Düşür
+	Edit Field Code	Alan Kodunu Düzenle
+	Edit Field…	Alanı Düzenle…
+	Go Back	Geri Git
+	Insert Date Field	Tarih Alanı Ekle
+	Insert Page Field	Sayfa Alanı Ekle
+	Insert Time Field	Saat Alanı Ekle
+	Interface size:	Arabirim boyutu:
+	Lock Fields	Alanları Kilitle
+	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Şeridi, menüleri ve iletişim kutularını sisteminizin ekran ölçeklendirmesine ek olarak büyütür veya küçültür. Belge yakınlaştırması ayrıdır.
+	Move Paragraph Down	Paragrafı Aşağı Taşı
+	Move Paragraph Up	Paragrafı Yukarı Taşı
+	Next Field	Sonraki Alan
+	Previous Field	Önceki Alan
+	Promote	Düzey Yükselt
+	Registered Sign	Tescilli Marka İşareti
+	Reset Character Formatting	Karakter Biçimlendirmesini Sıfırla
+	Reset Paragraph Formatting	Paragraf Biçimlendirmesini Sıfırla
+	Selected Fields	Seçili Alanlar
+	Toggle Field Codes	Alan Kodlarını Aç/Kapat
+	Toggle Unicode Character	Unicode Karakterini Değiştir
+	Trademark Sign	Ticari Marka İşareti
+	Unlink Fields	Alan Bağlantılarını Kaldır
+	Unlock Fields	Alanların Kilidini Aç

@@ -1329,6 +1329,12 @@
 	Rotate Left 90°	向左旋转 90°
 	Flip Vertical	垂直翻转
 	Flip Horizontal	水平翻转
+	Move Paragraph Up	上移段落
+	Move Paragraph Down	下移段落
+	Promote	升级
+	Demote	降级
+	Go Back	返回上次编辑位置
+	Toggle Unicode Character	切换 Unicode 字符
 	Toggle Field Codes	切换域代码
 	Edit Field Code	编辑域代码
 	Unlink Fields	取消域链接
