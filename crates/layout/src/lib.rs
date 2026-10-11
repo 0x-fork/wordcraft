@@ -17,6 +17,7 @@ pub mod math;
 pub mod para;
 mod table;
 mod textbox;
+mod vertical;
 pub mod wordart;
 
 use std::collections::{HashMap, HashSet};
@@ -1604,8 +1605,24 @@ fn layout_pass(
     // Text boxes laid out in balancing attempts that were thrown away.
     let mut boxes_discarded = 0usize;
     let mut block = 0usize;
+    // Vertical sections are laid out on their pages turned on their side (see `vertical`).
+    let turned: Vec<Option<SectionProps>> = sections
+        .iter()
+        .map(|(_, s)| {
+            (!web && s.text_direction.is_turned()).then(|| {
+                let top = body_top_for(&mut ctx, s, s.headers.default);
+                vertical::unturned_sect(s, top)
+            })
+        })
+        .collect();
+    let mut prev_turn = TextDirection::Horizontal;
     for (si, (end, sect)) in sections.iter().enumerate() {
-        let sect: &SectionProps = if web { sect_ref } else { sect };
+        let turn = if web { TextDirection::Horizontal } else { sect.text_direction };
+        let sect: &SectionProps = match turned.get(si) {
+            Some(Some(t)) => t,
+            _ if web => sect_ref,
+            _ => sect,
+        };
         pb.sect = sect;
         pb.sect_idx = si;
         ctx.grid = para::Grid::default();
@@ -1618,10 +1635,10 @@ fn layout_pass(
         ctx.fields.section_pages = totals.section(si);
         // Headers and footers left out are linked to the previous section's, and take its room.
         let (heads, feet) = (linked(&sections, si, |s| s.headers), linked(&sections, si, |s| s.footers));
-        let body_top = if web { sect.margin_top } else { body_top_for(&mut ctx, sect, heads.default) };
-        let first_top = if web || !sect.title_page { body_top } else { body_top_for(&mut ctx, sect, heads.first) };
-        let foot_top = if web { f32::MAX } else { foot_top_for(&mut ctx, sect, feet.default) };
-        let first_foot = if web || !sect.title_page { foot_top } else { foot_top_for(&mut ctx, sect, feet.first) };
+        let body_top = if web || turn.is_turned() { sect.margin_top } else { body_top_for(&mut ctx, sect, heads.default) };
+        let first_top = if web || turn.is_turned() || !sect.title_page { body_top } else { body_top_for(&mut ctx, sect, heads.first) };
+        let foot_top = if web || turn.is_turned() { f32::MAX } else { foot_top_for(&mut ctx, sect, feet.default) };
+        let first_foot = if web || turn.is_turned() || !sect.title_page { foot_top } else { foot_top_for(&mut ctx, sect, feet.first) };
         ctx.grid = para::Grid::of(doc, sect);
         let restart = sect.page_num_start;
         if sect.line_numbers.as_ref().is_some_and(|l| l.restart == wordcraft_doc::section::LineNumberRestart::Section) {
@@ -1630,7 +1647,8 @@ fn layout_pass(
         let start = if si == 0 { SectionStart::NextPage } else { sect.start };
         if web && si > 0 {
             // one long page
-        } else if pb.pages.is_empty() || start != SectionStart::Continuous {
+        } else if pb.pages.is_empty() || start != SectionStart::Continuous || turn != prev_turn {
+            // A page holds text running one way: a section turning the other way starts a page.
             if let Some(n) = restart {
                 pb.number = n.saturating_sub(1);
             }
@@ -1651,6 +1669,7 @@ fn layout_pass(
             pb.y = pb.top;
             pb.max_y = pb.top;
         }
+        prev_turn = turn;
         pb.foot_top = foot_top;
         let last = (*end).min(doc.body.len().saturating_sub(1));
         // Newspaper columns are balanced on the section's last page when the next section starts
@@ -1710,6 +1729,13 @@ fn layout_pass(
     }
     pb.carry.clear();
     let mut pages = pb.pages;
+    for p in &mut pages {
+        if let Some((_, s)) = sections.get(p.section)
+            && !web
+        {
+            vertical::turn_page(p, s.text_direction, s);
+        }
+    }
     if web && let Some(p) = pages.first_mut() {
         let bottom = p
             .items
@@ -2887,3 +2913,5 @@ mod tests_grid;
 mod tests_pages;
 #[cfg(test)]
 mod tests_textbox;
+#[cfg(test)]
+mod tests_vertical;
