@@ -1790,6 +1790,10 @@ preview	Title	Пример
 	Left Only	Только слева
 	Right Only	Только справа
 	Largest Only	Только по большей стороне
+	Right-to-Left Table	Таблица справа налево
+	Right-to-Left Section	Раздел справа налево
+	Table direction:	Направление таблицы:
+	Section direction:	Направление раздела:
 	Drawing Canvas	Полотно для рисования
 	New Drawing Canvas	Новое полотно для рисования
 	Fit	По размеру
