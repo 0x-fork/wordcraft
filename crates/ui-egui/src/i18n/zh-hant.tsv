@@ -1319,6 +1319,15 @@
 	Rotate Left 90°	向左旋轉 90°
 	Flip Vertical	垂直翻轉
 	Flip Horizontal	水平翻轉
+	Toggle Field Codes	切換功能變數代碼
+	Edit Field Code	編輯功能變數代碼
+	Unlink Fields	取消功能變數連結
+	Lock Fields	鎖定功能變數
+	Unlock Fields	解除鎖定功能變數
+	Next Field	下一個功能變數
+	Previous Field	上一個功能變數
+	Selected Fields	選取的功能變數
+	Edit Field…	編輯功能變數…
 	Formatted	已設定格式
 	Interface size:	介面大小：
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	在系統顯示縮放的基礎上放大或縮小功能區、功能表與對話方塊。文件縮放另行設定。

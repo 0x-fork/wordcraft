@@ -1318,6 +1318,15 @@
 	Rotate Left 90°	左へ 90 度回転
 	Flip Vertical	上下反転
 	Flip Horizontal	左右反転
+	Toggle Field Codes	フィールドコードの表示切り替え
+	Edit Field Code	フィールドコードの編集
+	Unlink Fields	フィールドのリンク解除
+	Lock Fields	フィールドのロック
+	Unlock Fields	フィールドのロック解除
+	Next Field	次のフィールド
+	Previous Field	前のフィールド
+	Selected Fields	選択したフィールド
+	Edit Field…	フィールドの編集…
 	Formatted	書式変更
 	Interface size:	表示サイズ:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	リボン、メニュー、ダイアログを、システムの表示倍率に加えて拡大または縮小します。文書のズームは別に設定します。

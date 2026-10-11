@@ -1332,6 +1332,15 @@
 	Rotate Left 90°	Ротирај улево за 90°
 	Flip Vertical	Окрени вертикално
 	Flip Horizontal	Окрени хоризонтално
+	Toggle Field Codes	Укључи/искључи кодове поља
+	Edit Field Code	Уреди код поља
+	Unlink Fields	Раскини везу поља
+	Lock Fields	Закључај поља
+	Unlock Fields	Откључај поља
+	Next Field	Следеће поље
+	Previous Field	Претходно поље
+	Selected Fields	Изабрана поља
+	Edit Field…	Уреди поље…
 	Formatted	Форматирано
 	Interface size:	Величина интерфејса:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Повећава или смањује траку, меније и дијалоге, поврх скалирања екрана у систему. Зумирање документа је засебно.
