@@ -1348,3 +1348,20 @@
 	Unlink Fields	Alan Bağlantılarını Kaldır
 	Unlock Fields	Alanların Kilidini Aç
 	Draw\nTable	Tablo\nÇiz
+	Customize Keyboard	Klavyeyi Özelleştir
+	Choose a command	Bir komut seçin
+	Choose a shortcut	Bir kısayol seçin
+	All Commands	Tüm Komutlar
+	Commands:	Komutlar:
+	Keys for this command:	Bu komutun tuşları:
+	New shortcut:	Yeni kısayol:
+	Now used by {command}	Şu anda kullanan: {command}
+	Not used by any command	Hiçbir komut kullanmıyor
+	Remove every custom shortcut and restore the built-in keys?	Tüm özel kısayollar kaldırılıp yerleşik tuşlar geri yüklensin mi?
+	Assign	Ata
+	Remove	Kaldır
+	Reset All…	Tümünü Sıfırla…
+	Press a key combination	Bir tuş birleşimine basın
+	Customize	Özelleştir
+	Keyboard shortcuts:	Klavye kısayolları:
+	Customize…	Özelleştir…

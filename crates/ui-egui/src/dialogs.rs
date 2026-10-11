@@ -2,7 +2,8 @@
 //! Word Count, Zoom, Watermark, New/Modify Style, Manage Styles, New/Modify Table Style, Table
 //! Properties, Command search, Paste Special, About, Save Changes, the password to open a
 //! document and Encrypt with Password, and the mail-merge Recipient List, Insert Merge Field, Find
-//! Recipient, merge rules, Match Fields and Check for Errors. Every dialog ends by running a
+//! Recipient, merge rules, Match Fields and Check for Errors (Customize Keyboard is in
+//! `dialogs_keyboard`). Every dialog ends by running a
 //! command (or shows one's result), so agents get the same result without the dialog.
 
 use egui::{Sense, Ui, vec2};
@@ -253,6 +254,10 @@ pub enum Dialog {
     /// Review › Tracking › Track Changes Options (#328).
     TrackOptions {
         form: Box<crate::dialogs_lists::TrackForm>,
+    },
+    /// Tools › Customize Keyboard (#368).
+    CustomizeKeyboard {
+        form: Box<crate::dialogs_keyboard::KeyboardForm>,
     },
 }
 
@@ -661,6 +666,7 @@ impl Dialog {
             Dialog::EncryptPassword { .. } => "encryptPassword",
             Dialog::DefineList { .. } => "defineList",
             Dialog::TrackOptions { .. } => "trackChangesOptions",
+            Dialog::CustomizeKeyboard { .. } => "customizeKeyboard",
         }
     }
 
@@ -828,6 +834,7 @@ impl Dialog {
             }
             "defineList" => Dialog::DefineList { form: Box::new(crate::dialogs_lists::ListForm::read(app)) },
             "trackChangesOptions" => Dialog::TrackOptions { form: Box::new(crate::dialogs_lists::TrackForm::read(app)) },
+            "customizeKeyboard" => Dialog::CustomizeKeyboard { form: Box::new(crate::dialogs_keyboard::KeyboardForm::read(app)) },
             _ => return None,
         })
     }
@@ -985,6 +992,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::EncryptPassword { .. } => "Encrypt with Password",
         Dialog::DefineList { .. } => "Define New Multilevel List",
         Dialog::TrackOptions { .. } => "Track Changes Options",
+        Dialog::CustomizeKeyboard { .. } => "Customize Keyboard",
     };
     let id = egui::Id::new(("dialog", title));
     let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false)).open(&mut open).show(ctx, |ui| {
@@ -1825,6 +1833,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::DefineList { form } => crate::dialogs_lists::define_list(app, ui, form),
         Dialog::TrackOptions { form } => crate::dialogs_lists::track_options(app, ui, form),
+        Dialog::CustomizeKeyboard { form } => crate::dialogs_keyboard::customize_keyboard(app, ui, form),
         Dialog::FieldCode { code, edit, message } => {
             ui.label(tl!("Field codes:"));
             let r = ui.add(egui::TextEdit::singleline(code).desired_width(320.0).font(egui::TextStyle::Monospace));

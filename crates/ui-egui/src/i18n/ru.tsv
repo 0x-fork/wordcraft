@@ -1731,3 +1731,20 @@ preview	Title	Пример
 	Trademark Sign	Знак товарного знака
 	Unlink Fields	Разорвать связь с полями
 	Unlock Fields	Разблокировать поля
+	Customize Keyboard	Настройка клавиатуры
+	Choose a command	Выберите команду
+	Choose a shortcut	Выберите сочетание клавиш
+	All Commands	Все команды
+	Commands:	Команды:
+	Keys for this command:	Клавиши для этой команды:
+	New shortcut:	Новое сочетание клавиш:
+	Now used by {command}	Сейчас используется: {command}
+	Not used by any command	Не используется ни одной командой
+	Remove every custom shortcut and restore the built-in keys?	Удалить все пользовательские сочетания клавиш и восстановить встроенные?
+	Assign	Назначить
+	Remove	Удалить
+	Reset All…	Сбросить все…
+	Press a key combination	Нажмите сочетание клавиш
+	Customize	Настроить
+	Keyboard shortcuts:	Сочетания клавиш:
+	Customize…	Настроить…
