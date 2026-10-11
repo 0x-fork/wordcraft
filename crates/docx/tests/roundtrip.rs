@@ -208,6 +208,7 @@ fn styles_and_lists_round_trip() {
         quick: true,
         hidden: false,
         builtin: false,
+        locked: true,
         table: None,
     });
     d.styles.upsert(Style {
