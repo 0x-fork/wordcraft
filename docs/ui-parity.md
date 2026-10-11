@@ -37,6 +37,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Paragraph dialog: Mirror indents (Inside/Outside labels), Don't add space between paragraphs of the same style, Formatting exceptions (Suppress line numbers, Don't hyphenate) (#512) |
 | 2026-10-11 | trivial | Screen readers: the document canvas exposes paragraphs, headings, lists, tables, links, pictures and the caret through AccessKit (#488); 25% → 50% |
 | 2026-10-11 | trivial | Compare / Combine Documents (original and revised document, label changes with, comparison settings, word or character level, show changes in) and AutoCorrect Options (replacement list, capitalization, exceptions, AutoFormat As You Type, Math AutoCorrect) dialogs; Restrict Editing pane (formatting and editing restrictions, exceptions for everyone, password); modal dialog rows merged into one (#412) |
 | 2026-10-11 | trivial | Line Numbers, Hyphenation (with Manual Hyphenation), Language, Envelopes and Labels dialogs (#407); the three duplicated modal-dialog rows merged into one |

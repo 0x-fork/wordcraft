@@ -2100,6 +2100,11 @@ preview	Title	Пример
 	Apply	Применить
 	Convert Notes	Преобразовать сноски
 
+# Paragraph dialog options (#512).
+	Formatting exceptions	Исключения форматирования
+	Inside:	Внутри:
+	Mirror indents	Зеркальные отступы
+	Outside:	Снаружи:
 # WordArt and connectors (#416).
 	WordArt Styles	Стили WordArt
 	Text Fill	Заливка текста

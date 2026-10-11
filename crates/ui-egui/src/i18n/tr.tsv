@@ -1722,6 +1722,11 @@
 	Apply	Uygula
 	Convert Notes	Notları Dönüştür
 
+# Paragraph dialog options (#512).
+	Formatting exceptions	Biçimlendirme özel durumları
+	Inside:	İç:
+	Mirror indents	Ayna girintiler
+	Outside:	Dış:
 # WordArt and connectors (#416).
 	WordArt Styles	WordArt Stilleri
 	Text Fill	Metin Dolgusu
