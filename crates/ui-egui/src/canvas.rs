@@ -80,6 +80,8 @@ pub struct CanvasState {
     pub(crate) swallow_text: bool,
     /// Create Link is waiting for a click on the text box to link to: the linking box's object.
     pub(crate) link_from: Option<wordcraft_doc::Pos>,
+    /// What screen readers were last told about the document (#488).
+    pub(crate) a11y: crate::a11y::A11yCache,
 }
 
 impl CanvasState {
@@ -130,6 +132,7 @@ impl Default for CanvasState {
             table_tool: None,
             table_stroke: None,
             link_from: None,
+            a11y: Default::default(),
         }
     }
 }
@@ -700,6 +703,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         });
     }
     app.canvas.focused = resp.has_focus();
+    // Screen readers: the document under the canvas, with the caret (#488).
+    crate::a11y::expose(app, ui.ctx(), resp.id, &layout, &rects, area);
     // Draw Table / Eraser own the mouse while on (no caret moves); else the usual editing.
     if !crate::table_pen::pointer(app, ui, &resp, &rects, &layout, geo.scale) {
         mouse(app, ui, &resp, &rects, &layout, geo.scale);
