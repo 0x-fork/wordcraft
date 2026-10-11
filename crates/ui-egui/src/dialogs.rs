@@ -366,7 +366,7 @@ impl TableForm {
         let s = &app.session;
         let (tp, r, c) = s.sel.focus.path.cell()?;
         let t = s.doc.table(s.sel.focus.story, &tp)?;
-        let k = wordcraft_geom::Unit::default().pt_per_unit();
+        let k = crate::options::unit().pt_per_unit();
         let row = t.rows.get(r).map(|x| x.props.clone()).unwrap_or_default();
         let cell = t.rows.get(r).and_then(|x| x.cells.get(c)).map(|x| x.props.clone()).unwrap_or_default();
         let tw = wordcraft_engine::cmd::page::sect(s).text_width();
@@ -402,7 +402,7 @@ impl TableForm {
 
     /// `table.properties` parameters for what differs from `basis` (empty when nothing does).
     pub fn changes(&self, basis: &TableForm) -> Value {
-        let k = wordcraft_geom::Unit::default().pt_per_unit();
+        let k = crate::options::unit().pt_per_unit();
         let moved = |a: f32, b: f32| (a - b).abs() > 1e-4;
         let mut v = serde_json::Map::new();
         if self.width_on != basis.width_on || (self.width_on && moved(self.width, basis.width)) {
@@ -827,9 +827,9 @@ impl Dialog {
                 Dialog::Paragraph {
                     rtl: rp.bidi,
                     align: format!("{:?}", rp.align.visual(rp.bidi)).to_lowercase(),
-                    left: vl / 72.0,
-                    right: vr / 72.0,
-                    first: rp.indent_first / 72.0,
+                    left: vl / crate::options::unit().pt_per_unit(),
+                    right: vr / crate::options::unit().pt_per_unit(),
+                    first: rp.indent_first / crate::options::unit().pt_per_unit(),
                     before: rp.space_before,
                     after: rp.space_after,
                     line,
@@ -876,10 +876,10 @@ impl Dialog {
                 let size = app.session.doc.styles.resolve_char(Some("Normal"), &Default::default()).size;
                 let grid = (kind, sp.grid_lines_per_page().min(1000), sp.grid_chars_per_line(size).min(1000));
                 Dialog::PageSetup {
-                    top: sp.margin_top / 72.0,
-                    bottom: sp.margin_bottom / 72.0,
-                    left: sp.margin_left / 72.0,
-                    right: sp.margin_right / 72.0,
+                    top: sp.margin_top / crate::options::unit().pt_per_unit(),
+                    bottom: sp.margin_bottom / crate::options::unit().pt_per_unit(),
+                    left: sp.margin_left / crate::options::unit().pt_per_unit(),
+                    right: sp.margin_right / crate::options::unit().pt_per_unit(),
                     landscape: sp.landscape,
                     grid,
                     grid_was: grid,
@@ -1358,12 +1358,27 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
                     egui::Grid::new("ind").num_columns(4).show(ui, |ui| {
                         ui.label(tl!(l_label));
-                        ui.add(egui::DragValue::new(left).speed(0.05).suffix("\"").max_decimals(2));
+                        ui.add(
+                            egui::DragValue::new(left)
+                                .speed(3.6 / crate::options::unit().pt_per_unit())
+                                .suffix(crate::options::unit().suffix())
+                                .max_decimals(2),
+                        );
                         ui.label(tl!(r_label));
-                        ui.add(egui::DragValue::new(right).speed(0.05).suffix("\"").max_decimals(2));
+                        ui.add(
+                            egui::DragValue::new(right)
+                                .speed(3.6 / crate::options::unit().pt_per_unit())
+                                .suffix(crate::options::unit().suffix())
+                                .max_decimals(2),
+                        );
                         ui.end_row();
                         ui.label(tl!("First line:"));
-                        ui.add(egui::DragValue::new(first).speed(0.05).suffix("\"").max_decimals(2));
+                        ui.add(
+                            egui::DragValue::new(first)
+                                .speed(3.6 / crate::options::unit().pt_per_unit())
+                                .suffix(crate::options::unit().suffix())
+                                .max_decimals(2),
+                        );
                         ui.end_row();
                     });
                     ui.checkbox(&mut opts[0], tl!("Mirror indents"));
@@ -1572,14 +1587,34 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.label(egui::RichText::new(tl!("Margins")).font(semibold(12.5)));
             egui::Grid::new("ps").num_columns(4).show(ui, |ui| {
                 ui.label(tl!("Top:"));
-                ui.add(egui::DragValue::new(top).speed(0.05).suffix("\"").max_decimals(2));
+                ui.add(
+                    egui::DragValue::new(top)
+                        .speed(3.6 / crate::options::unit().pt_per_unit())
+                        .suffix(crate::options::unit().suffix())
+                        .max_decimals(2),
+                );
                 ui.label(tl!("Bottom:"));
-                ui.add(egui::DragValue::new(bottom).speed(0.05).suffix("\"").max_decimals(2));
+                ui.add(
+                    egui::DragValue::new(bottom)
+                        .speed(3.6 / crate::options::unit().pt_per_unit())
+                        .suffix(crate::options::unit().suffix())
+                        .max_decimals(2),
+                );
                 ui.end_row();
                 ui.label(tl!("Left:"));
-                ui.add(egui::DragValue::new(left).speed(0.05).suffix("\"").max_decimals(2));
+                ui.add(
+                    egui::DragValue::new(left)
+                        .speed(3.6 / crate::options::unit().pt_per_unit())
+                        .suffix(crate::options::unit().suffix())
+                        .max_decimals(2),
+                );
                 ui.label(tl!("Right:"));
-                ui.add(egui::DragValue::new(right).speed(0.05).suffix("\"").max_decimals(2));
+                ui.add(
+                    egui::DragValue::new(right)
+                        .speed(3.6 / crate::options::unit().pt_per_unit())
+                        .suffix(crate::options::unit().suffix())
+                        .max_decimals(2),
+                );
                 ui.end_row();
             });
             ui.label(egui::RichText::new(tl!("Orientation")).font(semibold(12.5)));
@@ -1610,7 +1645,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if ok {
                 let _ = app.run("layout.orientation", json!({"value": if *landscape { "landscape" } else { "portrait" }}));
                 let _ =
-                    app.run("layout.margins", json!({"top": *top * 72.0, "bottom": *bottom * 72.0, "left": *left * 72.0, "right": *right * 72.0}));
+                    app.run("layout.margins", json!({"top": *top * crate::options::unit().pt_per_unit(), "bottom": *bottom * crate::options::unit().pt_per_unit(), "left": *left * crate::options::unit().pt_per_unit(), "right": *right * crate::options::unit().pt_per_unit()}));
                 if grid != grid_was {
                     let kind = ["none", "lines", "linesAndChars", "snapToChars"].get(grid.0 as usize).copied().unwrap_or("none");
                     let mut v = json!({"type": kind});
@@ -2419,7 +2454,7 @@ fn recipient_list(app: &mut WordApp, ui: &mut Ui, fields: &mut Vec<String>, rows
 
 /// The Table Properties dialog's fields: Table, Row, Column and Cell sections.
 fn table_properties(ui: &mut Ui, f: &mut TableForm) {
-    let unit = wordcraft_geom::Unit::default();
+    let unit = crate::options::unit();
     fn len(v: &mut f32, lo: f32, unit: wordcraft_geom::Unit) -> egui::DragValue<'_> {
         egui::DragValue::new(v).speed(0.01).range(lo..=22.0).suffix(unit.suffix()).max_decimals(2)
     }
@@ -2511,7 +2546,7 @@ fn apply_paragraph(
     let _ = app.run("para.align", json!({"value": align}));
     let (start, end) = if rtl { (right, left) } else { (left, right) };
     let mut props = json!({
-        "indentLeft": start * 72.0, "indentRight": end * 72.0, "indentFirst": first * 72.0,
+        "indentLeft": start * crate::options::unit().pt_per_unit(), "indentRight": end * crate::options::unit().pt_per_unit(), "indentFirst": first * crate::options::unit().pt_per_unit(),
         "spaceBefore": before, "spaceAfter": after, "lineSpacing": {"rule": "multiple", "value": line},
         "keepNext": keep_next, "keepLines": keep_lines, "pageBreakBefore": page_break, "widowControl": widow,
     });
