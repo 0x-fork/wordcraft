@@ -1328,6 +1328,9 @@
 	South	Sur
 	West	Oeste
 	Total	Total
+
+# Table Layout › Draw (#308)
+	Draw\nTable	Dibujar\ntabla
 	Rotation	Giro
 	Rotation:	Giro:
 	Rotate Right 90°	Girar 90° a la derecha
