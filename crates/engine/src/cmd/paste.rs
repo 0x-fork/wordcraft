@@ -128,6 +128,7 @@ fn paste_special(s: &mut Session, v: &Value) -> CmdResult {
 
 /// Replace the selection with `frag`, marking it as an insertion under Track Changes.
 pub fn insert(s: &mut Session, mut frag: Fragment) -> Result<(), CmdError> {
+    super::controls::prepare_edit(s)?;
     let at = delete_selection(s)?;
     let track = s.doc.settings.track_changes;
     let mut rid = None;

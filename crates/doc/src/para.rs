@@ -450,6 +450,13 @@ pub enum InlineObject {
     },
     /// The end of the innermost open [`InlineObject::FieldStart`].
     FieldEnd,
+    /// The start of a content control whose content is what follows, up to the matching
+    /// [`InlineObject::ControlEnd`]. See [`crate::control`].
+    ControlStart {
+        control: Box<crate::control::ContentControl>,
+    },
+    /// The end of the innermost open [`InlineObject::ControlStart`].
+    ControlEnd,
     NoteRef {
         kind: NoteKind,
         /// `Document::parts` id of the note's story.
@@ -640,6 +647,8 @@ impl InlineObject {
                 | InlineObject::CommentEnd { .. }
                 | InlineObject::FieldStart { .. }
                 | InlineObject::FieldEnd
+                | InlineObject::ControlStart { .. }
+                | InlineObject::ControlEnd
         )
     }
     /// A drawing's description (alternative text), wherever it is kept.
@@ -1026,6 +1035,33 @@ impl Paragraph {
         }
         self.normalize();
         self.touch();
+        Ok(())
+    }
+
+    /// Delete `a..b` except the one-character objects at the offsets in `keep` (control
+    /// markers a deletion leaves in place).
+    pub fn delete_except(&mut self, a: usize, b: usize, keep: &[usize]) -> Result<()> {
+        let (a, b) = (a.min(b), a.max(b));
+        let mut keep: Vec<usize> =
+            keep.iter().copied().filter(|k| *k >= a && k + OBJ.len_utf8() <= b && self.text.get(*k..).is_some_and(|t| t.starts_with(OBJ))).collect();
+        if keep.is_empty() {
+            return self.delete(a, b);
+        }
+        keep.sort_unstable();
+        keep.dedup();
+        // Pieces between the kept objects, last first so earlier offsets stay valid.
+        let mut pieces = Vec::with_capacity(keep.len() + 1);
+        let mut from = a;
+        for k in &keep {
+            pieces.push((from, *k));
+            from = k + OBJ.len_utf8();
+        }
+        pieces.push((from, b));
+        for (x, y) in pieces.into_iter().rev() {
+            if y > x {
+                self.delete(x, y)?;
+            }
+        }
         Ok(())
     }
 

@@ -113,6 +113,7 @@ fn cut(s: &mut Session, v: &Value) -> CmdResult {
     if !super::moves::cut_tracked(s)? {
         delete_selection(s)?;
     }
+    super::controls::restore_placeholder(s)?;
     Ok(r)
 }
 
