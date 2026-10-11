@@ -1730,6 +1730,8 @@
 	Rewind	Retroceder
 	Forward	Avançar
 	Stroke {n} of {total}	Traço {n} de {total}
+	Move with Text	Mover com o texto
+	Fix Position on Page	Fixar posição na página
 
 # WordArt and connectors (#416).
 	WordArt Styles	Estilos de WordArt

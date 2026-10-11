@@ -1719,6 +1719,8 @@
 	Rewind	倒轉
 	Forward	快轉
 	Stroke {n} of {total}	第 {n} 筆，共 {total} 筆
+	Move with Text	隨文字移動
+	Fix Position on Page	固定於頁面上的位置
 
 # WordArt and connectors (#416).
 	WordArt Styles	文字藝術師樣式

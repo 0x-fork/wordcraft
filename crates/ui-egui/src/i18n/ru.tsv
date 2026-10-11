@@ -2100,6 +2100,9 @@ preview	Title	Пример
 	Apply	Применить
 	Convert Notes	Преобразовать сноски
 
+# Wrap Text context menu (#513).
+	Move with Text	Перемещать вместе с текстом
+	Fix Position on Page	Зафиксировать положение на странице
 # Paragraph dialog options (#512).
 	Formatting exceptions	Исключения форматирования
 	Inside:	Внутри:

@@ -1730,6 +1730,8 @@
 	Rewind	倒回
 	Forward	前进
 	Stroke {n} of {total}	第 {n} 笔，共 {total} 笔
+	Move with Text	随文字移动
+	Fix Position on Page	在页面上的位置固定
 
 # WordArt and connectors (#416).
 	WordArt Styles	艺术字样式

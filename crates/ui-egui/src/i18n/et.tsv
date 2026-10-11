@@ -1697,6 +1697,8 @@
 	Rewind	Keri algusesse
 	Forward	Edasi
 	Stroke {n} of {total}	Joon {n}/{total}
+	Move with Text	Liigu tekstiga
+	Fix Position on Page	Fikseeri asukoht lehel
 
 # WordArt and connectors (#416).
 	WordArt Styles	WordArti laadid

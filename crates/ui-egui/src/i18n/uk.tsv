@@ -1730,6 +1730,8 @@
 	Rewind	На початок
 	Forward	Вперед
 	Stroke {n} of {total}	Штрих {n} з {total}
+	Move with Text	Переміщувати з текстом
+	Fix Position on Page	Зафіксувати положення на сторінці
 
 # WordArt and connectors (#416).
 	WordArt Styles	Стилі WordArt
