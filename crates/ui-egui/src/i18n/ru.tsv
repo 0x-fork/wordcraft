@@ -1790,6 +1790,8 @@ preview	Title	Пример
 	Left Only	Только слева
 	Right Only	Только справа
 	Largest Only	Только по большей стороне
+	Choose the sheet that holds the recipients.	Выберите лист с получателями.
+	First row of data contains column headers	Первая строка данных содержит заголовки столбцов
 	Communication	Связь
 	Office	Офис
 	People	Люди

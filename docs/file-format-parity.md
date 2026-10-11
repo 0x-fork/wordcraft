@@ -34,6 +34,7 @@ Weights are the share of a Word user's file traffic (estimate). Read/write: ✅ 
 | `.xml` Word 2003 XML (WordprocessingML 2003) | <1% | R/W | ❌ | ❌ | 0% | 5–8 | — | Legacy |
 | `.wps` Works 6–9, WordPerfect `.wpd` (Windows) | <1% | R | ❌ | — | 0% | 10–20 | — | Windows-only converters; low value |
 | Encrypted/password-protected `.docx`/`.doc` | 1% | R/W | ❌ | ❌ | 0% | 6–10 | — | ECMA-376 Agile Encryption; `.doc` RC4/XOR detected and refused (`docbin` fib). Issue #55 |
+| `.xlsx`/`.xlsm`/`.ods` as a mail-merge recipient list | — | R (data source) | ✅ | — | ~90% | 1–3 | `crates/formats/src/sheet.rs`, `cmd/mailings.rs` | Read-only, one sheet's cell values (#334): shared/inline/rich strings, numbers, booleans, cached formula results, dates and times as ISO 8601 (`yyyy-mm-dd`) from the cell's number format, sparse cells; ODS value types, repeated rows/columns, covered cells. Select Table picks the sheet. Capped (64 MiB per part, 100,000 rows, 1,000 columns, 2 M cells, 32,767 characters a cell). Not shown: number formats other than dates (currency, percent, thousands separators) in `.xlsx`; no `.xls`, Access or Outlook sources |
 | `.md` Markdown | — | (no) | ✅ | ✅ | — | — | `crates/formats/src/tests.rs` | Beyond Word |
 | `.tex` LaTeX | — | — | ✅ | ✅ | — | — | `crates/formats/src/tests.rs` | Beyond Word (#11), incl. math |
 | `.png` page images | — | (Save as picture, Mac) | — | ✅ | — | — | `io_ext.rs` | |
@@ -84,6 +85,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Spreadsheets (.xlsx/.xlsm/.ods) read as mail-merge recipient lists (#334) |
 | 2026-10-11 | trivial | Import/export fixes (#433–#440): TXT opens through the encoding-sniffing reader (Windows-1252, unmarked UTF-16) and saves list labels; RTF `\uN` in document info, bookmark names and field instructions; ODT common paragraph styles' text formatting and table-cell background colours; HTML borderless tables export without cell borders and `white-space:pre` keeps edge spaces; LaTeX brace groups scope `\centering`/`\raggedleft`/`\raggedright` |
 | 2026-10-11 | trivial | `.doc` import fixes per [MS-DOC]: piece Prm0/Prm1 decoding (#458), section-break kinds (#459), explicit orientation (#460), negative `sprmPIlfo` list references (#461), zero-based `istdBase` style inheritance (#462), font-table entries with alternate names (#463) |
 | 2026-10-11 | trivial | Formatting revisions (`w:rPrChange`, `w:pPrChange`, table, row, cell, section and numbering changes) read and written (#41) |
