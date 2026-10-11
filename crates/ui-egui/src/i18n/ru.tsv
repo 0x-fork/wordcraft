@@ -1790,6 +1790,12 @@ preview	Title	Пример
 	Left Only	Только слева
 	Right Only	Только справа
 	Largest Only	Только по большей стороне
+	Drawing Canvas	Полотно для рисования
+	New Drawing Canvas	Новое полотно для рисования
+	Fit	По размеру
+	Expand	Расширить
+	Scale Drawing	Масштабировать рисунок
+	Canvas Member	Элемент полотна
 	Choose the sheet that holds the recipients.	Выберите лист с получателями.
 	First row of data contains column headers	Первая строка данных содержит заголовки столбцов
 	Communication	Связь
