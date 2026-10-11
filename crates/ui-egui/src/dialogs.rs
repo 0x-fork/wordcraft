@@ -897,8 +897,37 @@ pub fn table_grid_picker(ui: &mut Ui, app: &mut WordApp) {
     }
 }
 
+/// Where the open dialog's top edge sits, as (window id, offset below the top of the screen).
+fn dialog_top_key() -> egui::Id {
+    egui::Id::new("dialog_top")
+}
+
+/// Anchors a dialog: centred on the frame it opens, then with its top edge held where that put
+/// it, so a taller or shorter tab (Paragraph, Font, Borders and Shading…) only moves the bottom
+/// edge and the tab strip stays under the mouse (#507). egui keeps it on screen if it grows past
+/// the bottom.
+fn place_dialog<'a>(ctx: &egui::Context, id: egui::Id, w: egui::Window<'a>) -> egui::Window<'a> {
+    match ctx.data(|d| d.get_temp::<(egui::Id, f32)>(dialog_top_key())) {
+        Some((open, top)) if open == id => w.anchor(egui::Align2::CENTER_TOP, vec2(0.0, top)),
+        _ => w.anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -40.0)),
+    }
+}
+
+/// After a dialog's first frame: holds its top edge where centring its measured size put it.
+fn remember_dialog_top(ctx: &egui::Context, id: egui::Id, rect: egui::Rect) {
+    if ctx.data(|d| d.get_temp::<(egui::Id, f32)>(dialog_top_key())).is_some_and(|(open, _)| open == id) {
+        return;
+    }
+    let screen = ctx.content_rect();
+    let top = (screen.center().y - 40.0 - rect.height() / 2.0 - screen.top()).max(0.0);
+    ctx.data_mut(|d| d.insert_temp(dialog_top_key(), (id, top)));
+}
+
 pub fn show(app: &mut WordApp, ctx: &egui::Context) {
-    let Some(mut d) = app.dialog.take() else { return };
+    let Some(mut d) = app.dialog.take() else {
+        ctx.data_mut(|d| d.remove::<(egui::Id, f32)>(dialog_top_key()));
+        return;
+    };
     let mut open = true;
     let mut close = false;
     let title = match &d {
@@ -939,16 +968,14 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::DefineList { .. } => "Define New Multilevel List",
         Dialog::TrackOptions { .. } => "Track Changes Options",
     };
-    egui::Window::new(tl!(title))
-        .id(egui::Id::new(("dialog", title)))
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -40.0))
-        .open(&mut open)
-        .show(ctx, |ui| {
-            ui.set_min_width(340.0);
-            close = body(app, ui, &mut d);
-        });
+    let id = egui::Id::new(("dialog", title));
+    let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false)).open(&mut open).show(ctx, |ui| {
+        ui.set_min_width(340.0);
+        close = body(app, ui, &mut d);
+    });
+    if let Some(r) = shown {
+        remember_dialog_top(ctx, id, r.response.rect);
+    }
     if open && !close {
         app.dialog = Some(d);
     } else {
@@ -2293,5 +2320,38 @@ mod tests {
         assert_eq!(p.bidi, Some(true));
         assert_eq!(p.align, Some(Align::Left), "right on the page is the start edge");
         assert_eq!(p.indent_left, Some(72.0), "the right indent is the start indent");
+    }
+
+    /// Switching the Paragraph dialog's tabs re-centred it, so the tab strip jumped up and down
+    /// by half the height difference (#507): the top edge now stays put and only the bottom moves.
+    #[test]
+    fn switching_paragraph_tabs_keeps_the_top_edge() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = app_with("Some text");
+        app.dialog = Dialog::open("paragraph", &mut app);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        let mut tops = vec![];
+        let mut oks = vec![];
+        for page in [0u8, 1, 2, 0] {
+            if let Some(Dialog::Paragraph { tab, .. }) = &mut h.state_mut().dialog {
+                *tab = page;
+            }
+            for _ in 0..4 {
+                h.step();
+            }
+            tops.push(h.get_by_label("Indents and Spacing").rect().top());
+            oks.push(h.get_by_role_and_label(egui::accesskit::Role::Button, "OK").rect().top());
+        }
+        assert!((oks[0] - oks[1]).abs() > 10.0, "the tabs differ in height: {oks:?}");
+        for t in &tops {
+            assert!((t - tops[0]).abs() <= 0.5, "the tab strip stays put: {tops:?}");
+        }
     }
 }
