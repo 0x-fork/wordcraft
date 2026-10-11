@@ -1323,6 +1323,14 @@
 	Type the field's name and its switches, for example PAGE \\* roman.	Sisesta välja nimi ja lülitid, näiteks PAGE \\* roman.
 	Width and spacing	Laius ja vahe
 	from Unicode (hex)	Unicode (kuueteistkümnend)
+	Copyright Sign	Autoriõiguse märk
+	Insert Date Field	Lisa kuupäevaväli
+	Insert Page Field	Lisa leheküljeväli
+	Insert Time Field	Lisa kellaajaväli
+	Registered Sign	Registreeritud kaubamärgi märk
+	Reset Character Formatting	Lähtesta märgivorming
+	Reset Paragraph Formatting	Lähtesta lõiguvorming
+	Trademark Sign	Kaubamärgi märk
 	Formatted	Vormindatud
 	Interface size:	Kasutajaliidese suurus:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Muudab menüülindi, menüüd ja dialoogid suuremaks või väiksemaks, lisaks süsteemi ekraani skaleerimisele. Dokumendi suum on eraldi.
