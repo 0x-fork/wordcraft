@@ -1735,6 +1735,33 @@
 	Apply	Uygula
 	Convert Notes	Notları Dönüştür
 
+# Outline view (#493).
+	Promote to Heading 1	Başlık 1'e yükselt
+	Demote to Body Text	Gövde metnine düşür
+	Move Up	Yukarı taşı
+	Move Down	Aşağı taşı
+	Collapse	Daralt
+	Expand or Collapse Heading	Başlığı genişlet veya daralt
+	Select Heading and Content	Başlığı ve içeriğini seç
+	Show Level	Düzeyi göster
+	Show Level 1	Düzey 1'i göster
+	Show Level 2	Düzey 2'yi göster
+	Show Level 3	Düzey 3'ü göster
+	Show Level 4	Düzey 4'ü göster
+	Show Level 5	Düzey 5'i göster
+	Show Level 6	Düzey 6'yı göster
+	Show Level 7	Düzey 7'yi göster
+	Show Level 8	Düzey 8'i göster
+	Show Level 9	Düzey 9'u göster
+	Show All Levels	Tüm düzeyleri göster
+	All Levels	Tüm düzeyler
+	Show First Line Only	Yalnızca ilk satırı göster
+	Show Text Formatting	Metin biçimlendirmesini göster
+	Close Outline View	Anahat görünümünü kapat
+	Outline State	Anahat durumu
+	Outlining	Anahat
+	Outline Tools	Anahat araçları
+	Close Outline\nView	Anahat görünümünü\nkapat
 # Wrap Text context menu (#513).
 	Move with Text	Metinle birlikte taşı
 	Fix Position on Page	Sayfadaki konumu sabitle
@@ -1841,7 +1868,6 @@
 	Turkish	Türkçe
 	Ukrainian	Ukraynaca
 	{language} is now the document's default language.	{language} artık belgenin varsayılan dili.
-
 # File > Options panes (#485).
 	As you type	Yazarken
 	AutoSave writes your changes to the file a moment after you stop typing.	Otomatik kaydetme, yazmayı bıraktıktan kısa süre sonra değişikliklerinizi dosyaya yazar.
