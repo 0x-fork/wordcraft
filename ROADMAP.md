@@ -14,7 +14,7 @@ agent control. This page is the summary; the assessment is
 
 | Number | Value | Kind |
 |---|---|---|
-| Ribbon/menu catalog coverage | **436 / 454 (96.0%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ribbon/menu catalog coverage | **442 / 459 (96.3%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | **Feature breadth** (weighted, incl. dialog options, styles, languages beyond the ribbon) | **~80%** | estimated |
 | **Ready for real work** (full target) | **~60%** (55–63%) | estimated, additive weighted sum over the dimensions |
 | **Mainstream practitioner** | **~55%** | estimated: weekly-work depth × discounts for interaction (×0.93), stability (×0.90), file exchange (×0.90) |
@@ -131,6 +131,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-11 | Insert › Chart (#409): column, bar, line, area, pie, doughnut and scatter charts with Chart Design (type, Edit Data, title, legend, data labels), saved as real chart parts; catalog 408/439 (92.9%) |
 | 2026-10-11 | Line Numbers, Hyphenation (zone, CAPS, consecutive limit, Manual), Language, Envelopes and Labels dialogs (#407); hyphenation options kept in DOCX; 30 modal dialogs |
 | 2026-10-11 | Accessibility (#386): Alt Text pane for every object and table, Mark as decorative, alt text round-trips in DOCX, deeper checker with fix actions |
 | 2026-10-11 | References dialogs (#402): Caption (labels, chapter numbering), Index and Mark Entry, Custom Table of Contents, Source Manager and Create/Edit Source, with TOC/INDEX/XE/SEQ switches honoured on update |
@@ -166,6 +167,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Progress log: Insert › Chart (#409); catalog 408/439 (92.9%) |
 | 2026-10-11 | trivial | Progress log: Line Numbers, Hyphenation, Language, Envelopes and Labels dialogs (#407) |
 | 2026-10-11 | trivial | Progress log: Alt Text pane, decorative objects, deeper accessibility checker (#386) |
 | 2026-10-11 | trivial | Progress log: Draw lasso, Add Pen, Ink to Shape, Ink Replay (#395); catalog 406/434 |

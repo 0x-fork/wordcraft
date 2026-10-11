@@ -117,6 +117,11 @@ impl Exempt {
         for i in wordcraft_engine::cmd::accessibility::check(&app.session.doc) {
             names.extend(["issue", "fix"].iter().filter_map(|k| i[*k].as_str()).map(str::to_string));
         }
+        // The selected chart's data (Edit Data's grid): document content.
+        if let Some(c) = wordcraft_engine::cmd::chart::selected_chart(&app.session) {
+            names.extend(c.categories.iter().cloned());
+            names.extend(c.series.iter().map(|s| s.name.clone()));
+        }
         for m in crate::credits::MODELS {
             names.extend([m.company, m.model, m.version].map(str::to_string));
         }
@@ -233,6 +238,16 @@ fn untranslated_interface_text() {
         let drawn = frame(&ctx, &mut app);
         record(&app, &format!("tab {tab}"), drawn);
     }
+    let _ = app.run("insert.chart", json!({"type": "column"}));
+    let _ = app.run("ui.tab", json!({"tab": "Chart Design"}));
+    let drawn = frame(&ctx, &mut app);
+    record(&app, "tab Chart Design", drawn);
+    for name in ["chartData", "changeChartType", "insertChart"] {
+        let _ = app.run("ui.dialog", json!({"name": name}));
+        let drawn = frame(&ctx, &mut app);
+        record(&app, &format!("dialog {name}"), drawn);
+        app.dialog = None;
+    }
     let _ = app.run("insert.equation", json!({}));
     let _ = app.run("ui.tab", json!({"tab": "Equation"}));
     let drawn = frame(&ctx, &mut app);
@@ -241,13 +256,14 @@ fn untranslated_interface_text() {
     // tab keeps one tab's commands from changing the next.
     // A fresh app per control, set up the same way, so no click changes what the next one hits
     // (Escape, for one, leaves an equation and takes the Equation tab with it).
-    let contextual = ["Table Design", "Table Layout", "Equation"];
+    let contextual = ["Table Design", "Table Layout", "Equation", "Chart Design"];
     let open = |tab: &str| {
         let ctx = egui::Context::default();
         let mut app = fresh_app(&ctx);
         match tab {
             "Table Design" | "Table Layout" => drop(app.run("insert.table", json!({"rows": 2, "cols": 2}))),
             "Equation" => drop(app.run("insert.equation", json!({}))),
+            "Chart Design" => drop(app.run("insert.chart", json!({"type": "column"}))),
             _ => {}
         }
         let _ = app.run("ui.tab", json!({"tab": tab}));
