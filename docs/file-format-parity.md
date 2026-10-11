@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (WordArt effects, text warps and connectors, #416; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -58,7 +58,8 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Content controls (`w:sdt`) | ✅ | ✅ | Block, inline, row and cell level, nested; title, tag, id, lock, placeholder, temporary, rich/plain text, `w14:checkbox`, combo box, drop-down list, date, picture, building block gallery, `w15` repeating sections; other `w:sdtPr` children (data binding, appearance) kept verbatim (#381). A TOC's control is rebuilt by the TOC |
 | Legacy form fields (`w:ffData`), check boxes, drop-downs | ❌ | ❌ | |
 | DrawingML pictures inline and anchored (`wp:anchor`), wrap square/tight/through/top-bottom | ✅ | ✅ | Tight/through read and written with their `wp:wrapPolygon` (and `edited`); without one, a shape's outline is written (a picture's rectangle). `wrapText` (both sides, left, right, largest) read and written for square, tight and through |
-| DrawingML shapes and text boxes (`wps:`) | ✅ | ✅ | Preset geometries subset; rotation and flips (`a:xfrm` `rot`/`flipH`/`flipV`, pictures and groups too, #332), the effect extent covering the rotated bounds; `wps:bodyPr` `vert` and `anchor`, linked text boxes (`wps:txbx/@id`, `wps:linkedTxbx` `id`/`seq`, #369) |
+| WordArt text effects (`w14:textFill`, `w14:textOutline`, `w14:shadow`, `w14:glow`, `w14:reflection` in `w:rPr`) | ✅ | ✅ | Solid, gradient (linear) and no fill, outline colour/width, shadow, glow, reflection (#416); `w14:scene3d`/`w14:props3d` dropped |
+| DrawingML shapes and text boxes (`wps:`) | ✅ | ✅ | Preset geometries subset; rotation and flips (`a:xfrm` `rot`/`flipH`/`flipV`, pictures and groups too, #332), the effect extent covering the rotated bounds; `wps:bodyPr` `vert` and `anchor`, linked text boxes (`wps:txbx/@id`, `wps:linkedTxbx` `id`/`seq`, #369); text warps (`a:prstTxWarp` with adjust values, all 41 presets kept; unknown ones dropped), connectors (`straightConnector1`, `bentConnector2`–`5`, `curvedConnector2`–`5` read; 3-segment forms written) with glued ends (`wps:cNvCnPr` `a:stCxn`/`a:endCxn`; the glued shapes keep their drawing ids) and arrowheads (`a:headEnd`/`a:tailEnd`, drawn as triangles) (#416) |
 | Freeform shapes (`a:custGeom`: `a:moveTo`, `a:lnTo`, Bézier curves flattened) and WordCraft ink | ✅ | ✅ | Ink is written as a freeform `wps:wsp` in a `wp:anchor` (round caps, alpha for highlighter) and recognised again by its drawing name (#307). It is saved as a custom-geometry shape, not as Word's own ink (InkML in `w14:contentPart`), so Word shows WordCraft ink as a freeform shape it can move and recolour but not erase with its ink eraser; arcs drawn straight |
 | Group shapes (`wpg:`), drawing canvas (`wpc:`) | ✅ | ✅ | Groups (#267) and canvases (#344) with pictures, shapes and text boxes; nested groups flattened. The canvas schema has no transform, so a turned or flipped canvas keeps its turn in our own `wpc:extLst` extension (`urn:wordcraft:canvas-xfrm`; Word shows it unturned). Legacy VML canvases (`v:group editas="canvas"`) aren't read as canvases |
 | VML (`w:pict`, `v:shape`, `v:textbox`) | 🟡 | ❌ | Pictures and text boxes, best effort (#242) |
@@ -88,6 +89,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | WordArt text effects (`w14:` run properties), text warps (`a:prstTxWarp`) and connectors with glued ends read and written (#416) |
 | 2026-10-11 | trivial | Content controls read and written with their properties and nesting (#381) |
 | 2026-10-11 | trivial | Charts made in WordCraft written as chart parts and read back as editable (#409) |
 | 2026-10-11 | trivial | Hyphenation zone, words in capitals and consecutive-hyphen limit read and written (#407) |

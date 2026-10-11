@@ -6,6 +6,7 @@ pub mod caret;
 pub mod chart;
 pub mod citations;
 pub mod column;
+pub mod connectors;
 pub mod controls;
 pub mod design;
 pub mod draw;
@@ -36,6 +37,7 @@ pub mod table_style;
 pub mod text;
 pub mod tools;
 pub mod view;
+pub mod wordart;
 
 use serde_json::{Value, json};
 use wordcraft_doc::props::CharProps;
@@ -75,6 +77,8 @@ pub fn registry() -> Registry {
     v.extend(chart::specs());
     v.extend(draw::specs());
     v.extend(canvas::specs());
+    v.extend(wordart::specs());
+    v.extend(connectors::specs());
     v.extend(tools::specs());
     v.extend(speech::specs());
     v.extend(controls::specs());

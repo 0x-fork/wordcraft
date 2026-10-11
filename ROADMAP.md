@@ -14,7 +14,7 @@ agent control. This page is the summary; the assessment is
 
 | Number | Value | Kind |
 |---|---|---|
-| Ribbon/menu catalog coverage | **453 / 470 (96.4%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ribbon/menu catalog coverage | **458 / 475 (96.4%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | **Feature breadth** (weighted, incl. dialog options, styles, languages beyond the ribbon) | **~80%** | estimated |
 | **Ready for real work** (full target) | **~60%** (55–63%) | estimated, additive weighted sum over the dimensions |
 | **Mainstream practitioner** | **~55%** | estimated: weekly-work depth × discounts for interaction (×0.93), stability (×0.90), file exchange (×0.90) |
@@ -131,6 +131,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-11 | WordArt (#416): text fill/outline/shadow/glow/reflection, Transform warps, our own styles; straight/elbow/curved connectors glued to shapes that re-route; DOCX round trip |
 | 2026-10-11 | Content controls (`w:sdt`) kept, shown and edited; Developer tab, Design Mode, Properties dialog (#381) |
 | 2026-10-11 | Insert › Chart (#409): column, bar, line, area, pie, doughnut and scatter charts with Chart Design (type, Edit Data, title, legend, data labels), saved as real chart parts; catalog 408/439 (92.9%) |
 | 2026-10-11 | Line Numbers, Hyphenation (zone, CAPS, consecutive limit, Manual), Language, Envelopes and Labels dialogs (#407); hyphenation options kept in DOCX; 30 modal dialogs |

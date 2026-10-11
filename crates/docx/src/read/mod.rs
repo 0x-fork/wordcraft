@@ -9,6 +9,7 @@ mod math;
 mod props;
 mod sdt;
 mod story;
+mod wordart;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -61,6 +62,10 @@ pub(crate) struct Reader<'p> {
     graphics: HashMap<(GraphicKind, String, u32, u32), Arc<Graphic>>,
     /// Graphic work left before charts and diagrams are left empty (see [`MAX_GRAPHIC_WORK`]).
     graphic_budget: usize,
+    /// Drawing ids connectors are glued to (`a:stCxn`, `a:endCxn`), and whether any shape's id
+    /// was kept while reading (those not glued to are dropped at the end).
+    pub glued: HashSet<u32>,
+    pub shape_ids: bool,
     /// The main document part's name.
     main: String,
     /// The package's content types, read when first needed.
@@ -120,6 +125,8 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
         graphic_parts: HashMap::new(),
         graphics: HashMap::new(),
         graphic_budget: MAX_GRAPHIC_WORK,
+        glued: HashSet::new(),
+        shape_ids: false,
         main: main.clone(),
         content_types: None,
         embedded: EmbeddedManifest::default(),
@@ -198,6 +205,9 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
     r.finish_moves();
     let links = std::mem::take(&mut r.txbx_links);
     link_text_boxes(&mut r.doc, links);
+    if r.shape_ids {
+        keep_glued_ids(&mut r.doc, &r.glued);
+    }
     let mut doc = r.doc;
     doc.ensure_nonempty();
     Ok(doc)
@@ -297,6 +307,27 @@ fn link_text_boxes(doc: &mut Document, mut links: Vec<(u32, u32, u32)>) {
             }
         }
     }
+}
+
+/// Drop the drawing ids read with shapes, except those connectors are glued to (so a shape
+/// without connectors reads back as it was written).
+fn keep_glued_ids(doc: &mut Document, glued: &HashSet<u32>) {
+    let has_id = |o: &InlineObject| match o {
+        InlineObject::Shape { extra, .. } => extra.id != 0,
+        InlineObject::Group { children, .. } => children.iter().any(|c| matches!(&c.obj, InlineObject::Shape { extra, .. } if extra.id != 0)),
+        _ => false,
+    };
+    let clear = |o: &mut InlineObject| {
+        if let InlineObject::Shape { extra, .. } = o
+            && !glued.contains(&extra.id)
+        {
+            extra.id = 0;
+        }
+    };
+    doc.objects_mut(&has_id, &mut |o| match o {
+        InlineObject::Group { children, .. } => children.iter_mut().for_each(|c| clear(&mut c.obj)),
+        o => clear(o),
+    });
 }
 
 /// Word starts a TOC field in the first entry; the engine keeps it at the end of the TOC heading
@@ -538,6 +569,7 @@ impl Reader<'_> {
         }
         self.pc.major_font = self.doc.settings.major_font.clone();
         self.pc.minor_font = self.doc.settings.minor_font.clone();
+        self.pc.theme = self.doc.settings.theme_colors.clone();
     }
 
     fn read_styles(&mut self, path: &str) -> Result<(), DocxError> {
