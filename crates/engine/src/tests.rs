@@ -126,6 +126,27 @@ fn reset_shortcuts_remove_direct_formatting_but_keep_styles() {
 }
 
 #[test]
+fn non_english_runs_are_not_proofed() {
+    // #100: runs tagged with a proofing language that has no dictionary are skipped
+    // by both proofing paths; English still is proofed.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "ąžuolas labas"}));
+    let before = run(&mut s, "review.issues", json!({}));
+    assert!(!before.as_array().map(|a| a.is_empty()).unwrap_or(true), "default language flags the words: {before}");
+
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "lt-LT"}));
+    let after = run(&mut s, "review.issues", json!({}));
+    assert_eq!(after, json!([]), "Lithuanian runs are skipped: {after}");
+
+    // English typos are still caught.
+    let mut e = Session::new(wordcraft_doc::Document::new());
+    run(&mut e, "text.insert", json!({"text": "Hello helo world"}));
+    let en = run(&mut e, "review.issues", json!({}));
+    assert_eq!(en.as_array().map(|a| a.len()).unwrap_or(0), 1, "English typo still flagged: {en}");
+}
+
+#[test]
 fn typing_enter_undo() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "Hello"}));
