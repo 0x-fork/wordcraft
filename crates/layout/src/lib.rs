@@ -600,6 +600,9 @@ struct Ctx<'a> {
     uses_totals: bool,
     /// Whether to note `uses_totals` now (off while laying out headers and footers).
     track_totals: bool,
+    /// Body blocks that are empty paragraphs carrying only a section break before a continuous
+    /// section, in order: they take no room (see [`place_para`]).
+    quiet_marks: Vec<usize>,
 }
 
 impl Ctx<'_> {
@@ -1755,11 +1758,18 @@ fn layout_pass(
         grid: para::Grid::default(),
         uses_totals: false,
         track_totals: true,
+        quiet_marks: Vec::new(),
     };
     let sections = doc.sections();
     let web = matches!(opts.view, ViewMode::Web | ViewMode::Draft | ViewMode::Outline);
     let read = opts.view == ViewMode::Read;
     let reflow = web || read;
+    ctx.quiet_marks = sections
+        .windows(2)
+        .filter(|w| w[1].1.start == SectionStart::Continuous)
+        .map(|w| w[0].0)
+        .filter(|end| doc.body.get(*end).and_then(|b| b.as_para()).is_some_and(|p| p.text.is_empty()))
+        .collect();
     let outline = (opts.view == ViewMode::Outline).then(|| OutlinePass::new(doc, opts.outline.clone().unwrap_or_default()));
     let default_sect = SectionProps::default();
     let mut web_sect;
@@ -2584,7 +2594,25 @@ fn para_notes(doc: &Document, p: &Paragraph, pl: &ParaLayout) -> Vec<(usize, u32
     notes
 }
 
+/// Place a body paragraph. An empty paragraph that only carries a section break before a
+/// continuous section takes no room (Word for Windows: the text after it follows right on, and
+/// columns balanced above it don't count it).
 fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, body_top: f32) {
+    if !pb.web && ctx.quiet_marks.binary_search(&block).is_ok() {
+        // Its (empty) line stays where the text ended, even at the bottom of a full column.
+        let (y, prev, bottom, content_bottom, at) = (pb.y, pb.prev.clone(), pb.bottom, pb.content_bottom, (pb.pages.len(), pb.col));
+        pb.bottom = f32::MAX / 4.0;
+        place_para_in_flow(ctx, pb, p, block, body_top);
+        pb.bottom = bottom;
+        if (pb.pages.len(), pb.col) == at {
+            (pb.y, pb.prev, pb.content_bottom) = (y, prev, content_bottom);
+        }
+        return;
+    }
+    place_para_in_flow(ctx, pb, p, block, body_top);
+}
+
+fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, body_top: f32) {
     let width = pb.col_w();
     // Floating objects anchored here join the page's wrap areas before the text is laid out; if
     // the paragraph then starts somewhere else (another column or page, or contextual spacing

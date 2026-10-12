@@ -4387,3 +4387,42 @@ fn keep_with_next_moves_a_paragraph_only_when_it_would_fit() {
     assert_eq!(pages(fit + 1, kl.clone(), none.clone()), [1, 1, 1, 1, 1, 1], "with keep lines together it moves whole");
     assert_eq!(pages(fit - 1, kn.clone(), kn.clone()), [1, 1, 1, 1, 1, 1], "a kept chain moves together");
 }
+
+/// An empty paragraph that only carries a section break before a continuous section takes no
+/// room, measured in Word for Windows (`plan/word` R21, 10 cases): the text after it follows right
+/// on, and columns balanced above it don't count it (two one-line paragraphs in two columns sit
+/// side by side). A section break on a paragraph with text keeps its line, and so does any break
+/// before a section on a new page. The SARP form's fields drifted a line lower at each of its
+/// many continuous breaks.
+#[test]
+fn an_empty_continuous_section_mark_takes_no_room() {
+    use wordcraft_doc::section::{SectionProps, SectionStart};
+    // "Pa", the section's last paragraph (`mark`), "Pb", "Pc" in the next section of `cols`
+    // columns, then "Pd" after a second break.
+    let tops = |mark: &str, cols: u32, start: SectionStart| {
+        let mut d = Document::from_text(&format!("Pa\n{mark}\nPb\nPc\n\nPd"));
+        d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().section =
+            Some(Box::new(SectionProps { start: SectionStart::Continuous, ..Default::default() }));
+        let mut s = SectionProps { start, ..Default::default() };
+        s.columns.count = cols;
+        d.para_mut(StoryRef::Body, &Path::top(4)).unwrap().section = Some(Box::new(s));
+        d.last_section.start = SectionStart::Continuous;
+        let l = lay(&d);
+        [0, 2, 3, 5].map(|i| {
+            let c = l.caret(&Pos::body(i, 0)).unwrap();
+            (c.page, (c.top * 10.0).round() / 10.0, c.x)
+        })
+    };
+    let one = tops("", 1, SectionStart::Continuous);
+    let line = one[2].1 - one[1].1;
+    assert!((one[1].1 - one[0].1 - line).abs() < 0.15, "Pb right under Pa: {one:?}");
+    assert!((one[3].1 - one[2].1 - line).abs() < 0.15, "Pd right under Pc: {one:?}");
+    let text = tops("Mark", 1, SectionStart::Continuous);
+    assert!((text[1].1 - text[0].1 - 2.0 * line).abs() < 0.15, "a mark with text keeps its line: {text:?}");
+    let two = tops("", 2, SectionStart::Continuous);
+    assert_eq!(two[1].1, two[2].1, "balanced: Pb and Pc side by side: {two:?}");
+    assert!(two[2].2 > two[1].2 + 100.0, "Pc in the second column: {two:?}");
+    assert!((two[3].1 - two[1].1 - line).abs() < 0.15, "Pd a line below them: {two:?}");
+    let new_page = tops("", 1, SectionStart::NextPage);
+    assert_eq!(new_page[1].0, 1, "a next-page section starts a page: {new_page:?}");
+}
