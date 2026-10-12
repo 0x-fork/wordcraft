@@ -87,6 +87,20 @@ fn substitutes(family: &str) -> &'static [&'static str] {
     }
 }
 
+/// The font a Windows 3.1-era charset name stands for: `Times New Roman Cyr`, `Arial CE`,
+/// `Courier New Baltic`, `Arial (Hebrew)`… are aliases Windows keeps (its FontSubstitutes) for
+/// the font itself, and old Russian and Central European documents name them. Other names are
+/// returned unchanged.
+pub fn charset_base_family(family: &str) -> &str {
+    const SUFFIXES: &[&str] = &[" cyr", " ce", " greek", " tur", " baltic", " (arabic)", " (hebrew)", " (vietnamese)"];
+    let lower = family.trim_end().to_ascii_lowercase();
+    SUFFIXES
+        .iter()
+        .find(|s| lower.ends_with(*s) && lower.len() > s.len())
+        .and_then(|s| family.trim_end().get(..lower.len() - s.len()))
+        .map_or(family, str::trim_end)
+}
+
 /// Naskh-style Persian/Arabic document fonts (the "B …" family names come from the common
 /// Persian font packs; matched by name only).
 fn is_persian_naskh(f: &str) -> bool {
@@ -194,10 +208,14 @@ pub fn resolve(family: &str, bold: bool, italic: bool) -> Resolved {
             return *r;
         }
     }
+    let base = charset_base_family(family);
     let (fam, substituted) = if db.has_family(family) {
         (family.to_string(), false)
+    } else if base != family && db.has_family(base) {
+        // Windows maps the charset names to the font itself: not a substitution.
+        (base.to_string(), false)
     } else {
-        let s = substitutes(family).iter().find(|s| db.has_family(s)).copied().unwrap_or(crate::FALLBACK_FAMILY);
+        let s = substitutes(base).iter().find(|s| db.has_family(s)).copied().unwrap_or(crate::FALLBACK_FAMILY);
         (s.to_string(), true)
     };
     let face = db.face(&fam, style_name(bold, italic));
@@ -278,6 +296,14 @@ mod tests {
         }
         // Other serif families are unchanged.
         assert_eq!(substitutes("Georgia").first(), Some(&"Caladea"));
+        // Charset aliases are the font itself, so they substitute like it.
+        assert_eq!(charset_base_family("Times New Roman Cyr"), "Times New Roman");
+        assert_eq!(charset_base_family("Arial CYR"), "Arial");
+        assert_eq!(charset_base_family("Courier New CE"), "Courier New");
+        assert_eq!(charset_base_family("Arial (Hebrew)"), "Arial");
+        assert_eq!(charset_base_family("Cyr"), "Cyr");
+        assert_eq!(charset_base_family("Calibri"), "Calibri");
+        assert_eq!(substitutes(charset_base_family("Times New Roman Cyr")), substitutes("Times New Roman"));
     }
 
     #[test]
