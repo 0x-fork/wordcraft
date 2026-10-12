@@ -3923,3 +3923,28 @@ fn east_asian_text_takes_the_asian_font_and_latin_text_the_latin_font() {
         assert_eq!(face, want, "{ch:?} in {}", if ch.is_ascii() { latin } else { &asian });
     }
 }
+
+/// A page total in the footer ("Page X of Y") is filled in after pagination, so it doesn't make
+/// the body lay out a second time; one in the body still does.
+#[test]
+fn footer_page_total_needs_one_body_pass() {
+    let field = || InlineObject::Field { instr: "NUMPAGES".into(), result: "9".into(), locked: false, code: false };
+    let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
+    for i in 1..3 {
+        d.para_mut(StoryRef::Body, &Path::top(i)).unwrap().props.page_break_before = Some(true);
+    }
+    let mut fp = wordcraft_doc::Paragraph::new();
+    fp.insert_object(0, field(), &Default::default()).unwrap();
+    let id = d.add_part(wordcraft_doc::PartKind::Footer, vec![wordcraft_doc::para_block(fp)]);
+    d.last_section.footers.default = Some(id);
+    let first = |d: &Document| {
+        let totals = Totals::first_guess(d.sections().len());
+        layout_pass(d, &mut LayoutCache::new(), &LayoutOptions::default(), &HashMap::new(), &totals, true)
+    };
+    assert!(matches!(first(&d), Pass::Done(l) if l.pages.len() == 3), "the footer's total asked for another pass");
+    // The same field in the body is only known once every page is laid out.
+    let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    let n = p.len();
+    p.insert_object(n, field(), &Default::default()).unwrap();
+    assert!(matches!(first(&d), Pass::Again(t) if t.pages == 3));
+}
