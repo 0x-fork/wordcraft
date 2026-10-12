@@ -68,3 +68,14 @@ and set `WORDCRAFT_CONTROL_KEY` to that app's key.
 Any other method name is treated as a command id: `{"method": "format.bold"}` works.
 
 Positions are `{"story": "body" | {"part": n}, "path": [block, row, cell, block, …], "off": byteOffset}`.
+
+### Native printing
+
+`engine.execute` can call `ui.printSettings` with `{}` to inspect the printer list, selected
+printer, copies, duplex, grayscale, discovery/submission status and backend receipt/error.
+`{"refresh":true}` starts background discovery; poll the same command until `discovering` is
+false. Set `printer` to a discovered name, integer `copies` from 1 to 999, `duplex` to
+`printerDefault`, `off`, `longEdge` or `shortEdge`, and boolean `grayscale`. Invalid updates are
+rejected without changing earlier settings. `ui.printSubmit` explicitly submits the current
+print-ready PDF without opening a dialog; inspect `ui.printSettings` until `busy` becomes false
+and check `status`/`detail`. The browser keeps its own print hook. PDF export remains separate.

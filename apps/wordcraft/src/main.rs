@@ -51,7 +51,7 @@ impl eframe::App for App {
         if ctx.input(|i| i.viewport().close_requested()) && !self.0.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
-        if self.0.quit_requested {
+        if self.0.quit_requested && !self.0.printing.busy() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -63,6 +63,7 @@ impl eframe::App for App {
         self.3.show(frame);
     }
     fn on_exit(&mut self) {
+        print::finish_pending_jobs();
         save_prefs(&self.0);
         if let Some(key_file) = &self.2 {
             key_file.remove();
@@ -121,11 +122,12 @@ fn save_prefs(app: &WordApp) {
 }
 
 /// Native file dialogs, shown without blocking the window (`file_dialogs`, #94), File › Print
-/// through the system's PDF viewer (`print`, #15), and pictures on the system clipboard (#45).
+/// through the system spooler (`print`), and pictures on the system clipboard (#45).
 fn services(file_dialog: file_dialogs::Hook) -> Services {
     Services {
         file_dialog: Some(file_dialog),
-        print: Some(print::hook()),
+        printers: Some(print::discover()),
+        print_native: Some(print::submit()),
         clipboard_picture: Some(Box::new(clipboard_picture)),
         ..Default::default()
     }

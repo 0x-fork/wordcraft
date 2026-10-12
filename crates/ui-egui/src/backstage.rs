@@ -333,10 +333,20 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
 fn export_page(app: &mut WordApp, ui: &mut Ui) {
     let is_print = app.ui.backstage_page == "print";
     heading(ui, if is_print { "Print" } else { "Export" });
-    if is_print && app.services.print.is_some() {
-        ui.label(tl!("Send the document straight to the system print dialog, or save a copy in another format below."));
+    if is_print && (app.services.print.is_some() || app.services.print_native.is_some()) {
+        if let Some(discover) = &app.services.printers {
+            crate::printing::show(&mut app.printing, ui, discover, |label| crate::i18n::t(label).to_owned());
+        } else {
+            ui.label(tl!("Send the document straight to the system print dialog, or save a copy in another format below."));
+        }
         ui.add_space(12.0);
-        if ui.add(egui::Button::new(egui::RichText::new(tl!("Print")).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked() {
+        if ui
+            .add_enabled(
+                app.services.print_native.is_none() || app.printing.ready(),
+                egui::Button::new(egui::RichText::new(tl!("Print")).font(medium(13.5))).min_size(vec2(320.0, 34.0)),
+            )
+            .clicked()
+        {
             let _ = app.run("ui.print", json!({}));
         }
         ui.add_space(12.0);
