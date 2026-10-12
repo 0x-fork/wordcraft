@@ -3732,6 +3732,31 @@ fn colour_commands_take_any_custom_hex() {
     assert_eq!(s.doc.settings.page_color, wordcraft_doc::Rgb::parse("123ABC"));
 }
 
+/// A document whose content is another format than its extension says opens by what it holds,
+/// as in Word: RTF saved as `.doc` (accounting systems and report generators save their documents
+/// that way), a `.docx` package renamed `.doc`, and RTF renamed `.docx`.
+#[test]
+fn documents_open_by_content_when_the_extension_is_wrong() {
+    let text = |doc: &wordcraft_doc::Document| doc.plain_text(StoryRef::Body);
+    let rtf = b"{\\rtf1\\ansi\\ansicpg1251\\deff0{\\fonttbl{\\f0 Times New Roman;}}\\f0 \\'d1\\'f7\\'e5\\'f2 \\'b9 12\\par Invoice line\\par}";
+    for name in ["Счет 12.doc", "report.DOC", "letter.dot", "renamed.docx"] {
+        let doc = crate::io::open_bytes(name, rtf).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let t = text(&doc);
+        assert!(t.contains("Счет № 12") && t.contains("Invoice line"), "{name}: {t:?}");
+    }
+    // A Word package renamed `.doc` or `.rtf`.
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "text.insert", json!({"text": "Packaged text"}));
+    let docx = crate::io::save_bytes("a.docx", &s.doc).unwrap();
+    for name in ["package.doc", "package.rtf"] {
+        let doc = crate::io::open_bytes(name, &docx).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(text(&doc).contains("Packaged text"), "{name}");
+    }
+    // Matching content still goes the usual way, and garbage stays an error.
+    assert!(text(&crate::io::open_bytes("plain.rtf", rtf).unwrap()).contains("Invoice line"));
+    assert!(crate::io::open_bytes("broken.doc", b"\x00\x01not a document").is_err());
+}
+
 /// #569: a playlist (.m3u / .m3u8) — or any file with an extension WordCraft doesn't know —
 /// opens as plain text with its encoding detected, like Word's text import; a binary file is a
 /// clean error, never garbage or a panic.

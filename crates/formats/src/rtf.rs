@@ -9,7 +9,9 @@
 //!
 //! Import: a tolerant reader for groups and destinations (unknown `\*` destinations, headers,
 //! footers, notes and objects are skipped), `\par \line \tab \page`, `\uN` with `\ucN`
-//! fallback skipping, `\'hh` (Windows-1252), the formatting words above, stylesheet-based
+//! fallback skipping, `\'hh` and 8-bit text in the document's code page (`\ansicpg`) or the
+//! current font's (`\fcharset`, `\cpg`: Cyrillic, Central European, Greek…; Windows-1252 when
+//! none is named), the formatting words above, stylesheet-based
 //! headings and `\outlinelevel`, lists through `\ls`/`\ilvl`, fields, bookmarks, pictures and
 //! tables. Group nesting and picture sizes are capped.
 
@@ -18,7 +20,6 @@ use std::collections::HashMap;
 use wordcraft_doc::{Align, Document, Rgb};
 
 use crate::model::{self, Cell, FBlock, FTable, Flow, Fmt, Inline, Kind, ListInfo, Meta, Para, make_img};
-use crate::txt::cp1252;
 
 /// Deepest group nesting we track; deeper groups share the innermost state.
 const MAX_GROUPS: usize = 512;
@@ -496,6 +497,8 @@ struct St {
     outline: Option<u8>,
     pagebb: bool,
     field: Option<usize>,
+    /// The code page of the current font's charset (`\fcharset`), when it names one.
+    cp: Option<u16>,
 }
 
 impl Default for St {
@@ -513,6 +516,7 @@ impl Default for St {
             outline: None,
             pagebb: false,
             field: None,
+            cp: None,
         }
     }
 }
@@ -533,6 +537,13 @@ struct Reader {
     fonts: HashMap<i32, String>,
     font_cur: i32,
     font_name: String,
+    /// Code pages of the fonts whose charset names one (`\fcharset204` → 1251).
+    font_cps: HashMap<i32, u16>,
+    font_cp_cur: Option<u16>,
+    /// The document's code page (`\ansicpg`); 0 until it names one (Windows-1252 then).
+    ansicpg: u16,
+    /// The default font (`\deff`), whose charset applies before any `\f`.
+    deff: i32,
     colors: Vec<Option<Rgb>>,
     color_cur: (u8, u8, u8, bool),
     styles: HashMap<i32, String>,
@@ -637,7 +648,17 @@ impl Reader {
         let name = std::mem::take(&mut self.font_name).trim().trim_end_matches(';').trim().to_string();
         if !name.is_empty() && self.fonts.len() < 4096 {
             self.fonts.insert(self.font_cur, name);
+            if let Some(cp) = self.font_cp_cur.take() {
+                self.font_cps.insert(self.font_cur, cp);
+            }
         }
+    }
+
+    /// A byte of 8-bit text (`\'hh` or raw) as a char, in the current font's code page, else the
+    /// default font's, else the document's.
+    fn byte_char(&self, b: u8) -> char {
+        let cp = self.st.cp.or_else(|| self.font_cps.get(&self.deff).copied()).unwrap_or(if self.ansicpg == 0 { 1252 } else { self.ansicpg });
+        wordcraft_doc::encoding::windows_byte(cp, b)
     }
 
     fn commit_style(&mut self) {
@@ -962,9 +983,16 @@ impl Reader {
                 return;
             }
             Dest::FontTbl => {
-                if w == "f" {
-                    self.font_cur = pv;
-                    self.font_name.clear();
+                match w {
+                    "f" => {
+                        self.font_cur = pv;
+                        self.font_name.clear();
+                        self.font_cp_cur = None;
+                    }
+                    "fcharset" => self.font_cp_cur = wordcraft_doc::encoding::charset_code_page(pv),
+                    // A font's explicit code page (`\cpg1251`) wins over its charset.
+                    "cpg" if pv > 0 && wordcraft_doc::encoding::SINGLE_BYTE_CODE_PAGES.contains(&(pv as u16)) => self.font_cp_cur = Some(pv as u16),
+                    _ => {}
                 }
                 return;
             }
@@ -1115,7 +1143,14 @@ impl Reader {
                 self.st.fmt.sub = false;
             }
             "fs" => self.st.fmt.size = if pv > 0 { Some((pv as f32 / 2.0).clamp(1.0, 1638.0)) } else { None },
+            "ansicpg" => {
+                if pv > 0 && wordcraft_doc::encoding::SINGLE_BYTE_CODE_PAGES.contains(&(pv as u16)) {
+                    self.ansicpg = pv as u16;
+                }
+            }
+            "deff" => self.deff = pv,
             "f" => {
+                self.st.cp = self.font_cps.get(&pv).copied();
                 let name = self.fonts.get(&pv).cloned();
                 match name {
                     Some(n) if model::is_mono(&n) => {
@@ -1300,7 +1335,8 @@ pub fn parse(bytes: &[u8]) -> Result<Flow, String> {
                                 if r.st.dest == Dest::Pict {
                                     r.text(&format!("{v:02x}"));
                                 } else {
-                                    r.ch(cp1252(v));
+                                    let c = r.byte_char(v);
+                                    r.ch(c);
                                 }
                                 i += 4;
                             }
@@ -1350,7 +1386,8 @@ pub fn parse(bytes: &[u8]) -> Result<Flow, String> {
                     }
                 } else {
                     for b in chunk {
-                        r.ch(cp1252(*b));
+                        let c = r.byte_char(*b);
+                        r.ch(c);
                     }
                 }
                 i = j;
@@ -1418,6 +1455,27 @@ mod tests {
         assert!(p.inlines.iter().any(|i| matches!(i, Inline::Text(t, f) if t == "red" && f.color == Some(Rgb(255, 0, 0)))));
         let FBlock::Para(l) = &f.blocks[2] else { panic!() };
         assert!(matches!(&l.inlines[0], Inline::Text(_, f) if f.link.as_deref() == Some("http://a.b")));
+    }
+
+    #[test]
+    fn code_pages_from_ansicpg_and_font_charsets() {
+        // The document's code page: Russian RTF as accounting systems write it.
+        let f = parse(br"{\rtf1\ansi\ansicpg1251\deff0{\fonttbl{\f0 Times New Roman;}}\f0 \'cf\'f0\'e8\'e2\'e5\'f2, \'b8\'eb\'ea\'e0 \'b9 5\par}")
+            .unwrap();
+        assert_eq!(texts(&f), ["Normal:Привет, ёлка № 5"]);
+        // Font charsets switch inside a Windows-1252 document: Western, Cyrillic, Central
+        // European, then back to the first font.
+        let f = parse(
+            br"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Arial;}{\f1\fcharset204 Arial CYR;}{\f2\fcharset238 Arial CE;}}\f0 caf\'e9 {\f1 \'c4\'e0} \f2 \'a3\'f3d\'9f \f0 na\'efve\par}",
+        )
+        .unwrap();
+        assert_eq!(texts(&f), ["Normal:café Да Łódź naïve"]);
+        // The default font's charset applies before any \f; an explicit \cpg wins over \fcharset.
+        let f = parse(br"{\rtf1\ansi\deff1{\fonttbl{\f1\fcharset204 Times;}{\f2\fcharset0\cpg1253 Greek;}}\'cc\'e8\'f0 \f2 \'c1\'e2\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:Мир Αβ"]);
+        // Raw 8-bit text (not escaped) follows the same code page.
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg1251 \xc4\xee\xec\\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:Дом"]);
     }
 
     #[test]
