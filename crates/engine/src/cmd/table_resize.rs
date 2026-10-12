@@ -184,10 +184,12 @@ fn geometry(t: &Table, boxes: &[&CellBox]) -> Option<(Vec<f32>, Vec<DrawnRow>)> 
         if let Some(x) = lines.get_mut(end) {
             x.get_or_insert(b.rect.right());
         }
+        // A vertically merged cell's box spans all its rows (#640), so a row ends at its
+        // shortest box.
         match rows.iter_mut().find(|r| r.row == b.row) {
             Some(r) => {
                 r.top = r.top.min(b.rect.y);
-                r.bottom = r.bottom.max(b.rect.bottom());
+                r.bottom = r.bottom.min(b.rect.bottom());
                 r.edges.extend([g, end]);
             }
             None => rows.push(DrawnRow { row: b.row, top: b.rect.y, bottom: b.rect.bottom(), edges: vec![g, end] }),
@@ -215,6 +217,14 @@ fn geometry(t: &Table, boxes: &[&CellBox]) -> Option<(Vec<f32>, Vec<DrawnRow>)> 
         cols.push(x);
     }
     rows.sort_by_key(|r| r.row);
+    // A row whose every cell starts a vertical merge has only boxes that span further: it ends
+    // where the next row starts.
+    let tops: Vec<(usize, f32)> = rows.iter().map(|r| (r.row, r.top)).collect();
+    for (r, (next, top)) in rows.iter_mut().zip(tops.into_iter().skip(1)) {
+        if next == r.row.saturating_add(1) && top < r.bottom {
+            r.bottom = top.max(r.top);
+        }
+    }
     Some((cols, rows))
 }
 
@@ -343,7 +353,7 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
     // An "at least" height leaves out the cells' margins and border bands, which the layout adds
     // (and which depend on the table style): measure what the rows came to and take the extra
     // off once. A row its text holds taller keeps the dragged height.
-    let drawn = drawn_heights(&s.layout(), page, &target);
+    let drawn = drawn_heights(&s.layout(), &s.doc, page, &target);
     let mut fixed = Vec::new();
     let t = s.doc.table_mut(target.story, &target.table)?;
     for (r, want) in &plan.heights {
@@ -360,7 +370,7 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     touch(s, &target)?;
-    let again = drawn_heights(&s.layout(), page, &target);
+    let again = drawn_heights(&s.layout(), &s.doc, page, &target);
     let t = s.doc.table_mut(target.story, &target.table)?;
     for (r, want, got) in fixed {
         let now = again.iter().find(|(i, _)| *i == r).map_or(got, |(_, h)| *h);
@@ -375,15 +385,12 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// The drawn height of each of the target table's rows on `page`.
-fn drawn_heights(l: &DocLayout, page: usize, target: &ResizeTarget) -> Vec<(usize, f32)> {
-    let mut out: Vec<(usize, f32)> = Vec::new();
-    for b in cell_boxes(l, page).iter().filter(|b| b.story == target.story && b.table == target.table) {
-        match out.iter_mut().find(|(r, _)| *r == b.row) {
-            Some((_, h)) => *h = h.max(b.rect.h),
-            None => out.push((b.row, b.rect.h)),
-        }
-    }
-    out
+fn drawn_heights(l: &DocLayout, doc: &Document, page: usize, target: &ResizeTarget) -> Vec<(usize, f32)> {
+    tables_on(l, doc, page)
+        .into_iter()
+        .find(|t| t.story == target.story && t.table == target.table)
+        .map(|t| t.rows.iter().map(|r| (r.row, r.bottom - r.top)).collect())
+        .unwrap_or_default()
 }
 
 /// Mark the table's paragraphs changed, so the layout redoes them.
@@ -520,6 +527,28 @@ mod tests {
         let b = cell_rect(&mut s, 1, 0);
         let t = resize_target(&l, &s.doc, 0, b.right(), b.y + b.h / 2.0, REACH).unwrap();
         assert_eq!(t.edge, Edge::Column(1));
+    }
+
+    /// A vertical merge lays out as one box as tall as its rows (#640); each row keeps its own
+    /// bottom border, and dragging one changes that row alone.
+    #[test]
+    fn a_vertical_merge_keeps_each_rows_border() {
+        let mut s = table_session(3, 2);
+        let (m, a, b) = (cell_rect(&mut s, 0, 0), cell_rect(&mut s, 0, 1), cell_rect(&mut s, 1, 1));
+        s.run("table.eraser", &json!({"page": 0, "x": m.x + m.w / 2.0, "y": m.bottom() + 0.5})).unwrap();
+        assert_eq!(first_table(&s).rows[1].cells[0].props.vmerge, wordcraft_doc::props::VMerge::Continue);
+        let l = s.layout();
+        let x = b.x + b.w / 2.0;
+        let t = resize_target(&l, &s.doc, 0, x, a.bottom() + 1.0, REACH).unwrap();
+        assert_eq!(t.edge, Edge::Row(0), "the border between the merged rows is still there");
+        let t = resize_target(&l, &s.doc, 0, x, b.bottom() + 1.0, REACH).unwrap();
+        assert_eq!(t.edge, Edge::Row(1), "the merge's bottom is the second row's border");
+        s.run("table.resizeDrag", &json!({"page": 0, "x": x, "y": a.bottom() + 1.0, "toX": x, "toY": a.bottom() + 21.0})).unwrap();
+        let t = first_table(&s);
+        let h = cell_rect(&mut s, 0, 1).h;
+        assert!((h - (a.h + 20.0)).abs() < 0.1, "{} → {h}", a.h);
+        assert_eq!(t.rows[1].props.height, None, "the other rows are untouched");
+        assert!((cell_rect(&mut s, 1, 1).h - b.h).abs() < 0.1);
     }
 
     /// Away from any border, or with hostile numbers: an error and no change, never a panic.
