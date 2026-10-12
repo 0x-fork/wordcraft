@@ -5018,19 +5018,25 @@ version = "0.5.0"
 dependencies = [
  "arboard",
  "craft-print",
+ "dispatch2",
  "eframe",
  "egui",
  "fmv-macos-events",
  "getrandom 0.3.4",
  "log",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
  "pollster 0.4.0",
  "rfd",
  "serde_json",
+ "windows",
  "winresource",
  "wordcraft-control-key",
  "wordcraft-doc",
  "wordcraft-engine",
+ "wordcraft-fonts",
  "wordcraft-ui-egui",
+ "zbus",
 ]
 
 [[package]]
@@ -5132,6 +5138,7 @@ dependencies = [
  "skrifa 0.47.0",
  "unicode-bidi",
  "unicode-script",
+ "wuff",
 ]
 
 [[package]]
@@ -5275,6 +5282,7 @@ dependencies = [
  "web-sys",
  "wordcraft-doc",
  "wordcraft-engine",
+ "wordcraft-fonts",
  "wordcraft-ui-egui",
 ]
 
@@ -5310,6 +5318,17 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "wuff"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "200a7b806377b65f1ff9a985874332f15357c87e5dd7855f35f06dade95b8b3d"
+dependencies = [
+ "brotli-decompressor",
+ "bytes",
+ "flate2",
+]
 
 [[package]]
 name = "x11-dl"

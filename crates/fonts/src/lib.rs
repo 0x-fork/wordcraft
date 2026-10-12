@@ -13,7 +13,10 @@ mod script;
 mod ui_fallback;
 pub mod word;
 
-pub use fontdb::{FALLBACK_FAMILY, FaceRef, FontDb, FontFace, LocalName, base_style, bundled, name_language_matches, system_font_dirs};
+pub use fontdb::{
+    FALLBACK_FAMILY, FONT_FILE_EXTS, FaceRef, FontDb, FontFace, FontFormat, Installed, LocalName, MAX_FONT_FILE_BYTES, UserFont, UserFontError,
+    base_style, bundled, decode_font_file, is_font_file_name, name_language_matches, sniff, system_font_dirs,
+};
 pub use harfrust::Feature;
 use harfrust::{Direction, ShapeOptions, Tag, UnicodeBuffer};
 pub use kurbo::BezPath;

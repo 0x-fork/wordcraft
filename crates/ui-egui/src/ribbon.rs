@@ -163,10 +163,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         ui.painter(),
                         Rect::from_center_size(pos2(r.min.x + 14.0, r.center().y), vec2(14.0, 14.0)),
                         "share",
-                        egui::Color32::WHITE,
-                        egui::Color32::WHITE,
+                        t.on_accent,
+                        t.on_accent,
                     );
-                    ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, share, medium(12.0), egui::Color32::WHITE);
+                    ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, share, medium(12.0), t.on_accent);
                     if resp.on_hover_text(tl!("Export a copy to share (PDF, Word document)")).clicked() {
                         let _ = app.run("ui.backstage", json!({"value": true, "page": "export"}));
                     }
@@ -414,8 +414,12 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 let fams = app.previews.families();
                 let prev = app.previews.font_preview_fn();
                 if let Some(f) = font_combo(ui, "font", 150.0, &font, &fams, Some(&*prev)) {
-                    let f = app.previews.font_stored(&f);
-                    let _ = app.run("format.font", json!({"name": f}));
+                    let _ = if f == crate::widgets::ADD_FONT {
+                        app.run("font.add", json!({}))
+                    } else {
+                        let f = app.previews.font_stored(&f);
+                        app.run("format.font", json!({"name": f}))
+                    };
                 }
                 let size = st
                     .get("size")
@@ -1274,7 +1278,19 @@ fn references(app: &mut WordApp, ui: &mut Ui) {
     });
     group(ui, "Table of Authorities", None, app, |ui, app| {
         big(ui, app, "markCitation", "Mark\nCitation", "references.markCitation", json!({}), false);
-        small(ui, app, "tableOfAuthorities", None, "Insert Table of Authorities", "references.tableOfAuthorities", json!({}), false);
+        stack(ui, |ui| {
+            small(
+                ui,
+                app,
+                "tableOfAuthorities",
+                Some("Insert Table of Authorities"),
+                "Insert Table of Authorities",
+                "references.tableOfAuthorities",
+                json!({}),
+                false,
+            );
+            small(ui, app, "update", Some("Update Table"), "Update Table", "references.updateAuthorities", json!({}), false);
+        });
     });
 }
 
