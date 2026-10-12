@@ -30,7 +30,9 @@ fn substitutes(family: &str) -> &'static [&'static str] {
     const MONO: &[&str] = &["Courier New", "Liberation Mono", "Menlo", "Consolas", "DejaVu Sans Mono", "JetBrains Mono"];
     const ARIAL: &[&str] = &["Liberation Sans", "Helvetica", "Helvetica Neue", "Arimo", "Source Sans 3"];
     const TIMES: &[&str] = &["Liberation Serif", "Times", "Tinos", "Source Serif 4"];
-    const SYMBOL: &[&str] = &["Apple Symbols", "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols", "Source Sans 3"];
+    // Word's symbol fonts (Symbol, Wingdings…) are proprietary: their characters are drawn as their
+    // Unicode equivalents (`wordcraft_doc::symbol_fonts`) from these faces or any face that has them.
+    const SYMBOL: &[&str] = &["Apple Symbols", "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Source Sans 3"];
     // Persian / Arabic document fonts. Naskh (book) faces such as B Nazanin, B Lotus, B Zar and
     // Traditional Arabic, then the sans faces (B Yekan, B Titr, IRANSans) people use for
     // headings and screens. Open fonts with full Persian coverage first.
@@ -66,7 +68,7 @@ fn substitutes(family: &str) -> &'static [&'static str] {
         "arial" | "helvetica" | "arial nova" => ARIAL,
         "times new roman" | "times" => TIMES,
         "courier new" | "courier" | "consolas" | "lucida console" | "cascadia code" | "cascadia mono" => MONO,
-        "symbol" | "wingdings" | "segoe ui symbol" | "webdings" => SYMBOL,
+        "symbol" | "wingdings" | "wingdings 2" | "wingdings 3" | "segoe ui symbol" | "webdings" => SYMBOL,
         "cambria"
         | "cambria math"
         | "georgia"
@@ -207,34 +209,6 @@ pub fn resolve(family: &str, bold: bool, italic: bool) -> Resolved {
     r
 }
 
-/// The standard Unicode character for a Symbol or Wingdings character stored the way Word stores
-/// it, as the private-use code U+F000 + the font's own code (U+F0B7 is the Symbol bullet). Used
-/// when that font isn't installed: a substitute draws something else, or nothing, at the
-/// private-use code. `None` for other fonts and for codes not in the table.
-pub fn symbol_font_char(family: &str, c: char) -> Option<char> {
-    let code = u32::from(c).checked_sub(0xF000)?;
-    let u = match (family.to_ascii_lowercase().as_str(), code) {
-        // Adobe Symbol encoding.
-        ("symbol", 0xA7) => '\u{2663}',
-        ("symbol", 0xA8) => '\u{2666}',
-        ("symbol", 0xA9) => '\u{2665}',
-        ("symbol", 0xAA) => '\u{2660}',
-        ("symbol", 0xAE) => '\u{2192}',
-        ("symbol", 0xB7) => '\u{2022}',
-        ("symbol", 0xD7) => '\u{22C5}',
-        ("symbol", 0xE0) => '\u{25CA}',
-        // Wingdings characters common as list bullets.
-        ("wingdings", 0x6C) => '\u{25CF}',
-        ("wingdings", 0x6E) => '\u{25A0}',
-        ("wingdings", 0x76) => '\u{2756}',
-        ("wingdings", 0xA7) => '\u{25AA}',
-        ("wingdings", 0xD8) => '\u{27A2}',
-        ("wingdings", 0xFC) => '\u{2714}',
-        _ => return None,
-    };
-    Some(u)
-}
-
 /// A line's (ascent, descent) from hhea values, both positive: the line gap goes above the ascent.
 fn hhea_line(ascender: i16, descender: i16, line_gap: i16) -> (f64, f64) {
     (f64::from(ascender) + f64::from(line_gap.max(0)), f64::from(descender).abs())
@@ -307,16 +281,10 @@ mod tests {
     }
 
     #[test]
-    fn symbol_font_chars_map_to_unicode() {
-        assert_eq!(symbol_font_char("Symbol", '\u{F0B7}'), Some('\u{2022}'));
-        assert_eq!(symbol_font_char("symbol", '\u{F0B7}'), Some('\u{2022}'));
-        assert_eq!(symbol_font_char("Wingdings", '\u{F0A7}'), Some('\u{25AA}'));
-        assert_eq!(symbol_font_char("Wingdings", '\u{F0D8}'), Some('\u{27A2}'));
-        // Same code, other font; unknown codes; ordinary characters.
-        assert_eq!(symbol_font_char("Arial", '\u{F0B7}'), None);
-        assert_eq!(symbol_font_char("Symbol", '\u{F041}'), None);
-        assert_eq!(symbol_font_char("Symbol", 'a'), None);
-        assert_eq!(symbol_font_char("Symbol", '\u{10FFFF}'), None);
+    fn symbol_fonts_substitute_symbol_faces() {
+        for f in ["Symbol", "Wingdings", "Wingdings 2", "Wingdings 3", "Webdings"] {
+            assert!(substitutes(f).contains(&"Noto Sans Symbols 2"), "{f}");
+        }
     }
 
     #[test]

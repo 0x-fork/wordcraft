@@ -179,6 +179,31 @@ fn hyperlink_runs_and_wrappers() {
 }
 
 #[test]
+fn symbol_font_text_reads_as_unicode_and_round_trips_unchanged() {
+    // Wingdings stored both ways Word writes it: `w:sym` (private-use code) and a plain code in a
+    // run whose font is Wingdings; plus Symbol and Webdings.
+    let body = r#"
+<w:p>
+ <w:r><w:t xml:space="preserve">Done </w:t></w:r>
+ <w:r><w:sym w:font="Wingdings" w:char="F0FC"/></w:r>
+ <w:r><w:rPr><w:rFonts w:ascii="Wingdings" w:hAnsi="Wingdings"/></w:rPr><w:t>J</w:t></w:r>
+ <w:r><w:sym w:font="Symbol" w:char="F061"/><w:sym w:font="Webdings" w:char="F061"/></w:r>
+</w:p>"#;
+    let d = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = paras(&d);
+    // Stored as Word stores it…
+    assert_eq!(p[0].plain_text(), "Done \u{F0FC}J\u{F061}\u{F061}");
+    // …read (copied, exported as text) as the symbols shown.
+    assert_eq!(p[0].shown_text(), "Done \u{2713}\u{263A}\u{3B1}\u{2714}");
+    assert_eq!(d.shown_text(wordcraft_doc::StoryRef::Body), "Done \u{2713}\u{263A}\u{3B1}\u{2714}");
+    // A round trip keeps the original characters and fonts.
+    let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    let q = paras(&again);
+    assert_eq!(q[0].plain_text(), p[0].plain_text());
+    assert_eq!(q[0].shown_text(), p[0].shown_text());
+}
+
+#[test]
 fn alternate_content_choice_and_fallback() {
     let body = r#"
 <w:p><w:r><mc:AlternateContent>

@@ -559,11 +559,40 @@ fn symbol_font_bullet_without_the_font_draws_a_bullet() {
     d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
     let l = lay(&d);
     let label = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { para.label.clone() } else { None }).unwrap();
-    // Where a real Symbol font with the private-use code is installed (Windows), the code stays.
-    let symbol = wordcraft_fonts::word::resolve("Symbol", false, false);
-    let expected = if symbol.substituted || !symbol.face.covers('\u{F0B7}') { "\u{2022}" } else { "\u{F0B7}" };
-    assert_eq!(label.text, expected);
+    // The label reads as the Unicode bullet (drawn from a real Symbol font where one is installed).
+    assert_eq!(label.text, "\u{2022}");
     assert_eq!(label.glyphs.len(), 1);
+}
+
+#[test]
+fn wingdings_text_draws_and_reads_as_its_unicode_symbols() {
+    // Word stores symbol-font text both ways: plain codes ("J" = smiley) and private-use codes
+    // (U+F0FC = check mark, what `w:sym` writes).
+    let mut d = Document::from_text("Hi J\u{F0FC} ok");
+    d.format_range(&Pos::body(0, 3), &Pos::body(0, 7), &|c| c.font = Some("Wingdings".into())).unwrap();
+    let l = lay(&d);
+    let items = display::page_display(&d, &l.pages[0], &display::DisplayOptions::default());
+    let text: String = items.iter().filter_map(|i| if let display::Draw::Glyphs { text, .. } = i { Some(text.as_str()) } else { None }).collect();
+    assert_eq!(text, "Hi \u{263A}\u{2713} ok");
+    // The stored text is unchanged.
+    assert_eq!(d.plain_text(StoryRef::Body), "Hi J\u{F0FC} ok");
+    // Without Wingdings, each symbol is drawn from a face that has its Unicode character (never
+    // the substitute's "J" or a missing glyph).
+    if wordcraft_fonts::word::resolve("Wingdings", false, false).substituted {
+        for want in ['\u{263A}', '\u{2713}'] {
+            let run = items.iter().find_map(|i| match i {
+                display::Draw::Glyphs { face, glyphs, text, .. } if text.contains(want) => Some((*face, glyphs.clone())),
+                _ => None,
+            });
+            let Some((face, glyphs)) = run else { panic!("no run for {want}") };
+            if face.covers(want) {
+                assert!(glyphs.iter().any(|g| g.0 == face.glyph_for(want)), "{want}");
+            } else {
+                // No installed face has it (a bare CI machine): never the letter J's glyph.
+                assert!(!glyphs.iter().any(|g| g.0 != 0 && g.0 == face.glyph_for('J')), "{want}");
+            }
+        }
+    }
 }
 
 #[test]

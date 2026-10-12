@@ -38,6 +38,7 @@ pub mod resolve;
 pub mod section;
 pub mod smart_art;
 pub mod styles;
+pub mod symbol_fonts;
 pub mod table;
 pub mod wordart;
 pub mod wrap;
@@ -801,9 +802,19 @@ impl Document {
 
     /// The whole text of a story, paragraphs separated by `\n` (tables: cells by `\t`).
     pub fn plain_text(&self, s: StoryRef) -> String {
+        self.story_text(s, false)
+    }
+
+    /// [`Self::plain_text`] as it reads on screen: symbol-font characters (Wingdings…) as their
+    /// Unicode equivalents ([`Paragraph::shown_text`]).
+    pub fn shown_text(&self, s: StoryRef) -> String {
+        self.story_text(s, true)
+    }
+
+    fn story_text(&self, s: StoryRef, shown: bool) -> String {
         let mut out = String::new();
         if let Some(bl) = self.story(s) {
-            text_of(bl, &mut out, 0);
+            text_of(bl, &mut out, 0, shown);
         }
         if out.ends_with('\n') {
             out.pop();
@@ -1276,14 +1287,14 @@ fn walk(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, depth: usize) {
     }
 }
 
-fn text_of(bl: &Blocks, out: &mut String, depth: usize) {
+fn text_of(bl: &Blocks, out: &mut String, depth: usize, shown: bool) {
     if depth > 16 {
         return;
     }
     for b in bl {
         match &**b {
             Block::Para(p) => {
-                out.push_str(&p.plain_text());
+                out.push_str(&if shown { p.shown_text() } else { p.plain_text() });
                 out.push('\n');
             }
             Block::Table(t) => {
@@ -1291,7 +1302,7 @@ fn text_of(bl: &Blocks, out: &mut String, depth: usize) {
                     let mut cells = Vec::new();
                     for c in &row.cells {
                         let mut s = String::new();
-                        text_of(&c.blocks, &mut s, depth + 1);
+                        text_of(&c.blocks, &mut s, depth + 1, shown);
                         cells.push(s.trim_end_matches('\n').replace('\n', " "));
                     }
                     out.push_str(&cells.join("\t"));

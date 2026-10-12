@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** trivial (Insert › Picture takes WMF and EMF, #802; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** trivial (symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -165,6 +165,7 @@ raise readiness estimates. No Word-derived files are fixtures.
 |---|---|---|
 | 2026-10-12 | trivial | Paste keeps the formatting of HTML and RTF on the system clipboard; Paste Special lists them and pictures (#687, #833) |
 | 2026-10-12 | trivial | ODT page size, orientation and margins read back from `styles.xml` on open, so they survive a save and reopen (#810) |
+| 2026-10-12 | trivial | `w:sym` and symbol-font runs keep their stored characters on save; TXT export and copy write their Unicode equivalents (#776) |
 | 2026-10-12 | trivial | Insert › Picture, drag-and-drop and paste take Windows Metafiles and Enhanced Metafiles (#802); new row for picture formats |
 | 2026-10-11 | trivial | Independent complex-script size, bold and italic inherit correctly through defaults and styles; explicit equal values survive; six synthetic multi-generation round-trip tests, including tracked formatting, added |
 | 2026-10-11 | minor | Opening files from the system: file associations and the default-app button (#295) |

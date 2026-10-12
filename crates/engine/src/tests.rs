@@ -813,6 +813,22 @@ fn clipboard_round_trip() {
     assert_eq!(text(&s), "plain\ntext");
 }
 
+#[test]
+fn copying_symbol_font_text_puts_the_unicode_symbols_on_the_clipboard() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "ok J\u{F0FC}"}));
+    s.doc.format_range(&Pos::body(0, 3), &Pos::body(0, 7), &|c| c.font = Some("Wingdings".into())).unwrap();
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "edit.copy", json!({}));
+    assert_eq!(s.clipboard_text, "ok \u{263A}\u{2713}");
+    // Pasting our own copy back (the system clipboard holds the mapped text) keeps the stored
+    // Wingdings characters, not the Unicode ones.
+    run(&mut s, "caret.docEnd", json!({}));
+    let clip = s.clipboard_text.clone();
+    run(&mut s, "edit.paste", json!({"text": clip}));
+    assert_eq!(text(&s), "ok J\u{F0FC}ok J\u{F0FC}");
+}
+
 fn bold_at(s: &Session, block: usize, off: usize) -> bool {
     let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(block), off };
     s.doc.para_at(&pos).and_then(|p| p.props_of_char(off).bold).unwrap_or(false)

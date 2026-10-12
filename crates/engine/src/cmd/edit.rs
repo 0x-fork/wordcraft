@@ -159,7 +159,7 @@ fn copy(s: &mut Session, _: &Value) -> CmdResult {
         return Ok(json!({"text": ""}));
     }
     let f = s.doc.copy_range(&a, &b);
-    s.clipboard_text = f.plain_text();
+    s.clipboard_text = f.clipboard_text();
     s.clip_history.push(&f, &s.clipboard_text);
     s.clipboard = Some(f);
     Ok(json!({"text": s.clipboard_text}))

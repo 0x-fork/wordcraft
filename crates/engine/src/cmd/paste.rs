@@ -66,7 +66,7 @@ fn source(s: &Session, v: &Value, fmt: &str) -> Option<String> {
             let f = s.clipboard.as_ref()?;
             // System clipboard text that isn't our own copy means someone else copied since.
             match p::str(v, "text") {
-                Some(t) if f.plain_text() != t.replace("\r\n", "\n") => None,
+                Some(t) if f.clipboard_text() != t.replace("\r\n", "\n") => None,
                 _ => Some(String::new()),
             }
         }
@@ -194,7 +194,7 @@ pub fn rich_fragment(s: &mut Session, v: &Value) -> Option<Fragment> {
 pub fn paste_fragment(s: &mut Session, v: &Value) -> Result<Fragment, CmdError> {
     let text = p::str(v, "text").map(|t| t.replace("\r\n", "\n"));
     if let Some(f) = &s.clipboard
-        && text.as_ref().is_none_or(|t| f.plain_text() == *t)
+        && text.as_ref().is_none_or(|t| f.clipboard_text() == *t)
         && (text.is_some() || (p::str(v, "html").is_none() && p::str(v, "rtf").is_none()))
     {
         return Ok(f.clone());
