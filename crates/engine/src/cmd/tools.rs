@@ -60,6 +60,11 @@ pub const AUTOCORRECT: &[(&str, &str)] = &[
     ("3/4", "¾"),
 ];
 
+/// A built-in entry that is an English word (letters and apostrophes only), not a symbol.
+fn is_english_entry(from: &str) -> bool {
+    from.chars().any(char::is_alphabetic) && from.chars().all(|c| c.is_alphabetic() || c == '\'')
+}
+
 /// Compare and Combine take the same settings.
 const COMPARE_PARAMS: &str = r#"{"path"?: string (revised document), "text"?: string (revised text), "original"?: string (original document; default: this one), "author"?: string (label changes with), "caseChanges"?: bool, "whiteSpace"?: bool, "formatting"?: bool (default true: differences count), "level"?: "word|character", "showIn"?: "original|revised|new" (revised/new: an untitled document), "moves"|"comments"|"tables"|"headersFooters"|"footnotes"|"textBoxes"|"fields"?: bool (accepted; not honoured yet except tables, always compared)}"#;
 
@@ -162,14 +167,23 @@ impl AutoCorrectPrefs {
         self
     }
 
-    /// The replacement for `word`, if any: the user's entry, else a built-in one not deleted.
-    /// Built-in lowercase entries also match a capitalised word ("Teh" → "The").
+    /// The replacement for `word` in English text, if any: the user's entry, else a built-in
+    /// one not deleted. Built-in lowercase entries also match a capitalised word ("Teh" → "The").
     pub fn replacement(&self, word: &str) -> Option<String> {
+        self.replacement_in(word, true)
+    }
+
+    /// The replacement for `word` in text that is (`english`) or isn't English: the built-in
+    /// English words ("teh", "i", "dont") apply only to English text, as Word keeps a list per
+    /// language (#835: Polish "i" means "and"); symbols, fractions and the user's entries apply
+    /// whatever the language.
+    pub fn replacement_in(&self, word: &str, english: bool) -> Option<String> {
         if let Some((_, b)) = self.entries.iter().find(|(a, _)| a == word) {
             return Some(b.clone());
         }
         AUTOCORRECT
             .iter()
+            .filter(|(a, _)| english || !is_english_entry(a))
             .filter(|(a, _)| !self.removed.iter().any(|r| r == a) && !self.entries.iter().any(|(e, _)| e == a))
             .filter(|(a, _)| self.fractions || !FRACTIONS.contains(a))
             .find(|(a, _)| {
@@ -779,7 +793,15 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
         word = format!("{}{fixed}{}", word.get(..at).unwrap_or(""), word.get(at + letters.len()..).unwrap_or(""));
     }
     // A whole-word replacement, else "wait..." → "wait…".
-    let found = if ac.replace_text { ac.replacement(&word) } else { None };
+    // The word's language (run, paragraph style, document default) picks the list (#835).
+    // Text with no language at all is in the editing language (a Polish interface writes Polish),
+    // else English. Proofing decides what is English the same way.
+    let english = s.doc.para_at(&f).is_none_or(|p| {
+        let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(start));
+        let lang = rc.lang.as_deref().or(s.editing_lang.as_deref());
+        wordcraft_proof::ProofLang::from_tag(lang) == wordcraft_proof::ProofLang::En
+    });
+    let found = if ac.replace_text { ac.replacement_in(&word, english) } else { None };
     let (from, rep) = match found {
         Some(r) => (start, Some(r)),
         None if ac.replace_text && word.len() > 3 && word.ends_with("...") => (start + word.len() - 3, Some("…".to_string())),

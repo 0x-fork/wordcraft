@@ -188,6 +188,48 @@ fn autocorrect_as_you_type() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "½ cup. iPhone. See readme.txt ");
 }
 
+/// #835: the English replacement list applies only to English text. Polish "i" ("and") stays
+/// lowercase; symbols still change; English and untagged text still get "I".
+#[test]
+fn autocorrect_replacement_list_follows_the_texts_language() {
+    // Polish as the document's default language.
+    let mut s = s();
+    run(&mut s, "review.language", json!({"lang": "pl-PL", "default": true}));
+    typ(&mut s, "Ala i kot. kawa i herbata teh (c) ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Ala i kot. Kawa i herbata teh © ");
+    // Polish on the run only: the word's own language counts.
+    let mut s = self::s();
+    typ(&mut s, "Ala");
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "pl-PL"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    typ(&mut s, " i kot ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Ala i kot ");
+    // English (any region) and untagged text (the default proofing language is English).
+    let mut s = self::s();
+    run(&mut s, "review.language", json!({"lang": "en-GB", "default": true}));
+    typ(&mut s, "so i think teh end ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So I think the end ");
+    let s = typed("so i think teh end ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So I think the end ");
+    // A Polish interface: a new document is Polish by its default language, and text with no
+    // language at all (a .docx without `w:lang`) follows the editing language too.
+    let mut s = self::s();
+    s.set_editing_language(Some("pl-PL"));
+    typ(&mut s, "Ala i kot ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Ala i kot ", "document default from the editing language");
+    let mut s = self::s();
+    s.set_editing_language(Some("pl-PL"));
+    s.doc.styles.default_chr.lang = None;
+    typ(&mut s, "Ala i kot ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Ala i kot ", "untagged text in the editing language");
+    // `eng` is English too, as for proofing.
+    let mut s = self::s();
+    run(&mut s, "review.language", json!({"lang": "eng", "default": true}));
+    typ(&mut s, "so i think ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So I think ");
+}
+
 #[test]
 fn autocorrect_options_change_what_typing_does() {
     let mut s = s();
