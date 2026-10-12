@@ -2039,6 +2039,8 @@ preview	Title	Örnek
 	Border lines	Kenarlık çizgileri
 	Capitalize first letter of sentences	Cümlelerin ilk harfini büyük yap
 	Capitalize first letter of table cells	Tablo hücrelerinin ilk harfini büyük yap
+	Correct TWo INitial CApitals	İKi BAşharfi büyük olan sözcükleri düzelt
+	Correct accidental usage of cAPS LOCK key	cAPS LOCK tuşunun yanlışlıkla kullanımını düzelt
 	Capitalize names of days	Gün adlarını büyük harfle başlat
 	Case changes	Büyük/küçük harf değişiklikleri
 	Character level	Karakter düzeyi

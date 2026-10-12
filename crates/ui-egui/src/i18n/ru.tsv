@@ -2037,6 +2037,8 @@ preview	Title	Пример
 	Border lines	Линии границ
 	Capitalize first letter of sentences	Делать первые буквы предложений прописными
 	Capitalize first letter of table cells	Делать первые буквы ячеек таблиц прописными
+	Correct TWo INitial CApitals	Исправлять ДВе ПРописные буквы в начале слова
+	Correct accidental usage of cAPS LOCK key	Устранять последствия случайного нажатия cAPS LOCK
 	Capitalize names of days	Названия дней с прописной буквы
 	Case changes	Изменения регистра
 	Character level	На уровне символов

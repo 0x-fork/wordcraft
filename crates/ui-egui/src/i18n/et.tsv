@@ -1447,6 +1447,8 @@
 	Border lines	Äärisjooned
 	Capitalize first letter of sentences	Lausete esitäht suureks
 	Capitalize first letter of table cells	Tabelilahtrite esitäht suureks
+	Correct TWo INitial CApitals	Paranda KAks SUurt algustähte
+	Correct accidental usage of cAPS LOCK key	Paranda kogemata sisse jäänud cAPS LOCK
 	Capitalize names of days	Nädalapäevade nimed suure algustähega
 	Case changes	Tähesuuruse muutused
 	Character level	Märgi tasandil

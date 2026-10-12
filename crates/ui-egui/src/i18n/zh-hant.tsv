@@ -1429,6 +1429,8 @@
 	Border lines	框線
 	Capitalize first letter of sentences	句首字母大寫
 	Capitalize first letter of table cells	表格儲存格首字母大寫
+	Correct TWo INitial CApitals	更正前兩個字母連續大寫
+	Correct accidental usage of cAPS LOCK key	更正意外使用 Caps Lock 鍵造成的大小寫錯誤
 	Capitalize names of days	星期名稱首字母大寫
 	Case changes	大小寫變更
 	Character level	字元層級

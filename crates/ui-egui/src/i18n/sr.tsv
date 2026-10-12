@@ -1442,6 +1442,8 @@
 	Border lines	Линије ивица
 	Capitalize first letter of sentences	Велико прво слово реченице
 	Capitalize first letter of table cells	Велико прво слово у ћелијама табеле
+	Correct TWo INitial CApitals	Исправи ДВа ПОчетна велика слова
+	Correct accidental usage of cAPS LOCK key	Исправи случајно укључен cAPS LOCK
 	Capitalize names of days	Велико слово у називима дана
 	Case changes	Промене величине слова
 	Character level	Ниво знака

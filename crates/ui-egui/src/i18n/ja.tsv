@@ -1428,6 +1428,8 @@
 	Border lines	罫線
 	Capitalize first letter of sentences	文の先頭文字を大文字にする
 	Capitalize first letter of table cells	表のセルの先頭文字を大文字にする
+	Correct TWo INitial CApitals	先頭 2 文字の大文字を修正する
+	Correct accidental usage of cAPS LOCK key	Caps Lock キーの押し間違いを修正する
 	Capitalize names of days	曜日の先頭文字を大文字にする
 	Case changes	大文字/小文字の変更
 	Character level	文字単位

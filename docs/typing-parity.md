@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** minor (right-to-left letters typed into an empty paragraph make it right-to-left, #713; previously minor: editing options: typing replaces selection, overtype, #485; previously minor: Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-12 · **Change:** minor (Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -63,6 +63,18 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
   after abbreviations (`e.g.`, `Dr.`, …) or initials (`J.`), and not for mixed-case words
   (`iPhone`) or single-letter labels (`a.`). `teh`→`the`, `i`→`I`, `(c)`→`©`, `(tm)`→`™`,
   `wait...`→`wait…`, smart quotes (`autocorrect_as_you_type`).
+- Correct TWo INitial CApitals: a finished word of three or more letters with two capitals and
+  the rest lowercase loses its second capital (`WOrd`→`Word`, `TEh`→`The`); not the exceptions
+  (`IDs`, `CDs`, `PCs`, `TVs`, … plus the user's, `tools.autocorrect {"addInitialCapsException"}`)
+  (`two_initial_capitals_are_corrected`).
+- Correct accidental usage of cAPS LOCK: `wORD`→`Word` (three or more letters; not `iOS`,
+  `mRNA`, …). Word also switches Caps Lock off; we only correct the word
+  (`accidental_caps_lock_is_corrected`).
+- Capitalize first letter of table cells: the first word typed in a cell is capitalised like a
+  sentence start, under its own option (`first_letter_of_a_table_cell_is_capitalised`).
+- Each fix is one undo step right after it, and each has its own switch (`twoInitialCaps`,
+  `capsLock`, `capCells` on `tools.autocorrect`; on by default)
+  (`capitalisation_fixes_undo_and_turn_off`).
 - `1/2 1/4 3/4` → `½ ¼ ¾`; `1st 22nd 13th` get superscript suffixes (`ordinals_become_superscript`).
 - `word -- word` → en dash, `word - word` → en dash, `word--word` → em dash (`dashes`).
 - Web addresses become links; following text isn't linked (`web_addresses_become_links`).
@@ -128,7 +140,9 @@ Word.
 - Moving paragraphs with Track Changes on isn't recorded as a tracked move; whole table rows
   don't move yet (a selection across cells is refused). Go Back's places aren't mapped through
   later edits (they are clamped to the document).
-- Not yet compared: Correct TWo INitial CApitals; the rows marked ¹ above.
+- Not yet compared: keystroke-by-keystroke comparison of Correct TWo INitial CApitals, cAPS LOCK
+  and table-cell capitals (implemented from Word's AutoCorrect options; Word's exception list
+  not compared); the rows marked ¹ above.
 
 ## How to compare
 
@@ -144,6 +158,7 @@ Word.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | minor | AutoCorrect: Correct TWo INitial CApitals, accidental cAPS LOCK, capitalize first letter of table cells (#544) |
 | 2026-10-11 | minor | Text direction: right-to-left letters typed into an empty paragraph make it right-to-left; existing paragraphs keep theirs (#713) |
 | 2026-10-11 | trivial | Grammar proofing (not AutoCorrect) no longer suggests capitalising a sentence after `...` or `…` (`proof::tests::ellipses_do_not_start_sentences`) |
 | 2026-10-11 | minor | AutoFormat tables from `+---+`, arrow bullets, smileys inside words, undo after a border line (#546) |

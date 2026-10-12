@@ -1440,6 +1440,8 @@
 	Border lines	Лінії меж
 	Capitalize first letter of sentences	Перша літера речення велика
 	Capitalize first letter of table cells	Перша літера в клітинках таблиці велика
+	Correct TWo INitial CApitals	Виправляти ДВі ВЕликі літери на початку слова
+	Correct accidental usage of cAPS LOCK key	Виправляти випадкове натискання cAPS LOCK
 	Capitalize names of days	Назви днів із великої літери
 	Case changes	Зміни регістру
 	Character level	Рівень символів
