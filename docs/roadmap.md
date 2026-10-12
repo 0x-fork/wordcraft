@@ -14,8 +14,9 @@ Opus 5.5 agent wall-clock.
 2. **DOCX real-world corpus** (gap #1, 30–50 h): collect openly licensed real-world .docx files,
    open/render/round-trip them, compare with Word locally, fix what breaks. Omitted/empty
    paragraph defaults now have synthetic save/reopen coverage; the corpus gate remains open.
-3. **Preserve what we can't render** (gap #2, 10–15 h): charts, SmartArt, OLE, ink, group shapes
-   survive a round trip and show their fallback pictures.
+3. **Preserve what we can't render** (gap #2, 10–15 h): remaining native ink forms and unsupported
+   graphics survive a round trip. Drawing-level native ink now keeps its InkML and optional picture
+   fallback alongside chart, SmartArt, OLE and drawing-canvas support.
 4. **Stability sweep** (gap #3, 20–30 h): the open crash, hang and write-failure issues, plus an
    autosave/recovery soak test.
 5. **Pagination fidelity** (gap #4, 30–50 h): column balancing, footnote continuation, compat
@@ -75,6 +76,7 @@ languages, screen-reader access, ecosystem decisions (VBA, add-ins, cloud), an i
 | 2026-10-11 | trivial | M15: Polish interface and Polish proofing landed |
 | 2026-10-11 | trivial | M3: icons landed (#309) |
 | 2026-10-11 | trivial | M11: contour (Tight/Through) wrap done (#354) |
+| 2026-10-11 | minor | Native drawing-level ink and its picture fallback survive DOCX edits and repeated saves; rendering and editing InkML remain missing |
 | 2026-10-11 | trivial | M6: the eight missing bibliography styles landed (#383) |
 | 2026-10-11 | trivial | M7: formatting revisions landed (#41) |
 | 2026-10-11 | trivial | Omitted `w:pPrDefault` stays omitted across saves; explicit empty/default properties and later spacing edits remain writable. Synthetic preservation checks only; readiness estimates unchanged |
