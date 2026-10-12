@@ -33,11 +33,12 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("edit.cut", "Cut", "Home › Clipboard", cut).key("Mod+X").when(has_sel),
         CommandSpec::new("edit.copy", "Copy", "Home › Clipboard", copy).key("Mod+C").pure(),
-        CommandSpec::new("edit.paste", "Paste", "Home › Clipboard", paste).key("Mod+V").params(r#"{"text"?: string}"#),
+        CommandSpec::new("edit.paste", "Paste", "Home › Clipboard", paste).key("Mod+V").params(r#"{"text"?: string, "html"?: string, "rtf"?: string}"#),
         CommandSpec::new("edit.pasteText", "Paste: Keep Text Only", "Home › Clipboard › Paste", paste_text)
             .params(r#"{"text"?: string}"#)
             .key("Mod+Shift+Alt+V"),
-        CommandSpec::new("edit.pasteMerge", "Paste: Merge Formatting", "Home › Clipboard › Paste", paste_text).params(r#"{"text"?: string}"#),
+        CommandSpec::new("edit.pasteMerge", "Paste: Merge Formatting", "Home › Clipboard › Paste", paste_merge)
+            .params(r#"{"text"?: string, "html"?: string, "rtf"?: string}"#),
         CommandSpec::new("edit.clipboardPane", "Clipboard Pane", "Home › Clipboard", |s, v| {
             let on = p::bool(v, "value").unwrap_or(!s.view.clipboard_pane);
             s.view.clipboard_pane = on;
@@ -133,14 +134,18 @@ fn cut(s: &mut Session, v: &Value) -> CmdResult {
     Ok(r)
 }
 
+/// Paste keeps the source formatting: our own copy while the system clipboard still holds it,
+/// else another program's HTML or RTF (#687), else the system clipboard's text.
 fn paste(s: &mut Session, v: &Value) -> CmdResult {
-    // An explicit text param (from the system clipboard) wins unless it matches our own copy.
-    let frag = match (p::str(v, "text"), &s.clipboard) {
-        (Some(t), Some(f)) if f.plain_text() == t.replace("\r\n", "\n") => f.clone(),
-        (Some(t), _) => Fragment::from_text(&t.replace("\r\n", "\n")),
-        (None, Some(f)) => f.clone(),
-        (None, None) => return Err(CmdError::Failed("the clipboard is empty".into())),
-    };
+    let frag = super::paste::paste_fragment(s, v)?;
+    super::paste::insert(s, frag)?;
+    sel_result(s)
+}
+
+/// Merge Formatting: the pasted text takes the destination's formatting, keeping its emphasis.
+fn paste_merge(s: &mut Session, v: &Value) -> CmdResult {
+    let mut frag = super::paste::paste_fragment(s, v)?;
+    super::paste::merge_formatting(s, &mut frag);
     super::paste::insert(s, frag)?;
     sel_result(s)
 }
@@ -284,6 +289,9 @@ fn paste_text(s: &mut Session, v: &Value) -> CmdResult {
         Some(t) => t.to_string(),
         None => s.clipboard.as_ref().map(Fragment::plain_text).unwrap_or_default(),
     };
+    if text.is_empty() {
+        return Err(CmdError::Failed("the clipboard is empty".into()));
+    }
     super::paste_text(s, &text.replace("\r\n", "\r").replace('\n', "\r"))?;
     sel_result(s)
 }

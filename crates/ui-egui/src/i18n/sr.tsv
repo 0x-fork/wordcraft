@@ -1143,6 +1143,8 @@
 	Keeps the fonts and formatting of the copied text.	Задржава фонтове и форматирање копираног текста.
 	Reads the clipboard's rich text and keeps its formatting.	Чита обогаћени текст (RTF) из оставе и задржава његово форматирање.
 	Reads the clipboard's web content and keeps its formatting.	Чита веб садржај из оставе и задржава његово форматирање.
+	Picture	Слика
+	Pastes the clipboard's picture.	Лепи слику из оставе.
 	Drops all formatting and pastes plain text.	Уклања све форматирање и лепи обичан текст.
 	Advanced Find	Напредна претрага
 	Advanced Find…	Напредна претрага…

@@ -1085,6 +1085,8 @@
 	Keeps the fonts and formatting of the copied text.	Mantém as fontes e a formatação do texto copiado.
 	Reads the clipboard's rich text and keeps its formatting.	Lê o rich text da área de transferência e mantém a formatação.
 	Reads the clipboard's web content and keeps its formatting.	Lê o conteúdo web da área de transferência e mantém a formatação.
+	Picture	Imagem
+	Pastes the clipboard's picture.	Cola a imagem da área de transferência.
 	Drops all formatting and pastes plain text.	Remove toda a formatação e cola texto simples.
 	Advanced Find	Localização avançada
 	Advanced Find…	Localização avançada…

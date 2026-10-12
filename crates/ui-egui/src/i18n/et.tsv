@@ -595,6 +595,8 @@
 	Read\nMode	Lugemis-\nrežiim
 	Reads the clipboard's rich text and keeps its formatting.	Loeb lõikelaualt vormindatud teksti ja säilitab vorminduse.
 	Reads the clipboard's web content and keeps its formatting.	Loeb lõikelaualt veebisisu ja säilitab vorminduse.
+	Picture	Pilt
+	Pastes the clipboard's picture.	Kleebib lõikelaual oleva pildi.
 	Reading Highlight	Otsingutulemuste esiletõst
 	Recent	Hiljutised
 	Recent documents to show:	Kuvatavad hiljutised dokumendid:

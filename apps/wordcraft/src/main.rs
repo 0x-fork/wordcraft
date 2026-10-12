@@ -12,6 +12,7 @@
 mod animations;
 #[cfg(target_os = "macos")]
 mod apple_events;
+mod clipboard;
 mod control_server;
 mod default_apps;
 mod file_dialogs;
@@ -23,7 +24,6 @@ mod print;
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
     Services, UiState, WordApp,
-    paste_picture::ClipboardPicture,
     window_geometry::{WindowGeometry, take_rescue},
 };
 
@@ -192,32 +192,22 @@ fn save_prefs(app: &WordApp) {
 }
 
 /// Native file dialogs, shown without blocking the window (`file_dialogs`, #94), File › Print
-/// through the system's PDF viewer (`print`, #15), pictures on the system clipboard (#45), the
-/// system's animation setting (`animations`), and making WordCraft the default app for Word
-/// documents (`default_apps`, #295).
+/// through the system's PDF viewer (`print`, #15), the system clipboard's text, formatted copies,
+/// pictures and format names (`clipboard`, #45, #584, #687, #833), the system's animation setting
+/// (`animations`), and making WordCraft the default app for Word documents (`default_apps`, #295).
 fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
     Services {
         file_dialog: Some(file_dialog),
         print: Some(print::hook()),
-        clipboard_picture: Some(Box::new(clipboard_picture)),
+        clipboard_picture: Some(Box::new(clipboard::picture)),
         make_default_app: default_apps::hook(),
         animations_enabled: Some(animations::hook(ctx)),
-        clipboard_text: Some(Box::new(|| arboard::Clipboard::new().ok()?.get_text().ok())),
+        clipboard_text: Some(Box::new(clipboard::text)),
+        clipboard_html: Some(Box::new(clipboard::html)),
+        clipboard_rtf: Some(Box::new(clipboard::rtf)),
+        clipboard_formats: Some(Box::new(clipboard::formats)),
         ..Default::default()
     }
-}
-
-/// The picture on the system clipboard (#45): copied files, else image pixels. The UI checks the
-/// sizes before inserting anything.
-fn clipboard_picture() -> Option<ClipboardPicture> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| log::warn!("clipboard: {e}")).ok()?;
-    if let Ok(files) = clipboard.get().file_list()
-        && !files.is_empty()
-    {
-        return Some(ClipboardPicture::Files(files));
-    }
-    let image = clipboard.get_image().ok()?;
-    Some(ClipboardPicture::Pixels { width: image.width, height: image.height, rgba: image.bytes.into_owned() })
 }
 
 /// Window, Dock and taskbar icon.

@@ -1073,6 +1073,8 @@
 	Keeps the fonts and formatting of the copied text.	コピーしたテキストのフォントと書式を保持します。
 	Reads the clipboard's rich text and keeps its formatting.	クリップボードの RTF を読み込み、書式を保持します。
 	Reads the clipboard's web content and keeps its formatting.	クリップボードの Web コンテンツを読み込み、書式を保持します。
+	Picture	画像
+	Pastes the clipboard's picture.	クリップボードの画像を貼り付けます。
 	Drops all formatting and pastes plain text.	書式をすべて取り除き、プレーン テキストとして貼り付けます。
 	Advanced Find	高度な検索
 	Advanced Find…	高度な検索…

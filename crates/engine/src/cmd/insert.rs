@@ -183,7 +183,7 @@ pub fn base64_encode(b: &[u8]) -> String {
     out
 }
 
-fn picture(s: &mut Session, v: &Value) -> CmdResult {
+pub(crate) fn picture(s: &mut Session, v: &Value) -> CmdResult {
     let bytes = if let Some(d) = p::str(v, "data") {
         base64_decode(d).ok_or_else(|| CmdError::Params("bad base64 data".into()))?
     } else if let Some(path) = p::str(v, "path") {

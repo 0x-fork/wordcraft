@@ -1003,6 +1003,8 @@
 	Keeps the fonts and formatting of the copied text.	Behält die Schriftarten und Formatierung des kopierten Textes bei.
 	Reads the clipboard's rich text and keeps its formatting.	Liest den Rich Text der Zwischenablage und behält dessen Formatierung bei.
 	Reads the clipboard's web content and keeps its formatting.	Liest den Webinhalt der Zwischenablage und behält dessen Formatierung bei.
+	Picture	Bild
+	Pastes the clipboard's picture.	Fügt das Bild aus der Zwischenablage ein.
 	Drops all formatting and pastes plain text.	Verwirft jegliche Formatierung und fügt reinen Text ein.
 	Advanced Find	Erweiterte Suche
 	Advanced Find…	Erweiterte Suche…

@@ -557,6 +557,11 @@
 	Read Mode	Okuma Modu
 	Read\nAloud	Sesli\nOku
 	Read\nMode	Okuma\nModu
+	Reads the clipboard's rich text and keeps its formatting.	Panodaki zengin metni okur ve biçimlendirmesini korur.
+	Reads the clipboard's web content and keeps its formatting.	Panodaki web içeriğini okur ve biçimlendirmesini korur.
+	Picture	Resim
+	Pastes the clipboard's picture.	Panodaki resmi yapıştırır.
+	Reading Highlight	Okuma Vurgusu
 	Recent	Son Kullanılanlar
 	Record Macro	Makro Kaydet
 	Recover Unsaved Documents	Kaydedilmemiş Belgeleri Kurtar
@@ -963,13 +968,10 @@ preview	Title	Örnek
 	HTML Format	HTML Biçimi
 	Unformatted Text	Biçimlendirilmemiş Metin
 	Result	Sonuç
-	Reads the clipboard's rich text and keeps its formatting.	Panodaki zengin metni okur ve biçimlendirmesini korur.
-	Reads the clipboard's web content and keeps its formatting.	Panodaki web içeriğini okur ve biçimlendirmesini korur.
 	Drops all formatting and pastes plain text.	Tüm biçimlendirmeyi kaldırır ve düz metin yapıştırır.
 	Advanced Find	Gelişmiş Bul
 	Advanced Find…	Gelişmiş Bul…
 	Go To…	Git…
-	Reading Highlight	Okuma Vurgusu
 	New Table Style	Yeni Tablo Stili
 	Modify Table Style	Tablo Stilini Değiştir
 	New Table Style…	Yeni Tablo Stili…

@@ -705,6 +705,8 @@
 	Read\nMode	Режим\nчитання
 	Reads the clipboard's rich text and keeps its formatting.	Читає форматований текст (RTF) із буфера обміну та зберігає його форматування.
 	Reads the clipboard's web content and keeps its formatting.	Читає вебвміст із буфера обміну та зберігає його форматування.
+	Picture	Зображення
+	Pastes the clipboard's picture.	Вставляє зображення з буфера обміну.
 	Reading Highlight	Виділення під час читання
 	Recent	Останні
 	Record Macro	Записати макрос

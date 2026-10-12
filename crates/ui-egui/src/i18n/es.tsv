@@ -712,6 +712,8 @@
 	Read\nMode	Modo\nlectura
 	Reads the clipboard's rich text and keeps its formatting.	Lee el texto enriquecido del portapapeles y conserva su formato.
 	Reads the clipboard's web content and keeps its formatting.	Lee el contenido web del portapapeles y conserva su formato.
+	Picture	Imagen
+	Pastes the clipboard's picture.	Pega la imagen del portapapeles.
 	Reading Highlight	Resaltado de lectura
 	Recent	Recientes
 	Record Macro	Grabar macro

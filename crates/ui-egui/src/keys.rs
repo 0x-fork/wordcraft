@@ -170,6 +170,11 @@ fn is_paste_release(key: Key, modifiers: egui::Modifiers) -> bool {
     (modifiers.command || key == Key::Paste) && !modifiers.alt && !modifiers.shift
 }
 
+/// Whether releasing `key` with `modifiers` is Mod+Alt+V (Paste Special).
+fn is_paste_special_release(key: Key, modifiers: egui::Modifiers) -> bool {
+    key == Key::V && modifiers.command && modifiers.alt && !modifiers.shift
+}
+
 /// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
 /// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs.
 pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
@@ -225,6 +230,11 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             let pasted = std::mem::take(&mut app.canvas.pasted);
             if !pasted && paste_keys && app.session.math.is_none() && app.services.clipboard_picture.is_some() {
                 let _ = app.run("edit.paste", json!({}));
+            }
+            // Mod+Alt+V with no text on the clipboard: Paste Special still opens, listing what
+            // is there (a picture) or saying what it holds (#687, #833).
+            if !pasted && is_paste_special_release(*key, *modifiers) && app.session.math.is_none() && app.services.clipboard_picture.is_some() {
+                let _ = app.run("edit.pasteSpecial", json!({}));
             }
             continue;
         }
@@ -375,5 +385,7 @@ mod tests {
         assert!(!is_paste_release(Key::V, m(true, true, false)), "Mod+Shift+V is Paste Formatting");
         assert!(!is_paste_release(Key::V, m(true, false, true)), "Mod+Alt+V is Paste Special");
         assert!(!is_paste_release(Key::V, m(false, false, false)), "a plain V");
+        assert!(is_paste_special_release(Key::V, m(true, false, true)), "Mod+Alt+V opens Paste Special");
+        assert!(!is_paste_special_release(Key::V, m(true, true, true)) && !is_paste_special_release(Key::V, m(true, false, false)));
     }
 }

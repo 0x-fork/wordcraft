@@ -829,6 +829,92 @@ fn paste_special_respects_track_changes_and_brings_lists() {
     assert!(text(&s).starts_with("one\ntwo"));
 }
 
+/// Character formatting at a body offset of the first paragraph.
+fn props_at(s: &Session, off: usize) -> wordcraft_doc::CharProps {
+    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off };
+    s.doc.para_at(&pos).map(|p| p.props_of_char(off).clone()).unwrap_or_default()
+}
+
+/// Paste of another program's formatted copy keeps its formatting (#687); Merge Formatting keeps
+/// only its emphasis, in the destination's font; Keep Text Only drops it all.
+#[test]
+fn paste_keeps_source_formatting_from_other_programs() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    let html = "<p><span style=\"font-family:'Courier New';color:#ff0000\">red <b>bold</b></span></p>";
+    let clip = json!({"text": "red bold", "html": html});
+    run(&mut s, "edit.paste", clip.clone());
+    assert_eq!(text(&s), "xred bold");
+    assert_eq!(props_at(&s, 1).font.as_deref(), Some("Courier New"));
+    assert!(props_at(&s, 1).color.is_some());
+    assert!(!bold_at(&s, 0, 1) && bold_at(&s, 0, 5));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "x");
+    run(&mut s, "edit.pasteMerge", clip.clone());
+    assert_eq!(text(&s), "xred bold");
+    assert_eq!(props_at(&s, 1).font, None, "Merge Formatting takes the destination's font");
+    assert_eq!(props_at(&s, 1).color, None);
+    assert!(bold_at(&s, 0, 5), "and keeps the emphasis");
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "edit.pasteText", clip);
+    assert_eq!(text(&s), "xred bold");
+    assert!(!bold_at(&s, 0, 5));
+
+    // Windows' "HTML Format" carries a header with the fragment's byte offsets.
+    run(&mut s, "document.setText", json!({"text": ""}));
+    let body = "<html><body><!--StartFragment--><b>win</b><!--EndFragment--></body></html>";
+    let head = "Version:0.9\r\nStartHTML:0000000000\r\nEndHTML:0000000000\r\nStartFragment:SSSSSSSSSS\r\nEndFragment:EEEEEEEEEE\r\n";
+    let start = head.len() + body.find("<b>").unwrap();
+    let end = head.len() + body.find("<!--EndFragment").unwrap();
+    let cf = format!("{head}{body}").replace("SSSSSSSSSS", &format!("{start:010}")).replace("EEEEEEEEEE", &format!("{end:010}"));
+    run(&mut s, "edit.paste", json!({"text": "win", "html": cf}));
+    assert_eq!(text(&s), "win");
+    assert!(bold_at(&s, 0, 0));
+    assert_eq!(crate::cmd::paste::html_fragment("Version:1\r\nStartFragment:99999\r\nEndFragment:5\r\n<i>x</i>"), "<i>x</i>");
+
+    // RTF when there is no HTML.
+    run(&mut s, "document.setText", json!({"text": ""}));
+    run(&mut s, "edit.paste", json!({"text": "bold then", "rtf": r"{\rtf1\ansi {\b bold}\b0  then}"}));
+    assert!(text(&s).starts_with("bold"), "{}", text(&s));
+    assert!(bold_at(&s, 0, 0));
+
+    // HTML with nothing to paste (a web picture by address) or too large: the text is pasted.
+    run(&mut s, "document.setText", json!({"text": ""}));
+    run(&mut s, "edit.paste", json!({"text": "alt", "html": "<img src='https://example.com/a.png'>"}));
+    assert_eq!(text(&s), "alt");
+    let huge = format!("<b>{}</b>", "a".repeat(crate::cmd::paste::MAX_PASTE_BYTES));
+    run(&mut s, "edit.paste", json!({"text": "!", "html": huge}));
+    assert_eq!(text(&s), "alt!");
+    assert!(s.run("edit.paste", &json!({"html": "<p> </p>"})).is_err(), "nothing to paste is an error");
+    assert!(s.run("edit.pasteMerge", &json!({"rtf": "not rtf"})).is_err());
+    assert!(s.run("edit.pasteText", &json!({})).is_err());
+
+    // Our own copy still wins while the system clipboard holds its text.
+    run(&mut s, "document.setText", json!({"text": "Own"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.italic", json!({}));
+    run(&mut s, "edit.copy", json!({}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "edit.paste", json!({"text": "Own"}));
+    assert_eq!(text(&s), "OwnOwn");
+    assert_eq!(props_at(&s, 4).italic, Some(true));
+}
+
+/// Paste Special lists a picture on the system clipboard and pastes it (#687).
+#[test]
+fn paste_special_lists_and_pastes_a_picture() {
+    let mut s = s();
+    let png = crate::cmd::insert::base64_encode(&tiny_png());
+    let r = run(&mut s, "edit.pasteSpecial", json!({"picture": png, "html": "<img src='x.png'>"}));
+    let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["html", "picture"]);
+    run(&mut s, "edit.pasteSpecial", json!({"as": "picture", "picture": png}));
+    assert_eq!(s.doc.media.len(), 1);
+    assert!(s.run("edit.pasteSpecial", &json!({"as": "picture", "picture": "%%%"})).is_err());
+    assert!(s.run("edit.pasteSpecial", &json!({"as": "picture"})).is_err());
+}
+
 #[test]
 fn clipboard_pane_collects_copies_and_pastes_one_undoably() {
     let mut s = s();

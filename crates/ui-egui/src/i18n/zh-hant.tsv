@@ -1074,6 +1074,8 @@
 	Keeps the fonts and formatting of the copied text.	保留所複製文字的字型和格式。
 	Reads the clipboard's rich text and keeps its formatting.	讀取剪貼簿中的 RTF 內容並保留其格式。
 	Reads the clipboard's web content and keeps its formatting.	讀取剪貼簿中的網頁內容並保留其格式。
+	Picture	圖片
+	Pastes the clipboard's picture.	貼上剪貼簿中的圖片。
 	Drops all formatting and pastes plain text.	移除所有格式，貼上純文字。
 	Advanced Find	進階尋找
 	Advanced Find…	進階尋找…

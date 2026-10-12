@@ -551,6 +551,8 @@
 	Read\nMode	Tryb\nczytania
 	Reads the clipboard's rich text and keeps its formatting.	Odczytuje sformatowany tekst ze schowka i zachowuje jego formatowanie.
 	Reads the clipboard's web content and keeps its formatting.	Odczytuje zawartość internetową ze schowka i zachowuje jej formatowanie.
+	Picture	Obraz
+	Pastes the clipboard's picture.	Wkleja obraz ze schowka.
 	Reading Highlight	Wyróżnienie wyników
 	Recent	Ostatnie
 	Record Macro	Zarejestruj makro
