@@ -301,8 +301,15 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         ptrack,
                         t.text_dim,
                     );
-                    if resp.clicked() {
-                        let _ = app.run("ui.dialog", json!({"name": "commands"}));
+                    if app.ui.keytips == crate::keytips::Phase::Tabs {
+                        app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
+                    }
+                    let tip = match crate::widgets::shortcut_text(app, "tools.search") {
+                        k if k.is_empty() => tl!("Search").to_string(),
+                        k => format!("{} ({k})", tl!("Search")),
+                    };
+                    if resp.on_hover_text(tip).clicked() {
+                        let _ = app.run("tools.search", json!({}));
                     }
                     right_start = ui.min_rect().min.x;
                 });

@@ -301,6 +301,10 @@ pub enum Dialog {
     },
     Commands {
         query: String,
+        /// Opened by a shortcut that may also send its key's text (Alt+Q's "q", in the same frame
+        /// or the next): that text isn't typed into the box; the next key pressed ends this (#819).
+        #[serde(skip)]
+        swallow: bool,
     },
     /// Columns, Symbol and Field ([`crate::dialogs_insert`], #321).
     Insert(Box<crate::dialogs_insert::InsertDialog>),
@@ -1087,7 +1091,7 @@ impl Dialog {
                 let regions = table_regions(app, &id);
                 Dialog::TableStyle { id: Some(id), name, based_on, region: 0, basis: regions.clone(), regions }
             }
-            "commands" => Dialog::Commands { query: String::new() },
+            "commands" => Dialog::Commands { query: String::new(), swallow: true },
             "icons" => Dialog::Icons { query: String::new(), category: String::new(), selected: String::new() },
             "tableProperties" => {
                 let form = Box::new(TableForm::read(app)?);
@@ -2212,35 +2216,44 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::Insert(f) => crate::dialogs_insert::body(app, ui, f),
         Dialog::Refs(f) => crate::dialogs_refs::body(app, ui, f),
-        Dialog::Commands { query } => {
+        Dialog::Commands { query, swallow } => {
+            if *swallow {
+                ui.ctx().input_mut(|i| i.events.retain(|e| !swallow_shortcut_text(swallow, e)));
+            }
             let r = ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Type a command, e.g. \"insert table\"")).desired_width(380.0));
             r.request_focus();
-            let q = query.to_lowercase();
-            let localized_q = crate::i18n::lowercase(query);
             let reg = app.session.registry.clone();
-            let mut hits: Vec<&wordcraft_engine::CommandSpec> = reg
-                .all()
-                .iter()
-                .filter(|c| {
-                    !q.is_empty()
-                        && (c.label.to_lowercase().contains(&q)
-                            || crate::i18n::lowercase(tl!(c.label)).contains(&localized_q)
-                            || c.id.to_lowercase().contains(&q)
-                            || c.location.to_lowercase().contains(&q)
-                            || crate::i18n::lowercase(&crate::i18n::location(c.location)).contains(&localized_q))
-                })
-                .collect();
+            // An empty box suggests a few common commands, as Word's Search does.
+            let mut hits: Vec<&wordcraft_engine::CommandSpec> = if query.trim().is_empty() {
+                ui.label(egui::RichText::new(tl!("Suggested")).font(semibold(12.5)));
+                SEARCH_SUGGESTIONS.iter().filter_map(|id| reg.get(id)).collect()
+            } else {
+                reg.all().iter().filter(|c| command_matches(c, query)).collect()
+            };
             hits.truncate(14);
-            let mut close = false;
-            for c in hits {
+            let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let mut run: Option<&str> = enter.then(|| hits.first().map(|c| c.id)).flatten();
+            for c in &hits {
                 let sc = crate::widgets::shortcut_text(app, c.id);
                 let label = format!("{}   —   {}", tl!(c.label), crate::i18n::location(c.location));
                 if ui.add(egui::Button::new(label).shortcut_text(sc).min_size(vec2(380.0, 0.0))).clicked() {
-                    let _ = app.run(c.id, json!({}));
-                    close = true;
+                    run = Some(c.id);
                 }
             }
-            close || ui.input(|i| i.key_pressed(egui::Key::Escape))
+            // Search also finds the words in the document (the Navigation pane's results).
+            let text = query.trim().to_string();
+            let mut find = false;
+            if !text.is_empty() {
+                ui.separator();
+                let label = crate::i18n::fmt(tl!("Find “{text}” in the document"), &[("text", &text)]);
+                find = ui.add(egui::Button::new(label).min_size(vec2(380.0, 0.0))).clicked() || (enter && hits.is_empty());
+            }
+            if let Some(id) = run {
+                let _ = app.run(id, json!({}));
+            } else if find {
+                find_in_navigation_pane(app, ui.ctx(), &text);
+            }
+            run.is_some() || find || ui.input(|i| i.key_pressed(egui::Key::Escape))
         }
         Dialog::Icons { query, category, selected } => icons_body(app, ui, query, category, selected),
         Dialog::PasteSpecial { formats, choice, payload, note } => {
@@ -2991,6 +3004,50 @@ fn describe(st: &Value) -> String {
     parts.join(", ")
 }
 
+/// What Search lists before anything is typed: common commands (#819).
+const SEARCH_SUGGESTIONS: [&str; 3] = ["review.spelling", "review.wordCount", "file.print"];
+
+/// Search's "Find … in the document": the Navigation pane opens on its results for `text`.
+fn find_in_navigation_pane(app: &mut WordApp, ctx: &egui::Context, text: &str) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("nav_query"), text.to_string()));
+    app.ui.nav_tab = "results".into();
+    let _ = app.run("view.navigationPane", json!({"value": true}));
+    let _ = app.run("edit.find", json!({"text": text}));
+}
+
+/// Whether `e` is the text of the shortcut that opened a box (see `Dialog::Commands::swallow`):
+/// a plain key press first means the user is typing, and one swallowed text is all there is.
+fn swallow_shortcut_text(swallow: &mut bool, e: &egui::Event) -> bool {
+    match e {
+        egui::Event::Key { pressed: true, modifiers, .. } if !modifiers.alt => {
+            *swallow = false;
+            false
+        }
+        egui::Event::Text(_) if *swallow => {
+            *swallow = false;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Search's filter: every word of the query is in the command's label, location or id, in English
+/// or in the interface language, so "insert table" finds Insert › Tables › Table (#819).
+fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
+    if query.trim().is_empty() {
+        return false;
+    }
+    let hay = format!(
+        "{} {} {} {} {}",
+        c.label.to_lowercase(),
+        c.location.to_lowercase(),
+        c.id.to_lowercase(),
+        crate::i18n::lowercase(tl!(c.label)),
+        crate::i18n::lowercase(&crate::i18n::location(c.location))
+    );
+    query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()) || hay.contains(&crate::i18n::lowercase(w)))
+}
+
 /// path data; Insert (or a double click) runs `insert.icon`. Returns true to close.
 fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, category: &mut String, selected: &mut String) -> bool {
     use wordcraft_render::icon_lib::{self, Category};
@@ -3113,6 +3170,40 @@ mod tests {
         app.session.doc.para_at(&app.session.sel.focus).map(|p| p.props.clone()).unwrap_or_default()
     }
 
+    /// #819: the text a shortcut sends with its key isn't typed into the box it opened, whether it
+    /// comes in the same frame or the next; real typing (a key press first) is.
+    #[test]
+    fn shortcut_text_is_swallowed_once() {
+        let key = |key, alt| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers { alt, ..Default::default() },
+        };
+        let text = |t: &str| egui::Event::Text(t.into());
+        let run = |events: &[egui::Event]| {
+            let mut swallow = true;
+            events.iter().filter(|e| !swallow_shortcut_text(&mut swallow, e)).cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(run(&[key(egui::Key::Q, true), text("q")]), vec![key(egui::Key::Q, true)], "Alt+Q's q, same frame");
+        assert_eq!(run(&[text("q"), text("b")]), vec![text("b")], "the q a frame late; then typing");
+        assert_eq!(run(&[key(egui::Key::B, false), text("b")]), vec![key(egui::Key::B, false), text("b")], "a click-opened box takes typing");
+    }
+
+    /// #819: Search matches every word anywhere in the label, location or id, in any order.
+    #[test]
+    fn command_search_matches_every_word() {
+        let app = app_with("");
+        let reg = app.session.registry.clone();
+        let table = reg.get("insert.table").unwrap();
+        assert!(command_matches(table, "insert table"), "the box's own example");
+        assert!(command_matches(table, "  Table   INSERT "), "any order, any case, extra spaces");
+        assert!(!command_matches(table, "insert chart"), "every word has to match");
+        assert!(!command_matches(table, ""), "an empty box lists nothing");
+        assert!(!command_matches(table, "   "));
+    }
+
     /// Ordinary Turkish queries must find dotted-I labels, while canonical English labels and
     /// ASCII command IDs retain their old case-insensitive search in every interface language.
     #[test]
@@ -3147,7 +3238,7 @@ mod tests {
             ("en", "INSERT.TABLE", "Table   —   Insert › Tables"),
         ] {
             h.state_mut().ui.language = language.into();
-            h.state_mut().dialog = Some(Dialog::Commands { query: query.into() });
+            h.state_mut().dialog = Some(Dialog::Commands { query: query.into(), swallow: false });
             h.run_steps(4);
             assert!(
                 h.query(egui_kittest::kittest::By::new().role(egui::accesskit::Role::Button).label_contains(expected)).is_some(),

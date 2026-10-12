@@ -622,6 +622,7 @@
 	Save As	Farklı Kaydet
 	Save as Template	Şablon Olarak Kaydet
 	Saved	Kaydedildi
+	Search	Ara
 	Search Commands	Komut Ara
 	Search commands and help	Komutlarda ve yardımda ara
 	Search document	Belgede ara
@@ -769,6 +770,7 @@ preview	Title	Örnek
 	TOA Heading	Yetki Tablosu Başlığı
 	TOC Heading	İçindekiler Başlığı
 	TOC {n}	İçindekiler {n}
+	Title Bar	Başlık Çubuğu
 	Top Border	Üst Kenarlık
 	Top of Page	Sayfa Üstü
 	Top:	Üst:

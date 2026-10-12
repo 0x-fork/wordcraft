@@ -3117,10 +3117,11 @@ mod tests {
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
     }
 
-    /// #819: Alt+Q moves to "Tell me" command search, as in Word for Windows, without typing a q.
+    /// #819: Alt+Q opens Search with its box focused, as in Word: the Q isn't typed into the
+    /// document, and what is typed next goes into the search box.
     #[cfg(not(target_os = "macos"))]
     #[test]
-    fn alt_q_opens_command_search_from_the_page() {
+    fn alt_q_opens_search_and_typing_goes_there() {
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
@@ -3132,13 +3133,64 @@ mod tests {
         for _ in 0..6 {
             h.step();
         }
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
         h.event(egui::Event::Text("Kilns".into()));
         h.step();
-        h.event(egui::Event::Key { key: egui::Key::Q, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::ALT });
+        // Some platforms send the key's text with an Alt shortcut; it isn't typed.
+        h.event(key(egui::Key::Q, egui::Modifiers::ALT));
         h.event(egui::Event::Text("q".into()));
         h.step();
-        assert!(matches!(h.state().dialog, Some(dialogs::Dialog::Commands { .. })), "command search is open");
+        let query = |h: &egui_kittest::Harness<WordApp>| match &h.state().dialog {
+            Some(dialogs::Dialog::Commands { query, .. }) => Some(query.clone()),
+            _ => None,
+        };
+        assert_eq!(query(&h).as_deref(), Some(""), "Search is open and empty");
+        h.step();
+        {
+            use egui_kittest::kittest::Queryable;
+            assert!(h.query_by_label_contains("Word Count").is_some(), "an empty box suggests commands, as Word's does");
+        }
+        h.event(egui::Event::Text("bold".into()));
+        h.step();
+        assert_eq!(query(&h).as_deref(), Some("bold"), "typing goes into the search box");
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
+        h.event(key(egui::Key::Escape, egui::Modifiers::NONE));
+        h.step();
+        h.step();
+        assert!(h.state().dialog.is_none(), "Escape closes Search");
+        // Words that name no command: Enter finds them in the document, in the Navigation pane.
+        h.event(key(egui::Key::Q, egui::Modifiers::ALT));
+        h.step();
+        h.step();
+        // Typing sends each key's press before its text.
+        h.event(key(egui::Key::K, egui::Modifiers::SHIFT));
+        h.event(egui::Event::Text("Kilns".into()));
+        h.step();
+        h.event(key(egui::Key::Enter, egui::Modifiers::NONE));
+        h.step();
+        h.step();
+        assert!(h.state().dialog.is_none(), "Enter ran the search");
+        assert!(h.state().session.view.nav_pane, "the Navigation pane shows the results");
+        assert_eq!(h.state().session.find.results.len(), 1);
+    }
+
+    /// #819: `tools.search` with a query lists matching commands for scripts and agents; every
+    /// word has to match, so "insert table" finds the command that inserts a table.
+    #[test]
+    fn search_command_matches_every_word() {
+        let mut a = app();
+        let r = a.run("tools.search", json!({"query": "insert table"})).unwrap();
+        let ids: Vec<&str> = r["matches"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert!(ids.contains(&"insert.table"), "{ids:?}");
+        assert!(r["matches"].as_array().unwrap().iter().all(|m| {
+            let hay = format!("{} {} {}", m["label"], m["location"], m["id"]).to_lowercase();
+            hay.contains("insert") && hay.contains("table")
+        }));
+        assert_eq!(a.run("tools.search", json!({"query": "   "})).unwrap()["matches"], json!([]));
+        assert_eq!(a.run("tools.search", json!({"query": "zzqqxx"})).unwrap()["matches"], json!([]));
+        assert!(a.dialog.is_none(), "a query never opens the box");
+        a.run("tools.search", json!({})).unwrap();
+        assert!(matches!(a.dialog, Some(dialogs::Dialog::Commands { .. })), "no query opens Search");
     }
 
     /// Save writes the document first, then carries on with what the user asked for.

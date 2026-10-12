@@ -664,6 +664,7 @@
 	Save as Template	Salvesta mallina
 	Save documents	Dokumentide salvestamine
 	Saved	Salvestatud
+	Search	Otsi
 	Search Commands	Otsi käske
 	Search commands and help	Otsi käske ja abi
 	Search document	Otsi dokumendist
@@ -814,6 +815,7 @@
 	Tight	Tihe
 	TOC Heading	Sisukorra pealkiri
 	TOC {n}	Sisukord {n}
+	Title Bar	Tiitliriba
 	Top Border	Ülemine ääris
 	Top of Page	Lehe ülaserv
 	Top:	Ülal:

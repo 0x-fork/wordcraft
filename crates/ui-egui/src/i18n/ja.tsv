@@ -155,6 +155,7 @@
 	Right (vertical)	右 (縦書き)
 	Ruby text:	ルビ文字:
 	Save documents	ドキュメントの保存
+	Search	検索
 	Search for templates	テンプレートを検索
 	Show all revisions inline	すべての変更履歴を本文中に表示
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	表示 › モードの切り替えと同様に、文書の色を反転して表示します。保存、印刷、PDF は変わりません。
@@ -198,6 +199,7 @@
 	Page Border	ページ罫線の設定
 	Apply to:	適用先:
 	These marks show even when Show/Hide ¶ is off.	これらの記号は、[編集記号の表示/非表示 ¶] がオフでも表示されます。
+	Title Bar	タイトル バー
 	Typing replaces selected text	入力時に選択文字列を置き換える
 	Update fields before printing	印刷前にフィールドを更新する
 	Use the Insert key to switch overtype on and off	Insert キーで上書きのオンとオフを切り替える

@@ -376,6 +376,12 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     }
 }
 
+/// Whether a key runs its shortcut with the canvas unfocused (after a ribbon click, say): Mod and
+/// Alt shortcuts (Alt+Q reaches Search from anywhere, as in Word, #819) and the function keys.
+fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
+    m.command || m.alt || is_function_key(key)
+}
+
 /// Command shortcuts when the canvas isn't focused but no text field is either.
 pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
     // Customize Keyboard records the keys pressed; they never run commands meanwhile.
@@ -385,7 +391,7 @@ pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
     let events = ctx.input(|i| i.events.clone());
     for e in events {
         if let egui::Event::Key { key, pressed: true, modifiers, .. } = e
-            && (modifiers.command || is_function_key(key) || ui_shortcut(key, modifiers).is_some())
+            && is_global_shortcut(key, modifiers)
         {
             dispatch(app, key, modifiers);
         }
@@ -437,5 +443,16 @@ mod tests {
         assert!(!is_context_menu_key(Key::F10, m(false, false, false)), "F10 alone shows keytips");
         assert!(!is_context_menu_key(Key::F10, m(true, true, false)), "Ctrl+Shift+F10");
         assert!(!is_context_menu_key(Key::F9, m(true, false, false)), "Shift+F9 is a field key");
+    }
+
+    #[test]
+    fn alt_shortcuts_work_without_the_canvas_focused() {
+        let m = |command, alt, shift| egui::Modifiers { command, alt, shift, ..Default::default() };
+        assert!(is_global_shortcut(Key::Q, m(false, true, false)), "Alt+Q (#819)");
+        assert!(is_global_shortcut(Key::D, m(false, true, true)), "Alt+Shift+D");
+        assert!(is_global_shortcut(Key::B, m(true, false, false)), "Mod+B");
+        assert!(is_global_shortcut(Key::F7, m(false, false, false)), "F7");
+        assert!(!is_global_shortcut(Key::Q, m(false, false, false)), "a plain letter is typing");
+        assert!(!is_global_shortcut(Key::Q, m(false, false, true)), "Shift+letter is typing");
     }
 }

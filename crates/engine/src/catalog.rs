@@ -35,6 +35,7 @@ Quick Access|Toolbar|Undo List|edit.undoTo
 Quick Access|Toolbar|Redo|edit.redo
 Quick Access|Toolbar|Repeat|edit.repeat
 Quick Access|Toolbar|AutoSave|file.autosave
+Title Bar|Search|Search (Tell Me)|tools.search
 Home|Clipboard|Paste|edit.paste
 Home|Clipboard|Paste Keep Text Only|edit.pasteText
 Home|Clipboard|Paste Merge Formatting|edit.pasteMerge

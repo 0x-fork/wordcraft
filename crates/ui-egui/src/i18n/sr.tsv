@@ -208,6 +208,7 @@
 	Preview	Преглед
 	Remove Password	Уклони лозинку
 	Save documents	Чување докумената
+	Search	Претрага
 	Shadow, glow and soft edges	Сенка, сјај и меке ивице
 	Shape Effects	Ефекти облика
 	Show all revisions inline	Прикажи све измене у тексту
@@ -259,6 +260,7 @@
 	Page Border	Ивица стране
 	Apply to:	Примени на:
 	These marks show even when Show/Hide ¶ is off.	Ове ознаке се приказују и када је Прикажи/сакриј ¶ искључено.
+	Title Bar	Насловна трака
 	Typing replaces selected text	Откуцано замењује изабрани текст
 	Update fields before printing	Ажурирај поља пре штампања
 	Use the Insert key to switch overtype on and off	Тастер Insert укључује и искључује преписивање

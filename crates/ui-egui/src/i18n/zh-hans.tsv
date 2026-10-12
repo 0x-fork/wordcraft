@@ -167,6 +167,7 @@
 	Right (vertical)	右对齐（竖排）
 	Ruby text:	拼音文字：
 	Save documents	保存文档
+	Search	搜索
 	Search for templates	搜索模板
 	Show all revisions inline	以嵌入方式显示所有修订
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	像“视图 › 切换模式”一样以反转的颜色显示文档。保存、打印和 PDF 不受影响。
@@ -210,6 +211,7 @@
 	Page Border	页面边框线
 	Apply to:	应用于：
 	These marks show even when Show/Hide ¶ is off.	即使关闭“显示/隐藏 ¶”，这些标记也会显示。
+	Title Bar	标题栏
 	Typing replaces selected text	键入内容替换所选文字
 	Update fields before printing	打印前更新域
 	Use the Insert key to switch overtype on and off	用 Insert 键切换改写模式

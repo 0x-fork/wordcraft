@@ -378,6 +378,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 r#"{"hide"?: tab, "show"?: tab, "newTab"?: {"name"?, "after"?: tab}, "newGroup"?: {"tab", "name"?}, "add"?: {"tab", "group", "command", "after"?: id}, "remove"?: {"tab", "group"?, "command"?}, "rename"?: {"tab", "group"?, "to"}, "move"?: {"tab", "group"?, "command"?, "by": int}, "qatAdd"?: id, "qatRemove"?: id, "qatMove"?: {"command", "by": int}, "reset"?: true | "ribbon" | "qat", "layout"?: object} → {tabs: [{name, custom?, hidden?, groups?: [{name, commands}]}], qat: [id]}; only custom tabs and groups can be renamed or removed (built-in tabs can be hidden and moved); no params opens the dialog"#,
             )
             .pure(),
+        // Word's Search box in the title bar ("Tell me what you want to do"), Alt+Q (#819).
+        CommandSpec::new("tools.search", "Search", "Title Bar", search_commands)
+            .key(super::non_mac("Alt+Q"))
+            .params(r#"{"query"?: string} → {matches: [{id, label, location, shortcut}]} (every word of the query in the label, location or id; at most 50); no query opens the Search box"#)
+            .pure(),
         CommandSpec::new("review.compare", "Compare", "Review › Compare", compare).params(COMPARE_PARAMS),
         CommandSpec::new("review.combine", "Combine", "Review › Compare", compare).params(COMPARE_PARAMS),
         CommandSpec::new("file.accessibility", "Check Accessibility", "Review › Accessibility", accessibility).pure(),
@@ -1411,6 +1416,31 @@ fn customize_keyboard(s: &mut Session, v: &Value) -> CmdResult {
         s.ui_requests.push(json!({"open": "customizeKeyboard"}));
     }
     Ok(Value::Object(out))
+}
+
+/// `tools.search`: the commands whose label, location or id hold every word of `query`, or,
+/// with no query, the Search box (`ui_requests` → the UI's command search).
+fn search_commands(s: &mut Session, v: &Value) -> CmdResult {
+    let Some(query) = p::str(v, "query") else {
+        s.ui_requests.push(json!({"open": "commands"}));
+        return Ok(json!({"matches": []}));
+    };
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    let matches: Vec<Value> = if words.is_empty() {
+        Vec::new()
+    } else {
+        s.registry
+            .all()
+            .iter()
+            .filter(|c| {
+                let hay = format!("{} {} {}", c.label, c.location, c.id).to_lowercase();
+                words.iter().all(|w| hay.contains(w.as_str()))
+            })
+            .take(50)
+            .map(|c| json!({"id": c.id, "label": c.label, "location": c.location, "shortcut": c.shortcut}))
+            .collect()
+    };
+    Ok(json!({"matches": matches}))
 }
 
 /// Tools › Customize Ribbon: read and change the ribbon's tabs, custom groups and the Quick Access
