@@ -238,7 +238,10 @@ fn math_image(nodes: &wordcraft_doc::math::Arg, display: bool, pt: f32, w: f32, 
     opts.display.placeholders = true;
     let img = wordcraft_render::render_area(&d, page, 0.0, mid - h / 2.0, w, h, ppp, &opts);
     let px = img.to_straight();
-    Some(egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &px))
+    let mut out = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &px);
+    // An ink mask, tinted with the theme's text colour when drawn, so the pictures read on dark tiles (#817).
+    ink_mask(&mut out);
+    Some(out)
 }
 
 /// Turn a snippet rendered black on white paper into an ink mask: white whose alpha is the ink's
@@ -556,6 +559,16 @@ mod tests {
         });
         rx.recv_timeout(std::time::Duration::from_secs(30)).expect("font menu preview rendering hung or failed");
         worker.join().unwrap();
+    }
+
+    /// #817: equation pictures were black on white; they are now an ink mask (white, transparent paper).
+    #[test]
+    fn math_pictures_are_ink_masks() {
+        use wordcraft_doc::math::parse_linear;
+        let img = math_image(&parse_linear("x/y"), false, 12.0, 40.0, 34.0, 1.0).expect("renders");
+        assert!(img.pixels.iter().any(|p| p.a() == 0), "paper is transparent");
+        assert!(img.pixels.iter().any(|p| p.a() > 0), "ink is kept");
+        assert!(img.pixels.iter().all(|p| *p == egui::Color32::from_white_alpha(p.a())), "ink is white, to be tinted");
     }
 
     #[test]
