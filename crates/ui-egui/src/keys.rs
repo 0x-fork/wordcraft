@@ -104,8 +104,23 @@ pub fn combo(m: Modifiers, key: &str, with_shift: bool) -> String {
     s
 }
 
+/// Shortcuts for interface commands (`ui.*`), which aren't in the engine's keymap: Alt+Q moves
+/// to "Tell me" command search, as in Word for Windows (#819). Not on macOS, where Option+Q types
+/// a character.
+fn ui_shortcut(key: Key, m: Modifiers) -> Option<(&'static str, Value)> {
+    let alt_only = m.alt && !m.command && !m.ctrl && !m.mac_cmd && !m.shift;
+    match key {
+        Key::Q if alt_only && !cfg!(target_os = "macos") => Some(("ui.dialog", json!({"name": "commands"}))),
+        _ => None,
+    }
+}
+
 /// Find and run the command bound to this key. Returns true if handled.
 fn dispatch(app: &mut WordApp, key: Key, m: Modifiers) -> bool {
+    if let Some((id, params)) = ui_shortcut(key, m) {
+        let _ = app.run(id, params);
+        return true;
+    }
     let Some(name) = key_name(key) else { return false };
     let reg = app.session.registry.clone();
     if let Some(spec) = app.session.keymap.resolve(&reg, &combo(m, name, true)) {
@@ -359,7 +374,7 @@ pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
     let events = ctx.input(|i| i.events.clone());
     for e in events {
         if let egui::Event::Key { key, pressed: true, modifiers, .. } = e
-            && (modifiers.command || is_function_key(key))
+            && (modifiers.command || is_function_key(key) || ui_shortcut(key, modifiers).is_some())
         {
             dispatch(app, key, modifiers);
         }
@@ -375,6 +390,21 @@ mod tests {
         assert_eq!(shift_variant_params("text.backspace"), Some(json!({})));
         assert_eq!(shift_variant_params("caret.left"), Some(json!({"extend": true})));
         assert_eq!(shift_variant_params("text.delete"), None);
+    }
+
+    #[test]
+    fn alt_q_opens_command_search() {
+        let m = |alt, shift, command| egui::Modifiers { alt, shift, command, ..Default::default() };
+        let tell_me = Some(("ui.dialog", json!({"name": "commands"})));
+        if cfg!(target_os = "macos") {
+            assert_eq!(ui_shortcut(Key::Q, m(true, false, false)), None, "Option+Q types a character");
+        } else {
+            assert_eq!(ui_shortcut(Key::Q, m(true, false, false)), tell_me);
+        }
+        assert_eq!(ui_shortcut(Key::Q, m(true, true, false)), None, "Alt+Shift+Q");
+        assert_eq!(ui_shortcut(Key::Q, m(true, false, true)), None, "Mod+Alt+Q");
+        assert_eq!(ui_shortcut(Key::Q, m(false, false, false)), None, "a plain Q");
+        assert_eq!(ui_shortcut(Key::W, m(true, false, false)), None);
     }
 
     #[test]

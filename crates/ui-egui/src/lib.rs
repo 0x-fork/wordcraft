@@ -3022,6 +3022,30 @@ mod tests {
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
     }
 
+    /// #819: Alt+Q moves to "Tell me" command search, as in Word for Windows, without typing a q.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn alt_q_opens_command_search_from_the_page() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.event(egui::Event::Text("Kilns".into()));
+        h.step();
+        h.event(egui::Event::Key { key: egui::Key::Q, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::ALT });
+        h.event(egui::Event::Text("q".into()));
+        h.step();
+        assert!(matches!(h.state().dialog, Some(dialogs::Dialog::Commands { .. })), "command search is open");
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
+    }
+
     /// Save writes the document first, then carries on with what the user asked for.
     #[test]
     fn save_then_continue() {
