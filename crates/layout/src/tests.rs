@@ -4289,3 +4289,55 @@ fn a_text_frame_in_a_cell_floats_beside_the_text() {
     assert!((frame.top - text.top).abs() < 0.5, "the frame takes no room: {} vs {}", frame.top, text.top);
     assert!(frame.x > text.x + 200.0, "right-aligned in the cell: {} vs {}", frame.x, text.x);
 }
+
+/// Where a list paragraph's text starts when its style has indents of its own (measured in Word,
+/// `plan/word` R16): the list level's indents go on top of the most derived style that gives the
+/// list, so that style's own indent (and those of styles based on it) win, its base styles' don't
+/// and the paragraph's own list wins over every style; a paragraph that switches the list off
+/// (`num: 0`) drops the styles' indents. NIH's Heading 3 (its own 0.9" on Heading 2's list) sat at
+/// the list's 0.6", and its "sample text" paragraphs with the list off at 0.9" instead of the margin.
+#[test]
+fn list_indents_and_style_indents_combine_like_word() {
+    use wordcraft_doc::props::NumRef;
+    use wordcraft_doc::styles::{Style, StyleKind};
+    let text_x = |style: &str, own: ParaProps| {
+        let mut d = Document::new();
+        let num = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+        let style_of = |id: &str, based: Option<&str>, para: ParaProps| Style {
+            id: id.into(),
+            name: id.into(),
+            kind: StyleKind::Paragraph,
+            based_on: based.map(Into::into),
+            para,
+            ..Default::default()
+        };
+        let list = ParaProps { numbering: Some(NumRef { num, level: 0 }), ..Default::default() };
+        let ind = ParaProps { indent_left: Some(64.8), ..Default::default() };
+        // List and indent in one style; list in the base, indent in the derived one; the reverse.
+        d.styles.upsert(style_of("Both", None, ParaProps { indent_left: Some(64.8), ..list.clone() }));
+        d.styles.upsert(style_of("ListBase", None, list.clone()));
+        d.styles.upsert(style_of("IndentOnList", Some("ListBase"), ind.clone()));
+        d.styles.upsert(style_of("IndentBase", None, ind));
+        d.styles.upsert(style_of("ListOnIndent", Some("IndentBase"), list.clone()));
+        let own =
+            ParaProps { style: Some(style.into()), numbering: own.numbering.map(|n| NumRef { num: if n.num == 0 { 0 } else { num }, ..n }), ..own };
+        let mut p = wordcraft_doc::Paragraph::with_text("Text", Default::default());
+        p.props = own;
+        d.body = vec![wordcraft_doc::para_block(p)];
+        lay(&d).caret(&Pos::body(0, 0)).unwrap().x
+    };
+    let listed = || ParaProps { numbering: Some(NumRef { num: 1, level: 0 }), ..Default::default() };
+    let off = || ParaProps { numbering: Some(NumRef { num: 0, level: 0 }), ..Default::default() };
+    let cases = [
+        ("the style's own indent beats its list's", text_x("Both", ParaProps::default()), 72.0 + 64.8),
+        ("a style based on the list's style wins too", text_x("IndentOnList", ParaProps::default()), 72.0 + 64.8),
+        ("the list's style beats its base style", text_x("ListOnIndent", ParaProps::default()), 108.0),
+        ("the paragraph's own list beats every style", text_x("Both", listed()), 108.0),
+        ("list off: the style's indent goes too", text_x("Both", off()), 72.0),
+        ("list off drops an indent from any style", text_x("IndentBase", off()), 72.0),
+        ("list off keeps the paragraph's own indent", text_x("Both", ParaProps { indent_left: Some(10.0), ..off() }), 82.0),
+    ];
+    for (what, got, want) in cases {
+        assert!((got - want).abs() < 0.5, "{what}: {got} vs {want}");
+    }
+}

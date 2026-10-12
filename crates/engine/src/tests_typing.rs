@@ -104,9 +104,12 @@ fn shift_tab_and_tab_change_list_levels() {
 fn backspace_at_the_start_of_an_item_removes_the_number_then_the_indent() {
     let mut s = typed("* One\nTwo");
     run(&mut s, "caret.home", json!({}));
+    let text_x = |s: &mut Session| s.layout().caret(&Pos::body(1, 0)).map(|c| c.x);
+    let before = text_x(&mut s);
     typ(&mut s, "\u{8}");
-    // Number gone, still indented with the list.
+    // Number gone, still indented with the list: the text stays where it was.
     assert_eq!(paras(&s)[1], ("Two".to_string(), None, true));
+    assert_eq!(text_x(&mut s), before);
     typ(&mut s, "\u{8}|");
     // Second Backspace: Normal paragraph, not joined to the one above.
     assert_eq!(paras(&s), vec![para("One", Some(0)), para("|Two", None)]);
