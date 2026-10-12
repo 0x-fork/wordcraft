@@ -4223,9 +4223,8 @@ fn a_hidden_cell_mark_takes_no_room() {
                 t.rows[r].cells[c].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, Default::default()))];
             }
         }
-        for c in 0..2 {
-            let cell = &mut t.rows[1].cells[c];
-            cell.props.hide_mark = hide[c];
+        for (cell, hide) in t.rows[1].cells.iter_mut().zip(hide) {
+            cell.props.hide_mark = hide;
             let mut blocks = Vec::new();
             if let Some(text) = second {
                 blocks.push(wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, Default::default())));
