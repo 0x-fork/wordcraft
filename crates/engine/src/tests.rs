@@ -4817,3 +4817,54 @@ fn find_replace_and_go_to_open_like_word() {
     assert_eq!(page(&mut s), 1, "before the start: the first page");
     assert!(s.run("edit.goto", &json!({"pageBy": i64::MIN})).is_ok(), "hostile numbers never panic");
 }
+
+/// #802: Insert › Picture takes Windows Metafiles (and EMF) at their own frame size, stored under
+/// their own extension so a save writes them as WMF/EMF parts.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn insert_picture_takes_a_windows_metafile() {
+    use wordcraft_doc::para::InlineObject;
+    // One WMF record: size in words, function, parameters.
+    let rec = |func: u16, params: &[i16]| {
+        let mut v = ((3 + params.len()) as u32).to_le_bytes().to_vec();
+        v.extend(func.to_le_bytes());
+        params.iter().for_each(|p| v.extend(p.to_le_bytes()));
+        v
+    };
+    // A placeable WMF, 1440 × 720 units at 1440 per inch (72 × 36 points), drawing a rectangle.
+    let body = [rec(0x041B, &[720, 1440, 0, 0]), rec(0, &[])].concat();
+    let mut wmf = 0x9AC6_CDD7u32.to_le_bytes().to_vec();
+    for v in [0i16, 0, 0, 1440, 720] {
+        wmf.extend(v.to_le_bytes());
+    }
+    wmf.extend(1440u16.to_le_bytes());
+    wmf.extend([0u8; 6]);
+    let words = ((wmf.len() + 18 + body.len()) / 2) as u32;
+    for v in [1u16, 9, 0x300] {
+        wmf.extend(v.to_le_bytes());
+    }
+    wmf.extend(words.to_le_bytes());
+    wmf.extend(0u16.to_le_bytes());
+    wmf.extend(5u32.to_le_bytes());
+    wmf.extend(0u16.to_le_bytes());
+    wmf.extend(body);
+    let dir = scratch_dir("insert-wmf");
+    let path = dir.join("logo.wmf");
+    std::fs::write(&path, &wmf).unwrap();
+
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    let r = run(&mut s, "insert.picture", json!({"path": path.to_string_lossy()}));
+    assert_eq!((r["width"].as_f64(), r["height"].as_f64()), (Some(72.0), Some(36.0)), "{r}");
+    let key = r["media"].as_str().unwrap().to_string();
+    assert!(key.ends_with(".wmf"), "{key}");
+    assert_eq!(s.doc.media.get(&key).map(|b| b.len()), Some(wmf.len()));
+    let mut placed = false;
+    s.doc.objects_in_reading_order(&mut |o| placed |= matches!(o, InlineObject::Image { media, .. } if *media == key));
+    assert!(placed, "the picture is in the text");
+
+    // Neither a picture nor a metafile: the same error as before, naming the formats.
+    std::fs::write(&path, b"not a picture").unwrap();
+    let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
+    assert!(err.to_string().contains("WMF, EMF"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

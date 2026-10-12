@@ -200,6 +200,24 @@ pub fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
     image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()
 }
 
+/// The natural size in points of a Windows Metafile or Enhanced Metafile picture, and the file
+/// extension it is stored under (`"wmf"` or `"emf"`), or None for anything else (#802). Very large
+/// frames are scaled down to 22 inches on the longer side, keeping the shape.
+pub fn metafile_size(bytes: &[u8]) -> Option<(f32, f32, &'static str)> {
+    if !wordcraft_metafile::is_metafile(bytes) {
+        return None;
+    }
+    let pic = wordcraft_metafile::parse(bytes).ok()?;
+    let (w, h) = (pic.width, pic.height);
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return None;
+    }
+    let k = (1584.0 / w.max(h)).min(1.0);
+    // An EMF starts with its header record, type 1.
+    let ext = if bytes.get(..4) == Some(&[1, 0, 0, 0]) { "emf" } else { "wmf" };
+    Some((w * k, h * k, ext))
+}
+
 /// A metafile (WMF/EMF) picture, parsed once. The geometry comes placed by the metafile crate; the
 /// bitmaps are pixmaps, one per picture item (None for paths and undecodable bitmaps).
 struct Vector {
