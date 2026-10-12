@@ -235,6 +235,10 @@ Remove-Item Env:WGPU_BACKEND                     # restore the default for later
 An explicit `gl` override can bring the driver crash back on affected systems. The macOS, Linux
 and web backend defaults are unchanged.
 
+The **32-bit** build uses OpenGL even when a DirectX 12 graphics card is present. On 32-bit
+Windows, creating a DirectX 12 graphics pipeline fails immediately and the app exits before the
+window appears. `WGPU_BACKEND=vulkan` (or `dx12`) still overrides that.
+
 **If the app quits right after its window appears with "Parent device is lost" in the log:**
 WordCraft compiles DirectX 12 shaders with FXC, the compiler built into Windows, so it needs no
 `dxcompiler.dll`/`dxil.dll` and ignores any copy another program put on `PATH` (#603).
