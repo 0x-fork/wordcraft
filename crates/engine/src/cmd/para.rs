@@ -1,6 +1,7 @@
 //! Paragraph formatting, lists and styles (Home › Paragraph, Home › Styles).
 
 use serde_json::{Value, json};
+use wordcraft_doc::collate::{SortKey, sort_key};
 use wordcraft_doc::numbering::ListKind;
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, LineSpacing, NumRef, ParaProps, Rgb, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::styles::{Style, StyleKind};
@@ -802,28 +803,42 @@ fn sort(s: &mut Session, v: &Value) -> CmdResult {
         return Err(CmdError::Failed("select paragraphs in one place to sort".into()));
     }
     let (i0, i1) = (a.path.last(), b.path.last());
+    let lang = s.doc.para(a.story, &a.path).and_then(|p| super::para_lang(&s.doc, p)).or_else(|| super::default_lang(s));
     let bl = s.doc.container_mut(a.story, &a.path)?;
     let Some(slice) = bl.get_mut(i0..=i1) else { return Err(CmdError::Failed("bad range".into())) };
     if slice.iter().any(|b| !matches!(**b, Block::Para(_))) {
         return Err(CmdError::Failed("sorting tables isn't supported here; use Table › Sort".into()));
     }
-    let key = |b: &std::sync::Arc<Block>| b.as_para().map(|p| p.plain_text().to_lowercase()).unwrap_or_default();
-    slice.sort_by(|x, y| {
-        let o = natural_cmp(&key(x), &key(y));
+    let mut keyed: Vec<_> =
+        slice.iter().map(|b| (natural_key(&b.as_para().map(|p| p.plain_text()).unwrap_or_default(), lang.as_deref()), b.clone())).collect();
+    keyed.sort_by(|(x, _), (y, _)| {
+        let o = natural_cmp(x, y);
         if desc { o.reverse() } else { o }
     });
+    for (dst, (_, blk)) in slice.iter_mut().zip(keyed) {
+        *dst = blk;
+    }
     // Keep a section break on the last paragraph of the range where it was.
     s.sel = crate::Selection { anchor: Pos { off: 0, ..a }, focus: b };
     sel_result(s)
 }
 
-/// Compare strings with embedded numbers numerically ("item 2" < "item 10").
-fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let num = |s: &str| s.trim().split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse::<f64>().ok());
-    match (num(a), num(b)) {
-        (Some(x), Some(y)) if x != y => x.total_cmp(&y),
-        _ => a.cmp(b),
-    }
+/// A paragraph's sort key: the number it starts with, then its text in its language's order.
+fn natural_key(text: &str, lang: Option<&str>) -> (Option<f64>, SortKey) {
+    let num = text.trim().split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse::<f64>().ok());
+    (num, sort_key(text, lang))
+}
+
+/// Paragraphs starting with a number come first, in numeric order ("item 2" < "item 10" within
+/// the same number, by text); the rest follow in collation order. A total order.
+fn natural_cmp(a: &(Option<f64>, SortKey), b: &(Option<f64>, SortKey)) -> std::cmp::Ordering {
+    let num = match (a.0, b.0) {
+        (Some(x), Some(y)) => x.total_cmp(&y),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    };
+    num.then_with(|| a.1.cmp(&b.1))
 }
 
 fn create_style(s: &mut Session, v: &Value) -> CmdResult {

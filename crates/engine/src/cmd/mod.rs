@@ -420,6 +420,24 @@ pub fn story_param(s: &Session, v: &Value) -> StoryRef {
     v.get("story").and_then(|x| serde_json::from_value(x.clone()).ok()).unwrap_or(s.sel.focus.story)
 }
 
+/// The language (`w:lang`) of a paragraph's text: that of its first run with text (else of the
+/// paragraph mark), through styles and the document defaults. Sorting and number parsing follow it.
+pub fn para_lang(doc: &wordcraft_doc::Document, p: &wordcraft_doc::Paragraph) -> Option<String> {
+    let run = p.runs.iter().find(|r| r.len > 0).map(|r| &r.props).unwrap_or(&p.mark);
+    doc.styles.resolve_char(p.props.style.as_deref(), run).lang
+}
+
+/// The document's default text language (`w:docDefaults`, the Normal style).
+pub fn doc_lang(doc: &wordcraft_doc::Document) -> Option<String> {
+    doc.styles.resolve_char(None, &wordcraft_doc::CharProps::default()).lang
+}
+
+/// The language of text that names none: the document's default, else the editing language (a
+/// Polish interface writes Polish), else none (English). As AutoCorrect decides it.
+pub fn default_lang(s: &Session) -> Option<String> {
+    doc_lang(&s.doc).or_else(|| s.editing_lang.clone())
+}
+
 #[cfg(test)]
 mod iso_tests {
     use super::iso_from_unix_secs;

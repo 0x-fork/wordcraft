@@ -1,6 +1,8 @@
 //! Table Design and Table Layout tabs.
 
 use serde_json::{Value, json};
+use wordcraft_doc::collate::{SortKey, sort_key};
+use wordcraft_doc::locale_number::{format_number, parse_number};
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, HeightRule, Rgb, TextDirection, VAlign};
 use wordcraft_doc::{Block, Paragraph, Path, Pos, StoryRef, Table, para_block};
 
@@ -618,22 +620,47 @@ fn cell_text(c: &wordcraft_doc::Cell) -> String {
     c.blocks.iter().filter_map(|b| b.as_para().map(|p| p.plain_text())).collect::<Vec<_>>().join("\n")
 }
 
+/// The language of a cell's text: that of its first paragraph with text.
+fn cell_lang(doc: &wordcraft_doc::Document, c: &wordcraft_doc::Cell) -> Option<String> {
+    c.blocks.iter().filter_map(|b| b.as_para()).find(|p| !p.plain_text().trim().is_empty()).and_then(|p| super::para_lang(doc, p))
+}
+
+/// Sort the table's rows by a column. Numbers are read in each cell's language (`1,5` is one and
+/// a half in Polish) and sort first, numerically; other text sorts in the column's language.
 fn sort_table(s: &mut Session, v: &Value) -> CmdResult {
     let col = p::u64(v, "column").unwrap_or(0) as usize;
     let desc = p::bool(v, "descending").unwrap_or(false);
     let header = p::bool(v, "header");
-    with_table(s, |t| {
-        let skip = usize::from(header.unwrap_or(t.rows.first().is_some_and(|r| r.props.header)));
-        let Some(body) = t.rows.get_mut(skip..) else { return };
-        body.sort_by(|a, b| {
-            let ka = a.cells.get(col).map(cell_text).unwrap_or_default();
-            let kb = b.cells.get(col).map(cell_text).unwrap_or_default();
-            let o = match (ka.trim().replace(',', "").parse::<f64>(), kb.trim().replace(',', "").parse::<f64>()) {
-                (Ok(x), Ok(y)) => x.total_cmp(&y),
-                _ => ka.to_lowercase().cmp(&kb.to_lowercase()),
+    let (tp, _, _) = cell(s)?;
+    let t = s.doc.table(s.sel.focus.story, &tp).ok_or_else(|| CmdError::Failed("no table".into()))?;
+    let skip = usize::from(header.unwrap_or(t.rows.first().is_some_and(|r| r.props.header))).min(t.rows.len());
+    let column = || t.rows.iter().skip(skip).map(|r| r.cells.get(col));
+    let lang = column().flatten().find_map(|c| cell_lang(&s.doc, c)).or_else(|| super::default_lang(s));
+    // A total order (numbers, then text), so sorting never sees inconsistent comparisons.
+    let keys: Vec<(Option<f64>, SortKey)> = column()
+        .map(|c| {
+            let text = c.map(cell_text).unwrap_or_default();
+            let num_lang = c.and_then(|c| cell_lang(&s.doc, c)).or_else(|| lang.clone());
+            let num = parse_number(text.trim(), num_lang.as_deref()).filter(|x| x.is_finite());
+            (num, if num.is_some() { SortKey::default() } else { sort_key(text.trim(), lang.as_deref()) })
+        })
+        .collect();
+    with_table(s, move |t| {
+        if skip > t.rows.len() {
+            return;
+        }
+        let body = t.rows.split_off(skip);
+        let mut rows: Vec<_> = keys.iter().cloned().zip(body).collect();
+        rows.sort_by(|((a, ka), _), ((b, kb), _)| {
+            let o = match (a, b) {
+                (Some(x), Some(y)) => x.total_cmp(y),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => ka.cmp(kb),
             };
             if desc { o.reverse() } else { o }
         });
+        t.rows.extend(rows.into_iter().map(|(_, r)| r));
     })
 }
 
@@ -664,14 +691,27 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
     let (tp, r, c) = cell(s)?;
     let f = p::str(v, "formula").unwrap_or("=SUM(ABOVE)").to_ascii_uppercase();
     let t = s.doc.table(s.sel.focus.story, &tp).cloned().ok_or_else(|| CmdError::Failed("no table".into()))?;
-    let nums: Vec<f64> = if f.contains("LEFT") {
-        t.rows
-            .get(r)
-            .map(|row| row.cells.iter().take(c).filter_map(|x| cell_text(x).trim().replace([',', '$'], "").parse().ok()).collect())
-            .unwrap_or_default()
+    let story = s.sel.focus.story;
+    // Each cell's number is read in that cell's language (`3,50` in Polish is three and a half).
+    let sources: Vec<&wordcraft_doc::Cell> = if f.contains("LEFT") {
+        t.rows.get(r).map(|row| row.cells.iter().take(c).collect()).unwrap_or_default()
     } else {
-        t.rows.iter().take(r).filter_map(|row| row.cells.get(c)).filter_map(|x| cell_text(x).trim().replace([',', '$'], "").parse().ok()).collect()
+        t.rows.iter().take(r).filter_map(|row| row.cells.get(c)).collect()
     };
+    let default_lang = super::default_lang(s);
+    let nums: Vec<f64> = sources
+        .iter()
+        .filter_map(|x| parse_number(cell_text(x).trim(), cell_lang(&s.doc, x).or_else(|| default_lang.clone()).as_deref()))
+        .filter(|x| x.is_finite())
+        .collect();
+    // The result is written in the language of the formula's cell, else of the numbers it adds.
+    let out_lang = s
+        .doc
+        .para(story, &s.sel.focus.path)
+        .filter(|p| !p.plain_text().trim().is_empty())
+        .and_then(|p| super::para_lang(&s.doc, p))
+        .or_else(|| sources.iter().find_map(|x| cell_lang(&s.doc, x)))
+        .or(default_lang);
     let val = if f.starts_with("=AVERAGE") {
         if nums.is_empty() { 0.0 } else { nums.iter().sum::<f64>() / nums.len() as f64 }
     } else if f.starts_with("=COUNT") {
@@ -685,7 +725,7 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
     } else {
         nums.iter().sum()
     };
-    let text = if val.fract() == 0.0 && val.abs() < 1e15 { format!("{}", val as i64) } else { format!("{val:.2}") };
+    let text = format_number(val, out_lang.as_deref());
     let props = s.typing_props();
     let at = s.sel.focus.clone();
     let end = s.doc.insert_object(
