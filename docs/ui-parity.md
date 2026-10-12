@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (More Colors… and the Colors dialog, #606; previously trivial: Find and Replace special characters and wildcards, #543; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Add Font… ends the font list, #582; previously trivial: Outlining tab and outline keys, #493; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -60,6 +60,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | 2026-10-11 | trivial | Collapsed duplicate rows left by parallel merges |
 | 2026-10-11 | trivial | Dialogs keep their top edge in place when switching tabs (Paragraph, Font, Borders and Shading…): only the bottom edge moves (#507) |
 | 2026-10-11 | trivial | Interface size setting in File › Options › General (80–200 %), kept between runs and applied on top of the system's display scale; `ui.interfaceSize` for agents (#475) |
+| 2026-10-11 | trivial | Font list ends with Add Font… (TTF, OTF, TTC, WOFF, WOFF2; also by dropping the file); added fonts are listed at once and kept between runs (#582) |
 | 2026-10-11 | trivial | Font box (ribbon and mini toolbar): typing lists the matching fonts (prefix first, then any part of the name); Up/Down, Enter or a click picks one, Escape cancels (#359) |
 | 2026-10-11 | trivial | Templates and Add-ins (template path, Attach…, automatically update document styles) and Organizer (copy styles from another file, delete, rename) dialogs (#377); styles update from the template only when the user asks (OK with the box ticked, or Update Styles), never on open; the three Modal dialogs rows merged into one |
 | 2026-10-11 | trivial | Field codes (#339): View › Field Codes (Alt+F9), Toggle Field Codes (Shift+F9), a field-code popup (double-click, right-click › Edit Field…; Ctrl+F9 opens the Field dialog), unlink/lock/unlock and next/previous field keys; field items in the context menu |

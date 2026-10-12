@@ -16,7 +16,7 @@ use crate::WordApp;
 /// A file dialog the app asks the host to show ([`Services::file_dialog`](crate::Services::file_dialog)).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileDialogRequest {
-    /// Pick a file to open; `purpose` says what for (`document`, `picture`, `recipients`), as for
+    /// Pick a file to open; `purpose` says what for (`document`, `picture`, `recipients`, `font`), as for
     /// `pick_open`.
     Open { purpose: String },
     /// Pick a path to save to, given a suggested file name.
@@ -37,6 +37,8 @@ pub(crate) enum AfterPick {
     PrintPdf { settings: Value },
     /// Load the picked CSV/TSV/text file or spreadsheet as the mail-merge recipients (#240, #334).
     Recipients,
+    /// Add the picked font file (#582).
+    Font,
     /// Hand the picked path to the open dialog (`WordApp::dialog_pick`): Templates and Add-ins,
     /// Organizer (#377).
     ForDialog,
@@ -129,6 +131,10 @@ impl WordApp {
                     return Ok(json!({"cancelled": true}));
                 };
                 self.insert_or_change_picture(json!({"path": path}))
+            }
+            AfterPick::Font => {
+                let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
+                self.run("font.add", json!({"path": path}))
             }
             AfterPick::ForDialog => {
                 let picked = picked.filter(|p| !p.is_empty());
@@ -225,6 +231,15 @@ impl WordApp {
             return;
         }
         let _ = self.ask_file(FileDialogRequest::Open { purpose: "picture".into() }, AfterPick::Picture);
+    }
+
+    /// Pick a font file to add (Add Font…; web: it arrives through the inbox).
+    pub(crate) fn pick_font(&mut self) {
+        if let Some(f) = &self.services.open_async {
+            f("font");
+            return;
+        }
+        let _ = self.ask_file(FileDialogRequest::Open { purpose: "font".into() }, AfterPick::Font);
     }
 }
 

@@ -97,6 +97,11 @@ pub struct Services {
     /// Desktop: the picture on the system clipboard, if any — egui's paste only carries text
     /// (#45). Read when Paste finds no text; see [`paste_picture`].
     pub clipboard_picture: Option<Box<dyn Fn() -> Option<paste_picture::ClipboardPicture>>>,
+    /// Web: keep a font the user added (stored file name, original bytes) for the next visit
+    /// (#582). Desktop fonts are stored by the font database itself, in the app's font folder.
+    pub store_font: Option<Box<dyn Fn(&str, &[u8])>>,
+    /// Web: forget a stored font (its stored file name) once the user removes it.
+    pub forget_font: Option<Box<dyn Fn(&str)>>,
 }
 
 /// Files delivered asynchronously.
@@ -258,6 +263,9 @@ pub struct WordApp {
     /// Web: a recipient list was asked for (Select Recipients › Use an Existing List…), so the
     /// next text file from the picker loads as recipients instead of opening (#240).
     pub recipient_list_pending: bool,
+    /// The font database's [`generation`](wordcraft_fonts::FontDb::generation) last seen: when
+    /// fonts are added or removed (by any route) the font lists and the layout are refreshed.
+    font_generation: u64,
     /// A file picked for the open dialog (Templates and Add-ins › Attach…, Organizer ›
     /// Browse…); the dialog takes it on its next frame.
     pub(crate) dialog_pick: Option<String>,
@@ -377,6 +385,7 @@ impl WordApp {
             autosave_path: None,
             change_picture_target: None,
             recipient_list_pending: false,
+            font_generation: wordcraft_fonts::FontDb::global().generation(),
             dialog_pick: None,
             file_dialog: None,
             info_editing: None,
@@ -559,11 +568,52 @@ impl WordApp {
         {
             self.autosave_path = self.session.path.clone();
         }
+        if let Ok(v) = &r {
+            self.keep_web_font(id, &params, v);
+        }
         self.after_command(id);
         if let Err(e) = &r {
             self.status(e.clone());
         }
         r
+    }
+
+    /// Web: store a font added from bytes, or forget the removed ones ([`Services::store_font`]).
+    fn keep_web_font(&self, id: &str, params: &Value, result: &Value) {
+        match id {
+            "font.add" => {
+                if let (Some(store), Some(file), Some(data)) =
+                    (&self.services.store_font, result.get("file").and_then(Value::as_str), params.get("data").and_then(Value::as_str))
+                    && let Some(bytes) = wordcraft_engine::cmd::insert::base64_decode(data)
+                {
+                    store(file, &bytes);
+                }
+            }
+            "font.remove" => {
+                if let Some(forget) = &self.services.forget_font {
+                    for f in result.get("removed").and_then(Value::as_array).into_iter().flatten() {
+                        if let Some(file) = f.get("file").and_then(Value::as_str) {
+                            forget(file);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Fonts were added or removed (a command, the web shell loading stored fonts): lay out
+    /// again and refresh the font lists and their previews.
+    fn watch_fonts(&mut self, ctx: &egui::Context) {
+        let db = wordcraft_fonts::FontDb::global();
+        let generation = db.generation();
+        if generation == self.font_generation {
+            return;
+        }
+        self.font_generation = generation;
+        self.session.relayout();
+        self.previews.fonts_changed(ctx, db.user_fonts().iter().flat_map(|f| f.families()));
+        ctx.request_repaint();
     }
 
     /// Answer the Save Changes prompt: Save (through Save As for a new document) and carry on,
@@ -673,6 +723,7 @@ impl WordApp {
                     self.save_as_dialog();
                 }
                 "insertPicture" => self.pick_picture(),
+                "addFont" => self.pick_font(),
                 "print" => {
                     self.ui.backstage = true;
                     self.ui.backstage_page = "print".into();
@@ -1003,6 +1054,7 @@ impl WordApp {
         self.clear_stale_change_picture();
         let _ = self.poll_file_dialog();
         self.drain_inbox();
+        self.watch_fonts(ctx);
         self.autosave_tick(now_ms());
         if self.autosaves() && self.session.dirty {
             ctx.request_repaint_after(std::time::Duration::from_millis(1000));
@@ -1024,6 +1076,8 @@ impl WordApp {
                 } else if sheet {
                     // A spreadsheet isn't a document: it's a recipient list (#334).
                     self.load_recipients(json!({"path": path}))
+                } else if wordcraft_fonts::is_font_file_name(&lp) {
+                    self.run("font.add", json!({"path": path}))
                 } else {
                     self.run("file.open", json!({"path": path}))
                 };
@@ -1170,6 +1224,8 @@ impl WordApp {
             self.recipient_list_pending = asked && !list && !sheet;
             let r = if sheet {
                 self.load_recipients(json!({"path": name, "data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}))
+            } else if wordcraft_fonts::is_font_file_name(&lower) {
+                self.run("font.add", json!({"name": name, "data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}))
             } else if list {
                 self.load_recipients(json!({"csv": wordcraft_engine::io::decode_text(&bytes)}))
             } else if img {
@@ -2909,6 +2965,50 @@ mod tests {
         assert_eq!(a.session.merge.rows.len(), 2);
         assert!(body_text(&a).contains(UNSAVED), "the document stays open");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Add Font… (#582), web: the picker asks for fonts, the picked file arrives through the
+    /// inbox and is added, listed in the font menu and kept in the browser; removing it forgets it.
+    #[test]
+    fn a_font_picked_on_the_web_is_added_listed_and_kept() {
+        const FAMILY: &str = "Uifont Sans 3";
+        let mut font = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/fonts/SourceSans3-Regular.ttf")).unwrap();
+        let utf16 = |s: &str| s.encode_utf16().flat_map(u16::to_be_bytes).collect::<Vec<u8>>();
+        for (from, to) in [(utf16("Source Sans 3"), utf16(FAMILY)), (b"Source Sans 3".to_vec(), FAMILY.as_bytes().to_vec())] {
+            let mut i = 0;
+            while let Some(at) = font[i..].windows(from.len()).position(|w| w == from) {
+                font[i + at..i + at + to.len()].copy_from_slice(&to);
+                i += at + to.len();
+            }
+        }
+        let mut a = typed();
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+        let seen = asked.clone();
+        a.services.open_async = Some(Box::new(move |purpose| *seen.borrow_mut() = purpose.to_string()));
+        let kept = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, usize)>::new()));
+        let (k1, k2) = (kept.clone(), kept.clone());
+        a.services.store_font = Some(Box::new(move |name, bytes| k1.borrow_mut().push((name.to_string(), bytes.len()))));
+        a.services.forget_font = Some(Box::new(move |name| k2.borrow_mut().retain(|(n, _)| n != name)));
+        let inbox: Inbox = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        a.services.inbox = Some(inbox.clone());
+        let ctx = egui::Context::default();
+        assert!(!a.previews.families().iter().any(|f| f == FAMILY));
+        a.run("font.add", json!({})).unwrap();
+        assert_eq!(*asked.borrow(), "font");
+        inbox.lock().unwrap().push(("Uifont-Regular.ttf".into(), font.clone()));
+        a.drain_inbox();
+        a.watch_fonts(&ctx);
+        assert!(a.previews.families().iter().any(|f| f == FAMILY), "listed in the font menu at once");
+        assert_eq!(*kept.borrow(), vec![("Uifont-Regular.ttf".to_string(), font.len())]);
+        assert!(body_text(&a).contains(UNSAVED), "the document stays open");
+        // Junk named like a font is refused, and nothing is kept.
+        inbox.lock().unwrap().push(("junk.woff2".into(), b"wOF2junk".to_vec()));
+        a.drain_inbox();
+        assert_eq!(kept.borrow().len(), 1);
+        a.run("font.remove", json!({"family": FAMILY})).unwrap();
+        a.watch_fonts(&ctx);
+        assert!(kept.borrow().is_empty());
+        assert!(!a.previews.families().iter().any(|f| f == FAMILY));
     }
 
     /// Web: the picked file arrives through the inbox and loads as recipients, even as .txt; a
