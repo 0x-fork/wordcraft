@@ -233,8 +233,9 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
         let mut blocks = Blocks::new();
         r.read_blocks(&mut sc, body, &rels, &mut blocks, 0);
         r.flush_pending(&mut sc, &mut blocks);
-        toc_field_to_heading(&mut blocks);
         r.doc.body = blocks;
+        unstyle_toc_links(&mut r.doc);
+        toc_field_to_heading(&mut r.doc.body);
         if let Some(s) = body.child("w:sectPr") {
             r.doc.last_section = r.read_section(s, &rels);
         }
@@ -387,6 +388,23 @@ fn keep_glued_ids(doc: &mut Document, glued: &HashSet<u32>) {
         InlineObject::Group { children, .. } => children.iter_mut().for_each(|c| clear(&mut c.obj)),
         o => clear(o),
     });
+}
+
+/// Word draws a table of contents' entry links without the Hyperlink character style (no blue,
+/// no underline) though the entries carry it (measured in Word for Windows: a Hyperlink-styled run
+/// in a hyperlink inside a TOC field's result is plain; one outside a hyperlink, another style,
+/// direct formatting, or a hyperlink in another field keep their look). The style is dropped from
+/// those runs so they look the same here; the links stay.
+fn unstyle_toc_links(doc: &mut Document) {
+    for f in doc.field_ranges(wordcraft_doc::StoryRef::Body) {
+        if is_toc(&f.instr) {
+            let _ = doc.format_range(&f.start, &f.end, &|c| {
+                if c.link.is_some() && c.style.as_deref() == Some("Hyperlink") {
+                    c.style = None;
+                }
+            });
+        }
+    }
 }
 
 /// Normalize only a complete TOC range that the engine's heading/entry representation can

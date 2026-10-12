@@ -1745,3 +1745,38 @@ fn native_ink_preserves_inner_transform_and_rotation_padding_on_unrelated_saves(
         d = wordcraft_docx::read(&out).unwrap();
     }
 }
+
+/// Word draws a table of contents' entry links without the Hyperlink character style (measured in
+/// Word for Windows); the import drops the style from them, keeping the link. A Hyperlink-styled run
+/// outside a hyperlink, and a hyperlink in another field, keep it.
+#[test]
+fn toc_entry_links_lose_the_hyperlink_style() {
+    let styles = format!(
+        r#"<w:styles {W_NS}><w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style>
+        <w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/><w:rPr><w:color w:val="0066FF"/><w:u w:val="single"/></w:rPr></w:style></w:styles>"#
+    );
+    let field = |instr: &str, inner: &str| {
+        format!(
+            r#"<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve">{instr}</w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{inner}</w:p><w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>"#
+        )
+    };
+    let link =
+        |t: &str| format!(r#"<w:hyperlink w:anchor="_Toc1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>{t}</w:t></w:r></w:hyperlink>"#);
+    let body = [
+        field(r#" TOC \o "1-3" \h \z \u "#, &link("entry")),
+        field(" TOC ", r#"<w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>styled</w:t></w:r>"#),
+        field(" QUOTE x ", &link("quoted")),
+        format!("<w:p>{}</w:p>", link("plain")),
+        r#"<w:p><w:bookmarkStart w:id="1" w:name="_Toc1"/><w:r><w:t>Target</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>"#.to_string(),
+    ]
+    .concat();
+    let d = wordcraft_docx::read(&docx(&body, &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+    let run = |word: &str| {
+        paras(&d).into_iter().find_map(|p| p.text.find(word).map(|at| p.props_of_char(at).clone())).unwrap_or_else(|| panic!("no run with {word}"))
+    };
+    let entry = run("entry");
+    assert_eq!((entry.style.as_deref(), entry.link.as_deref()), (None, Some("#_Toc1")), "a TOC entry: plain, still a link");
+    assert_eq!(run("styled").style.as_deref(), Some("Hyperlink"), "not in a hyperlink: kept");
+    assert_eq!(run("quoted").style.as_deref(), Some("Hyperlink"), "another field: kept");
+    assert_eq!(run("plain").style.as_deref(), Some("Hyperlink"), "outside fields: kept");
+}

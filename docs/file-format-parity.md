@@ -166,6 +166,7 @@ raise readiness estimates. No Word-derived files are fixtures.
 | 2026-10-12 | trivial | ODT page size, orientation and margins read back from `styles.xml` on open, so they survive a save and reopen (#810) |
 | 2026-10-11 | trivial | Independent complex-script size, bold and italic inherit correctly through defaults and styles; explicit equal values survive; six synthetic multi-generation round-trip tests, including tracked formatting, added |
 | 2026-10-11 | minor | Opening files from the system: file associations and the default-app button (#295) |
+| 2026-10-12 | trivial | DOCX: a table of contents' entry links (Hyperlink-styled runs in hyperlinks inside a TOC field) import without the Hyperlink style, as Word draws them; measured in Word for Windows |
 | 2026-10-11 | trivial | `.doc`: inline and floating pictures (BLIP store, PNG/JPEG/DIB/TIFF/EMF/WMF), basic shapes, groups and text boxes read from OfficeArt drawings (#551); fidelity ~55% → ~60% |
 | 2026-10-11 | trivial | Word XML Document (Flat OPC) read and written, Word 2003 XML read (#548) |
 | 2026-10-11 | trivial | #534: DOCX indents in characters read and written; `.doc` first-line indents (`sprmPDxaLeft1`, its two-byte operand, and `sprmPDxaLeft1_80`), indents in characters (`sprmPDxc*`) and exact/at-least line spacing (LSPD) read correctly |

@@ -138,6 +138,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | Paste from other programs keeps their formatting (#687): Ctrl+V and Home › Paste read the system clipboard's HTML (and RTF on Windows and Wayland); Merge Formatting takes the destination's font and paragraph and keeps bold, italic, underline and strikethrough; Paste Special lists what the system clipboard holds (HTML, RTF, picture, text). Linux: pictures copied in a browser or Spectacle paste on KDE and other Wayland desktops (data-control clipboard), and a paste that finds nothing usable names what the clipboard holds instead of "empty" (#833) |
 | 2026-10-12 | PDF export of long documents with many internal links (a linked table of contents) is linear: NIH's 67-page protocol template 10.6 s → 0.9 s |
 | 2026-10-12 | Keytips: Word for Windows' tab letters (File F, Design G, References S, Review R, View W, Help Y) |
+| 2026-10-12 | Table-of-contents links look like Word's: plain text, not blue and underlined (Word ignores the Hyperlink style on TOC entry links; measured in 9 cases) |
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
 |---|---|
