@@ -4666,3 +4666,81 @@ fn automatic_paragraph_spacing_drops_at_cell_edges() {
     assert!((a1 - a0 - (p1 - p0) - 14.0).abs() < 0.05, "14 pt between the cell's paragraphs");
     assert!((a_below - a1 - (p_below - p1)).abs() < 0.05, "none after the cell's last paragraph");
 }
+
+/// Automatic spacing inside a list, measured in Word for Windows (`plan/word` R17, 16 cases): none
+/// between two list items, of one list or two, at any level, whichever item asks for it; the first
+/// item keeps its automatic space before and the last its space after, a paragraph with its list
+/// switched off in between keeps both, and measured spacing stays. NIH's bulleted IND reports
+/// (each item automatic before and after) were 14 pt apart instead of touching.
+#[test]
+fn automatic_spacing_drops_between_list_items() {
+    use wordcraft_doc::props::NumRef;
+    let auto = ParaProps {
+        space_before: Some(5.0),
+        space_after: Some(5.0),
+        space_before_auto: Some(true),
+        space_after_auto: Some(true),
+        ..Default::default()
+    };
+    let plain = ParaProps { space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+    let tops = |items: [ParaProps; 3], in_cell: bool| {
+        let mut d = Document::new();
+        let num = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+        let other = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+        let fix = |p: ParaProps| ParaProps {
+            numbering: p.numbering.map(|n| NumRef {
+                num: match n.num {
+                    0 => 0,
+                    1 => num,
+                    _ => other,
+                },
+                ..n
+            }),
+            ..p
+        };
+        let paras: Vec<_> = std::iter::once(plain.clone())
+            .chain(items.map(fix))
+            .chain(std::iter::once(plain.clone()))
+            .enumerate()
+            .map(|(i, p)| {
+                let mut para = wordcraft_doc::Paragraph::with_text(&format!("P{i}"), Default::default());
+                para.props = p;
+                wordcraft_doc::para_block(para)
+            })
+            .collect();
+        if in_cell {
+            let mut t = Table::new(1, 1, 300.0);
+            t.rows[0].cells[0].blocks = paras;
+            d.body = vec![wordcraft_doc::Block::Table(t).into()];
+        } else {
+            d.body = paras;
+        }
+        let at = |i: u32| if in_cell { Pos { story: StoryRef::Body, path: Path(vec![0, 0, 0, i]), off: 0 } } else { Pos::body(i as usize, 0) };
+        let l = lay(&d);
+        [0, 1, 2, 3, 4].map(|i| l.caret(&at(i)).unwrap().top)
+    };
+    let item = |num: u32, level: u8, p: &ParaProps| ParaProps { numbering: Some(NumRef { num, level }), ..p.clone() };
+    for in_cell in [false, true] {
+        let base = tops([plain.clone(), plain.clone(), plain.clone()], in_cell);
+        let line = base[1] - base[0];
+        let gaps = |t: [f32; 5]| [1, 2, 3, 4].map(|i| ((t[i] - t[i - 1] - line) * 10.0).round() / 10.0);
+        let one = item(1, 0, &auto);
+        let cases = [
+            ("one list", [one.clone(), one.clone(), one.clone()], [14.0, 0.0, 0.0, 14.0]),
+            ("two lists", [one.clone(), item(2, 0, &auto), item(2, 0, &auto)], [14.0, 0.0, 0.0, 14.0]),
+            ("two levels", [one.clone(), item(1, 1, &auto), one.clone()], [14.0, 0.0, 0.0, 14.0]),
+            ("a plain item between", [one.clone(), item(1, 0, &plain), one.clone()], [14.0, 0.0, 0.0, 14.0]),
+            ("list off between", [one.clone(), item(0, 0, &auto), one.clone()], [14.0, 14.0, 14.0, 14.0]),
+            ("no list", [auto.clone(), auto.clone(), auto.clone()], [14.0, 14.0, 14.0, 14.0]),
+        ];
+        for (what, items, want) in cases {
+            assert_eq!(gaps(tops(items, in_cell)), want, "{what} (in a cell: {in_cell})");
+        }
+        let fourteen = ParaProps { space_before: Some(14.0), ..plain.clone() };
+        assert_eq!(
+            gaps(tops([item(1, 0, &fourteen), item(1, 0, &fourteen), item(1, 0, &fourteen)], in_cell)),
+            [14.0, 14.0, 14.0, 0.0],
+            "measured spacing stays"
+        );
+    }
+}

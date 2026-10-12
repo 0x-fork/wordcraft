@@ -876,6 +876,7 @@ fn layout_box(
     let mut y = 0.0f32;
     let mut prev_after = 0.0f32;
     let mut prev_after_auto = false;
+    let mut prev_listed = false;
     let mut prev_style: Option<(String, bool)> = None;
     let mut last_top = 0.0f32;
     for (i, b) in blocks.iter().enumerate() {
@@ -885,6 +886,7 @@ fn layout_box(
         match &**b {
             Block::Para(p) => {
                 let label = ctx.next_label(p);
+                let listed = label.is_some();
                 let mut pl = ctx.para_labelled(p, width, table, &[], label.clone());
                 // A text frame (a footer's page number in a frame, say) is placed apart, like a
                 // floating object, and the text after it wraps around it; it takes no room in
@@ -909,6 +911,17 @@ fn layout_box(
                 let mut before = if same && ctxl { 0.0 } else { pl.rp.space_before };
                 if same && ctxl {
                     y -= prev_after;
+                    prev_after = 0.0;
+                }
+                // Automatic spacing: none between two list items (as in an HTML list).
+                if i > 0 && prev_listed && listed {
+                    if prev_after_auto {
+                        y -= prev_after;
+                        prev_after = 0.0;
+                    }
+                    if pl.rp.before_auto {
+                        before = 0.0;
+                    }
                 }
                 // Automatic spacing: none at the top of a cell or box, and it collapses with the
                 // space after the paragraph above (the larger one counts).
@@ -953,6 +966,7 @@ fn layout_box(
                 y += pl.height + after;
                 prev_after = if same && ctxl { 0.0 } else { after };
                 prev_after_auto = pl.rp.after_auto;
+                prev_listed = listed;
                 prev_style = Some((pl.rp.style.clone(), ctxl));
             }
             Block::Table(t) => {
@@ -1227,9 +1241,9 @@ struct PageBuilder<'a> {
     carry: Vec<NoteBox>,
     /// Page bottom before footnotes took space.
     orig_bottom: f32,
-    /// The previous paragraph: (style, contextual spacing, space after) for contextual spacing.
-    /// The paragraph above: its style, contextual spacing, space after and whether that is automatic.
-    prev: Option<(String, bool, f32, bool)>,
+    /// The paragraph above: its style, contextual spacing, space after, whether that is automatic
+    /// and whether it is a list item.
+    prev: Option<(String, bool, f32, bool, bool)>,
     /// The previous paragraph ended with a page break (its mark stayed with the break): the next
     /// paragraph, first on the new page, gets no space before (Word).
     after_break_mark: bool,
@@ -2658,22 +2672,37 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     if pb.at_top() && (after_break_mark || (broke_before && ctx.doc.settings.compat_mode >= 15)) {
         before = 0.0;
     } else if pb.at_top()
-        && let Some((_, _, after, _)) = &prev_para
+        && let Some((_, _, after, _, _)) = &prev_para
     {
         // After a page break before or a section break the space between the paragraphs is
         // still counted as one: the previous paragraph's space after (left on its page) comes
         // off the space before here (Word: 24 pt before after 10 pt after leaves 14 pt).
         before = (before - after.max(0.0)).max(0.0);
     }
-    let prev = pb.prev.take();
-    if let Some((style, ctxl, after, _)) = &prev
+    let mut prev = pb.prev.take();
+    if let Some((style, ctxl, after, _, _)) = &mut prev
         && *style == pl.rp.style
         && !pb.at_top()
     {
         if *ctxl {
-            pb.y -= after;
+            pb.y -= *after;
+            *after = 0.0;
         }
         if pl.rp.contextual_spacing {
+            before = 0.0;
+        }
+    }
+    // Automatic spacing: none between two list items (as in an HTML list; measured in Word: any
+    // two items, of one list or two, at any level).
+    if let Some((_, _, after, after_auto, true)) = &mut prev
+        && label.is_some()
+        && !pb.at_top()
+    {
+        if *after_auto {
+            pb.y -= *after;
+            *after = 0.0;
+        }
+        if pl.rp.before_auto {
             before = 0.0;
         }
     }
@@ -2681,7 +2710,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // the paragraph above (the larger one counts).
     if pl.rp.before_auto && block == 0 {
         before = 0.0;
-    } else if let Some((_, _, after, after_auto)) = prev
+    } else if let Some((_, _, after, after_auto, _)) = prev
         && (pl.rp.before_auto || after_auto)
         && !pb.at_top()
     {
@@ -2925,7 +2954,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         }
     }
     pb.y += pl.rp.space_after;
-    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, pl.rp.space_after, pl.rp.after_auto));
+    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, pl.rp.space_after, pl.rp.after_auto, label.is_some()));
 }
 
 /// The outline of the body for an Outline view pass.
