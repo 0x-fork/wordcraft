@@ -215,6 +215,14 @@ fn to_screen(rects: &[Rect], layout: &DocLayout, scale: f32, page: usize) -> Opt
     Some(move |[x, y]: [f32; 2]| pos2(r.min.x + x * s, r.min.y + y * s))
 }
 
+/// The on-screen colour of ink: on a dark page (View > Switch Modes) it is mapped like every other
+/// document colour, so a stroke looks the same while it is drawn as after it is saved.
+fn screen_ink(dark: bool, c: wordcraft_doc::Rgb, alpha: u8) -> Color32 {
+    let opts = wordcraft_render::RenderOptions { dark, ..Default::default() };
+    let wordcraft_doc::Rgb(r, g, b) = opts.ink(c);
+    Color32::from_rgba_unmultiplied(r, g, b, alpha)
+}
+
 /// The live stroke, the lasso and its selection, and the replayed ink, drawn over the pages.
 pub fn paint(app: &WordApp, painter: &Painter, rects: &[Rect], layout: &DocLayout, scale: f32) {
     paint_replay(app, painter, rects, layout, scale);
@@ -224,7 +232,7 @@ pub fn paint(app: &WordApp, painter: &Painter, rects: &[Rect], layout: &DocLayou
     let s = page_scale(rects, layout, scale, d.page).unwrap_or(scale);
     let set = app.session.view.draw.settings(d.tool);
     let alpha = (d.tool.alpha() * 255.0).round() as u8;
-    let color = Color32::from_rgba_unmultiplied(set.color.0, set.color.1, set.color.2, alpha);
+    let color = screen_ink(app.session.view.dark_mode, set.color, alpha);
     let pts: Vec<Pos2> = d.pts.iter().map(|p| map(*p)).collect();
     let width = (set.width * s).max(1.0);
     if let [only] = pts.as_slice() {
@@ -331,6 +339,8 @@ fn paint_replay(app: &WordApp, painter: &Painter, rects: &[Rect], layout: &DocLa
         let s = page_scale(rects, layout, scale, k.page).unwrap_or(scale);
         let frac = if k.dur > 0.0 { ((r.t - k.start) / k.dur).clamp(0.0, 1.0) } else { 1.0 };
         let total: f32 = k.paths.iter().map(|p| path_len(p)).sum();
+        let [cr, cg, cb, ca] = k.color.to_srgba_unmultiplied();
+        let color = screen_ink(app.session.view.dark_mode, wordcraft_doc::Rgb(cr, cg, cb), ca);
         let mut left = total * frac;
         let width = (k.width * s).max(1.0);
         for path in &k.paths {
@@ -353,11 +363,11 @@ fn paint_replay(app: &WordApp, painter: &Painter, rects: &[Rect], layout: &DocLa
             }
             match (pts.as_slice(), path.as_slice()) {
                 (_, [only]) => {
-                    painter.circle_filled(map(*only), width / 2.0, k.color);
+                    painter.circle_filled(map(*only), width / 2.0, color);
                 }
                 ([], _) => {}
                 _ => {
-                    painter.add(egui::Shape::line(pts, Stroke::new(width, k.color)));
+                    painter.add(egui::Shape::line(pts, Stroke::new(width, color)));
                 }
             }
             if left <= 0.0 {
@@ -427,4 +437,18 @@ pub fn replay_bar(app: &mut WordApp, ui: &Ui, area: Rect) {
         }
     }
     ui.ctx().request_repaint();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_ink_follows_the_dark_page() {
+        let black = wordcraft_doc::Rgb(0, 0, 0);
+        assert_eq!(screen_ink(false, black, 255), Color32::from_rgba_unmultiplied(0, 0, 0, 255));
+        // Black pen on a dark page turns light, like the saved stroke.
+        let dark = screen_ink(true, black, 128);
+        assert_eq!(dark, Color32::from_rgba_unmultiplied(255, 255, 255, 128));
+    }
 }
