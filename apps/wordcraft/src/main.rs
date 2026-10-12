@@ -140,6 +140,7 @@ fn services(file_dialog: file_dialogs::Hook) -> Services {
         file_dialog: Some(file_dialog),
         print: Some(print::hook()),
         clipboard_picture: Some(Box::new(clipboard_picture)),
+        clipboard_text: Some(Box::new(|| arboard::Clipboard::new().ok()?.get_text().ok())),
         ..Default::default()
     }
 }
