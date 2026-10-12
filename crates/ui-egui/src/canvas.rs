@@ -1867,8 +1867,7 @@ fn link_under(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32, po
 /// Whether Ctrl/⌘+click may hand a document's hyperlink to the system: web and email links only,
 /// so a document can't launch `file:` paths, programs or custom-scheme handlers.
 fn is_followable_link(url: &str) -> bool {
-    let Some((scheme, _)) = url.split_once(':') else { return false };
-    ["http", "https", "mailto"].iter().any(|s| scheme.eq_ignore_ascii_case(s))
+    wordcraft_doc::link::is_web_or_mail_link(url)
 }
 
 #[cfg(test)]

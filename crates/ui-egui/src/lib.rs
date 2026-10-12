@@ -2947,4 +2947,29 @@ mod tests {
         a.run("format.bold", json!({})).unwrap();
         assert!(!a.recipient_list_pending);
     }
+
+    /// `ui.render` and `ui.screenshot` without a `path` return the PNG in the reply instead of
+    /// writing a fixed name into the shared temporary folder, where another user could have
+    /// planted a link to one of this user's files.
+    #[test]
+    fn render_and_screenshot_without_a_path_reply_with_the_png() {
+        let ctx = egui::Context::default();
+        let mut a = typed();
+        let (req, _reply) = ControlRequest::new("ui.render", json!({"page": 1, "scale": 0.5}));
+        let control::Outcome::Done(v) = control::handle(&mut a, &ctx, &req) else { panic!("ui.render replies at once") };
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v["result"].get("path").is_none(), "no file: {v}");
+        let png = wordcraft_engine::cmd::insert::base64_decode(v["result"]["png"].as_str().expect("png")).expect("base64");
+        assert_eq!(&png[..4], b"\x89PNG", "{v}");
+        assert!(v["result"]["width"].as_u64().unwrap() > 0 && v["result"]["pages"].as_u64().unwrap() >= 1, "{v}");
+
+        let image = egui::ColorImage::from_rgba_unmultiplied([2, 1], &[255, 0, 0, 255, 0, 0, 255, 255]);
+        let v = control::save_screenshot(&image, None);
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v["result"].get("path").is_none(), "no file: {v}");
+        let png = wordcraft_engine::cmd::insert::base64_decode(v["result"]["png"].as_str().expect("png")).expect("base64");
+        assert_eq!(&png[..4], b"\x89PNG");
+        assert_eq!(v["result"]["width"], 2, "{v}");
+        assert_eq!(v["result"]["height"], 1, "{v}");
+    }
 }
