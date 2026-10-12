@@ -18,6 +18,15 @@ pub const PX_PER_PT: f32 = 96.0 / 72.0;
 const GAP: f32 = 18.0;
 const RULER: f32 = 22.0;
 
+/// Drag-select auto-scroll (#688): the pointer within this many points of the viewport's edge
+/// starts scrolling, like Word.
+const EDGE_MARGIN: f32 = 32.0;
+/// Auto-scroll speed (points/s) at the margin's inner boundary and at (or past) the edge.
+const EDGE_SPEED_MIN: f32 = 45.0;
+const EDGE_SPEED_MAX: f32 = 720.0;
+/// Longest frame time trusted for auto-scroll (a stall shouldn't jump the page).
+const EDGE_MAX_DT: f32 = 0.1;
+
 pub struct CanvasState {
     textures: HashMap<usize, (u64, TextureHandle)>,
     pub scroll_to_caret: bool,
@@ -65,6 +74,9 @@ pub struct CanvasState {
     /// The scroll offset and its maximum at the end of last frame.
     pub(crate) scroll_offset: egui::Vec2,
     scroll_max: egui::Vec2,
+    /// The viewport (the content's visible rect on screen) at the end of last frame; the
+    /// drag-select edge auto-scroll decides this frame's scroll from it (#688).
+    pub(crate) viewport: Option<egui::Rect>,
     /// Pages per row last frame; when it changes the caret's page is scrolled back into view.
     pub cols: usize,
     /// The comment whose balloon is selected (its text is editable in place, like Word's).
@@ -134,6 +146,7 @@ impl Default for CanvasState {
             wheel: Default::default(),
             scroll_offset: egui::Vec2::ZERO,
             scroll_max: egui::Vec2::ZERO,
+            viewport: None,
             cols: 1,
             balloon: None,
             balloon_focus: false,
@@ -505,16 +518,33 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let hovered = ui.rect_contains_pointer(area) && ui.ctx().dragged_id().is_none();
     let notch = crate::scroll::notch_px(app.canvas.scale / PX_PER_PT);
     let opts = ui.ctx().options(|o| o.input_options);
-    let delta = ui.input(|i| app.canvas.wheel.frame(i, &opts, hovered, notch, area.height()));
+    let wheel_delta = ui.input(|i| app.canvas.wheel.frame(i, &opts, hovered, notch, area.height()));
+    // Dragging a selection near the viewport's edge scrolls on (#688): from a crawl at the margin
+    // to full speed at the edge, through the same offset the wheel writes.
+    let (down, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos(), i.stable_dt));
+    let auto_delta = if app.canvas.drag_selecting()
+        && down
+        && let Some(vp) = app.canvas.viewport
+        && let Some(p) = pointer
+    {
+        vec2(edge_scroll(p.x, vp.min.x, vp.max.x, dt), edge_scroll(p.y, vp.min.y, vp.max.y, dt))
+    } else {
+        egui::Vec2::ZERO
+    };
+    let delta = wheel_delta + auto_delta;
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("canvas_scroll")
         .auto_shrink([false, false])
         .scroll_source(egui::scroll_area::ScrollSource { mouse_wheel: false, ..Default::default() });
     if delta != egui::Vec2::ZERO {
         let before = app.canvas.scroll_offset;
-        let after = (before - delta).clamp(egui::Vec2::ZERO, app.canvas.scroll_max);
-        if after == before {
+        let after = clamped_scroll(before, delta, app.canvas.scroll_max);
+        if after == before && wheel_delta != egui::Vec2::ZERO {
             app.canvas.wheel.hit_edge();
+        }
+        if auto_delta != egui::Vec2::ZERO && after != before {
+            // The scroll keeps going without new input.
+            ui.ctx().request_repaint();
         }
         scroll_area = scroll_area.scroll_offset(after);
     }
@@ -810,6 +840,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     app.canvas.scroll_offset = out.state.offset;
     crate::ink::replay_bar(app, ui, out.inner_rect);
     app.canvas.scroll_max = (out.content_size - out.inner_rect.size()).max(egui::Vec2::ZERO);
+    // The viewport barely moves between frames; the auto-scroll decides this frame's scroll before
+    // the scroll area is built, so it reads last frame's viewport.
+    app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
     // A click on the page leaves the selected comment balloon.
     if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() {
@@ -1234,6 +1267,32 @@ pub fn nearest_page(rects: &[Rect], p: Pos2) -> Option<usize> {
     best.map(|(i, _)| i)
 }
 
+/// The drag auto-scroll along one axis for a pointer at `p` inside the viewport band `lo..hi`, in
+/// the wheel's convention (positive = content moves down the screen, toward the document's start):
+/// nothing while the pointer is [`EDGE_MARGIN`] or more inside, then ramping from
+/// [`EDGE_SPEED_MIN`] at the margin to [`EDGE_SPEED_MAX`] at the edge (and capping beyond it),
+/// applied over `dt` seconds. Junk numbers scroll nothing.
+fn edge_scroll(p: f32, lo: f32, hi: f32, dt: f32) -> f32 {
+    if !(p.is_finite() && lo.is_finite() && hi.is_finite() && dt.is_finite()) || hi <= lo {
+        return 0.0;
+    }
+    let dt = dt.clamp(0.0, EDGE_MAX_DT);
+    let speed = |into: f32| egui::emath::lerp(EDGE_SPEED_MIN..=EDGE_SPEED_MAX, (into / EDGE_MARGIN).clamp(0.0, 1.0));
+    if p < lo + EDGE_MARGIN {
+        speed(lo + EDGE_MARGIN - p) * dt
+    } else if p > hi - EDGE_MARGIN {
+        -speed(p - (hi - EDGE_MARGIN)) * dt
+    } else {
+        0.0
+    }
+}
+
+/// The scroll offset after `delta` (the wheel's convention) reaches `before`: clamped to the
+/// scrollable range, so a document shorter than the viewport never moves.
+fn clamped_scroll(before: egui::Vec2, delta: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
+    (before - delta).clamp(egui::Vec2::ZERO, max)
+}
+
 fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layout: &DocLayout, scale: f32) {
     // A pen or the eraser (Draw tab) owns the pointer.
     if crate::ink::pointer(app, ui, resp, rects, layout, scale) {
@@ -1248,6 +1307,17 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         return;
     }
     let Some(p) = pointer else { return };
+    // While drag-selecting, the pointer may sit past the viewport's edge (or the window's):
+    // hit-test where it would be inside the view, so as the edge auto-scroll moves the content the
+    // selection keeps growing under a stationary pointer (#688).
+    let p = if app.canvas.dragging
+        && ui.input(|i| i.pointer.primary_down())
+        && let Some(vp) = app.canvas.viewport
+    {
+        vp.clamp(p)
+    } else {
+        p
+    };
     let Some((page, x, y)) = page_at(rects, layout, scale, p) else { return };
     let mods = ui.input(|i| i.modifiers);
     let story = app.session.sel.focus.story;
@@ -1429,7 +1499,8 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             app.session.page_hint = page;
             app.canvas.caret_visible_since = crate::now_ms();
         }
-        // Auto-scroll near the edges is handled by egui's scroll area drag.
+        // The pointer was clamped into the viewport above, so when the edge auto-scroll moves the
+        // content under it, this hit-test keeps the selection growing (#688).
     } else if app.canvas.dragging && ui.input(|i| i.pointer.primary_released()) {
         app.canvas.dragging = false;
         app.canvas.column_drag = None;
@@ -2225,6 +2296,48 @@ mod tests {
         ] {
             assert!(!is_followable_link(bad), "{bad:?}");
         }
+    }
+
+    /// #688: the drag auto-scroll waits in the middle, ramps in from both edges and never leaves
+    /// the scrollable range.
+    #[test]
+    fn edge_auto_scroll_ramps_from_the_margins_and_clamps() {
+        let dt = 1.0 / 60.0;
+        let (lo, hi) = (100.0, 500.0);
+        // Nothing while the pointer is inside, including just within the margin.
+        for y in [(lo + hi) / 2.0, lo + EDGE_MARGIN, hi - EDGE_MARGIN] {
+            assert_eq!(edge_scroll(y, lo, hi, dt), 0.0, "y = {y}");
+        }
+        // Direction: above the top edge scrolls back (positive), below the bottom scrolls on
+        // (negative), in the wheel's convention.
+        assert!(edge_scroll(lo + 1.0, lo, hi, dt) > 0.0);
+        assert!(edge_scroll(hi - 1.0, lo, hi, dt) < 0.0);
+        // The ramp grows monotonically from the margin to the edge and caps past it.
+        let above: Vec<f32> = (0..=8).map(|k| edge_scroll(lo + EDGE_MARGIN - k as f32 * EDGE_MARGIN / 8.0, lo, hi, dt)).collect();
+        assert_eq!(above[0], 0.0);
+        assert!(above.windows(2).all(|w| w[0] < w[1] && w[1] > 0.0), "{above:?}");
+        assert_eq!(above[8], EDGE_SPEED_MAX * dt, "the hard edge scrolls at full speed");
+        assert_eq!(edge_scroll(lo - 3.0 * EDGE_MARGIN, lo, hi, dt), above[8], "past the edge the speed caps");
+        let below: Vec<f32> = (0..=4).map(|k| edge_scroll(hi - EDGE_MARGIN + k as f32 * EDGE_MARGIN / 4.0, lo, hi, dt)).collect();
+        assert_eq!(below[0], 0.0);
+        assert!(below.windows(2).all(|w| w[0] > w[1] && w[1] < 0.0), "{below:?}");
+        assert_eq!(below[4], -EDGE_SPEED_MAX * dt);
+        assert_eq!(edge_scroll(hi + 3.0 * EDGE_MARGIN, lo, hi, dt), below[4], "past the edge the speed caps");
+        // A stalled frame doesn't jump the page.
+        assert!(edge_scroll(hi - 1.0, lo, hi, 100.0) <= EDGE_SPEED_MAX * EDGE_MAX_DT + 1e-3);
+        // Junk in, nothing out; neither an empty (or inverted) band.
+        for (p, lo, hi, dt) in
+            [(f32::NAN, lo, hi, dt), (200.0, f32::NAN, hi, dt), (200.0, lo, f32::INFINITY, dt), (200.0, lo, hi, f32::NAN), (200.0, 500.0, 100.0, dt)]
+        {
+            assert_eq!(edge_scroll(p, lo, hi, dt), 0.0);
+        }
+
+        // Applying it clamps to the scrollable range; a document that fits never scrolls.
+        let max = vec2(0.0, 400.0);
+        assert_eq!(clamped_scroll(egui::Vec2::ZERO, vec2(0.0, 50.0), max).y, 0.0, "never past the top");
+        assert_eq!(clamped_scroll(vec2(0.0, 400.0), vec2(0.0, -50.0), max).y, 400.0, "never past the bottom");
+        assert_eq!(clamped_scroll(vec2(0.0, 300.0), vec2(0.0, 50.0), max).y, 250.0);
+        assert_eq!(clamped_scroll(egui::Vec2::ZERO, vec2(0.0, 50.0), egui::Vec2::ZERO).y, 0.0, "nothing to scroll");
     }
 
     /// Issue #123: zoomed out, pages sit side by side in rows when the width allows; at 100% a
