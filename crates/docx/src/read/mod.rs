@@ -8,6 +8,7 @@ mod freeform;
 mod math;
 mod props;
 mod sdt;
+mod shape_style;
 mod story;
 mod wordart;
 
