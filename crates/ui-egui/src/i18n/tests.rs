@@ -754,6 +754,87 @@ fn bundled_interface_fonts_cover_turkish_without_system_fallbacks() {
 }
 
 #[test]
+fn hungarian_locales_and_saved_preference_work_without_changing_the_document() {
+    let hu = lang("hu");
+    for tag in ["hu", "hu-HU", "hu_HU.UTF-8", "HU_hu.UTF-8@euro", "hu-Latn-HU"] {
+        assert_eq!(lang_from_tag(tag), Some(hu), "{tag}");
+    }
+    assert_eq!(first_supported(["sv-SE", "hu-HU", "en-US"]), Some(hu));
+    assert_eq!(normalize_pref("HU"), Some("hu"));
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "hu"})).unwrap();
+    assert_eq!(result["effective"], "hu");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "hu" && l["name"] == "Magyar"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), hu);
+    app.run("ui.language", serde_json::json!({"value": "auto"})).unwrap();
+    assert_eq!(app.ui.language, AUTO);
+}
+
+#[test]
+fn hungarian_covers_the_entire_existing_interface_catalog() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    // Every key of the most complete catalog: built-in style names, equation gallery labels, paper
+    // sizes and watermarks included.
+    assert!(keys(lang("hu").0.source).is_superset(&keys(lang("ru").0.source)));
+    assert!(keys(lang("hu").0.source).is_superset(&keys(lang("es").0.source)));
+    let hu = lang("hu");
+    for (source, expected) in [
+        ("Home", "Kezdőlap"),
+        ("Font", "Betűtípus"),
+        ("Review", "Véleményezés"),
+        ("Header", "Élőfej"),
+        ("Track Changes", "Változáskövetés"),
+        ("Save", "Mentés"),
+        ("Redo", "Újra"),
+        ("UPPERCASE", "NAGYBETŰS"),
+        ("WordCraft", "WordCraft"),
+        ("unknown future label", "unknown future label"),
+    ] {
+        assert_eq!(super::tr(hu, source), expected);
+    }
+    assert_eq!(fmt(super::tr(hu, "Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "Oldal: 3/9");
+    // A noun after a number stays singular in Hungarian, whatever the count.
+    for count in [0, 1, 2, 21, 1000] {
+        let words = count.to_string();
+        assert_eq!(fmt(super::tr(hu, "{words} words"), &[("words", &words)]), format!("{count} szó"));
+    }
+    // The Font dialog uppercases its preview sample for All Caps.
+    assert_eq!(super::tr(hu, "AaBbYyZz").to_uppercase(), "AABBYYZZ ŐŐŰŰ");
+    set_current(hu);
+    // Built-in styles show translated names; numbered families go through their template.
+    for (style, expected) in [("Normal", "Normál"), ("No Spacing", "Nincs térköz"), ("Heading 2", "Címsor 2"), ("TOC 3", "Tartalomjegyzék 3")] {
+        assert_eq!(builtin_style_name(style), expected);
+    }
+    assert_eq!(builtin_style_name("My Own Style"), "My Own Style");
+    assert_eq!(location("Home › Font"), "Kezdőlap › Betűtípus");
+    assert_eq!(prefixed("Undo", "Bold"), "Visszavonás: Félkövér");
+    set_current(Lang::EN);
+}
+
+#[test]
+fn bundled_interface_fonts_cover_hungarian_without_system_fallbacks() {
+    let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    let (entries, errors) = parse_entries(lang("hu").0.source);
+    assert!(errors.is_empty());
+    let extra = "ÁáÉéÍíÓóÖöŐőÚúÜüŰű";
+    let chars: std::collections::HashSet<char> =
+        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| extra.contains(*c)).chain(extra.chars()).collect();
+    for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
+        let face = db.face(family, style);
+        assert_eq!(face.family, family, "must use the bundled interface face");
+        for ch in &chars {
+            assert_ne!(face.glyph_for(*ch), 0, "{family} {style} lacks {ch}");
+        }
+    }
+    assert!(!lang("hu").uses_cjk());
+}
+
+#[test]
 fn french_locales_and_saved_preference_work_without_changing_the_document() {
     let fr = lang("fr");
     for tag in ["fr", "fr-FR", "FR_fr.UTF-8", "fr-CA", "fr_BE.UTF-8@euro", "fr-CH", "fr-Latn-FR"] {
@@ -833,9 +914,9 @@ fn polish_covers_every_key_of_every_other_catalog() {
     use std::collections::HashSet;
     let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
     let polish = keys(lang("pl").0.source);
-    // Russian and Italian also translate the built-in style names and the equation gallery,
+    // Russian, Italian and Hungarian also translate the built-in style names and the equation gallery,
     // which the others don't yet; Polish matches every other catalog.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "ru" | "it")) {
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "ru" | "it" | "hu")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
