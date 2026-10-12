@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Outlining tab and outline keys, #493; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Find and Replace special characters and wildcards, #543; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -37,6 +37,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Find and Replace: Special ▾ menu (^p, ^t, ^?, ^#, ^$, ^w, ^&, ^c … ; a shorter wildcard list), Use wildcards (`?` `*` `[a-z]` `[!x]` `{n,m}` `@` `<` `>` `( )`, `\1` in Replace with), Match prefix/suffix, Ignore punctuation and white space; `^p` matches and splits paragraphs, Replace All is one undo step (#543) |
 | 2026-10-11 | trivial | Update Style to Match Selection takes how the selection looks (its paragraph and character styles as well as direct formatting) and applies the style to it; Home › Styles gallery tiles get a right-click menu with Update to Match Selection and Modify… (#555) |
 | 2026-10-11 | trivial | Outlining tab in Outline view (level box, promote/demote, move, expand/collapse, Show Level, Show Text Formatting, Show First Line Only, Close); outline symbols select a heading with its content on click and expand/collapse on double-click; Alt+Shift+Plus/Minus, Alt+Shift+1–9, Alt+Shift+A (#493) |
 | 2026-10-11 | trivial | File › Options as panes (General, Display, Proofing, Save, Language, Accessibility, Advanced, Agents), every setting wired; `file.options` headless (#485) |

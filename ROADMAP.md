@@ -131,6 +131,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-11 | Find and Replace special characters (`^p`, `^t`, `^#`, `^&` …) and Use wildcards (ranges, counts, word anchors, groups with `\1` in Replace); `^p` finds and splits paragraphs; Special ▾ menu and search options in the dialog (#543) |
 | 2026-10-11 | Typing parity (#546): `+---+` Enter makes a table, `> ` `-> ` `=> ` arrow bullets, smileys inside words (`ok:)`), Undo right after a border line brings the characters back |
 | 2026-10-11 | Windows: DirectX 12 shaders compile with FXC, built into Windows, so the app no longer quits at launch with "Parent device is lost" when no matching `dxcompiler.dll` + `dxil.dll` pair is around (#603) |
 | 2026-10-11 | Insert › SmartArt (#497): list, process, cycle, hierarchy, pyramid, radial, matrix and Venn graphics laid out by our own code, Text Pane, SmartArt Design tab (Add Shape, Promote, Demote, layouts, colours, Reset); saved as DOCX diagram parts with the drawing. Catalog 410/441 (93.0%) |
@@ -179,6 +180,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Progress log: Find and Replace special characters and wildcards (#543) |
 | 2026-10-11 | trivial | Progress log: Windows DX12 shaders compiled with FXC (#603) |
 | 2026-10-11 | trivial | Progress log: Insert › SmartArt (#497); catalog 429/451 → 437/458 (95.4%) |
 | 2026-10-11 | trivial | Progress log: Outline view (#493) |
