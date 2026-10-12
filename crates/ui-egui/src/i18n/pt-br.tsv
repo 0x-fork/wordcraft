@@ -787,6 +787,9 @@
 	Show only comments and formatting in balloons	Mostrar apenas comentários e formatação em balões
 	Show revisions in balloons	Mostrar revisões em balões
 	Show rulers	Mostrar réguas
+	Animation	Animação
+	Animate the caret (it glides and fades)	Animar o ponto de inserção (desliza e esmaece)
+	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	Ativado: o ponto de inserção desliza até a nova posição quando você digita ou usa as setas, e o piscar é suave. Desativado: ele salta e pisca de forma brusca.
 	Show the community button in the title bar	Mostrar o botão da comunidade na barra de título
 	Show/Hide ¶	Mostrar/ocultar ¶
 	Show\nComments	Mostrar\ncomentários

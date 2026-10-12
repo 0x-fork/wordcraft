@@ -316,6 +316,18 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
         ui.end_row();
     });
     ui.add_space(8.0);
+    section(ui, "Animation");
+    let mut caret = app.ui.caret_animation;
+    if ui
+        .checkbox(&mut caret, tl!("Animate the caret (it glides and fades)"))
+        .on_hover_text(tl!(
+            "On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off."
+        ))
+        .changed()
+    {
+        let _ = app.run("ui.caretAnimation", json!({"value": caret}));
+    }
+    ui.add_space(8.0);
     section(ui, "Customize");
     ui.horizontal(|ui| {
         ui.label(tl!("Keyboard shortcuts:"));
@@ -517,5 +529,32 @@ mod tests {
         h.run_steps(2);
         assert!(!h.state().session.prefs.typing_replaces_selection);
         assert!(h.query_by_label("Measurement units:").is_some());
+    }
+
+    /// File › Options › Advanced › Animation: the checkbox is the `ui.caretAnimation` setting,
+    /// and the section is translated.
+    #[test]
+    fn advanced_animation_turns_the_caret_animation_off_and_on() {
+        let mut a = app();
+        a.run("file.options", json!({"pane": "advanced"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label("Animation").is_some(), "the section is there");
+        h.get_by_label("Animate the caret (it glides and fades)").click();
+        h.run_steps(4);
+        assert!(!h.state().ui.caret_animation, "the checkbox turns it off");
+        h.get_by_label("Animate the caret (it glides and fades)").click();
+        h.run_steps(4);
+        assert!(h.state().ui.caret_animation, "and on again");
+        h.state_mut().run("ui.language", json!({"value": "es"})).unwrap();
+        h.run_steps(4);
+        assert!(h.query_by_label("Animación").is_some() && h.query_by_label("Animation").is_none());
     }
 }

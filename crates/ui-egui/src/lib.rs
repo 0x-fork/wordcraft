@@ -17,6 +17,7 @@ pub mod a11y;
 pub mod a11y_pane;
 pub mod backstage;
 pub mod canvas;
+pub mod caret_glide;
 pub mod chrome;
 pub mod colors;
 pub mod content_controls;
@@ -157,6 +158,10 @@ pub struct UiState {
     /// View › Switch Modes: show pages dark (white text on black), kept between runs. Only the
     /// pages: the interface follows [`UiState::theme`] (#312).
     pub dark_page: bool,
+    /// File › Options › Advanced › Animation: the caret glides to its new place and its blink
+    /// fades, as Word's does on Windows (on, the default), or it jumps and blinks on and off
+    /// (off).
+    pub caret_animation: bool,
     /// Custom keyboard shortcuts (Customize Keyboard, #368); the session owns them while running.
     pub keyboard: wordcraft_engine::KeyMap,
     /// Custom ribbon tabs and groups, hidden tabs and the Quick Access Toolbar (Customize Ribbon,
@@ -216,6 +221,7 @@ impl Default for UiState {
             keytips: crate::keytips::Phase::Off,
             alt_chord_used: false,
             dark_page: false,
+            caret_animation: true,
             keyboard: wordcraft_engine::KeyMap::default(),
             ribbon: wordcraft_engine::RibbonLayout::default(),
             caption_labels: Vec::new(),
@@ -899,6 +905,16 @@ impl WordApp {
                 self.canvas.open_url = Some("https://discord.gg/artcraft".into());
                 json!({})
             }
+            "ui.caretAnimation" => {
+                // File › Options › Advanced › Animation: `value` true or false turns the caret's
+                // glide and fading blink on or off; no value reads it.
+                match p.get("value") {
+                    None => {}
+                    Some(Value::Bool(on)) => self.ui.caret_animation = *on,
+                    Some(_) => return Some(Err("`value` must be true or false".into())),
+                }
+                json!({"caretAnimation": self.ui.caret_animation})
+            }
             // Shape Format › Text › Create Link: the next click on an empty text box links the
             // selected box to it (`shape.link` with that box as the target); Esc cancels.
             "ui.linkTextBox" => {
@@ -1530,6 +1546,28 @@ mod tests {
 
     fn app() -> WordApp {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    /// File › Options › Advanced › Animation: the caret's animation is a UI command, kept between
+    /// runs.
+    #[test]
+    fn caret_animation_is_a_ui_command_and_survives_a_restart() {
+        let mut a = app();
+        assert_eq!(a.run("ui.caretAnimation", json!({})).unwrap(), json!({"caretAnimation": true}), "on by default; no value reads it");
+        assert_eq!(a.run("ui.caretAnimation", json!({"value": false})).unwrap(), json!({"caretAnimation": false}));
+        for junk in [json!({"value": "yes"}), json!({"value": 1}), json!({"value": null}), json!({"value": [true]})] {
+            assert!(a.run("ui.caretAnimation", junk).is_err());
+        }
+        assert!(!a.ui.caret_animation, "a rejected value keeps the setting");
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        assert!(saved.contains(r#""caretAnimation":false"#), "{saved}");
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert!(!b.ui.caret_animation);
+        // Settings saved before the option existed leave it on.
+        let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
+        assert!(old.caret_animation && old.tab == "Insert");
+        assert_eq!(a.run("ui.caretAnimation", json!({"value": true})).unwrap()["caretAnimation"], true);
     }
 
     /// Insert › Icons (#309) opens the icon picker from the ribbon; an id inserts without it.
