@@ -524,7 +524,8 @@ impl WordApp {
             // Word documents are encrypted with the document's password, if it has one.
             let password =
                 if matches!(id, "file.save" | "file.saveAs") { self.session.password.as_ref().map(wordcraft_engine::Password::as_str) } else { None };
-            let bytes = wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password)?;
+            let opts = wordcraft_engine::cmd::file::export_options(&self.session, &params);
+            let bytes = wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password, &opts)?;
             if let Some(d) = &self.services.download
                 && let Err(e) = d(&name, &bytes)
             {

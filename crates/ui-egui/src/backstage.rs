@@ -333,6 +333,18 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
 fn export_page(app: &mut WordApp, ui: &mut Ui) {
     if app.ui.backstage_page == "print" {
         heading(ui, "Print");
+        // Print Markup (a print setting, as in Word): the comments beside each page.
+        let mut markup = app.session.prefs.print_markup;
+        if ui
+            .checkbox(&mut markup, tl!("Print Markup"))
+            .on_hover_text(tl!(
+                "Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text."
+            ))
+            .changed()
+        {
+            let _ = app.run("file.printMarkup", json!({"value": markup}));
+        }
+        ui.add_space(12.0);
         crate::print_page::show(app, ui);
         return;
     }

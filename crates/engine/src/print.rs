@@ -139,12 +139,16 @@ impl Session {
     /// The document as the PDF of a print job `v` describes (see [`plan`]), with the number of
     /// distinct pages chosen and copies. Does not touch the document.
     pub fn print_pdf(&self, v: &Value) -> Result<(Vec<u8>, PrintPlan), CmdError> {
-        let lay = self.export_layout();
+        // Print Markup (File › Print) decides whether tracked changes and comments print.
+        let markup = crate::cmd::file::export_options(self, v);
+        let lay = self.export_layout_with(markup.markup);
         let plan = plan(v, lay.pages.len(), self.current_pages(&lay))?;
         let opts = wordcraft_pdf::PdfOptions {
             pages: Some(plan.pages.clone()),
             // Repeated pages would repeat the structure tree's entries too.
             tagged: plan.copies <= 1,
+            include_markup: markup.markup,
+            comments: markup.comments,
             ..Default::default()
         };
         let bytes = wordcraft_pdf::export_layout(&self.doc, &lay, &opts).map_err(|e| CmdError::Failed(e.to_string()))?;
