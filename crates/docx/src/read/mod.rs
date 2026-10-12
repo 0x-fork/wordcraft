@@ -99,7 +99,12 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocxError> {
 
 /// [`read`] for bytes known not to be an encrypted package.
 pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
-    let pkg = Package::open(bytes)?;
+    read_opened(&Package::open(bytes)?)
+}
+
+/// Read a package whose parts are already unpacked (from a zip, a Flat OPC file or a converted
+/// Word 2003 XML document).
+pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     let root_rels = pkg.rels("");
     let main = root_rels.by_type(rt::OFFICE_DOC).filter(|r| !r.external).map(|r| r.target.clone()).unwrap_or_else(|| "word/document.xml".to_string());
     let Some(root) = pkg.xml(&main)? else {
@@ -112,7 +117,7 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
     let mut doc = Document::new();
     doc.body.clear();
     let mut r = Reader {
-        pkg: &pkg,
+        pkg,
         doc,
         pc: PropCtx::default(),
         revs: HashMap::new(),
@@ -150,6 +155,10 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
             log::warn!("docx: ignoring unreadable {what}: {e}");
         }
     };
+    // Styles come before settings, but their theme colours already follow its colour mapping.
+    if let Some(p) = part(rt::SETTINGS) {
+        r.read_color_mapping(&p);
+    }
     if let Some(p) = part(rt::STYLES) {
         lenient("styles", r.read_styles(&p));
     }
@@ -560,6 +569,7 @@ impl Reader<'_> {
                     *slot = rgb;
                 }
             }
+            self.pc.theme_colors = colors.clone();
             self.doc.settings.theme_colors = colors;
         }
         if let Some(fs) = el.child("a:fontScheme") {
@@ -575,6 +585,47 @@ impl Reader<'_> {
         self.pc.major_font = self.doc.settings.major_font.clone();
         self.pc.minor_font = self.doc.settings.minor_font.clone();
         self.pc.theme = self.doc.settings.theme_colors.clone();
+    }
+
+    /// `w:settings/w:clrSchemeMapping`: which scheme colour text1, background1… stand for.
+    fn read_color_mapping(&mut self, path: &str) {
+        let Ok(Some(root)) = self.xml(path) else { return };
+        let Some(m) = root.child("w:clrSchemeMapping") else { return };
+        let names = [
+            "dark1",
+            "light1",
+            "dark2",
+            "light2",
+            "accent1",
+            "accent2",
+            "accent3",
+            "accent4",
+            "accent5",
+            "accent6",
+            "hyperlink",
+            "followedHyperlink",
+        ];
+        let attrs = [
+            "w:t1",
+            "w:bg1",
+            "w:t2",
+            "w:bg2",
+            "w:accent1",
+            "w:accent2",
+            "w:accent3",
+            "w:accent4",
+            "w:accent5",
+            "w:accent6",
+            "w:hyperlink",
+            "w:followedHyperlink",
+        ];
+        let mut map = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        for (slot, a) in map.iter_mut().zip(attrs) {
+            if let Some(i) = m.attr(a).and_then(|v| names.iter().position(|n| *n == v)) {
+                *slot = i;
+            }
+        }
+        self.pc.color_map = Some(map);
     }
 
     fn read_styles(&mut self, path: &str) -> Result<(), DocxError> {
@@ -653,12 +704,12 @@ impl Reader<'_> {
             if let Some(b) = tp.child("w:tblBorders") {
                 t.borders = Some(props::borders(b));
             }
-            t.fill = tp.child("w:shd").and_then(props::shd_fill);
+            t.fill = tp.child("w:shd").and_then(|e| self.pc.shd_fill(e));
             t.cell_margins = tp.child("w:tblCellMar").map(props::margins);
             t.band_size = tp.child_val("w:tblStyleRowBandSize").and_then(u32_of).filter(|n| *n > 0).map(|n| n.min(1000));
         }
         for c in s.children("w:tblStylePr").take(64) {
-            let fill = c.child("w:tcPr").and_then(|p| p.child("w:shd")).and_then(props::shd_fill);
+            let fill = c.child("w:tcPr").and_then(|p| p.child("w:shd")).and_then(|e| self.pc.shd_fill(e));
             let cell_borders = c.child("w:tcPr").and_then(|p| p.child("w:tcBorders")).map(props::borders);
             let chr = c.child("w:rPr").map(|r| self.pc.rpr(r)).unwrap_or_default();
             match c.attr("w:type") {

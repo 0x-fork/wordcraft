@@ -360,6 +360,7 @@ fn export_page(app: &mut WordApp, ui: &mut Ui) {
     for (label, ext) in [
         ("PDF document (*.pdf)", "pdf"),
         ("Word document (*.docx)", "docx"),
+        ("Word XML Document (*.xml)", "xml"),
         ("OpenDocument Text (*.odt)", "odt"),
         ("Rich Text Format (*.rtf)", "rtf"),
         ("Web page (*.html)", "html"),

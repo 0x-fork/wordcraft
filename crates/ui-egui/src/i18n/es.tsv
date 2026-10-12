@@ -63,6 +63,7 @@
 	Arrow	Flecha
 	Artistic Effects	Efectos artísticos
 	As you type	Mientras escribes
+	Asian text font:	Fuente de texto asiático:
 	Asian Typography	Tipografía asiática
 	Author	Autor
 	AutoCorrect Options	Opciones de autocorrección
@@ -105,6 +106,7 @@
 	Interface	Interfaz
 	Interface language	Idioma de la interfaz
 	Inside:	Interior:
+	Latin text font:	Fuente de texto latino:
 	Left border	Borde izquierdo
 	Legal style numbering	Numeración de estilo legal
 	Link level to style:	Vincular nivel con estilo:
@@ -954,6 +956,7 @@
 	Word Left	Palabra a la izquierda
 	Word Right	Palabra a la derecha
 	Word document (*.docx)	Documento de Word (*.docx)
+	Word XML Document (*.xml)	Documento XML de Word (*.xml)
 	WordArt	WordArt
 	WordCraft	WordCraft
 	Words	Palabras

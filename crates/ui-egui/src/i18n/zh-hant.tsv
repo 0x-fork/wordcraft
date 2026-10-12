@@ -50,6 +50,7 @@
 	Arrow	箭號
 	Artistic Effects	美術效果
 	As you type	輸入時
+	Asian text font:	亞洲文字字型：
 	Asian Typography	亞洲版式
 	Author	作者
 	AutoCorrect Options	自動校正選項
@@ -103,6 +104,7 @@
 	Interface	介面
 	Interface language	介面語言
 	Inside:	內側：
+	Latin text font:	拉丁文字字型：
 	Left border	左框線
 	Left Margin	左邊界
 	Indents and Spacing	縮排和間距
@@ -929,6 +931,7 @@
 	Window	視窗
 	Word Count	字數統計
 	Word document (*.docx)	Word 文件 (*.docx)
+	Word XML Document (*.xml)	Word XML 文件 (*.xml)
 	Word Left	左移一個單字
 	Word Right	右移一個單字
 	WordArt	文字藝術師

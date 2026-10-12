@@ -136,6 +136,9 @@ fn every_para_prop_round_trips() {
         indent_left: Some(36.0),
         indent_right: Some(18.0),
         indent_first: Some(-18.0),
+        indent_left_chars: Some(1.5),
+        indent_right_chars: Some(0.0),
+        indent_first_chars: Some(-1.0),
         space_before: Some(6.0),
         space_after: Some(12.0),
         line_spacing: Some(LineSpacing::Multiple(1.5)),
@@ -1273,6 +1276,21 @@ fn second_generation_is_stable() {
     assert_eq!(d2.settings, d1.settings);
     assert_eq!(d2.media, d1.media);
     assert_eq!(d2, d1);
+}
+
+/// A Word XML Document (Flat OPC) carries the same package as a .docx: reading it back gives
+/// what the .docx round trip gives, pictures included (#548).
+#[test]
+fn flat_opc_round_trip_equals_docx() {
+    let d = kitchen_sink();
+    let xml = wordcraft_docx::write_flat(&d).expect("write flat");
+    let text = std::str::from_utf8(&xml).expect("utf-8");
+    assert!(text.starts_with("<?xml") && text.contains("<?mso-application progid=\"Word.Document\"?>"));
+    assert!(text.contains("pkg:name=\"/word/document.xml\"") && text.contains("<pkg:binaryData>"));
+    assert_eq!(wordcraft_docx::sniff_xml(&xml), wordcraft_docx::XmlKind::FlatOpc);
+    let back = wordcraft_docx::read_xml(&xml).expect("read flat");
+    assert_eq!(back, rt(&d));
+    assert_eq!(back.media.len(), 1);
 }
 
 #[test]

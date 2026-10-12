@@ -651,6 +651,30 @@ fn find_reads_the_text_around_tracked_deletions() {
 }
 
 #[test]
+fn find_next_with_options_visits_every_match() {
+    // The Find dialog sends its options with each Find Next (#468): every click is one step.
+    let opts = json!({"text": "cat", "with": "", "matchCase": false, "wholeWord": false, "regex": false});
+    let starts = |text: &str, clicks: usize, cmd: &str| {
+        let mut s = s();
+        run(&mut s, "document.setText", json!({"text": text}));
+        run(&mut s, "caret.docStart", json!({}));
+        (0..clicks).map(|_| run(&mut s, cmd, opts.clone())["index"].as_u64().unwrap()).collect::<Vec<_>>()
+    };
+    assert_eq!(starts("cat cat cat cat", 5, "edit.findNext"), [0, 1, 2, 3, 0]);
+    assert_eq!(starts("cat cat", 3, "edit.findNext"), [0, 1, 0]);
+    assert_eq!(starts("cat cat cat", 4, "edit.findPrevious"), [2, 1, 0, 2]);
+
+    // A new query takes effect at once, without a separate `edit.find`.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "cat dog cat dog"}));
+    run(&mut s, "caret.docStart", json!({}));
+    assert_eq!(run(&mut s, "edit.findNext", opts.clone())["index"], 0);
+    let r = run(&mut s, "edit.findNext", json!({"text": "dog"}));
+    assert_eq!((r["index"].clone(), r["count"].clone()), (json!(0), json!(2)));
+    assert_eq!(s.sel.ordered().0.off, 4);
+}
+
+#[test]
 fn clipboard_round_trip() {
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "alpha beta\ngamma"}));
@@ -2954,6 +2978,19 @@ fn style_visibility_round_trips_through_docx() {
     assert!(s.doc.styles.get("Heading4").is_some_and(|h| !h.quick), "undoable");
 }
 
+/// #548: `.xml` saves a Word XML Document (Flat OPC) and opens it again; other XML is refused.
+#[test]
+fn word_xml_saves_and_opens_through_io() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Kept in one XML file"}));
+    let bytes = crate::io::save_bytes("notes.xml", &s.doc).unwrap();
+    assert_eq!(wordcraft_docx::sniff_xml(&bytes), wordcraft_docx::XmlKind::FlatOpc);
+    let doc = crate::io::open_bytes("notes.XML", &bytes).unwrap();
+    assert_eq!(doc.body, crate::io::open_bytes("n.docx", &crate::io::save_bytes("n.docx", &s.doc).unwrap()).unwrap().body);
+    let err = crate::io::open_bytes("feed.xml", b"<rss><channel/></rss>").unwrap_err();
+    assert!(err.contains("not a Word XML document"), "{err}");
+}
+
 /// #146: the first/last column, total row and banded column regions apply in layout (later
 /// regions win: the total row's fill beats the first column's) and round-trip through .docx.
 #[test]
@@ -3608,4 +3645,29 @@ fn outline_collapse_hides_descendants_and_expand_restores() {
     // Clicking a symbol selects the heading with what is under it.
     run(&mut s, "outline.selectSubtree", json!({"block": 0}));
     assert_eq!(s.selected_text(), "One\na\nTwo\nb");
+}
+
+#[test]
+fn format_font_sets_the_asian_and_latin_fonts_separately() {
+    // #505: Word's Font dialog sets an Asian text font and a Latin text font of their own.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Hello 你好"}));
+    run(&mut s, "select.all", json!({}));
+    let fonts = |s: &Session| {
+        let c = s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props_of_char(0).clone();
+        (c.font, c.font_ea)
+    };
+    let before = fonts(&s);
+    run(&mut s, "format.font", json!({"name": "Georgia", "eastAsia": "SimSun"}));
+    assert_eq!(fonts(&s), (Some("Georgia".into()), Some("SimSun".into())));
+    assert_eq!(run(&mut s, "format.state", json!({}))["fontEastAsia"], "SimSun");
+    // The Asian font alone leaves the Latin font as it is.
+    run(&mut s, "format.font", json!({"eastAsia": "Noto Sans CJK SC"}));
+    assert_eq!(fonts(&s), (Some("Georgia".into()), Some("Noto Sans CJK SC".into())));
+    // Each change is one undo step.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(fonts(&s), (Some("Georgia".into()), Some("SimSun".into())));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(fonts(&s), before);
+    assert!(s.run("format.font", &json!({})).is_err() && s.run("format.font", &json!({"eastAsia": " "})).is_err());
 }

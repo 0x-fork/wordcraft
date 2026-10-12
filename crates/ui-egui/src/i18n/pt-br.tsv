@@ -59,6 +59,7 @@
 	Arrow	Seta
 	Artistic Effects	Efeitos artísticos
 	As you type	Enquanto você digita
+	Asian text font:	Fonte de texto asiático:
 	Asian Typography	Tipografia asiática
 	Author	Autor
 	AutoCorrect Options	Opções de autocorreção
@@ -106,6 +107,7 @@
 	Interface	Interface
 	Interface language	Idioma da interface
 	Inside:	Interno:
+	Latin text font:	Fonte de texto latino:
 	Left border	Borda esquerda
 	Legal style numbering	Numeração no estilo legal
 	Link level to style:	Vincular nível ao estilo:
@@ -928,6 +930,7 @@
 	Window	Janela
 	Word Count	Contagem de palavras
 	Word document (*.docx)	Documento Word (*.docx)
+	Word XML Document (*.xml)	Documento XML do Word (*.xml)
 	Word Left	Palavra à esquerda
 	Word Right	Palavra à direita
 	WordArt	Texto artístico

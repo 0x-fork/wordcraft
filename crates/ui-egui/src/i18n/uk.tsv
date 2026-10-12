@@ -61,6 +61,7 @@
 	Arrow	Стрілка
 	Artistic Effects	Художні ефекти
 	As you type	Під час введення
+	Asian text font:	Шрифт азійського тексту:
 	Asian Typography	Азійська типографіка
 	Author	Автор
 	AutoCorrect Options	Параметри автовиправлення
@@ -108,6 +109,7 @@
 	Interface	Інтерфейс
 	Interface language	Мова інтерфейсу
 	Inside:	Усередині:
+	Latin text font:	Шрифт латинського тексту:
 	Left border	Ліва межа
 	Legal style numbering	Юридична нумерація
 	Link level to style:	Зв'язати рівень зі стилем:
@@ -954,6 +956,7 @@
 	Window	Вікно
 	Word Count	Кількість слів
 	Word document (*.docx)	Документ Word (*.docx)
+	Word XML Document (*.xml)	Документ Word XML (*.xml)
 	Word Left	На слово ліворуч
 	Word Right	На слово праворуч
 	WordArt	WordArt

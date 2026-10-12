@@ -49,6 +49,7 @@
 	Arrow	矢印
 	Artistic Effects	アート効果
 	As you type	入力中
+	Asian text font:	アジア文字のフォント:
 	Asian Typography	アジア文字の組版
 	Author	作成者
 	AutoCorrect Options	オートコレクトのオプション
@@ -102,6 +103,7 @@
 	Interface	インターフェイス
 	Interface language	表示言語
 	Inside:	内側:
+	Latin text font:	ラテン文字のフォント:
 	Left border	左罫線
 	Left Margin	左余白
 	Indents and Spacing	インデントと間隔
@@ -928,6 +930,7 @@
 	Window	ウィンドウ
 	Word Count	文字カウント
 	Word document (*.docx)	Word 文書 (*.docx)
+	Word XML Document (*.xml)	Word XML ドキュメント (*.xml)
 	Word Left	前の単語へ
 	Word Right	次の単語へ
 	WordArt	ワードアート
