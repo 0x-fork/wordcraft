@@ -927,10 +927,9 @@ fn layout_box(
                 // space after the paragraph above (the larger one counts).
                 if pl.rp.before_auto && i == 0 {
                     before = 0.0;
-                } else if i > 0 && (pl.rp.before_auto || prev_after_auto) {
+                } else if i > 0 && before > 0.0 && prev_after > 0.0 {
                     before = (before - prev_after).max(0.0);
                 }
-                // Word: space between paragraphs is before + after (no collapsing).
                 y += if i == 0 { before } else { before.max(0.0) };
                 // Floating objects anchored here: place them, then wrap the text around them.
                 // One left out of the layout (hidden, or deleted in the final text) takes no room.
@@ -964,7 +963,7 @@ fn layout_box(
                 // Automatic space after: none after the last paragraph of a cell or box.
                 let after = if pl.rp.after_auto && i + 1 == blocks.len() { 0.0 } else { pl.rp.space_after };
                 y += pl.height + after;
-                prev_after = if same && ctxl { 0.0 } else { after };
+                prev_after = after;
                 prev_after_auto = pl.rp.after_auto;
                 prev_listed = listed;
                 prev_style = Some((pl.rp.style.clone(), ctxl));
@@ -1915,18 +1914,28 @@ fn layout_pass(
             // one long page
         } else if pb.pages.is_empty() || start != SectionStart::Continuous || turn != prev_turn {
             // A page holds text running one way: a section turning the other way starts a page.
+            let s = &doc.settings;
+            let (filler, restart) = section_side(start, restart, pb.number, pb.pages.len(), s.even_odd_headers, s.mirror_margins);
+            // The blank page that puts the section on the right side ends the previous section.
+            if filler
+                && !web
+                && let Some((_, prev)) = si.checked_sub(1).and_then(|k| sections.get(k))
+            {
+                pb.sect = prev;
+                pb.sect_idx = si - 1;
+                let (ph, pf) = (linked(&sections, si - 1, |s| s.headers), linked(&sections, si - 1, |s| s.footers));
+                let top = body_top_for(&mut ctx, prev, ph.default);
+                pb.foot_top = foot_top_for(&mut ctx, prev, pf.default);
+                pb.new_page(block, top);
+                pb.sect = sect;
+                pb.sect_idx = si;
+            }
             if let Some(n) = restart {
                 pb.number = n.saturating_sub(1);
             }
             pb.foot_top = first_foot;
             pb.new_page(block, first_top);
             pb.foot_top = foot_top;
-            if !web && matches!(start, SectionStart::EvenPage | SectionStart::OddPage) {
-                let want_even = start == SectionStart::EvenPage;
-                if pb.number.is_multiple_of(2) != want_even {
-                    pb.new_page(block, body_top);
-                }
-            }
         } else {
             // Continuous: new column layout below the current text (its tallest column).
             pb.cols = sect.column_boxes();
@@ -2276,6 +2285,33 @@ fn item_bottom(y: f32, para: &ParaLayout, l0: usize, l1: usize) -> Option<f32> {
     let f = para.lines.get(l0)?;
     let l = para.lines.get(l1.checked_sub(1)?)?;
     Some(y + l.top + l.height - f.top)
+}
+
+/// Whether a section that starts on a new page needs a blank page first so it lands on the right
+/// side, and the page number it restarts at. `last` is the number of the page before it and
+/// `pages` how many pages there are so far.
+/// - An odd- or even-page break counts on from the previous section's numbers. A section that
+///   restarts its numbering gets no blank page unless the document prints both sides (different
+///   odd and even headers, or mirror margins); a restart at the wrong parity takes the next number.
+/// - With different odd and even headers, a next-page break that restarts the numbers at an odd
+///   (even) number starts on an odd (even) sheet.
+///
+/// (Word's output for docxide-pdf's fixtures: bush_fires_act_comparison has a blank page 2.)
+fn section_side(start: SectionStart, restart: Option<u32>, last: u32, pages: usize, even_odd: bool, mirror: bool) -> (bool, Option<u32>) {
+    match start {
+        SectionStart::OddPage | SectionStart::EvenPage => {
+            let want_odd = start == SectionStart::OddPage;
+            let continuing_odd = last.saturating_add(1) % 2 == 1;
+            let filler = pages > 0 && continuing_odd != want_odd && (restart.is_none() || even_odd || mirror);
+            let restart = restart.map(|n| if (n % 2 == 1) == want_odd { n } else { n.saturating_add(1) });
+            (filler, restart)
+        }
+        SectionStart::NextPage => {
+            let filler = even_odd && pages > 0 && restart.is_some_and(|n| (n % 2 == 1) != ((pages + 1) % 2 == 1));
+            (filler, restart)
+        }
+        SectionStart::Continuous | SectionStart::NextColumn => (false, restart),
+    }
 }
 
 /// Where body text starts: the top margin, or below the header if it's taller.
@@ -2662,7 +2698,6 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     if broke_before {
         pb.new_page(block, body_top);
     }
-    // Contextual spacing: no space between paragraphs of the same style when either asks for it.
     let mut before = pl.rp.space_before;
     let prev_para = pb.prev.clone();
     // At the top of a page, measured in Word for Windows: no space before after a paragraph that
@@ -2679,42 +2714,39 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         // off the space before here (Word: 24 pt before after 10 pt after leaves 14 pt).
         before = (before - after.max(0.0)).max(0.0);
     }
-    let mut prev = pb.prev.take();
-    if let Some((style, ctxl, after, _, _)) = &mut prev
-        && *style == pl.rp.style
+    if let Some((style, ctxl, mut after, after_auto, listed)) = pb.prev.take()
         && !pb.at_top()
     {
-        if *ctxl {
-            pb.y -= *after;
-            *after = 0.0;
+        // Contextual spacing: no space between paragraphs of the same style when either asks for it.
+        if style == pl.rp.style {
+            if ctxl {
+                pb.y -= after;
+                after = 0.0;
+            }
+            if pl.rp.contextual_spacing {
+                before = 0.0;
+            }
         }
-        if pl.rp.contextual_spacing {
-            before = 0.0;
+        // Automatic spacing: none between two list items (as in an HTML list; measured in Word:
+        // any two items, of one list or two, at any level).
+        if listed && label.is_some() {
+            if after_auto {
+                pb.y -= after;
+                after = 0.0;
+            }
+            if pl.rp.before_auto {
+                before = 0.0;
+            }
+        }
+        // The space between two paragraphs is the larger of the first's space after and the
+        // second's space before, not their sum.
+        if before > 0.0 && after > 0.0 {
+            before = (before - after).max(0.0);
         }
     }
-    // Automatic spacing: none between two list items (as in an HTML list; measured in Word: any
-    // two items, of one list or two, at any level).
-    if let Some((_, _, after, after_auto, true)) = &mut prev
-        && label.is_some()
-        && !pb.at_top()
-    {
-        if *after_auto {
-            pb.y -= *after;
-            *after = 0.0;
-        }
-        if pl.rp.before_auto {
-            before = 0.0;
-        }
-    }
-    // Automatic spacing: none at the top of the document, and it collapses with the space after
-    // the paragraph above (the larger one counts).
+    // Automatic spacing: none at the top of the document.
     if pl.rp.before_auto && block == 0 {
         before = 0.0;
-    } else if let Some((_, _, after, after_auto, _)) = prev
-        && (pl.rp.before_auto || after_auto)
-        && !pb.at_top()
-    {
-        before = (before - after).max(0.0);
     }
     pb.y += before;
     let mut applied_before = before;

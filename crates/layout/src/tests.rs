@@ -899,6 +899,90 @@ fn section_breaks_show_with_formatting_marks() {
 }
 
 #[test]
+fn space_between_paragraphs_is_the_larger_of_after_and_before() {
+    // (space after the first, space before the second, contextual spacing on both) -> gap
+    let gap = |after: f32, before: f32, contextual: bool| -> f32 {
+        let mut d = Document::from_text("One\nTwo");
+        for (i, (a, b)) in [(after, 0.0), (0.0, before)].into_iter().enumerate() {
+            let p = d.para_mut(wordcraft_doc::StoryRef::Body, &wordcraft_doc::Path::top(i)).unwrap();
+            (p.props.space_after, p.props.space_before, p.props.contextual_spacing) = (Some(a), Some(b), Some(contextual));
+        }
+        let l = lay(&d);
+        let ys: Vec<(f32, f32)> =
+            l.pages[0].items.iter().filter_map(|i| if let Placed::Lines { y, para, .. } = i { Some((*y, para.height)) } else { None }).collect();
+        ys[1].0 - (ys[0].0 + ys[0].1)
+    };
+    // Word's output for docxide-pdf's clean_energy_regulator_guidelines: 6pt after and 6pt before
+    // leave 6pt, not 12pt.
+    assert!((gap(6.0, 6.0, false) - 6.0).abs() < 0.01);
+    assert!((gap(6.0, 12.0, false) - 12.0).abs() < 0.01);
+    assert!((gap(12.0, 6.0, false) - 12.0).abs() < 0.01);
+    assert!((gap(0.0, 6.0, false) - 6.0).abs() < 0.01);
+    // Contextual spacing drops both between paragraphs of one style.
+    assert!(gap(6.0, 12.0, true).abs() < 0.01);
+}
+
+#[test]
+fn space_between_paragraphs_in_a_cell_follows_the_body_rule() {
+    // Three paragraphs in a cell, each 6pt before and 6pt after -> the gaps between them.
+    let gaps = |contextual: bool| -> Vec<f32> {
+        let mut d = Document::from_text("before\nafter");
+        let mut t = Table::new(1, 1, 468.0);
+        t.rows[0].cells[0].blocks = (0..3)
+            .map(|k| {
+                let mut p = wordcraft_doc::Paragraph::with_text(&format!("p{k}"), Default::default());
+                (p.props.space_after, p.props.space_before, p.props.contextual_spacing) = (Some(6.0), Some(6.0), Some(contextual));
+                wordcraft_doc::para_block(p)
+            })
+            .collect();
+        d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let mut ys: Vec<(u32, f32, f32)> = l.pages[0]
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                Placed::Lines { path, y, para, .. } if path.0.len() == 4 => Some((path.0[3], *y, para.height)),
+                _ => None,
+            })
+            .collect();
+        ys.sort_by_key(|v| v.0);
+        ys.windows(2).map(|w| w[1].1 - (w[0].1 + w[0].2)).collect()
+    };
+    let near = |got: Vec<f32>, want: [f32; 2]| got.len() == 2 && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.01);
+    // The larger of after and before, not their sum.
+    assert!(near(gaps(false), [6.0, 6.0]), "{:?}", gaps(false));
+    // Contextual spacing drops the space between every pair, not just the first.
+    assert!(near(gaps(true), [0.0, 0.0]), "{:?}", gaps(true));
+}
+
+#[test]
+fn sections_land_on_the_side_their_break_and_numbering_ask_for() {
+    use wordcraft_doc::section::{SectionProps, SectionStart};
+    // "One" ends the first section on page 1; the second section starts as `start`.
+    let pages = |start: SectionStart, restart: Option<u32>, even_odd: bool| -> Vec<(usize, u32)> {
+        let mut d = Document::from_text("One\nTwo");
+        d.para_mut(wordcraft_doc::StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().section = Some(Box::new(SectionProps::default()));
+        d.last_section.start = start;
+        d.last_section.page_num_start = restart;
+        d.settings.even_odd_headers = even_odd;
+        lay(&d).pages.iter().map(|p| (p.section, p.number)).collect()
+    };
+    // An odd-page break after page 1 leaves page 2 blank; the blank page ends the first section.
+    assert_eq!(pages(SectionStart::OddPage, None, false), [(0, 1), (0, 2), (1, 3)]);
+    assert_eq!(pages(SectionStart::EvenPage, None, false), [(0, 1), (1, 2)]);
+    // Restarting at 1 needs no blank page unless both sides print; at 2 it takes the next number.
+    assert_eq!(pages(SectionStart::OddPage, Some(1), false), [(0, 1), (1, 1)]);
+    assert_eq!(pages(SectionStart::OddPage, Some(2), false), [(0, 1), (1, 3)]);
+    assert_eq!(pages(SectionStart::OddPage, Some(1), true), [(0, 1), (0, 2), (1, 1)]);
+    // With different odd and even headers, a next-page break restarting at 1 starts on an odd
+    // sheet (Word's output for docxide-pdf's bush_fires_act_comparison).
+    assert_eq!(pages(SectionStart::NextPage, Some(1), true), [(0, 1), (0, 2), (1, 1)]);
+    assert_eq!(pages(SectionStart::NextPage, Some(2), true), [(0, 1), (1, 2)]);
+    assert_eq!(pages(SectionStart::NextPage, Some(1), false), [(0, 1), (1, 1)]);
+    assert_eq!(pages(SectionStart::NextPage, None, true), [(0, 1), (1, 2)]);
+}
+
+#[test]
 fn paragraph_marks_sit_past_text_running_the_other_way() {
     // A left-to-right paragraph ending in Hebrew, and a right-to-left one ending in Latin: the
     // logically last letters are at the wrong edge, but the ¶ still goes past every glyph.
