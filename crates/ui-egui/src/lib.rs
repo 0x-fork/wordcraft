@@ -2539,7 +2539,9 @@ mod tests {
             assert_eq!(h.query_by_label(BLURB).is_some(), hook, "hook {hook}: the Print button's blurb");
             assert!(h.query_by_label("PDF document (*.pdf)").is_some(), "hook {hook}: the page rendered its export choices");
             if hook {
-                h.get_by_role_and_label(egui::accesskit::Role::Button, "Print").click();
+                // The page's own Print button (the backstage list has a Print entry too): the last.
+                let buttons: Vec<_> = h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::Button).label("Print")).collect();
+                buttons.last().expect("a Print button").click();
                 h.step();
                 h.step();
                 assert_eq!(printed.get(), 1, "the button printed");
