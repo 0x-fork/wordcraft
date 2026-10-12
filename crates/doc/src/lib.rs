@@ -12,6 +12,7 @@
 
 pub mod bidi;
 pub mod chart;
+mod cjk_numbers;
 pub mod connector;
 pub mod control;
 pub mod edit;
