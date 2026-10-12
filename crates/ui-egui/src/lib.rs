@@ -313,6 +313,8 @@ pub struct WordApp {
     fonts_frames: u32,
     /// The interface theme setting last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
+    /// The interface language whose editing language the session last got ([`i18n::Lang::editing_lang`]).
+    applied_editing: Option<i18n::Lang>,
     /// What the system last said about its animation effects ([`Services::animations_enabled`]).
     system_animations: Option<bool>,
     /// Whether egui's own animations were last switched on or off ([`theme::apply_animations`]).
@@ -399,6 +401,7 @@ impl WordApp {
             want_system_cjk: false,
             fonts_frames: 0,
             applied_theme: None,
+            applied_editing: None,
             system_animations: None,
             applied_animations: None,
             frame_ms: 0.0,
@@ -763,7 +766,9 @@ impl WordApp {
             self.ui.recent.truncate(MAX_RECENT);
         }
         if !self.session.status.is_empty() {
+            // Engine messages are English; the catalog translates the ones it knows.
             let s = std::mem::take(&mut self.session.status);
+            let s = tl!(&s).to_string();
             self.status(s);
         }
     }
@@ -1117,6 +1122,12 @@ impl WordApp {
     pub fn logic(&mut self, ctx: &egui::Context) {
         let lang = i18n::Lang::from_pref(&self.ui.language);
         i18n::set_current(lang);
+        // New documents are written in the interface's language when WordCraft can proof it
+        // (a Polish interface: Polish spelling, grammar and hyphenation from the first word).
+        if self.applied_editing != Some(lang) {
+            self.session.set_editing_language(lang.editing_lang());
+            self.applied_editing = Some(lang);
+        }
         options::sync(self);
         // Chinese text wants the Chinese face before the Japanese one (one glyph style per line).
         // An installed CJK font is read only once CJK text is shown (#241): never for an English
