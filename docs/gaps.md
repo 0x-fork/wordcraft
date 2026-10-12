@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (#811: scrolling a very large table no longer re-fingerprints every page each frame; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 The work list. One entry per shortfall, ranked by how much it stops a Word user from switching
 (**B** = blocks beta). Each says what's missing, the evidence, who it hurts, an Opus 5.5 agent
@@ -34,7 +34,7 @@ Native save reliability: synthetic cases on macOS reproduced loss through the pr
 | 17 | **East Asian typography**: Asian Typography options (Phonetic Guide landed, #288; Enclose Characters landed, #297; document grid landed, #391; vertical text landed, #491) | | Catalog misses `para.asianTypography` | Chinese, Japanese and Korean documents | 11–19 | [layout-parity.md](layout-parity.md) |
 | 18 | **Screen-reader access** to the document canvas: exposed, not yet tried with real screen readers | | The canvas describes paragraphs, headings, lists, tables, links, pictures and the caret to AccessKit (#488), tested headlessly; no NVDA, VoiceOver or Orca run yet | Blind and low-vision users; public-sector procurement | 3–6 | [ui-parity.md](ui-parity.md) |
 | 19 | **RTF and ODT depth**: notes, comments, revisions, sections, RTL | | ~1,500 lines each in `crates/formats` | Users exchanging with LibreOffice or older tools | 18–27 | [file-format-parity.md](file-format-parity.md) |
-| 20 | **Performance on large real-world documents** unmeasured (500+ pages, many pictures) | | Only the 188-page sample benchmark | Thesis and book authors | 10–20 | [layout-parity.md](layout-parity.md) |
+| 20 | **Performance on large real-world documents** unmeasured (500+ pages, many pictures) | | Only the 188-page sample benchmark; scrolling a 1,096-page one-table document went from ~600 ms to ~2–5 ms a frame (#811), but opening it still lays out for seconds | Thesis and book authors | 10–20 | [layout-parity.md](layout-parity.md) |
 | 21 | **Mail merge data sources**: no Outlook/Contacts, Access or database sources, no email merge; CSV, typed lists (#247) and Excel/OpenDocument spreadsheets (#334) only | | Select Recipients reads .csv/.tsv, .xlsx/.xlsm and .ods | Office administrators | 4–8 | [target-app-parity.md](target-app-parity.md) |
 | 22 | **Ecosystem**: no VBA execution (macros preserved only), no Office add-ins, no cloud storage, no real-time co-authoring | | `.docm` keeps macros (#172) | Enterprise users with macro templates; teams | 40–80 + owner decisions | [target-app-parity.md](target-app-parity.md) |
 | 23 | **PDF Reflow** (open a PDF as an editable document, Word for Windows) | | | Users who edit PDFs they receive | 30–50 | [file-format-parity.md](file-format-parity.md) |
@@ -141,3 +141,4 @@ The same gaps grouped the way the parity documents are, for agents working in on
 | 2026-10-11 | trivial | #491: vertical sections landed; vertical text removed from the East Asian gap |
 | 2026-10-10 | major | First version, from the full re-measure: 29 ranked gaps with evidence, impact and hours |
 | 2026-10-10 | trivial | #307: Draw tab pens, eraser and Hide Ink landed; ink gap narrowed |
+| 2026-10-12 | trivial | #811: large-table scrolling fixed; performance gap (#20) narrowed |

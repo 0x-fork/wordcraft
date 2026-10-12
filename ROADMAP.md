@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (documents use the craft-fonts Simplified Chinese face; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (large-table scrolling, #811; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 WordCraft aims for complete parity with Microsoft Word, then goes further on speed, openness and
 agent control. This page is the summary; the assessment is
@@ -164,6 +164,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | Automatic paragraph spacing drops between list items, as in Word (16 cases measured in Word for Windows): bulleted items that ask for automatic space before and after now touch, as in NIH's monitoring plan |
 | 2026-10-12 | Rendering like Word for Windows, found by comparing real .gov documents page by page: text is kerned only where Kerning for fonts asks for it (line breaks now match Word's), and automatic paragraph spacing (`w:beforeAutospacing`/`w:afterAutospacing`, common in pasted web text) is 14 pt, dropped at the document's and cells' edges |
 | 2026-10-12 | Keyboard context menu (#821): Shift+F10 opens the page's right-click menu below the caret; `ui.contextMenu` |
+| 2026-10-12 | Scrolling a document with one very large table stays smooth (#811): pages are fingerprinted for the texture cache once per layout and only when shown (not every page every frame), the markup-area check is cached per revision, and textures far from the view are dropped. The issue's 1,096-page table: ~600 ms → ~2.4 ms idle frames, ~590 ms → ~4.5 ms scroll frames |
 | 2026-10-12 | Search (#819): Alt+Q, or Alt then Q, opens the Search box from anywhere with nothing typed into it; queries match every word; `tools.search` for agents |
 | 2026-10-12 | Find, Replace and Go To like Word (#712): Ctrl+F types into the Navigation pane's search, one tabbed Find and Replace dialog, Go To by page (absolute or relative) and bookmark; `edit.findReplace`, `edit.goto` `pageBy` |
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
@@ -284,6 +285,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | trivial | Progress log: tables resize with the mouse (#217) |
 | 2026-10-11 | trivial | Progress log: Animation effects setting |
 | 2026-10-11 | trivial | Progress log: built-in file browser when the system file dialog is unavailable (#576) |
+| 2026-10-12 | trivial | Progress log: large-table scrolling (#811) |
 | 2026-10-11 | trivial | Progress log: security review fixes (temp files, exported link schemes) |
 | 2026-10-11 | trivial | Progress log: Find and Replace special characters and wildcards (#543) |
 | 2026-10-11 | trivial | Progress log: Windows DX12 shaders compiled with FXC (#603) |

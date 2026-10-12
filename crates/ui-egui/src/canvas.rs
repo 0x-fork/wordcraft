@@ -26,9 +26,17 @@ const EDGE_SPEED_MIN: f32 = 45.0;
 const EDGE_SPEED_MAX: f32 = 720.0;
 /// Longest frame time trusted for auto-scroll (a stall shouldn't jump the page).
 const EDGE_MAX_DT: f32 = 0.1;
+/// Page textures are kept for pages within this many viewport heights of the view; farther ones
+/// are rendered again when they come back.
+const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
     textures: HashMap<usize, (u64, TextureHandle)>,
+    /// Page content fingerprints of the current layout, for the texture cache (#811).
+    pub(crate) page_keys: PageKeys,
+    /// Whether the document has tracked formatting changes, moves and deletions, by document
+    /// revision: finding out walks every paragraph, too slow for every frame (#811).
+    markup_facts: std::cell::Cell<Option<((u64, u64), [bool; 3])>>,
     pub scroll_to_caret: bool,
     /// A heading navigation click aligns its page against the navigation pane, not just visible.
     pub(crate) nav_to_caret: bool,
@@ -134,12 +142,20 @@ impl CanvasState {
     pub(crate) fn page_texture(&self, page: usize) -> Option<&TextureHandle> {
         self.textures.get(&page).map(|(_, t)| t)
     }
+
+    /// How many pages have a cached rendering.
+    #[cfg(test)]
+    pub(crate) fn texture_count(&self) -> usize {
+        self.textures.len()
+    }
 }
 
 impl Default for CanvasState {
     fn default() -> Self {
         CanvasState {
             textures: HashMap::new(),
+            page_keys: PageKeys::default(),
+            markup_facts: std::cell::Cell::new(None),
             scroll_to_caret: true,
             nav_to_caret: false,
             read_wheel_accum: 0.0,
@@ -294,11 +310,23 @@ pub fn markup_width(app: &WordApp) -> f32 {
     // Word shows comments either in balloons (contextual) or in the Comments pane (list); Track
     // Changes Options can put every revision inline (`Session::balloons_shown`).
     let s = &app.session;
+    if !s.balloons_shown() {
+        return 0.0;
+    }
     let m = &s.prefs.markup;
     let comments = m.comments && !s.doc.comments.is_empty();
-    let formats = m.formatting && wordcraft_engine::cmd::review::has_format_changes(&s.doc);
-    let moves = m.insertions_deletions && wordcraft_engine::cmd::moves::has_moves(&s.doc);
-    let deletions = s.revisions_in_balloons() && wordcraft_engine::cmd::review::has_deletions(&s.doc);
+    let [has_formats, has_moves, has_deletions] = match app.canvas.markup_facts.get() {
+        Some((rev, facts)) if rev == (s.document_id(), s.rev()) => facts,
+        _ => {
+            use wordcraft_engine::cmd::{moves, review};
+            let facts = [review::has_format_changes(&s.doc), moves::has_moves(&s.doc), review::has_deletions(&s.doc)];
+            app.canvas.markup_facts.set(Some(((s.document_id(), s.rev()), facts)));
+            facts
+        }
+    };
+    let formats = m.formatting && has_formats;
+    let moves = m.insertions_deletions && has_moves;
+    let deletions = s.revisions_in_balloons() && has_deletions;
     if s.balloons_shown() && (comments || formats || moves || deletions) { 216.0 } else { 0.0 }
 }
 
@@ -522,15 +550,24 @@ pub fn sync_fit_zoom(app: &mut WordApp, scale: f32) {
     v.zoom = (scale / PX_PER_PT).clamp(0.1, 5.0);
 }
 
-/// Fingerprint of a page's content for the texture cache.
-fn page_key(app: &WordApp, page: &Page, scale_px: f32, dim_body: bool) -> u64 {
+/// Fingerprint of everything outside the layout that changes how pages render: the view's
+/// marks and markup, dark mode, the page colour and watermark, header/body dimming, the media.
+/// Taken once per frame.
+fn view_key(app: &WordApp, dim_body: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    scale_px.to_bits().hash(&mut h);
     let v = &app.session.view;
     (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
     dim_body.hash(&mut h);
     format!("{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.watermark).hash(&mut h);
+    app.session.doc.media.len().hash(&mut h);
+    h.finish()
+}
+
+/// Fingerprint of a page's laid-out content. A layout never changes once made, so this is
+/// taken once per page and layout ([`PageKeys`]), not every frame.
+fn page_content_key(page: &Page) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
     (page.w.to_bits(), page.h.to_bits()).hash(&mut h);
     for list in [&page.items, &page.header, &page.footer] {
         list.len().hash(&mut h);
@@ -555,7 +592,44 @@ fn page_key(app: &WordApp, page: &Page, scale_px: f32, dim_body: bool) -> u64 {
             }
         }
     }
-    app.session.doc.media.len().hash(&mut h);
+    h.finish()
+}
+
+/// The content fingerprints of one layout's pages, taken when a page is first needed (#811).
+/// Hashing every item of every page each frame cost tens of milliseconds a frame in a long
+/// table (thousands of cell borders per page), idle or scrolling.
+#[derive(Default)]
+pub(crate) struct PageKeys {
+    /// The layout these are for; held so its address can't be reused by another one.
+    layout: Option<std::sync::Arc<DocLayout>>,
+    keys: Vec<Option<u64>>,
+    /// Pages fingerprinted since the layout last changed.
+    pub(crate) hashed: usize,
+}
+
+impl PageKeys {
+    fn content(&mut self, layout: &std::sync::Arc<DocLayout>, i: usize) -> u64 {
+        if !self.layout.as_ref().is_some_and(|l| std::sync::Arc::ptr_eq(l, layout)) {
+            self.layout = Some(layout.clone());
+            self.keys = vec![None; layout.pages.len()];
+            self.hashed = 0;
+        }
+        if let Some(Some(k)) = self.keys.get(i) {
+            return *k;
+        }
+        let k = layout.pages.get(i).map_or(0, page_content_key);
+        if let Some(slot) = self.keys.get_mut(i) {
+            *slot = Some(k);
+            self.hashed += 1;
+        }
+        k
+    }
+}
+
+/// The texture cache key of page `i`: its content, the view, and the raster scale.
+fn page_key(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, i: usize, view: u64, scale_px: f32) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (view, scale_px.to_bits(), app.canvas.page_keys.content(layout, i)).hash(&mut h);
     h.finish()
 }
 
@@ -837,22 +911,19 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let t0 = crate::now_ms();
         let mut rects = Vec::with_capacity(geo.rects.len());
         let content_origin = ui.min_rect().min;
+        let view = view_key(app, dim_body);
         for (i, pr) in geo.rects.iter().enumerate() {
             let sr = pr.translate(content_origin.to_vec2());
             let Some(page) = layout.pages.get(i) else { continue };
             let (band_top, band_bot) = geo.bands.get(i).copied().unwrap_or((0.0, sr.height()));
             let scale_px = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05);
-            // Most reading documents have many columns; skip expensive page hashing for offscreen
-            // pages. We still emit their rectangles for hit testing and the control channel.
-            if !sr.intersects(ui.clip_rect().expand(200.0)) {
-                rects.push(sr);
-                continue;
-            }
-            let key = page_key(app, page, scale_px, dim_body);
-            let mut fresh = app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
             // Hide White Space shows only a band of the page; everything below paints into it.
             let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
             let visible = band_of(sr).intersects(ui.clip_rect().expand(200.0));
+            // Only pages on screen or with a texture need their key (#811).
+            let cached = app.canvas.textures.contains_key(&i);
+            let key = if visible || cached { page_key(app, &layout, i, view, scale_px) } else { 0 };
+            let mut fresh = cached && app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
             // Render before placing the page: a page re-rendered in this frame (a zoom step, an
             // edit) then sits on the pixel grid in this frame too, rather than a frame later.
             if visible && !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
@@ -975,9 +1046,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         if rendered > 0 {
             app.canvas.render_ms = crate::now_ms() - t0;
         }
-        // Drop textures of pages that no longer exist.
+        // Drop textures of pages that no longer exist, and of pages scrolled well out of view
+        // (#811): scrolling through a long document kept every page it had shown in memory.
         let n = layout.pages.len();
-        app.canvas.textures.retain(|k, _| *k < n);
+        let clip = ui.clip_rect();
+        let near = clip.expand2(vec2(clip.width(), clip.height() * TEXTURE_KEEP_SCREENS));
+        app.canvas.textures.retain(|k, _| *k < n && geo.rects.get(*k).is_some_and(|r| r.translate(content_origin.to_vec2()).intersects(near)));
         app.canvas.page_rects = rects.clone();
         balloons(app, ui, &painter, &rects, &layout, geo.scale);
         // Find › Reading Highlight.
