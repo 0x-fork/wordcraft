@@ -275,6 +275,11 @@ pub struct Session {
     pub pending: Option<CharProps>,
     pub path: Option<std::path::PathBuf>,
     pub dirty: bool,
+    /// Where the custom dictionary is kept on disk, if the host wired one up. Only the desktop
+    /// app does: headless sessions (MCP, `wordcraft-cli run`), tests and the web build leave
+    /// `None`, so an agent's words stay in memory and never change the person's dictionary.
+    /// Add to Dictionary and File › Options › Proofing save through it (#40).
+    pub user_dict_path: Option<std::path::PathBuf>,
     pub clipboard: Option<Fragment>,
     /// A tracked cut the next paste can turn into a move (see `cmd::moves`).
     pub pending_move: Option<crate::cmd::moves::PendingMove>,
@@ -471,6 +476,20 @@ fn doc_bib_style(doc: &Document) -> String {
 const MAX_UNDO: usize = 500;
 
 impl Session {
+    /// File name of the persisted custom dictionary inside the settings folder.
+    pub const USER_DICT_FILE: &str = "custom-dictionary.txt";
+
+    /// Save the custom dictionary through [`Session::user_dict_path`], if the host wired one up,
+    /// with `removed` (words just taken out) left out of the merge with the file. A failed save
+    /// keeps the words in memory and never fails the command (#40).
+    pub(crate) fn persist_user_dictionary(&self, removed: &[String]) {
+        if let Some(path) = self.user_dict_path.as_deref()
+            && let Err(e) = wordcraft_proof::save_user_dictionary(path, removed)
+        {
+            log::warn!("custom dictionary: save failed: {e}");
+        }
+    }
+
     pub fn new(doc: Document) -> Self {
         let start = doc.start_of(StoryRef::Body);
         let bib_style = doc_bib_style(&doc);
@@ -480,6 +499,7 @@ impl Session {
             view: ViewState::default(),
             pending: None,
             path: None,
+            user_dict_path: None,
             dirty: false,
             clipboard: None,
             pending_move: None,
@@ -844,6 +864,8 @@ impl Session {
             view: _,
             pending: _,
             path: _,
+            // The custom dictionary file, like the file path: host wiring, not an edit.
+            user_dict_path: _,
             dirty,
             clipboard: _,
             // Like the clipboard: what the next paste can make a move of.

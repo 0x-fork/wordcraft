@@ -5020,6 +5020,7 @@ dependencies = [
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-fonts",
+ "wordcraft-proof",
  "wordcraft-ui-egui",
  "zbus",
 ]
