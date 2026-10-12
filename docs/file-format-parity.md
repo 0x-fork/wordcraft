@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** trivial (independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (ODT page size, orientation and margins read on open, #810; previously trivial: native save temporary-file ownership and failure protection; previously trivial: Print Markup: comments in PDF/print/copies, #589; previously trivial: SmartArt written from WordCraft's model, #497; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -26,7 +26,7 @@ Weights are the share of a Word user's file traffic (estimate). Read/write: ✅ 
 | PDF export | 8% | W | — | ✅ | ~80% | 6–10 | `crates/pdf/src/tests.rs` | krilla: embedded subsets, selectable text incl. field results (#133), links, outline, tagging. Fonts it can't subset become outlines (#132). Print Markup (#589): comments in balloons beside each page (scaled to its paper) and tracked changes; HTML/Markdown/text copies end with a comment list. No PDF/A option, no "best for printing/online" choice |
 | PDF open (PDF Reflow, Word for Windows) | 1% | R | ❌ | — | 0% | 30–50 | — | Converting a PDF into an editable document. A sibling app (PdfCraft) may supply the parser |
 | `.rtf` Rich Text Format | 3% | R/W | 🟡 | 🟡 | ~50% | 10–15 | `crates/formats/src/tests.rs` | ~1,500 lines: text, character/paragraph formatting, styles, lists, tables, pictures (`\shppict`, #154), fields, bookmarks. Thin: comments, notes, revisions, sections, RTL |
-| `.odt` OpenDocument Text | 2% | R/W | 🟡 | 🟡 | ~50% | 8–12 | `crates/formats/src/tests.rs` | Styles, lists (#87), tables, pictures, headers/footers, page breaks (#86). No footnotes, comments, tracked changes, fields or RTL |
+| `.odt` OpenDocument Text | 2% | R/W | 🟡 | 🟡 | ~50% | 8–12 | `crates/formats/src/tests.rs` | Styles, lists (#87), tables, pictures, headers/footers, page breaks (#86), page size, orientation and margins (#810). No footnotes, comments, tracked changes, fields or RTL |
 | `.txt` Plain text | 2% | R/W | ✅ | ✅ | ~95% | 1–2 | unit tests | Encoding detection. Files with other extensions (`.m3u`/`.m3u8` playlists, logs, config files, no extension) open as text when they are text, Word and RTF files by their signature; binary files are refused (#569). Word's encoding choice dialog and line-ending options missing; such files save only through Save As |
 | `.htm/.html` Web Page and Web Page, Filtered | 1% | R/W | 🟡 | 🟡 | ~60% | 6–10 | `crates/formats/src/tests.rs` | Tables (#102), relative pictures embedded (#113), missing `</head>` tolerated (#154). No Word "Web Page" (with `_files` folder) round-trip |
 | `.mht/.mhtml` Single File Web Page | <1% | R/W | ❌ | ❌ | 0% | 3–5 | — | |
@@ -162,6 +162,7 @@ raise readiness estimates. No Word-derived files are fixtures.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | trivial | ODT page size, orientation and margins read back from `styles.xml` on open, so they survive a save and reopen (#810) |
 | 2026-10-11 | trivial | Independent complex-script size, bold and italic inherit correctly through defaults and styles; explicit equal values survive; six synthetic multi-generation round-trip tests, including tracked formatting, added |
 | 2026-10-11 | minor | Opening files from the system: file associations and the default-app button (#295) |
 | 2026-10-11 | trivial | `.doc`: inline and floating pictures (BLIP store, PNG/JPEG/DIB/TIFF/EMF/WMF), basic shapes, groups and text boxes read from OfficeArt drawings (#551); fidelity ~55% → ~60% |
