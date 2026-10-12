@@ -32,6 +32,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | Status bar (page x of y, words, language, view buttons, zoom slider) | ✅ | ✅ | 80% | — |
 | Interface themes (light, dark, system #249, follows OS changes live #311), dark page separate from the interface theme (#194, #312) | ✅ | ✅ | 90% | — |
 | Interface size (File › Options › General, 80–200 %, on top of the system display scale; `ui.interfaceSize`) (#475) | ✅ | system display scaling only | 100% | — |
+| File dialogs (Open, Save As, Export, Insert Picture) | system dialog, without blocking the window (#94); Linux/BSD without a file chooser portal or zenity: WordCraft's own browser, also File › Open › Browse in WordCraft… (#576) | system dialog | 95% | — |
 | Platform conventions (macOS menus/traffic lights #255, Windows title bar, Linux CSD on Wayland #78) | partial | native | 70% | 3–5 |
 | Screen readers (VoiceOver, Narrator, Orca) | AccessKit on; the document canvas describes paragraphs, headings (level), list items, tables, links, pictures (alt text) and the caret and selection, for the pages on screen (#488); not yet tried with real screen readers | full | 50% | 5–8 |
 | Right-to-left (mirrored) interface | ❌ | ✅ (Arabic, Hebrew Word) | 0% | in localization |
@@ -40,6 +41,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Built-in file browser when the system file dialog can't be shown on Linux/BSD; `ui.fileBrowser` (#576) |
 | 2026-10-11 | trivial | Every measurement now follows File › Options › Advanced › Measurement units: the Line Numbers "From text" distance and the Hyphenation zone were still fixed in inches (#755) |
 | 2026-10-11 | trivial | Track Changes Options › Show revisions in balloons works: tracked deletions in the body leave the text for "Deleted: …" balloons in the markup area, joined to where they were; inline again where no balloons show (Comments pane, Read Mode, side by side, Web Layout), and always inline in headers, footers, notes and text boxes |
 | 2026-10-11 | trivial | Mini toolbar in two rows like Word's (font, size, grow, shrink; B I U S, highlight, font colour, four alignments) with every button inside the bar; font and size lists drop from the box's left edge; dropdown arrows a readable size; font list entries take the theme's text colour in dark mode (#535) |
