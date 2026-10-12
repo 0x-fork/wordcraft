@@ -1,9 +1,10 @@
 //! A table on the rulers, like Word's: with the caret in a table, the horizontal ruler marks the
-//! caret row's column borders and the vertical ruler the bottom of each of the table's rows on
-//! the page. Dragging a marker drags that border as on the page (`table_resize::grab`), except
-//! that on the horizontal ruler only the column left of the border changes and the columns right
-//! of it move along. A paragraph's indents and tabs in a cell are measured from the cell's text
-//! area (`text_area`).
+//! table's left edge and the caret row's column borders, and the vertical ruler the bottom of
+//! each of the table's rows on the page. Dragging a marker drags that border as on the page
+//! (`table_resize::grab`), except that on the horizontal ruler only the column left of the border
+//! changes and the columns right of it move along. Alt while dragging a column border shows the
+//! row's column widths (`widths`). A paragraph's indents and tabs in a cell are measured from the
+//! cell's text area (`text_area`).
 
 use egui::{Rect, Sense, Stroke, Ui, pos2, vec2};
 use wordcraft_layout::{DocLayout, Placed};
@@ -63,19 +64,54 @@ fn grip(app: &mut WordApp, ui: &Ui, layout: &DocLayout, zone: Rect, column: bool
     }
 }
 
+/// The caret row's cells on `page`, left to right.
+fn caret_row(app: &WordApp, layout: &DocLayout, page: usize) -> Vec<wordcraft_geom::Rect> {
+    let Some((_, r, _)) = app.session.sel.focus.path.cell() else { return Vec::new() };
+    let mut row: Vec<wordcraft_geom::Rect> = cells(app, layout, page).into_iter().filter(|(row, ..)| *row == r).map(|(.., b)| b).collect();
+    row.sort_by(|a, b| a.x.total_cmp(&b.x));
+    row
+}
+
+/// While Alt is held during a column border's drag (`table_resize::measuring`), each of the
+/// caret row's cells on `page` as it is going to be: (middle, width), page points.
+pub(crate) fn widths(app: &WordApp, ctx: &egui::Context, layout: &DocLayout, page: usize) -> Vec<(f32, f32)> {
+    if !crate::table_resize::measuring(app, ctx, page) {
+        return Vec::new();
+    }
+    let at = |x: f32| crate::table_resize::moved(app, ctx, page, true, x);
+    caret_row(app, layout, page)
+        .iter()
+        .map(|b| {
+            let (l, r) = (at(b.x), at(b.right()));
+            ((l + r) / 2.0, r - l)
+        })
+        .collect()
+}
+
 /// The horizontal ruler's markers (`bar`; the page's left edge at screen x `x0`, `scale` pixels per
-/// point): one on each column border of the caret's row past the table's left edge.
+/// point): one on the table's left edge and on each column border of the caret's row, and with
+/// Alt held while one is dragged, the columns' widths between them.
 pub(crate) fn columns(app: &mut WordApp, ui: &Ui, layout: &DocLayout, page: usize, bar: Rect, x0: f32, scale: f32) {
-    let Some((_, r, _)) = app.session.sel.focus.path.cell() else { return };
+    let row = caret_row(app, layout, page);
+    let Some(first) = row.first().copied() else { return };
     let t = Tokens::get(ui.ctx());
     let painter = ui.painter_at(bar.expand(1.0));
-    let shift = ui.input(|i| i.modifiers.shift);
-    for (i, (.., b)) in cells(app, layout, page).into_iter().filter(|(row, ..)| *row == r).enumerate() {
-        // Where it is, or while a border of the table is dragged, where it's going.
-        let sx = x0 + crate::table_resize::moved(app, page, shift, true, b.right()) * scale;
+    // The table's left edge, then each cell's right border: where it is, or while a border of
+    // the table is dragged, where it's going.
+    let edges: Vec<(f32, f32)> = std::iter::once(first.x)
+        .chain(row.iter().map(|b| b.right()))
+        .map(|x| (x, x0 + crate::table_resize::moved(app, ui.ctx(), page, true, x) * scale))
+        .collect();
+    for (i, (x, sx)) in edges.into_iter().enumerate() {
         marker(&painter, Rect::from_center_size(pos2(sx, bar.center().y), vec2(7.0, bar.height() - 2.0)), &t);
         let zone = Rect::from_center_size(pos2(sx, bar.center().y), vec2(8.0, bar.height()));
-        grip(app, ui, layout, zone, true, i, (page, b.right(), b.y + b.h / 2.0));
+        grip(app, ui, layout, zone, true, i, (page, x, first.y + first.h / 2.0));
+    }
+    for (mid, w) in widths(app, ui.ctx(), layout, page) {
+        let at = pos2(x0 + mid * scale, bar.center().y);
+        let text = painter.layout_no_wrap(wordcraft_geom::Unit::default().format(w), crate::theme::regular(9.5), t.text);
+        painter.rect_filled(Rect::from_center_size(at, text.size() + vec2(4.0, 0.0)), 1.0, t.ruler);
+        painter.galley(at - text.size() / 2.0, text, t.text);
     }
 }
 
@@ -96,7 +132,7 @@ pub(crate) fn rows(app: &mut WordApp, ui: &Ui, layout: &DocLayout, page: usize, 
     let t = Tokens::get(ui.ctx());
     let painter = ui.painter_at(bar.expand(1.0));
     for (r, b) in rows {
-        let sy = y0 + crate::table_resize::moved(app, page, false, false, b.bottom()) * scale;
+        let sy = y0 + crate::table_resize::moved(app, ui.ctx(), page, false, b.bottom()) * scale;
         marker(&painter, Rect::from_center_size(pos2(bar.center().x, sy), vec2(bar.width() - 2.0, 7.0)), &t);
         let zone = Rect::from_center_size(pos2(bar.center().x, sy), vec2(bar.width(), 8.0));
         grip(app, ui, layout, zone, false, r, (page, b.x + b.w / 2.0, b.bottom()));
