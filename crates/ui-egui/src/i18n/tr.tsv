@@ -83,6 +83,7 @@
 	Bold	Kalın
 	Bookmark	Yer İşareti
 	Bookmark name:	Yer işareti adı:
+	Book Title	Kitap Adı
 	Border Painter	Kenarlık Fırçası
 	Border\nPainter	Kenarlık\nFırçası
 	Borders	Kenarlıklar
@@ -99,6 +100,7 @@
 	Cancel	İptal
 	Capitalize Each Word	Her Sözcüğün İlk Harfini Büyüt
 	Captions	Resim Yazıları
+	Category	Kategori
 	Cell Margins	Hücre Kenar Boşlukları
 	Cell Size	Hücre Boyutu
 	Cell\nMargins	Hücre Kenar\nBoşlukları
@@ -151,6 +153,7 @@
 	Compare	Karşılaştır
 	Compress Pictures	Resimleri Sıkıştır
 	Continuous	Sürekli
+	Contributors	Katkıda Bulunanlar
 	Convert	Dönüştür
 	Convert Text to Table	Metni Tabloya Dönüştür
 	Convert Text to Table…	Metni Tabloya Dönüştür…
@@ -238,6 +241,9 @@
 	Editor	Düzenleyici
 	Effects	Efektler
 	Emboss	Kabartma
+	Emphasis	Vurgu
+	Endnote Reference	Sonnot Başvurusu
+	Endnote Text	Sonnot Metni
 	Encrypt with Password	Parolayla Şifrele
 	English (United States)	İngilizce (Amerika Birleşik Devletleri)
 	Engrave	Oyma
@@ -278,6 +284,8 @@
 	Fonts	Yazı Tipleri
 	Footer	Altbilgi
 	Footnote and Endnote	Dipnot ve Sonnot
+	Footnote Reference	Dipnot Başvurusu
+	Footnote Text	Dipnot Metni
 	Footnotes	Dipnotlar
 	Format	Biçim
 	Format Page Numbers	Sayfa Numaralarını Biçimlendir
@@ -316,6 +324,7 @@
 	Home	Giriş
 	Horizontal	Yatay
 	Horizontal Line	Yatay Çizgi
+	Hyperlink	Köprü
 	Hyphenation	Heceleme
 	Icons	Simgeler
 	Ignore All	Tümünü Yoksay
@@ -355,6 +364,9 @@
 	Insert\nCaption	Resim Yazısı\nEkle
 	Insert\nCitation	Atıf\nEkle
 	Insert\nFootnote	Dipnot\nEkle
+	Intense Emphasis	Yoğun Vurgu
+	Intense Quote	Yoğun Alıntı
+	Intense Reference	Yoğun Başvuru
 	Inside Borders	İç Kenarlıklar
 	Inspect Document	Belgeyi İncele
 	Inspect Styles at Selection	Seçimdeki Stilleri İncele
@@ -369,6 +381,7 @@
 	Keep with Next	Sonrakiyle Birlikte Tut
 	Keep with next	Sonrakiyle birlikte tut
 	Keeps the fonts and formatting of the copied text.	Kopyalanan metnin yazı tiplerini ve biçimlendirmesini korur.
+	Keywords	Anahtar Sözcükler
 	Labels	Etiketler
 	Landscape	Yatay
 	Language	Dil
@@ -450,6 +463,7 @@
 	No Color	Renk Yok
 	No Markup	İşaret Yok
 	No Paragraph Space	Paragraf Boşluğu Yok
+	No Spacing	Aralık Yok
 	No contributor data was built into this copy.	Bu kopyaya katkıda bulunan verisi eklenmemiş.
 	No model credits were built into this copy.	Bu kopyaya model katkıları eklenmemiş.
 	No templates match your search.	Aramanızla eşleşen şablon yok.
@@ -546,6 +560,7 @@
 	Quick Access Toolbar	Hızlı Erişim Araç Çubuğu
 	Quick Parts	Hızlı Parçalar
 	Quick Tables	Hızlı Tablolar
+	Quote	Alıntı
 	Read Aloud	Sesli Oku
 	Read Mode	Okuma Modu
 	Read\nAloud	Sesli\nOku
@@ -700,6 +715,7 @@
 	Statistics	İstatistikler
 	Status Bar	Durum Çubuğu
 	Strikethrough	Üstü Çizili
+	Strong	Güçlü
 	Studio cover	Stüdyo kapağı
 	Studio handbook (sample)	Stüdyo el kitabı (örnek)
 	Style	Stil
@@ -709,7 +725,11 @@
 	Style: {style}	Stil: {style}
 	Styles	Stiller
 	Styles Pane	Stiller Bölmesi
+	Subject	Konu
 	Subscript	Alt Simge
+	Subtitle	Alt Başlık
+	Subtle Emphasis	Hafif Vurgu
+	Subtle Reference	Hafif Başvuru
 	Superscript	Üst Simge
 	Switch Modes	Mod Değiştir
 	Switch\nModes	Mod\nDeğiştir
@@ -753,6 +773,8 @@
 	Thick	Kalın
 	Three	Üç
 	Tight	Sıkı
+	TOC Heading	İçindekiler Başlığı
+	TOC {n}	İçindekiler {n}
 	Top Border	Üst Kenarlık
 	Top Margin	Üst Kenar Boşluğu
 	Top of Page	Sayfa Üstü
@@ -1173,6 +1195,7 @@
 	Index and Tables	Dizin ve Tablolar
 	Line between	Sütunlar arasında çizgi
 	Links and References	Bağlantılar ve Başvurular
+	List Paragraph	Liste Paragrafı
 	Mail Merge	Posta Birleştirme
 	More Columns…	Diğer Sütunlar…
 	More Symbols…	Diğer Semboller…
@@ -1292,6 +1315,7 @@
 	First	İlk
 	Last	Son
 	Model	Model
+	Models	Modeller
 	Version	Sürüm
 	% of all commits	Commit payı (%)
 	Lines +/−	Satır +/−
