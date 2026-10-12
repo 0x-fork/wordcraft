@@ -334,7 +334,8 @@ impl Reader<'_> {
             pb.push_obj(o, &CharProps::default());
         }
         if let Some(ppr) = e.child("w:pPr") {
-            let (props, mark) = self.pc.ppr(ppr);
+            let (mut props, mark) = self.pc.ppr(ppr);
+            super::props::resolve_level_only(&self.doc.styles, &mut props, "Normal");
             para.props = props;
             para.mark = mark;
             // A tracked paragraph mark (ECMA-376 §17.13.5.16 / §17.13.5.15): `w:ins` / `w:del`
@@ -356,7 +357,14 @@ impl Reader<'_> {
             // Tracked formatting changes (§17.13.5.29, §17.13.5.19): the paragraph properties
             // before the change, and a change of the list numbering.
             if let Some(ch) = ppr.child("w:pPrChange") {
-                let old = ch.child("w:pPr").map(|o| self.pc.ppr(o).0.formatting()).unwrap_or_default();
+                let old = ch
+                    .child("w:pPr")
+                    .map(|o| {
+                        let mut old = self.pc.ppr(o).0;
+                        super::props::resolve_level_only(&self.doc.styles, &mut old, "Normal");
+                        old.formatting()
+                    })
+                    .unwrap_or_default();
                 para.props.fmt_change = PropChange::boxed(self.revision(RevisionKind::Format, ch), old);
             }
             if para.props.numbering.is_some()

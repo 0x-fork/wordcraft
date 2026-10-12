@@ -1850,3 +1850,35 @@ fn toc_entry_links_lose_the_hyperlink_style() {
     assert_eq!(run("quoted").style.as_deref(), Some("Hyperlink"), "another field: kept");
     assert_eq!(run("plain").style.as_deref(), Some("Hyperlink"), "outside fields: kept");
 }
+
+/// A style or paragraph whose `w:numPr` gives only a level (`w:ilvl`) takes the list from its
+/// style chain (ECMA-376 §17.3.1.19): a Heading 3 based on a numbered Heading 2 is level 3 of the
+/// same list. WordCraft dropped the level, so Heading 3s numbered as Heading 2s (6.15 where Word
+/// shows 6.4.5 in NIH's monitoring-plan template).
+#[test]
+fn a_list_level_without_a_list_takes_the_style_s_list() {
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+        <w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style>
+        <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="15"/></w:numPr></w:pPr></w:style>
+        <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Heading2"/><w:pPr><w:numPr><w:ilvl w:val="2"/></w:numPr></w:pPr></w:style>
+        <w:style w:type="paragraph" w:styleId="Heading4"><w:name w:val="heading 4"/><w:basedOn w:val="Heading3"/><w:pPr><w:numPr><w:ilvl w:val="3"/></w:numPr></w:pPr></w:style>
+        <w:style w:type="paragraph" w:styleId="Loose"><w:name w:val="Loose"/><w:basedOn w:val="Normal"/><w:pPr><w:numPr><w:ilvl w:val="4"/></w:numPr></w:pPr></w:style>
+        </w:styles>"#
+    );
+    let body = r#"<w:p><w:pPr><w:pStyle w:val="Heading3"/></w:pPr><w:r><w:t>three</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="Heading2"/><w:numPr><w:ilvl w:val="2"/></w:numPr></w:pPr><w:r><w:t>direct level</w:t></w:r></w:p>
+        <w:p><w:pPr><w:numPr><w:ilvl w:val="1"/></w:numPr></w:pPr><w:r><w:t>no list anywhere</w:t></w:r></w:p>"#;
+    let d = wordcraft_docx::read(&docx(body, &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+    let num = |id: &str| d.styles.get(id).and_then(|s| s.para.numbering).map(|n| (n.num, n.level));
+    assert_eq!(num("Heading3"), Some((15, 2)), "Heading 3 is level 3 of Heading 2's list");
+    assert_eq!(num("Heading4"), Some((15, 3)), "through two level-only styles");
+    assert_eq!(num("Loose"), None, "no list in the chain: no numbering");
+    let p = paras(&d);
+    assert_eq!(d.styles.resolve_para(&p[0].props).numbering.map(|n| (n.num, n.level)), Some((15, 2)));
+    assert_eq!(p[1].props.numbering.map(|n| (n.num, n.level)), Some((15, 2)), "a paragraph's own level, its style's list");
+    assert_eq!(p[2].props.numbering, None);
+    // Saved and read again it is an ordinary list reference.
+    let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    assert_eq!(again.styles.get("Heading3").and_then(|s| s.para.numbering).map(|n| (n.num, n.level)), Some((15, 2)));
+}

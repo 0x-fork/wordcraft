@@ -33,6 +33,27 @@ pub struct PropCtx {
     pub theme: Vec<Rgb>,
 }
 
+/// A `w:numPr` that gives a level (`w:ilvl`) and no list (`w:numId`): the list is the one the
+/// paragraph's style chain uses (ECMA-376 §17.3.1.19). A placeholder while reading, never left in
+/// a document (`resolve_list_levels`).
+pub(crate) const LEVEL_ONLY: u32 = u32::MAX;
+
+/// The list a level-only `numPr` refers to: the nearest numbering in style `style`'s based-on chain
+/// (its own included) that names a list. `None` when no style in the chain has one.
+pub(crate) fn chain_list(sheet: &wordcraft_doc::styles::StyleSheet, style: &str) -> Option<u32> {
+    sheet.chain(style).iter().rev().filter_map(|s| s.para.numbering).map(|n| n.num).find(|n| *n != LEVEL_ONLY)
+}
+
+/// Resolve level-only numbering in `p` against its style chain (`style` when it has none).
+pub(crate) fn resolve_level_only(sheet: &wordcraft_doc::styles::StyleSheet, p: &mut ParaProps, style: &str) {
+    if let Some(n) = p.numbering.as_mut().filter(|n| n.num == LEVEL_ONLY) {
+        match chain_list(sheet, p.style.as_deref().unwrap_or(style)) {
+            Some(num) => n.num = num,
+            None => p.numbering = None,
+        }
+    }
+}
+
 impl PropCtx {
     pub fn style_id(&self, id: &str) -> String {
         self.alias.get(id).cloned().unwrap_or_else(|| id.to_string())
@@ -194,6 +215,7 @@ impl PropCtx {
 
     /// `w:pPr` (without `w:sectPr`; `w:rPr` is the paragraph mark, returned separately).
     pub fn ppr(&self, e: &El) -> (ParaProps, CharProps) {
+        // (`w:numPr` with a level and no list sets `LEVEL_ONLY`, resolved by the caller.)
         let mut p = ParaProps::default();
         let mut mark = CharProps::default();
         for k in e.els() {
@@ -222,9 +244,15 @@ impl PropCtx {
                 }
                 "w:numPr" => {
                     let num = k.child_val("w:numId").and_then(u32_of);
-                    let level = k.child_val("w:ilvl").and_then(u32_of).unwrap_or(0).min(8) as u8;
-                    if let Some(num) = num {
-                        p.numbering = Some(NumRef { num, level });
+                    let ilvl = k.child_val("w:ilvl").and_then(u32_of);
+                    let level = ilvl.unwrap_or(0).min(8) as u8;
+                    match (num, ilvl) {
+                        (Some(num), _) => p.numbering = Some(NumRef { num, level }),
+                        // A level without a list: the list comes from the based-on style, as in
+                        // a Heading 3 that only says "level 3" of Heading 2's list. Resolved once
+                        // the styles are read (`resolve_list_levels`).
+                        (None, Some(_)) => p.numbering = Some(NumRef { num: LEVEL_ONLY, level }),
+                        (None, None) => {}
                     }
                 }
                 "w:pBdr" => p.borders = Some(borders(k)),
