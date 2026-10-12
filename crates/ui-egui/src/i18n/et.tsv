@@ -2036,3 +2036,11 @@
 	Turkish	Türgi
 	Ukrainian	Ukraina
 	{language} is now the document's default language.	{language} on nüüd dokumendi vaikekeel.
+	Visual effects	Visuaalefektid
+	Animation effects:	Animatsiooniefektid:
+	On	Sees
+	Off	Väljas
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Sujuv kerimine ja suumimine ning menüüde ja nuppude sujuv ilmumine. Valikuga „Väljas“ kuvatakse iga muudatus kohe.
+	Your system has animation effects turned on.	Süsteemis on animatsiooniefektid sisse lülitatud.
+	Your system has animation effects turned off.	Süsteemis on animatsiooniefektid välja lülitatud.
+	Your system doesn't report an animation setting, so animation effects stay on.	Süsteem ei teata animatsiooniseadet, seega jäävad animatsiooniefektid sisse.

@@ -2027,3 +2027,11 @@
 	Turkish	土耳其文
 	Ukrainian	烏克蘭文
 	{language} is now the document's default language.	{language} 現在是此文件的預設語言。
+	Visual effects	視覺效果
+	Animation effects:	動畫效果：
+	On	開
+	Off	關
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	平滑捲動與縮放，以及功能表與按鈕的淡入效果。選擇「關」後，所有變更會立即顯示。
+	Your system has animation effects turned on.	系統已開啟動畫效果。
+	Your system has animation effects turned off.	系統已關閉動畫效果。
+	Your system doesn't report an animation setting, so animation effects stay on.	系統未提供動畫設定，因此動畫效果保持開啟。

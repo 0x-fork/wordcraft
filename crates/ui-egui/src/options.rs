@@ -274,6 +274,9 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
 
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     use wordcraft_engine::speech::{MAX_RATE, MIN_RATE};
+    section(ui, "Visual effects");
+    animations_picker(app, ui);
+    ui.add_space(8.0);
     section(ui, "Read Aloud");
     let mut rate = app.session.read_aloud.rate();
     ui.horizontal(|ui| {
@@ -384,6 +387,31 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
         .small()
         .weak(),
     );
+}
+
+/// Animation effects: on, off, or follow the system's setting (the default). Under "Use system
+/// setting" a line says what the system reports, so it is plain what the choice comes to here.
+fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
+    use crate::theme::Animations;
+    ui.horizontal(|ui| {
+        ui.label(tl!("Animation effects:"));
+        egui::ComboBox::from_id_salt("animation_effects").selected_text(tl!(app.ui.animations.label())).width(220.0).show_ui(ui, |ui| {
+            for a in Animations::ALL {
+                if ui.selectable_label(app.ui.animations == a, tl!(a.label())).clicked() {
+                    let _ = app.run("ui.animations", json!({"value": a.code()}));
+                }
+            }
+        });
+    });
+    note(ui, "Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.");
+    if app.ui.animations == Animations::System {
+        let reported = match app.system_animations() {
+            Some(true) => "Your system has animation effects turned on.",
+            Some(false) => "Your system has animation effects turned off.",
+            None => "Your system doesn't report an animation setting, so animation effects stay on.",
+        };
+        note(ui, reported);
+    }
 }
 
 /// Interface language: follow the system (the default) or pick one (#8).
@@ -529,6 +557,36 @@ mod tests {
         h.run_steps(2);
         assert!(!h.state().session.prefs.typing_replaces_selection);
         assert!(h.query_by_label("Measurement units:").is_some());
+    }
+
+    /// File › Options › Accessibility › Animation effects: Use system setting (the default), On
+    /// or Off, with a line saying what the system's own setting is while it is followed.
+    #[test]
+    fn animation_effects_is_an_accessibility_option() {
+        use crate::theme::Animations;
+        let services = Services { animations_enabled: Some(Box::new(|| Some(false))), ..Default::default() };
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("file.options", json!({"pane": "accessibility"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert_eq!(h.state().ui.animations, Animations::System);
+        assert!(h.query_by_label("Animation effects:").is_some());
+        assert!(h.query_by_label("Your system has animation effects turned off.").is_some());
+        assert!(!h.state().animations_on());
+        h.get_by_role(egui::accesskit::Role::ComboBox).click();
+        h.run_steps(4);
+        h.get_by_label("On").click();
+        h.run_steps(4);
+        assert_eq!(h.state().ui.animations, Animations::On);
+        assert!(h.state().animations_on());
+        assert!(h.query_by_label("Your system has animation effects turned off.").is_none(), "only said while the system is followed");
     }
 
     /// File › Options › Advanced › Animation: the checkbox is the `ui.caretAnimation` setting,

@@ -2036,3 +2036,11 @@
 	Turkish	Turski
 	Ukrainian	Ukrajinski
 	{language} is now the document's default language.	{language} je sada podrazumevani jezik dokumenta.
+	Visual effects	Vizuelni efekti
+	Animation effects:	Efekti animacije:
+	On	Uključeno
+	Off	Isključeno
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Glatko pomeranje i zumiranje, kao i postepeno pojavljivanje menija i dugmadi. Uz „Isključeno“ svaka promena se prikazuje odmah.
+	Your system has animation effects turned on.	U sistemu su efekti animacije uključeni.
+	Your system has animation effects turned off.	U sistemu su efekti animacije isključeni.
+	Your system doesn't report an animation setting, so animation effects stay on.	Sistem ne prijavljuje podešavanje animacije, pa efekti animacije ostaju uključeni.

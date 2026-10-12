@@ -479,12 +479,21 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     app.canvas.canvas_rect = Some(area);
     // Ctrl/⌘ + wheel (and trackpad pinch) zooms the document, like Word. egui reports both as a
     // zoom factor and doesn't scroll for them. Start from the shown scale so fit modes zoom too.
-    let zoom_delta = ui.input(|i| i.zoom_delta());
+    // With animation effects off the wheel zooms in whole steps, each at once.
+    let animate = app.animations_on();
+    let opts = ui.ctx().options(|o| o.input_options);
+    let zoom_delta = ui.input(|i| app.canvas.wheel.zoom(i, &opts, animate));
     if (zoom_delta - 1.0).abs() > 1e-3 && ui.rect_contains_pointer(area) {
         let pct = (app.canvas.scale / PX_PER_PT * zoom_delta * 100.0).clamp(10.0, 500.0);
         let _ = app.run("view.zoom", json!({"value": pct}));
     }
     let geo = geometry(app, &layout, area.size() - vec2(14.0, 0.0));
+    // The status bar's zoom readout and slider were laid out before this, from the last frame's
+    // scale: after a zoom change draw again at once, so they follow in the next frame rather than
+    // whenever something else next repaints (the caret's blink).
+    if (geo.scale - app.canvas.scale).abs() > 1e-6 {
+        ui.ctx().request_repaint();
+    }
     app.canvas.scale = geo.scale;
     sync_fit_zoom(app, geo.scale);
     // Zooming or resizing reflowed the pages into a different number of columns: the caret's page
@@ -514,11 +523,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let mut origin = area.min;
     let mut ui_area = ui.new_child(egui::UiBuilder::new().max_rect(area));
     // The canvas scrolls itself on wheel/touchpad input (crate::scroll): touchpads 1:1 with
-    // momentum, wheel notches eased in. Applied before drawing, so it shows this frame.
+    // momentum, wheel notches eased in (or all at once with animation effects off). Applied
+    // before drawing, so it shows this frame.
     let hovered = ui.rect_contains_pointer(area) && ui.ctx().dragged_id().is_none();
     let notch = crate::scroll::notch_px(app.canvas.scale / PX_PER_PT);
-    let opts = ui.ctx().options(|o| o.input_options);
-    let wheel_delta = ui.input(|i| app.canvas.wheel.frame(i, &opts, hovered, notch, area.height()));
+    let wheel_delta = ui.input(|i| app.canvas.wheel.frame(i, &opts, hovered, notch, area.height(), animate));
     // Dragging a selection near the viewport's edge scrolls on (#688): from a crawl at the margin
     // to full speed at the edge, through the same offset the wheel writes.
     let (down, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos(), i.stable_dt));
@@ -535,6 +544,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("canvas_scroll")
         .auto_shrink([false, false])
+        // Bringing the caret into view glides there, or jumps with animation effects off.
+        .animated(animate)
         .scroll_source(egui::scroll_area::ScrollSource { mouse_wheel: false, ..Default::default() });
     if delta != egui::Vec2::ZERO {
         let before = app.canvas.scroll_offset;
@@ -571,29 +582,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let (band_top, band_bot) = geo.bands.get(i).copied().unwrap_or((0.0, sr.height()));
             let scale_px = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05);
             let key = page_key(app, page, scale_px, dim_body);
-            let fresh = app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
-            let current_scale = geo.scale * ppp;
-            let visual_sr = if fresh && (scale_px - current_scale).abs() <= 0.0001_f32.max(current_scale.abs() * 0.0001) {
-                app.canvas.textures.get(&i).map_or(sr, |(_, tex)| texel_aligned_rect(sr, tex.size_vec2(), ppp))
-            } else {
-                sr
-            };
-            rects.push(visual_sr);
+            let mut fresh = app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
             // Hide White Space shows only a band of the page; everything below paints into it.
-            let band =
-                Rect::from_min_max(pos2(visual_sr.min.x - 4.0, visual_sr.min.y + band_top), pos2(visual_sr.max.x + 4.0, visual_sr.min.y + band_bot));
-            if !band.intersects(ui.clip_rect().expand(200.0)) {
-                continue;
-            }
-            let painter = if band_top <= 0.0 && band_bot >= sr.height() {
-                painter.clone()
-            } else {
-                painter.with_clip_rect(painter.clip_rect().intersect(band))
-            };
-            // Shadow and paper.
-            painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(1.5), 1.0, t.page_shadow);
-            painter.rect_filled(visual_sr, 0.0, if dark_page { Color32::from_gray(dark_paper) } else { Color32::WHITE });
-            if !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
+            let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
+            let visible = band_of(sr).intersects(ui.clip_rect().expand(200.0));
+            // Render before placing the page: a page re-rendered in this frame (a zoom step, an
+            // edit) then sits on the pixel grid in this frame too, rather than a frame later.
+            if visible && !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
                 let mut opts = screen_render_options();
                 opts.display.marks = app.session.view.marks;
                 opts.display.always = app.session.prefs.marks;
@@ -620,9 +615,29 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     }
                 }
                 rendered += 1;
-            } else if !fresh {
+                fresh = true;
+            } else if visible && !fresh {
                 ui.ctx().request_repaint();
             }
+            let current_scale = geo.scale * ppp;
+            let visual_sr = if fresh && (scale_px - current_scale).abs() <= 0.0001_f32.max(current_scale.abs() * 0.0001) {
+                app.canvas.textures.get(&i).map_or(sr, |(_, tex)| texel_aligned_rect(sr, tex.size_vec2(), ppp))
+            } else {
+                sr
+            };
+            rects.push(visual_sr);
+            if !visible {
+                continue;
+            }
+            let band = band_of(visual_sr);
+            let painter = if band_top <= 0.0 && band_bot >= sr.height() {
+                painter.clone()
+            } else {
+                painter.with_clip_rect(painter.clip_rect().intersect(band))
+            };
+            // Shadow and paper.
+            painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(1.5), 1.0, t.page_shadow);
+            painter.rect_filled(visual_sr, 0.0, if dark_page { Color32::from_gray(dark_paper) } else { Color32::WHITE });
             if let Some((_, tex)) = app.canvas.textures.get(&i) {
                 painter.image(tex.id(), visual_sr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             }

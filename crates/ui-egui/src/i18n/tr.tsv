@@ -2040,3 +2040,11 @@
 # Asian and Latin text fonts (#505).
 	Asian text font:	Asya metni yazı tipi:
 	Latin text font:	Latin metni yazı tipi:
+	Visual effects	Görsel efektler
+	Animation effects:	Animasyon efektleri:
+	On	Açık
+	Off	Kapalı
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Yumuşak kaydırma ve yakınlaştırma ile menülerin ve düğmelerin yavaşça belirmesi. Kapalı seçildiğinde her değişiklik anında gösterilir.
+	Your system has animation effects turned on.	Sisteminizde animasyon efektleri açık.
+	Your system has animation effects turned off.	Sisteminizde animasyon efektleri kapalı.
+	Your system doesn't report an animation setting, so animation effects stay on.	Sisteminiz bir animasyon ayarı bildirmiyor, bu nedenle animasyon efektleri açık kalır.

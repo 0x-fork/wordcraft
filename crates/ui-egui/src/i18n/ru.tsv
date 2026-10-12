@@ -2418,3 +2418,11 @@ preview	Title	Пример
 # Asian and Latin text fonts (#505).
 	Asian text font:	Шрифт азиатского текста:
 	Latin text font:	Шрифт латинского текста:
+	Visual effects	Визуальные эффекты
+	Animation effects:	Эффекты анимации:
+	On	Включено
+	Off	Выключено
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Плавная прокрутка и масштабирование, а также плавное появление меню и кнопок. Если выбрано «Выключено», все изменения отображаются сразу.
+	Your system has animation effects turned on.	В системе эффекты анимации включены.
+	Your system has animation effects turned off.	В системе эффекты анимации выключены.
+	Your system doesn't report an animation setting, so animation effects stay on.	Система не сообщает о настройке анимации, поэтому эффекты анимации остаются включёнными.

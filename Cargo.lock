@@ -5013,12 +5013,14 @@ dependencies = [
  "pollster 0.4.0",
  "rfd",
  "serde_json",
+ "windows",
  "winresource",
  "wordcraft-control-key",
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-fonts",
  "wordcraft-ui-egui",
+ "zbus",
 ]
 
 [[package]]

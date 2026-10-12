@@ -2038,3 +2038,11 @@
 	Turkish	Turco
 	Ukrainian	Ucraniano
 	{language} is now the document's default language.	{language} agora é o idioma padrão do documento.
+	Visual effects	Efeitos visuais
+	Animation effects:	Efeitos de animação:
+	On	Ativado
+	Off	Desativado
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Rolagem e zoom suaves, e menus e botões que aparecem gradualmente. Com “Desativado”, cada alteração é mostrada de imediato.
+	Your system has animation effects turned on.	Seu sistema está com os efeitos de animação ativados.
+	Your system has animation effects turned off.	Seu sistema está com os efeitos de animação desativados.
+	Your system doesn't report an animation setting, so animation effects stay on.	Seu sistema não informa uma configuração de animação, então os efeitos de animação continuam ativados.

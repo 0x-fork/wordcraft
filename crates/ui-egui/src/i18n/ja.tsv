@@ -2026,3 +2026,11 @@
 	Turkish	トルコ語
 	Ukrainian	ウクライナ語
 	{language} is now the document's default language.	{language} がこの文書の既定の言語になりました。
+	Visual effects	視覚効果
+	Animation effects:	アニメーション効果:
+	On	オン
+	Off	オフ
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	スクロールやズームのなめらかな動きと、メニューやボタンのフェード表示です。「オフ」にすると、すべての変化がすぐに表示されます。
+	Your system has animation effects turned on.	システムのアニメーション効果はオンです。
+	Your system has animation effects turned off.	システムのアニメーション効果はオフです。
+	Your system doesn't report an animation setting, so animation effects stay on.	システムからアニメーションの設定を取得できないため、アニメーション効果はオンのままです。

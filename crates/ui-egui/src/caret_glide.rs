@@ -349,9 +349,9 @@ fn view_key(app: &WordApp, geo: &Geometry) -> u64 {
 /// on-and-off blink says. Returns where and how strongly to draw it. `content_origin` is the scrolled
 /// content's top-left on screen.
 pub fn look(app: &WordApp, ui: &Ui, content_origin: Pos2, geo: &Geometry, target: Bar, shown: bool, since_ms: f64, on: bool) -> Look {
-    // Turned off in Options, or egui's own switch for "no animations": the caret jumps and blinks
-    // on and off.
-    if !app.ui.caret_animation || ui.style().animation_time <= 0.0 || glide_secs() <= 0.0 {
+    // Turned off in Options, Animation effects off (the setting, or the system's under "Use system
+    // setting"), or egui's own switch for "no animations": the caret jumps and blinks on and off.
+    if !app.ui.caret_animation || !app.animations_on() || ui.style().animation_time <= 0.0 || glide_secs() <= 0.0 {
         ui.ctx().data_mut(|d| d.get_temp_mut_or_default::<CaretGlide>(state_id()).reset());
         return Look { bar: target, opacity: if on { 1.0 } else { 0.0 }, moving: false };
     }
@@ -808,6 +808,8 @@ mod tests {
     fn the_canvas_caret_glides_after_a_key() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
         a.run("text.insert", json!({"text": "Some text here"})).unwrap();
+        // Animation effects off: the caret follows that switch.
+        a.run("ui.animations", json!({"value": "off"})).unwrap();
         let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).with_step_dt(DT as f32).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
@@ -816,11 +818,11 @@ mod tests {
             },
             a,
         );
-        // The test harness turns egui's animations off, and the caret follows that switch.
         for _ in 0..3 {
             h.step();
         }
         assert!(state(&h.ctx).drawn().is_none(), "no animations: the glide stands down");
+        h.state_mut().run("ui.animations", json!({"value": "on"})).unwrap();
         h.ctx.all_styles_mut(|s| s.animation_time = 0.1);
         for _ in 0..30 {
             h.step();
