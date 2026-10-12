@@ -1200,7 +1200,7 @@ mod tests {
 
         let list = s.run("review.changes", &json!({})).unwrap();
         let desc: Vec<&str> = list.as_array().unwrap().iter().filter(|c| c["kind"] == "format").filter_map(|c| c["description"].as_str()).collect();
-        assert_eq!(desc, ["Formatted: Align: center", "Formatted: Bold, Size: 14"], "{list:#}");
+        assert_eq!(desc, ["Formatted: Align: center", "Formatted: Bold, Bold cs, Size: 14, Size cs: 14"], "{list:#}");
 
         let (d, body_x) = draws(&mut s);
         let bars = lines(&d).into_iter().filter(|(x0, _, x1, _)| x0 == x1 && *x0 < body_x).count();
