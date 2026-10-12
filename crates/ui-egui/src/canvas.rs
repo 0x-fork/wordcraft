@@ -705,7 +705,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             app.canvas.scroll_to_caret = true;
         }
     }
-    let caret = layout.caret_on(&app.session.sel.focus, app.session.page_hint);
+    // Where the selection really ends, also when it took whole table cells.
+    let caret = layout.caret_on(&app.session.sel_ends().focus, app.session.page_hint);
     // Editing a header/footer (or a note) dims the body; once per frame, for every page.
     let dim_body = dims_body(app, &layout);
     if let Some(c) = caret {
@@ -1861,10 +1862,13 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             app.canvas.caret_visible_since = crate::now_ms();
         }
     } else if app.canvas.dragging && ui.input(|i| i.pointer.primary_down()) {
+        // Through the command, so from one table cell into another the drag takes whole cells
+        // (Word); straight to the session, as the app's `run` would scroll on every frame.
         if let Some(pos) = layout.hit(page, x, y, story)
-            && pos != app.session.sel.focus
+            && pos != app.session.sel_ends().focus
         {
-            app.session.sel.focus = pos;
+            let pj = serde_json::to_value(&pos).unwrap_or_default();
+            let _ = app.session.run("caret.set", &json!({"pos": pj, "extend": true}));
             app.session.page_hint = page;
             app.canvas.caret_visible_since = crate::now_ms();
         }

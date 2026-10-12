@@ -5,6 +5,8 @@
 //! edit collapses it to its top-left corner. Any ordinary caret move or selection drops it.
 //! Whole table cells that aren't one run of the text (part of a column, `CellRange`) are a block
 //! of their paragraphs: edits and formatting go cell by cell; table commands take the cells.
+//! Extending the selection from one cell into another (Shift+arrows, Shift+click, a drag) makes
+//! such cells, as in Word (`table::extend_selection`).
 
 use serde_json::{Value, json};
 use wordcraft_doc::edit::Fragment;
@@ -138,6 +140,19 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
     }
     if matches!(id, "caret.set" | "select.collapse") || (mutates && !id.starts_with("format.") && !id.starts_with("para.")) {
         s.column_mode = false;
+    }
+    // Extending the selection (Shift+arrows, Shift+click, a drag) goes on from where it really
+    // runs, then takes whole cells or rows the way Word does around tables.
+    if id.starts_with("caret.") && p::bool(v, "extend") == Some(true) {
+        let shown = s.sel.clone();
+        s.sel = s.sel_ends().clone();
+        if let Err(e) = run(s, v) {
+            s.sel = shown;
+            return Err(e);
+        }
+        let to = s.sel.focus.clone();
+        super::table::extend_selection(s, to);
+        return super::sel_result(s);
     }
     let Some(segs) = s.column_segments().map(<[(Pos, Pos)]>::to_vec) else { return run(s, v) };
     let cells = s.cell_range().is_some();

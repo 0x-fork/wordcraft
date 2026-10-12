@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use wordcraft_doc::collate::{SortKey, sort_key};
 use wordcraft_doc::locale_number::{format_number, parse_number};
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, HeightRule, Rgb, TextDirection, VAlign};
-use wordcraft_doc::{Block, Paragraph, Path, Pos, StoryRef, Table, para_block};
+use wordcraft_doc::{Block, Document, Paragraph, Path, Pos, StoryRef, Table, para_block};
 
 use super::sel_result;
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
@@ -819,9 +819,93 @@ pub(crate) fn select_range(s: &mut Session, story: StoryRef, tp: &Path, rows: (u
     s.sel = sel.clone();
     s.column = Some(crate::ColumnBlock { sel, anchor_x: 0.0, focus_x: 0.0, segments, cells: Some(range) });
     s.column_mode = false;
+    s.widened = None;
     s.goal_x = None;
     s.pending = None;
     sel_result(s)
+}
+
+/// Extend the selection from its anchor to `to` the way Word does around tables: from one cell
+/// into another of the same table it takes whole cells, the rectangle between them; between a
+/// table's cell and text outside the table, whole rows, from the cell's row out to the table's
+/// edge facing the other end. Where the selection really runs is kept (`Session::sel_ends`), so
+/// extending it again goes on from there.
+pub(crate) fn extend_selection(s: &mut Session, to: Pos) {
+    let ends = Selection { anchor: s.sel.anchor.clone(), focus: to };
+    // Shift+Up and Shift+Down keep their goal column.
+    let goal_x = s.goal_x;
+    s.sel = ends.clone();
+    s.column = None;
+    widen(s, &ends);
+    s.widened = if s.sel == ends { None } else { Some(crate::session::Widened { sel: s.sel.clone(), ends }) };
+    s.goal_x = goal_x;
+}
+
+/// Widen the selection between `ends` (already `s.sel`) by Word's table rule (see
+/// `extend_selection`).
+fn widen(s: &mut Session, ends: &Selection) {
+    let (a, f) = (&ends.anchor, &ends.focus);
+    if a.story != f.story {
+        return;
+    }
+    // Down through the tables both ends are in, one nesting level (three indexes) at a time.
+    let mut i = 0;
+    while let (Some(ab), Some(fb)) = (a.path.0.get(i), f.path.0.get(i)) {
+        match (cell_at(&a.path.0, i), cell_at(&f.path.0, i)) {
+            // The same cell: look inside it.
+            (Some(x), Some(y)) if ab == fb && x == y => i += 3,
+            // Two cells of one table: the rectangle between them.
+            (Some((tp, ra, ca)), Some((_, rf, cf))) if ab == fb => {
+                let cols = s.doc.table(a.story, &tp).map(|t| {
+                    let ((g0, g1), (h0, h1)) = (grid_cols(t, ra, ca), grid_cols(t, rf, cf));
+                    (g0.min(h0), g1.max(h1))
+                });
+                if let Some(cols) = cols {
+                    // A table without paragraphs keeps the plain selection.
+                    let _ = select_range(s, a.story, &tp, (ra, rf), cols);
+                }
+                return;
+            }
+            // Different blocks: an end in a table takes its whole row, out to the table's edge
+            // facing the other end.
+            (x, y) if ab != fb => {
+                let forward = ab < fb;
+                if let Some((tp, r, _)) = x
+                    && let Some((start, end)) = row_ends(&s.doc, a.story, &tp, r)
+                {
+                    s.sel.anchor = if forward { start } else { end };
+                }
+                if let Some((tp, r, _)) = y
+                    && let Some((start, end)) = row_ends(&s.doc, f.story, &tp, r)
+                {
+                    s.sel.focus = if forward { end } else { start };
+                }
+                return;
+            }
+            // One paragraph.
+            _ => return,
+        }
+    }
+}
+
+/// The cell of the table at index `i` of paragraph path `p`, if the paragraph is in one there:
+/// (the table's path, row, cell).
+fn cell_at(p: &[u32], i: usize) -> Option<(Path, usize, usize)> {
+    match (p.get(..=i), p.get(i + 1), p.get(i + 2)) {
+        (Some(t), Some(r), Some(c)) if p.len() > i + 3 => Some((Path(t.to_vec()), *r as usize, *c as usize)),
+        _ => None,
+    }
+}
+
+/// Where row `r` of table `tp` starts and ends: its first cell's start and its last cell's end.
+fn row_ends(doc: &Document, story: StoryRef, tp: &Path, r: usize) -> Option<(Pos, Pos)> {
+    let mut row = tp.0.clone();
+    row.push(u32::try_from(r).ok()?);
+    let mut paths = doc.para_paths(story).into_iter().filter(|q| q.0.starts_with(&row));
+    let first = paths.next()?;
+    let last = paths.next_back().unwrap_or_else(|| first.clone());
+    let len = doc.para(story, &last).map_or(0, Paragraph::len);
+    Some((Pos { story, path: first, off: 0 }, Pos { story, path: last, off: len }))
 }
 
 fn from_text(s: &mut Session, v: &Value) -> CmdResult {

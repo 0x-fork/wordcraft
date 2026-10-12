@@ -750,6 +750,91 @@ mod tests {
         assert_eq!(para(&s, 1, 1).plain_text(), "r1c1");
     }
 
+    /// Where the app extends the selection while dragging (`caret.set` with `extend`).
+    fn drag_to(s: &mut Session, to: Pos) {
+        s.run("caret.set", &json!({"pos": to, "extend": true})).unwrap();
+    }
+
+    /// An ordinary drag from one cell into another selects the rectangle of whole cells between
+    /// them, so bold takes just those, as in Word; back in the first cell it's text again, from
+    /// where the drag started. Out of a nested table, the cells are the table's around it.
+    #[test]
+    fn a_drag_across_cells_selects_their_rectangle() {
+        let mut s = table_session(3, 3);
+        fill(&mut s);
+        let start = Pos { off: 1, ..cell_pos(&s, 0, 1) };
+        s.run("caret.set", &json!({"pos": start})).unwrap();
+        let down = Pos { off: 2, ..cell_pos(&s, 2, 1) };
+        drag_to(&mut s, down);
+        let range = s.cell_range().cloned().unwrap();
+        assert_eq!((range.rows, range.cols, range.stream), ((0, 2), (1, 1), false));
+        s.run("format.bold", &json!({})).unwrap();
+        for r in 0..3 {
+            assert!(bold(&s, r, 1) && !bold(&s, r, 0) && !bold(&s, r, 2), "row {r}: just the dragged column");
+        }
+        // On to the left: the rectangle still runs from the cell the drag started in.
+        let left = cell_pos(&s, 1, 0);
+        drag_to(&mut s, left);
+        assert_eq!(s.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 1))));
+        // Back in that cell: its text, from where the drag started.
+        let back = Pos { off: 3, ..cell_pos(&s, 0, 1) };
+        drag_to(&mut s, back.clone());
+        assert!(s.cell_range().is_none());
+        assert_eq!(s.sel, Selection { anchor: start, focus: back });
+        // From a nested table's cell into another cell of the table around it.
+        let mut s = table_session(2, 2);
+        s.sel = Selection::caret(cell_pos(&s, 0, 0));
+        s.run("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        assert_eq!(s.sel.focus.path.0.len(), 7, "the caret is in the nested table");
+        let to = cell_pos(&s, 1, 1);
+        drag_to(&mut s, to);
+        let range = s.cell_range().cloned().unwrap();
+        assert_eq!((range.table, range.rows, range.cols), (table_path(&s), (0, 1), (0, 1)));
+    }
+
+    /// Shift+Down from a cell takes it and the cell below, whole; on past the table, the anchor's
+    /// row and every row after it, then the text; Shift+Up comes back to the cells, then into the
+    /// first cell's text. Shift+click goes on from where the selection started, and from text
+    /// before the table a drag into a cell takes the rows down to it, whole.
+    #[test]
+    fn shift_arrows_and_clicks_select_cells_then_rows() {
+        let mut s = Session::new(Document::new());
+        s.run("text.insert", &json!({"text": "Intro"})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("insert.table", &json!({"rows": 3, "cols": 3})).unwrap();
+        fill(&mut s);
+        let after = table_path(&s).last() + 1;
+        let shift = |s: &mut Session, id: &str| {
+            s.run(id, &json!({"extend": true})).unwrap();
+        };
+        s.sel = Selection::caret(cell_pos(&s, 1, 1));
+        shift(&mut s, "caret.down");
+        assert_eq!(s.cell_range().map(|r| (r.rows, r.cols)), Some(((1, 2), (1, 1))));
+        shift(&mut s, "caret.down");
+        assert!(s.cell_range().is_none());
+        assert_eq!(s.sel.anchor, cell_pos(&s, 1, 0), "from the start of the anchor's row");
+        assert_eq!(s.sel.focus.path, Path::top(after));
+        s.run("format.italic", &json!({})).unwrap();
+        let italic = |s: &Session, r, c| para(s, r, c).run_ranges().all(|(_, ch)| ch.italic == Some(true));
+        assert!(italic(&s, 1, 0) && italic(&s, 2, 2) && !italic(&s, 0, 1), "whole rows from the anchor's");
+        shift(&mut s, "caret.up");
+        assert_eq!(s.cell_range().map(|r| (r.rows, r.cols)), Some(((1, 2), (1, 1))));
+        shift(&mut s, "caret.up");
+        assert!(s.cell_range().is_none());
+        assert_eq!(s.sel.anchor, cell_pos(&s, 1, 1));
+        assert_eq!(s.sel.focus.path, cell_pos(&s, 1, 1).path);
+        // Shift+click: the rectangle from the anchor's cell.
+        let corner = cell_pos(&s, 0, 0);
+        s.run("caret.set", &json!({"pos": corner, "extend": true})).unwrap();
+        assert_eq!(s.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 1))));
+        // From the text before the table into a cell: the rows down to that cell's, whole.
+        s.sel = Selection::caret(Pos::body(0, 2));
+        let into = cell_pos(&s, 1, 1);
+        drag_to(&mut s, into);
+        assert!(s.cell_range().is_none());
+        assert_eq!(s.sel, Selection { anchor: Pos::body(0, 2), focus: Pos { off: 4, ..cell_pos(&s, 1, 2) } });
+    }
+
     /// Clicks away from the areas, and hostile numbers: an error and no change, never a panic.
     #[test]
     fn misses_and_hostile_params_change_nothing() {

@@ -287,6 +287,31 @@ mod tests {
         assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 2))));
     }
 
+    /// An ordinary drag from one cell's text into another's selects the rectangle of whole cells
+    /// between them as the pointer goes: no undo step, no mini toolbar over the cells.
+    #[test]
+    fn dragging_across_cells_selects_their_rectangle() {
+        let mut h = table_window();
+        let (a, d) = (cell(&mut h, 0, 1), cell(&mut h, 1, 2));
+        let depth = h.state().session.undo_depth();
+        let start = screen(&mut h, a.x + a.w / 2.0, a.y + a.h / 2.0);
+        let end = screen(&mut h, d.x + d.w / 2.0, d.y + d.h / 2.0);
+        h.event(egui::Event::PointerMoved(start));
+        h.step();
+        button(&h, start, true);
+        h.step();
+        for k in 1..=4 {
+            h.event(egui::Event::PointerMoved(start + (end - start) * (k as f32 / 4.0)));
+            h.step();
+        }
+        assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (1, 2))), "the selection follows the pointer");
+        button(&h, end, false);
+        steps(&mut h, 2);
+        assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (1, 2))));
+        assert_eq!(h.state().session.undo_depth(), depth);
+        assert!(!crate::mini_toolbar::visible(h.state()));
+    }
+
     /// The "+" left of a row border adds a row there and selects it, in one undo step; over it
     /// the pointer is the plain arrow.
     #[test]
