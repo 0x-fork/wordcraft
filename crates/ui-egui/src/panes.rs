@@ -190,6 +190,10 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
                     let r = ui.selectable_label(current == Some(i), egui::RichText::new(txt).font(if lv == 0 { semibold(12.5) } else { regular(12.5) }));
                     if r.clicked() {
                         let _ = app.run("caret.set", json!({"pos": Pos { story: StoryRef::Body, path, off: 0 }}));
+                        // Align the chosen heading's page immediately against this pane, rather
+                        // than the indeterminate minimum movement from scroll_to_rect.
+                        app.canvas.nav_to_caret = true;
+                        app.canvas.scroll_to_caret = false;
                         app.canvas.want_focus = true;
                     }
                 });

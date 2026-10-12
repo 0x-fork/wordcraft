@@ -23,6 +23,72 @@ pub fn has_shape_selected(s: &wordcraft_engine::Session) -> bool {
     }
 }
 
+/// Reading controls replace editing tabs entirely. All settings are transient view controls.
+fn reading_toolbar(app: &mut WordApp, ui: &mut Ui, t: Tokens) {
+    egui::Panel::top("reading_toolbar")
+        .exact_size(46.0)
+        .frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(12, 6)).stroke(Stroke::new(1.0, t.border)))
+        .show(ui, |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.label(egui::RichText::new(tl!("Reading Mode")).font(semibold(14.0)));
+                ui.separator();
+                let w = app.session.view.read_column_width;
+                let active = match w {
+                    None => "Auto",
+                    Some(v) if v <= 180.0 => "Narrow",
+                    Some(v) if v <= 240.0 => "Medium",
+                    Some(v) if v <= 350.0 => "Wide",
+                    _ => "Page",
+                };
+                ui.menu_button(format!("{}: {}", tl!("Column width"), tl!(active)), |ui| {
+                    for (name, value) in [("Auto", "auto"), ("Narrow", "narrow"), ("Medium", "medium"), ("Wide", "wide"), ("Page", "page")] {
+                        if ui.selectable_label(active == name, tl!(name)).clicked() {
+                            let _ = app.run("view.readColumnWidth", json!({"value": value}));
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
+                let pct = (app.session.view.read_zoom * 100.0).round() as u32;
+                ui.menu_button(format!("{}: {pct}%", tl!("Text size")), |ui| {
+                    for percent in [75, 90, 100, 110, 125, 150] {
+                        if ui.selectable_label(pct == percent, format!("{percent}%")).clicked() {
+                            let _ = app.run("view.readTextSize", json!({"value": percent}));
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
+                let spacing = app.session.view.read_line_spacing;
+                let label = spacing.map_or_else(|| tl!("Document").to_owned(), |v| format!("{v}×"));
+                ui.menu_button(format!("{}: {}", tl!("Line spacing"), label), |ui| {
+                    if ui.selectable_label(spacing.is_none(), tl!("Document")).clicked() {
+                        let _ = app.run("view.readLineSpacing", json!({"value": "document"}));
+                        ui.close();
+                    }
+                    for value in [1.0, 1.25, 1.5, 2.0] {
+                        if ui.selectable_label(spacing == Some(value), format!("{value}×")).clicked() {
+                            let _ = app.run("view.readLineSpacing", json!({"value": value}));
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
+                // Headings to jump to, in the Navigation pane beside the columns (Outline view
+                // is an editing layout, so it isn't offered here).
+                if ui.button(tl!("Navigation Pane")).clicked() {
+                    let _ = app.run("view.navigationPane", json!({"value": true}));
+                    app.ui.nav_tab = "headings".into();
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(tl!("Edit Document")).clicked() {
+                        let _ = app.run("view.printLayout", json!({}));
+                    }
+                });
+            });
+        });
+}
+
 /// Whether the selection is a SmartArt graphic WordCraft can edit (so SmartArt Design is shown).
 pub fn has_smart_art_selected(s: &wordcraft_engine::Session) -> bool {
     wordcraft_engine::cmd::smart_art::selected_smart_art(s).is_some()
@@ -75,6 +141,10 @@ pub fn in_table_public(app: &WordApp) -> bool {
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    if app.session.view.read_mode {
+        reading_toolbar(app, ui, t);
+        return;
+    }
     // Editing an equation brings up the Equation tab; leaving it goes back.
     if app.session.math.is_some() {
         if app.equation_prev_tab.is_none() {

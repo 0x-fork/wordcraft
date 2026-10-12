@@ -1798,6 +1798,10 @@
 	Continuous numbering	Sürekli numaralandırma
 	Apply	Uygula
 	Convert Notes	Notları Dönüştür
+	Reading	Okuma
+	Reading Column Width	Okuma Sütunu Genişliği
+	Reading Line Spacing	Okuma Satır Aralığı
+	Reading Text Size	Okuma Metin Boyutu
 
 # Built-in file browser (#576).
 	Documents	Belgeler

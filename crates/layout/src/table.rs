@@ -172,6 +172,7 @@ pub fn measure_table_columns(doc: &wordcraft_doc::Document, t: &Table) -> Vec<(f
                 numeral: crate::NumeralMode::default(),
                 exclusions: &[],
                 eq_number: 0,
+                read_line_spacing: None,
                 grid: crate::para::Grid::default(),
             };
             let (mut min, mut max) = (EMPTY_TEXT, EMPTY_TEXT);

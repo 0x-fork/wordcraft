@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Quick Access Toolbar KeyTips, native Alt handling and a saved KeyTips switch, #620; previously trivial: File › Options panes, #485; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (Reading Mode implemented; previously trivial: Outlining tab and outline keys, #493; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -29,6 +29,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | Selection: word/sentence/paragraph clicks, dragging after a double-click/triple-click/Ctrl+click extends by whole words/paragraphs/sentences (#549), Shift extend, F8 extend mode, column (Alt+drag, #237) | ✅ | ✅ | 90% | 1 |
 | Zoom: Ctrl+scroll, pinch (#179), zoom buttons (#232), pages side by side when zoomed out (#251) | ✅ | ✅ | 85% | — |
 | Touchpad smooth/inertial scroll | ✅ (#252) | ✅ | 90% | — |
+| Reading Mode | Existing Read Mode ribbon button opens a read-only, viewport-column layout with animated horizontal paging, transient width/text/spacing controls, heading navigation (Navigation pane) and resize anchoring; print/export layout unchanged | reading-optimized view and navigation | 75% | 1–2 |
 | Status bar (page x of y, words, language, view buttons, zoom slider) | ✅ (the language is the caret's; a click sets the proofing language) | ✅ | 85% | — |
 | Caret motion: keys and typing glide the caret to its new place (100 ms, `cubic-bezier(0, 0, 0, 1)`), the blink fades (530 ms on and off, 100 ms fades); clicks and scripted moves don't glide. File › Options › Advanced › Animation (`ui.caretAnimation`) turns it off | ✅ as measured from Word for Windows (`caret_glide.rs`); zoom levels other than 100%, modifier keys and off-screen moves not measured | ✅ on Windows; Word for Mac not measured | 90% | 1–2 |
 | Interface themes (light, dark, system #249, follows OS changes live #311), dark page separate from the interface theme (#194, #312) | ✅ | ✅ | 90% | — |
@@ -43,6 +44,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | minor | Reading Mode: viewport-height horizontal columns, animated paging, transient display controls, heading navigation and responsive anchored resizing |
 | 2026-10-11 | trivial | Alt activation handles native key/modifier events in either order, including key-up with the old Alt flag; taps toggle once, chords and focus loss do not activate KeyTips |
 | 2026-10-11 | trivial | Quick Access Toolbar KeyTips (#620): 1–9, zero-prefixed numbers for longer toolbars, disabled commands stay disabled, Escape cancels, badge keystrokes never type into the document; persisted File › Options switch |
 | 2026-10-11 | trivial | Ribbon buttons that run a command (alignment, Bold, styles…) hand keyboard focus back to the document, so typing continues without another click; they also report their name and enabled state to screen readers (#686) |

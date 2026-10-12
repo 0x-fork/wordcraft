@@ -2636,6 +2636,70 @@ fn page_and_table_gridlines_toggle_independently() {
     assert_eq!(state["tableGridlines"], false);
 }
 
+#[test]
+fn navigation_pane_opens_without_changing_view_mode() {
+    // Reading Mode's heading navigation is the Navigation pane; Outline is an editing view (#493).
+    let mut s = s();
+    for command in ["view.printLayout", "view.webLayout", "view.readMode"] {
+        run(&mut s, command, json!({}));
+        let before = (s.view.mode, s.view.read_mode);
+        s.view.nav_pane = false;
+        run(&mut s, "view.navigationPane", json!({"value": true}));
+        assert!(s.view.nav_pane);
+        assert_eq!((s.view.mode, s.view.read_mode), before, "{command}");
+    }
+}
+
+#[test]
+fn reading_mode_reflows_per_viewport_without_changing_document_or_export() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "A long paragraph for reading. ".repeat(200)}));
+    let original = s.doc.clone();
+    let print = s.export_layout();
+    let dirty = s.dirty;
+    run(&mut s, "view.readMode", json!({}));
+    assert!(s.view.read_mode);
+    s.view.read_width = 240.0;
+    s.view.read_height = 420.0;
+    let columns = s.layout();
+    assert!(columns.pages.len() > print.pages.len());
+    assert!(columns.pages.iter().all(|p| p.w == 240.0 && p.h == 420.0));
+    s.view.read_height = 260.0;
+    assert!(s.layout().pages.len() > columns.pages.len(), "height is part of the layout cache key");
+    s.view.read_width = 300.0;
+    assert_eq!(s.layout().pages[0].w, 300.0, "width is part of the layout cache key");
+    let serialized = serde_json::to_value(&s.view).unwrap();
+    assert!(serialized.get("readWidth").is_none() && serialized.get("readHeight").is_none());
+    let restored: crate::ViewState = serde_json::from_value(serialized).unwrap();
+    assert_eq!((restored.read_width, restored.read_height), (300.0, 500.0));
+    run(&mut s, "view.readColumnWidth", json!({"value": "page"}));
+    run(&mut s, "view.readTextSize", json!({"value": 125}));
+    let default_spacing_pages = s.layout().pages.len();
+    run(&mut s, "view.readLineSpacing", json!({"value": 2.0}));
+    assert_eq!(s.view.read_column_width, Some(612.0));
+    assert_eq!(s.view.read_zoom, 1.25);
+    assert_eq!(s.view.read_line_spacing, Some(2.0));
+    let spaced = s.layout();
+    assert!(spaced.pages.len() > default_spacing_pages, "line spacing must invalidate cached pagination");
+    assert!(s.run("view.readTextSize", &json!({"value": -10})).is_err());
+    assert!(s.run("view.readLineSpacing", &json!({"value": 0.01})).is_err());
+    assert!(s.run("view.readColumnWidth", &json!({"value": "giant"})).is_err());
+    let serialized = serde_json::to_value(&s.view).unwrap();
+    for key in ["readColumnWidth", "readZoom", "readLineSpacing"] {
+        assert!(serialized.get(key).is_none());
+    }
+    run(&mut s, "view.printLayout", json!({}));
+    assert!(!s.view.read_mode);
+    assert_eq!(s.layout().pages[0].w, print.pages[0].w);
+    assert_eq!(s.export_layout().pages.len(), print.pages.len());
+    assert_eq!(s.doc, original);
+    assert_eq!(s.dirty, dirty);
+    run(&mut s, "view.readMode", json!({}));
+    assert_eq!(s.view.read_column_width, None);
+    assert_eq!(s.view.read_zoom, 1.0);
+    assert_eq!(s.view.read_line_spacing, None);
+}
+
 /// File › Options › Advanced › Numeral: the display mode for digits (display only).
 #[test]
 fn numeral_mode_sets_gets_and_rejects_junk() {

@@ -321,28 +321,38 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
-                    let z = (app.canvas.scale / crate::canvas::PX_PER_PT * 100.0).round();
+                    let reading = app.session.view.read_mode;
+                    let z = (if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT } * 100.0).round();
                     let ztxt = format!("{z}%");
                     let zfont = TypeRung::Caption.regular();
                     let ztrack = TypeRung::Caption.tracking();
                     let zw = text_width(ui.painter(), &ztxt, &zfont, ztrack, t.text_dim);
                     let (zr, zresp) = ui.allocate_exact_size(vec2(zw + 1.0, TypeRung::Caption.line_height()), Sense::click());
                     paint_text(ui.painter(), pos2(zr.min.x, zr.min.y), Align2::LEFT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
-                    if zresp.clicked() {
+                    if zresp.clicked() && !reading {
                         let _ = app.run("ui.dialog", json!({ "name": "zoom" }));
                     }
                     if small_icon(ui, "plus", tl!("Zoom In")) {
-                        let _ = app.run("view.zoomIn", json!({}));
+                        if reading {
+                            let _ = app.run("view.readTextSize", json!({"value": (z + 10.0).min(150.0)}));
+                        } else {
+                            let _ = app.run("view.zoomIn", json!({}));
+                        }
                     }
-                    // Zoom slider (10%–500%, 100% in the middle).
-                    let mut v = app.canvas.scale / crate::canvas::PX_PER_PT;
-                    let slider = egui::Slider::new(&mut v, 0.1..=5.0).logarithmic(true).show_value(false);
+                    // Reading zoom changes only reading presentation, never the normal view zoom.
+                    let mut v = if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT };
+                    let slider = egui::Slider::new(&mut v, if reading { 0.75..=1.5 } else { 0.1..=5.0 }).logarithmic(!reading).show_value(false);
                     ui.spacing_mut().slider_width = 110.0;
                     if ui.add(slider).changed() {
-                        let _ = app.run("view.zoom", json!({"value": (v * 100.0).round()}));
+                        let command = if reading { "view.readTextSize" } else { "view.zoom" };
+                        let _ = app.run(command, json!({"value": (v * 100.0).round()}));
                     }
                     if small_icon(ui, "minus", tl!("Zoom Out")) {
-                        let _ = app.run("view.zoomOut", json!({}));
+                        if reading {
+                            let _ = app.run("view.readTextSize", json!({"value": (z - 10.0).max(75.0)}));
+                        } else {
+                            let _ = app.run("view.zoomOut", json!({}));
+                        }
                     }
                     ui.add_space(10.0);
                     let mode = app.session.view.mode;
