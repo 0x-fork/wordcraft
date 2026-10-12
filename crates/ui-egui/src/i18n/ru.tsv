@@ -2112,6 +2112,8 @@ preview	Title	Пример
 	Apply	Применить
 	Convert Notes	Преобразовать сноски
 
+# Word XML Document (#548).
+	Word XML Document (*.xml)	Документ Word XML (*.xml)
 # Find and Replace special characters and wildcards (#543).
 	Use wildcards	Подстановочные знаки
 	Special	Специальный
