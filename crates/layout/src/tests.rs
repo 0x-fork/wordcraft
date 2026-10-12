@@ -4341,3 +4341,49 @@ fn list_indents_and_style_indents_combine_like_word() {
         assert!((got - want).abs() < 0.5, "{what}: {got} vs {want}");
     }
 }
+
+/// Keep with next at a page bottom, measured in Word for Windows (`plan/word` R19, 20 cases): a
+/// paragraph that would fit on the page by itself moves over with the next one, but one that
+/// doesn't fit anyway breaks as usual, its last lines going over with the next paragraph (with
+/// Keep lines together it moves whole); a chain of kept paragraphs moves together. NIH's
+/// five-line kept paragraph left a third of a page empty.
+#[test]
+fn keep_with_next_moves_a_paragraph_only_when_it_would_fit() {
+    // Page of each of the kept paragraph's 5 lines and of the first paragraph after it.
+    let pages = |fillers: usize, kept: ParaProps, next: ParaProps| {
+        let mut d = Document::new();
+        let plain = ParaProps {
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            line_spacing: Some(wordcraft_doc::props::LineSpacing::Multiple(1.0)),
+            ..Default::default()
+        };
+        let para = |text: &str, p: &ParaProps| {
+            let mut x = wordcraft_doc::Paragraph::with_text(text, Default::default());
+            x.props = ParaProps { keep_next: p.keep_next, keep_lines: p.keep_lines, ..plain.clone() };
+            wordcraft_doc::para_block(x)
+        };
+        d.body = (0..fillers).map(|i| para(&format!("F{i}"), &plain)).collect();
+        d.body.push(para("Ka\nKb\nKc\nKd\nKe", &kept));
+        d.body.push(para("NX", &next));
+        d.body.push(para("NY", &plain));
+        let l = lay(&d);
+        let k = fillers;
+        [0, 3, 6, 9, 12]
+            .map(|off| l.caret(&Pos::body(k, off)).unwrap().page)
+            .into_iter()
+            .chain([l.caret(&Pos::body(k + 1, 0)).unwrap().page])
+            .collect::<Vec<_>>()
+    };
+    let none = ParaProps::default();
+    let kn = ParaProps { keep_next: Some(true), ..Default::default() };
+    let kl = ParaProps { keep_lines: Some(true), ..kn.clone() };
+    // Find where the kept paragraph just fits: its last line on page 1, the next one's on page 2.
+    let fit = (20..80).find(|n| pages(*n, none.clone(), none.clone()) == [0, 0, 0, 0, 0, 1]).expect("a filler count that fills the page");
+    assert_eq!(pages(fit, kn.clone(), none.clone()), [1, 1, 1, 1, 1, 1], "fits by itself: moves with the next");
+    let split = pages(fit + 1, none.clone(), none.clone());
+    assert!(split[0] == 0 && split[4] == 1, "one more line splits it: {split:?}");
+    assert_eq!(pages(fit + 1, kn.clone(), none.clone()), split, "doesn't fit anyway: breaks as usual");
+    assert_eq!(pages(fit + 1, kl.clone(), none.clone()), [1, 1, 1, 1, 1, 1], "with keep lines together it moves whole");
+    assert_eq!(pages(fit - 1, kn.clone(), kn.clone()), [1, 1, 1, 1, 1, 1], "a kept chain moves together");
+}

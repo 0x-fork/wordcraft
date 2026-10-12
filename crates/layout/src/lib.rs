@@ -2615,9 +2615,11 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
         }
     }
     pb.y += before;
-    // Keep lines together: if it doesn't fit but would on an empty column, move it.
-    if pl.rp.keep_lines || pl.rp.keep_next {
-        let need = pl.height + if pl.rp.keep_next { next_first_line(ctx, block, width) } else { 0.0 };
+    // Keep lines together: if it doesn't fit but would on an empty column, move it. Keep with
+    // next alone moves a paragraph only when it would fit here by itself (Word for Windows): one
+    // that doesn't breaks as usual, its last lines going over with the next paragraph.
+    if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + pl.height <= pb.bottom + 0.01) {
+        let need = pl.height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
         if pb.y + need > pb.bottom && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
             pb.advance(block, body_top);
@@ -2883,7 +2885,10 @@ fn mirror_shift(rp: &wordcraft_doc::resolve::ResolvedPara, number: u32, web: boo
 }
 
 /// Height of the first line of the block after `block` (for keep-with-next).
-fn next_first_line(ctx: &mut Ctx, block: usize, width: f32) -> f32 {
+/// The room the paragraphs after `block` need on its page for keep with next: the next one's
+/// first line, or all of it and what it keeps with in turn when it is kept with the next too
+/// (a chain moves together in Word).
+fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32 {
     match ctx.doc.body.get(block + 1).map(|b| &**b) {
         Some(Block::Para(p)) => {
             // Don't advance list counters for a lookahead: lay out without the label.
@@ -2907,7 +2912,11 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32) -> f32 {
             };
             let _ = rp;
             let pl = para::layout_para(p, &env);
-            pl.rp.space_before + pl.lines.first().map(|l| l.height).unwrap_or(0.0)
+            if pl.rp.keep_next && depth < 8 {
+                pl.rp.space_before + pl.height + pl.rp.space_after + next_first_line(ctx, block + 1, width, depth + 1)
+            } else {
+                pl.rp.space_before + pl.lines.first().map(|l| l.height).unwrap_or(0.0)
+            }
         }
         Some(Block::Table(_)) => 24.0,
         None => 0.0,
