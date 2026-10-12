@@ -4143,3 +4143,37 @@ fn bulgarian_text_is_hyphenated_by_its_own_rules() {
         assert!(wordcraft_proof::hyphen::hyphen_points_in(&word, &lim, wordcraft_proof::ProofLang::Bg).contains(&at), "{head}-{tail}");
     }
 }
+
+/// Spaces and tabs never make a line taller in Word, whatever their size (measured in Word for
+/// Windows: 9 pt text with 11–20 pt tabs, spaces and ideographic spaces kept the 9 pt line; a
+/// line of only big spaces took the paragraph mark's height; a big letter or no-break space did
+/// grow it). Tables of contents with big tab runs were a third taller than Word's.
+#[test]
+fn spaces_and_tabs_do_not_make_a_line_taller() {
+    use wordcraft_doc::props::CharProps;
+    let small = CharProps { size: Some(9.0), ..Default::default() };
+    let big = CharProps { size: Some(20.0), ..Default::default() };
+    let pitch = |middle: &str, middle_props: &CharProps| {
+        let mut d = Document::new();
+        d.body = (0..3)
+            .map(|i| {
+                let mut p = wordcraft_doc::Paragraph::with_text(&format!("L{i}A"), small.clone());
+                let n = p.len();
+                p.insert_text(n, middle, middle_props).unwrap();
+                let n = p.len();
+                p.insert_text(n, "B", &small).unwrap();
+                p.props = ParaProps { space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+                p.mark = small.clone();
+                wordcraft_doc::para_block(p)
+            })
+            .collect();
+        let l = lay(&d);
+        l.caret(&Pos::body(1, 0)).unwrap().top - l.caret(&Pos::body(0, 0)).unwrap().top
+    };
+    let plain = pitch(" ", &small);
+    for (what, middle) in [("a tab", "\t"), ("a space", " "), ("two spaces", "  "), ("an ideographic space", "\u{3000}")] {
+        assert!((pitch(middle, &big) - plain).abs() < 0.01, "{what} at 20 pt: {} vs {plain}", pitch(middle, &big));
+    }
+    assert!(pitch("x", &big) > plain + 5.0, "a 20 pt letter does make it taller");
+    assert!(pitch("\u{A0}", &big) > plain + 5.0, "so does a no-break space");
+}
