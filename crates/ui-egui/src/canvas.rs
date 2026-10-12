@@ -74,6 +74,10 @@ pub struct CanvasState {
     pub context_synonyms: Option<serde_json::Value>,
     /// The right-click context menu is open (the mini toolbar stands down while it is).
     pub context_menu_open: bool,
+    /// Shift+F10 (or `ui.contextMenu`) asked for the context menu at the caret (#821).
+    pub context_menu_from_keys: bool,
+    /// Where the context menu stands: the right-click point, or below the caret.
+    pub context_menu_at: Option<Pos2>,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
     /// A picture, shape or text box being dragged by its frame.
@@ -168,6 +172,8 @@ impl Default for CanvasState {
             erasing: None,
             ink_ui: Default::default(),
             context_menu_open: false,
+            context_menu_from_keys: false,
+            context_menu_at: None,
             mini_anchor: None,
             pasted: false,
             swallow_text: false,
@@ -1200,14 +1206,33 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             if !(a <= pos && pos <= b) || app.session.sel.is_collapsed() {
                 app.session.sel = wordcraft_engine::Selection::caret(pos);
             }
-            app.canvas.context_issue = app.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
-            app.canvas.context_synonyms = app.session.run("review.thesaurus", &json!({})).ok().and_then(|v| v.get("synonyms").cloned());
+            context_suggestions(app);
         }
     }
-    resp.context_menu(|ui| context_menu(app, ui));
-    // Stand down while the context menu owns the pointer so the two never double up;
-    // `context_menu_opened` also covers the click that dismisses the menu.
-    app.canvas.context_menu_open = resp.context_menu_opened();
+    // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
+    let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
+    if from_keys {
+        context_suggestions(app);
+        app.canvas.context_menu_at = caret_screen(app).map(|(p, h)| p + egui::vec2(0.0, h));
+    } else if resp.secondary_clicked() {
+        app.canvas.context_menu_at = resp.interact_pointer_pos();
+    }
+    let open = if resp.secondary_clicked() || from_keys {
+        Some(egui::SetOpenCommand::Bool(true))
+    } else if resp.clicked() {
+        Some(egui::SetOpenCommand::Bool(false))
+    } else {
+        None
+    };
+    let menu = egui::Popup::menu(&resp).open_memory(open);
+    let menu = match app.canvas.context_menu_at {
+        Some(p) => menu.at_position(p),
+        None => menu.at_pointer_fixed(),
+    };
+    menu.show(|ui| context_menu(app, ui));
+    // Stand down while the context menu owns the pointer so the two never double up; the open
+    // state also covers the click that dismisses the menu.
+    app.canvas.context_menu_open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     if let Some(c) = crate::ink::cursor(app).filter(|_| resp.hovered() || app.canvas.ink.is_some()) {
         ui.ctx().set_cursor_icon(c);
     } else if resp.hovered() || app.canvas.obj_drag.is_some() {
@@ -2201,6 +2226,13 @@ fn dims_body(app: &WordApp, layout: &DocLayout) -> bool {
         StoryRef::Part(_) if in_text_box(app) => editing_header_footer(app, layout),
         StoryRef::Part(_) => true,
     }
+}
+
+/// The spelling suggestions and synonyms the context menu offers for the selection or the word
+/// at the caret.
+fn context_suggestions(app: &mut WordApp) {
+    app.canvas.context_issue = app.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
+    app.canvas.context_synonyms = app.session.run("review.thesaurus", &json!({})).ok().and_then(|v| v.get("synonyms").cloned());
 }
 
 /// Caret position on screen.

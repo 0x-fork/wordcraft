@@ -976,6 +976,12 @@ impl WordApp {
                 self.pick_picture();
                 json!({"pending": self.change_picture_target.is_some()})
             }
+            // The page's context menu at the caret, as Shift+F10 or the Menu key opens it (#821).
+            "ui.contextMenu" => {
+                self.canvas.context_menu_from_keys = true;
+                self.canvas.want_focus = true;
+                json!({"pending": "contextMenu"})
+            }
             "ui.collapseRibbon" => {
                 self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed;
                 json!({"collapsed": self.ui.ribbon_collapsed})
@@ -4075,5 +4081,48 @@ mod tests {
         assert_eq!(&png[..4], b"\x89PNG");
         assert_eq!(v["result"]["width"], 2, "{v}");
         assert_eq!(v["result"]["height"], 1, "{v}");
+    }
+
+    /// #821: Shift+F10 opens the page's context menu below the caret, like right-clicking there
+    /// (Word's keyboard way to it; the Menu key isn't passed on by the windowing layer); Escape
+    /// closes it and typing goes on.
+    #[test]
+    fn shift_f10_opens_the_context_menu_at_the_caret() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        h.event(egui::Event::Text("Kilns fire".into()));
+        h.step();
+        let pastes = |h: &egui_kittest::Harness<WordApp>| h.query_all_by_label_contains("Paste").count();
+        let before = pastes(&h);
+        h.event(key(egui::Key::F10, egui::Modifiers::SHIFT));
+        h.step();
+        h.step();
+        assert!(h.state().canvas.context_menu_open, "Shift+F10 opened the menu");
+        assert!(pastes(&h) > before, "the page's context menu, with Paste");
+        let caret = canvas::caret_screen(h.state_mut()).unwrap();
+        let at = h.state().canvas.context_menu_at.unwrap();
+        assert!((at.x - caret.0.x).abs() < 1.0 && at.y > caret.0.y, "below the caret: {at:?} vs {caret:?}");
+        assert_eq!(h.state().ui.keytips, keytips::Phase::Off, "Shift+F10 doesn't show keytips");
+        h.event(key(egui::Key::Escape, egui::Modifiers::NONE));
+        h.step();
+        h.step();
+        assert!(!h.state().canvas.context_menu_open, "Escape closes it");
+        // Scripts and agents open it too.
+        h.state_mut().run("ui.contextMenu", json!({})).unwrap();
+        h.step();
+        h.step();
+        assert!(h.state().canvas.context_menu_open);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns fire");
     }
 }

@@ -150,6 +150,12 @@ fn shift_variant_params(id: &str) -> Option<Value> {
     }
 }
 
+/// Shift+F10 opens the context menu, as the Menu key does (#821). (The Menu key itself doesn't
+/// reach the app: the windowing layer drops it.)
+fn is_context_menu_key(key: Key, m: Modifiers) -> bool {
+    key == Key::F10 && m.shift && !m.command && !m.alt && !m.ctrl
+}
+
 /// F1–F12: shortcuts on these work without the canvas focused.
 fn is_function_key(key: Key) -> bool {
     matches!(key, Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::F5 | Key::F6 | Key::F7 | Key::F8 | Key::F9 | Key::F10 | Key::F11 | Key::F12)
@@ -344,6 +350,11 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 if crate::objects::key(app, key, modifiers) {
                     continue;
                 }
+                // Shift+F10, Windows' keyboard way to the context menu (#821).
+                if is_context_menu_key(key, modifiers) {
+                    app.canvas.context_menu_from_keys = true;
+                    continue;
+                }
                 // Escape leaves a text box to just after it in the body.
                 if key == Key::Escape
                     && crate::canvas::in_text_box(app)
@@ -417,5 +428,14 @@ mod tests {
         assert!(!is_paste_release(Key::V, m(false, false, false)), "a plain V");
         assert!(is_paste_special_release(Key::V, m(true, false, true)), "Mod+Alt+V opens Paste Special");
         assert!(!is_paste_special_release(Key::V, m(true, true, true)) && !is_paste_special_release(Key::V, m(true, false, false)));
+    }
+
+    #[test]
+    fn shift_f10_is_the_context_menu_key() {
+        let m = |shift, ctrl, alt| egui::Modifiers { shift, ctrl, command: ctrl, alt, ..Default::default() };
+        assert!(is_context_menu_key(Key::F10, m(true, false, false)));
+        assert!(!is_context_menu_key(Key::F10, m(false, false, false)), "F10 alone shows keytips");
+        assert!(!is_context_menu_key(Key::F10, m(true, true, false)), "Ctrl+Shift+F10");
+        assert!(!is_context_menu_key(Key::F9, m(true, false, false)), "Shift+F9 is a field key");
     }
 }
