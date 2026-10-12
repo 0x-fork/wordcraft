@@ -239,19 +239,17 @@ fn on_page_gap(rects: &[Rect], bands: &[(f32, f32)], p: Pos2) -> bool {
     })
 }
 
-/// Width of the markup area beside each page for comment balloons (points), or 0.
+/// Width of the markup area beside each page for comment and revision balloons (points), or 0.
 pub fn markup_width(app: &WordApp) -> f32 {
-    let v = &app.session.view;
-    // Word shows comments either in balloons (contextual) or in the Comments pane (list).
-    let on = v.show_markup && !v.comments_pane && !v.read_mode && !v.multi_page && v.mode == wordcraft_layout::ViewMode::Print;
-    // Track Changes Options: comments and formatting hidden, or every revision inline, leave
-    // no markup area.
-    let m = &app.session.prefs.markup;
-    let on = on && m.balloons != wordcraft_layout::display::BalloonMode::Inline;
-    let comments = m.comments && !app.session.doc.comments.is_empty();
-    let formats = m.formatting && wordcraft_engine::cmd::review::has_format_changes(&app.session.doc);
-    let moves = m.insertions_deletions && wordcraft_engine::cmd::moves::has_moves(&app.session.doc);
-    if on && (comments || formats || moves) { 216.0 } else { 0.0 }
+    // Word shows comments either in balloons (contextual) or in the Comments pane (list); Track
+    // Changes Options can put every revision inline (`Session::balloons_shown`).
+    let s = &app.session;
+    let m = &s.prefs.markup;
+    let comments = m.comments && !s.doc.comments.is_empty();
+    let formats = m.formatting && wordcraft_engine::cmd::review::has_format_changes(&s.doc);
+    let moves = m.insertions_deletions && wordcraft_engine::cmd::moves::has_moves(&s.doc);
+    let deletions = s.revisions_in_balloons() && wordcraft_engine::cmd::review::has_deletions(&s.doc);
+    if s.balloons_shown() && (comments || formats || moves || deletions) { 216.0 } else { 0.0 }
 }
 
 /// A page dimension (points) safe to lay out: finite, at least 1 pt, at most `cap`.
@@ -928,8 +926,9 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             replies.entry(p).or_default().push(*id);
         }
     }
-    // (page, anchor x, anchor y, item) for each anchored, unresolved-or-not comment, and each
-    // tracked formatting change (Word's default shows those in balloons too).
+    // (page, anchor x, anchor y, item) for each anchored, unresolved-or-not comment, each
+    // tracked formatting change (Word's default shows those in balloons too) and, when revisions
+    // go in balloons, each tracked deletion.
     let mut by_page: HashMap<usize, Vec<(f32, f32, Balloon, Pos)>> = HashMap::new();
     let m = &app.session.prefs.markup;
     let comments = if m.comments { wordcraft_engine::cmd::review::comment_list(&app.session) } else { Vec::new() };
@@ -954,6 +953,13 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
         let text = if from { tl!("Moved from") } else { tl!("Moved to") }.to_string();
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(author, text), pos));
+    }
+    // Show revisions in balloons: each tracked deletion, taken out of the text, at its place.
+    let deletions = if app.session.revisions_in_balloons() { wordcraft_engine::cmd::review::deletion_balloons(&app.session) } else { Vec::new() };
+    for d in deletions {
+        let Some(c) = layout.caret_on(&d.at, app.session.page_hint) else { continue };
+        let text = format!("{}: {}", tl!("Deleted"), d.text);
+        by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(d.author, text), d.at));
     }
     let palette = [t.blue, Color32::from_rgb(0xB0, 0x3A, 0x2E), Color32::from_rgb(0x2E, 0x7D, 0x32), Color32::from_rgb(0x8E, 0x44, 0xAD), t.orange];
     let mut authors: Vec<String> = Vec::new();
@@ -1089,7 +1095,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
 /// What a balloon in the markup area shows.
 enum Balloon {
     Comment(u32),
-    /// A tracked formatting change or move: its author and "Formatted: …" / "Moved from".
+    /// A tracked formatting change, move or deletion: its author and "Formatted: …" /
+    /// "Moved from" / "Deleted: …".
     Format(String, String),
 }
 
@@ -1999,6 +2006,26 @@ mod tests {
         assert!(after.page_w - after.margin_left - after.margin_right - after.gutter >= MIN_TEXT - 0.01);
         assert!(app.session.undo());
         assert_eq!(wordcraft_engine::cmd::page::sect(&app.session).margin_left, sect.margin_left);
+    }
+
+    /// Show revisions in balloons: a document whose only revision is a deletion gets the markup
+    /// area for its balloon; the other modes have nothing to show there, and neither does the view
+    /// while the Comments pane is open.
+    #[test]
+    fn a_deletion_alone_opens_the_markup_area_when_revisions_go_in_balloons() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("document.setText", json!({"text": "keep gone"})).unwrap();
+        a.run("review.trackChanges", json!({"value": true})).unwrap();
+        a.run("select.range", json!({"anchor": {"block": 0, "off": 5}, "focus": {"block": 0, "off": 9}})).unwrap();
+        a.run("text.delete", json!({})).unwrap();
+        assert_eq!(markup_width(&a), 0.0, "comments and formatting only: nothing to show");
+        a.run("review.trackingOptions", json!({"balloons": "revisions"})).unwrap();
+        assert!(markup_width(&a) > 0.0, "the deletion's balloon needs the markup area");
+        a.run("view.commentsPane", json!({"value": true})).unwrap();
+        assert_eq!(markup_width(&a), 0.0);
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        a.run("review.trackingOptions", json!({"insertionsDeletions": false})).unwrap();
+        assert_eq!(markup_width(&a), 0.0, "deletions not shown at all");
     }
 
     /// #549: presses count as double/triple as they go down; slow or far presses start again.
