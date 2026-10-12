@@ -277,6 +277,16 @@ fn main() -> eframe::Result {
     if let Some(window) = restored {
         options.viewport = window.apply(options.viewport);
     }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
+    // manager showed a "no" cursor. Run through XWayland when it's there; WORDCRAFT_WAYLAND=1
+    // keeps the native Wayland backend.
+    if std::env::var_os("DISPLAY").is_some() && std::env::var_os("WORDCRAFT_WAYLAND").is_none() {
+        options.event_loop_builder = Some(Box::new(|b| {
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            b.with_x11();
+        }));
+    }
     // Registered before the event loop starts, so it catches the Finder event that launched us as
     // well as later ones. Lives until the event loop returns; the app creator only borrows it.
     #[cfg(target_os = "macos")]

@@ -5014,6 +5014,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "windows",
+ "winit",
  "winresource",
  "wordcraft-control-key",
  "wordcraft-doc",
