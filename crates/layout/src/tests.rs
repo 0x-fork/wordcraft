@@ -2342,8 +2342,10 @@ fn float_moved_to_a_new_page_sits_at_its_paragraph_top() {
     let l = lay(&d);
     let r = shapes(&l.pages[1].items)[0];
     let top = first_line_top(&l.pages[1].items);
-    // The space before counts once: the picture and the text both start below it.
-    assert!((r.y - top).abs() < 0.5, "picture at {} but its paragraph's text starts at {top}", r.y);
+    // The picture sits at the paragraph's start, above its space before, as in Word (`plan/word`
+    // R22); the text starts below the space before.
+    let body_top = d.last_section.margin_top;
+    assert!((r.y - body_top).abs() < 0.5 && top >= body_top, "picture at {} but its paragraph starts at {body_top}", r.y);
 }
 
 #[test]
@@ -4425,4 +4427,59 @@ fn an_empty_continuous_section_mark_takes_no_room() {
     assert!((two[3].1 - two[1].1 - line).abs() < 0.15, "Pd a line below them: {two:?}");
     let new_page = tops("", 1, SectionStart::NextPage);
     assert_eq!(new_page[1].0, 1, "a next-page section starts a page: {new_page:?}");
+}
+
+/// A floating object positioned relative to its paragraph is measured from the paragraph's start
+/// above its space before, measured in Word for Windows (`plan/word` R22, 10 cases: 0, 10 and 20
+/// pt before, offsets 0 and −7.2 pt; the previous paragraph's space after still counts). The SARP
+/// form's field boxes sat a space-before too low, over their labels.
+#[test]
+fn paragraph_relative_floats_start_above_the_space_before() {
+    let shape_top = |before: f32, prev_after: f32, y: f32| {
+        let float = wordcraft_doc::para::Float {
+            wrap: wordcraft_doc::para::Wrap::InFrontOfText,
+            h_rel: wordcraft_doc::para::Anchor::Column,
+            v_rel: wordcraft_doc::para::Anchor::Paragraph,
+            y,
+            ..Default::default()
+        };
+        let shape = InlineObject::Shape {
+            kind: wordcraft_doc::para::ShapeKind::Rectangle,
+            w: 20.0,
+            h: 20.0,
+            fill: None,
+            stroke: None,
+            stroke_width: 1.0,
+            float,
+            story: None,
+            freeform: None,
+            effects: Default::default(),
+            extra: Default::default(),
+        };
+        let plain = ParaProps { space_before: Some(0.0), space_after: Some(prev_after), ..Default::default() };
+        let mut first = wordcraft_doc::Paragraph::with_text("First", Default::default());
+        first.props = plain;
+        let mut p = wordcraft_doc::Paragraph::with_text("Text ", Default::default());
+        p.text.push(wordcraft_doc::para::OBJ);
+        p.objects = vec![shape];
+        p.runs = vec![wordcraft_doc::Run { len: p.text.len(), props: Default::default() }];
+        p.props = ParaProps { space_before: Some(before), space_after: Some(0.0), ..Default::default() };
+        let mut d = Document::from_text("");
+        d.body = vec![wordcraft_doc::para_block(first), wordcraft_doc::para_block(p)];
+        let l = lay(&d);
+        let first_bottom = {
+            let c = l.caret(&Pos::body(0, 0)).unwrap();
+            c.top + c.height
+        };
+        let top = l.pages[0].items.iter().find_map(|i| if let Placed::Shape { rect, .. } = i { Some(rect.y) } else { None }).unwrap();
+        (top, first_bottom)
+    };
+    for before in [0.0, 10.0, 20.0] {
+        for y in [0.0, -7.2] {
+            let (top, first_bottom) = shape_top(before, 0.0, y);
+            assert!((top - (first_bottom + y)).abs() < 1.0, "{before} pt before, offset {y}: {top} vs {}", first_bottom + y);
+        }
+    }
+    let (top, first_bottom) = shape_top(0.0, 10.0, 0.0);
+    assert!((top - (first_bottom + 10.0)).abs() < 1.0, "below the previous paragraph's space after: {top} vs {first_bottom}");
 }
