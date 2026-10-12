@@ -2062,6 +2062,11 @@
 	Your system has animation effects turned on.	系統已開啟動畫效果。
 	Your system has animation effects turned off.	系統已關閉動畫效果。
 	Your system doesn't report an animation setting, so animation effects stay on.	系統未提供動畫設定，因此動畫效果保持開啟。
+	Select Column	選取欄
+	Select Table Cells by Clicking	按一下選取表格儲存格
+	Insert Row or Column by Clicking	按一下插入列或欄
+	Move Table by Dragging	拖曳移動表格
+	AutoFit Column by Double-Clicking	按兩下自動調整欄寬
 	Region:	地區：
 	Automatic ({region})	自動（{region}）
 	Start-up	啟動

@@ -167,13 +167,15 @@ fn target(s: &Session) -> Option<(Pos, Pos)> {
     None
 }
 
-/// The non-empty rows of a column selection, if one is active.
+/// The non-empty rows of a column selection, if one is active. Of whole cells, every paragraph:
+/// an empty one's mark takes the formatting.
 fn column_rows(s: &Session) -> Option<Vec<(Pos, Pos)>> {
     let segs = s.column_segments()?;
+    let cells = s.cell_range().is_some();
     let rows: Vec<(Pos, Pos)> = segs
         .iter()
         .map(|(a, b)| (s.doc.clamp(a), s.doc.clamp(b)))
-        .filter(|(a, b)| a != b && a.path == b.path && a.story == b.story)
+        .filter(|(a, b)| (a != b || cells) && a.path == b.path && a.story == b.story)
         .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
         .collect();
     // An empty block (column mode just started) formats like a caret.
@@ -186,6 +188,10 @@ pub fn apply(s: &mut Session, f: &dyn Fn(&mut CharProps)) -> CmdResult {
     if let Some(rows) = column_rows(s) {
         for (a, b) in rows {
             s.doc.format_range(&a, &b, f)?;
+            // An empty cell's paragraph only had its mark formatted: lay it out again.
+            if a == b {
+                s.doc.para_mut(a.story, &a.path)?.touch();
+            }
         }
         return sel_result(s);
     }
@@ -216,6 +222,10 @@ fn resolved(s: &Session) -> Vec<ResolvedChar> {
     if let Some(rows) = column_rows(s) {
         for (a, b) in rows {
             let Some(p) = s.doc.para_at(&a) else { continue };
+            // An empty cell: its mark's formatting.
+            if a == b {
+                out.push(s.doc.styles.resolve_char(p.props.style.as_deref(), &p.mark));
+            }
             for (r, c) in p.run_ranges() {
                 if r.end > a.off && r.start < b.off {
                     out.push(s.doc.styles.resolve_char(p.props.style.as_deref(), c));

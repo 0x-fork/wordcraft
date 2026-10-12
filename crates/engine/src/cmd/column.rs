@@ -3,6 +3,8 @@
 //! Backspace remove just the block, character formatting applies to each row's piece, paragraph
 //! formatting to the paragraphs it touches. Typing or pasting first deletes the block; any other
 //! edit collapses it to its top-left corner. Any ordinary caret move or selection drops it.
+//! Whole table cells that aren't one run of the text (part of a column, `CellRange`) are a block
+//! of their paragraphs: edits and formatting go cell by cell; table commands take the cells.
 
 use serde_json::{Value, json};
 use wordcraft_doc::edit::Fragment;
@@ -94,7 +96,7 @@ fn make(s: &mut Session, a: Pos, b: Pos, xa: f32, xb: f32) {
     let l = s.layout();
     let segments = l.column_segments(&s.doc, &a, &b, left, right, s.page_hint, MAX_LINES);
     s.sel = Selection { anchor: a, focus: b };
-    s.column = Some(ColumnBlock { sel: s.sel.clone(), anchor_x: xa, focus_x: xb, segments });
+    s.column = Some(ColumnBlock { sel: s.sel.clone(), anchor_x: xa, focus_x: xb, segments, cells: None });
     s.pending = None;
 }
 
@@ -116,6 +118,11 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
         s.column = None;
         s.column_mode = false;
     }
+    // Placing the caret ends a block even where its corners are (a selected empty cell's are
+    // the same place).
+    if matches!(id, "caret.set" | "select.collapse") {
+        s.column = None;
+    }
     if s.column_mode && id.starts_with("caret.") && id != "caret.set" {
         let mut params = v.clone();
         match params.as_object_mut() {
@@ -133,7 +140,11 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
         s.column_mode = false;
     }
     let Some(segs) = s.column_segments().map(<[(Pos, Pos)]>::to_vec) else { return run(s, v) };
+    let cells = s.cell_range().is_some();
     match id {
+        // Whole cells: table commands take the rectangle between the corners, and Tab moves on
+        // from it without clearing it, as in Word.
+        _ if cells && (id.starts_with("table.") || matches!(id, "text.tab" | "text.backTab")) => run(s, v),
         "edit.copy" => copy(s, &segs),
         "edit.cut" => {
             let r = copy(s, &segs)?;
@@ -146,7 +157,8 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
         }
         "format.changeCase" | "format.clear" | "format.resetChar" => per_row(s, run, v, &segs),
         _ if id.starts_with("format.") || id.starts_with("para.") || id == "select.column" => run(s, v),
-        _ if mutates && (id.starts_with("text.") || id.starts_with("edit.paste")) => {
+        // Pasting formatting (the format painter) leaves the text alone.
+        _ if mutates && (id.starts_with("text.") || (id.starts_with("edit.paste") && id != "edit.pasteFormat")) => {
             delete(s, &segs)?;
             run(s, v)
         }

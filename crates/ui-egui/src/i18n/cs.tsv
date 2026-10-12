@@ -1876,6 +1876,11 @@
 	Word XML Document (*.xml)	Dokument Word XML (*.xml)
 	Deleted	Odstraněno
 	Resize Table by Dragging	Změnit velikost tabulky přetažením
+	Select Column	Vybrat sloupec
+	Select Table Cells by Clicking	Vybrat buňky tabulky kliknutím
+	Insert Row or Column by Clicking	Vložit řádek nebo sloupec kliknutím
+	Move Table by Dragging	Přesunout tabulku přetažením
+	AutoFit Column by Double-Clicking	Přizpůsobit sloupec dvojitým kliknutím
 	Print Markup	Tisknout revize
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Komentáře vedle každé stránky a sledované změny v souborech PDF, výtiscích a obrázcích; seznam komentářů na konci webových stránek, Markdownu a textu.
 	Add Font…	Přidat písmo…

@@ -2075,6 +2075,11 @@
 	Your system has animation effects turned on.	У систему су ефекти анимације укључени.
 	Your system has animation effects turned off.	У систему су ефекти анимације искључени.
 	Your system doesn't report an animation setting, so animation effects stay on.	Систем не пријављује подешавање анимације, па ефекти анимације остају укључени.
+	Select Column	Изабери колону
+	Select Table Cells by Clicking	Избор ћелија табеле кликом
+	Insert Row or Column by Clicking	Уметање реда или колоне кликом
+	Move Table by Dragging	Премештање табеле превлачењем
+	AutoFit Column by Double-Clicking	Аутоматско уклапање колоне двоструким кликом
 	Region:	Регион:
 	Automatic ({region})	Аутоматски ({region})
 	Start-up	Покретање

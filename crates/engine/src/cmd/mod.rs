@@ -39,6 +39,7 @@ pub mod smart_art;
 pub mod speech;
 pub mod table;
 pub mod table_draw;
+pub mod table_mouse;
 pub mod table_resize;
 pub mod table_style;
 pub mod templates;
@@ -76,6 +77,7 @@ pub fn registry() -> Registry {
     v.extend(table_style::specs());
     v.extend(table_draw::specs());
     v.extend(table_resize::specs());
+    v.extend(table_mouse::specs());
     v.extend(review::specs());
     v.extend(file::specs());
     v.extend(options::specs());
@@ -128,6 +130,19 @@ pub fn pos_json(p: &Pos) -> Value {
 /// The standard result: the selection after the command.
 pub fn sel_result(s: &Session) -> CmdResult {
     Ok(json!({"anchor": pos_json(&s.sel.anchor), "focus": pos_json(&s.sel.focus)}))
+}
+
+/// The paragraphs the selection covers: those between its ends (not the next one when it ends at
+/// that one's start, #418) or, for whole table cells that aren't one run of the text (part of a
+/// column), just the cells' own.
+pub(crate) fn selected_paths(s: &Session) -> Vec<wordcraft_doc::Path> {
+    if s.cell_range().is_some()
+        && let Some(segs) = s.column_segments()
+    {
+        return segs.iter().map(|(a, _)| a.path.clone()).collect();
+    }
+    let (a, b) = s.sel.ordered();
+    s.doc.para_paths_in(&a, &b)
 }
 
 /// Delete the selection (respecting track changes); returns the collapsed position.

@@ -2073,6 +2073,11 @@
 	Your system has animation effects turned on.	У вашій системі ефекти анімації ввімкнено.
 	Your system has animation effects turned off.	У вашій системі ефекти анімації вимкнено.
 	Your system doesn't report an animation setting, so animation effects stay on.	Система не повідомляє про налаштування анімації, тому ефекти анімації залишаються ввімкненими.
+	Select Column	Виділити стовпець
+	Select Table Cells by Clicking	Виділити клітинки таблиці клацанням
+	Insert Row or Column by Clicking	Вставити рядок або стовпець клацанням
+	Move Table by Dragging	Перемістити таблицю перетягуванням
+	AutoFit Column by Double-Clicking	Добір ширини стовпця подвійним клацанням
 	Region:	Регіон:
 	Automatic ({region})	Автоматично ({region})
 	Start-up	Запуск

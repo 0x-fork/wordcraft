@@ -1461,6 +1461,11 @@
 	First row of data contains column headers	Erste Datenzeile enthält Spaltenüberschriften
 	Deleted	Gelöscht
 	Resize Table by Dragging	Tabellengröße durch Ziehen ändern
+	Select Column	Spalte auswählen
+	Select Table Cells by Clicking	Tabellenzellen per Klick auswählen
+	Insert Row or Column by Clicking	Zeile oder Spalte per Klick einfügen
+	Move Table by Dragging	Tabelle durch Ziehen verschieben
+	AutoFit Column by Double-Clicking	Spalte per Doppelklick automatisch anpassen
 	Print Markup	Markups drucken
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Kommentare neben jeder Seite und nachverfolgte Änderungen in PDFs, Ausdrucken und Bildern; eine Kommentarliste am Ende von Webseiten, Markdown und Text.
 	1. Formatting restrictions	1. Formatierungseinschränkungen

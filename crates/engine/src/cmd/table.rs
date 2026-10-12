@@ -177,6 +177,7 @@ pub fn specs() -> Vec<CommandSpec> {
             select_cells(s, &tp, Some((r, None)))
         })
         .pure()),
+        t(CommandSpec::new("table.selectColumn", "Select Column", "Table Layout › Table › Select", select_column).pure()),
         t(CommandSpec::new("table.selectCell", "Select Cell", "Table Layout › Table › Select", |s, _| {
             let (tp, r, c) = cell(s)?;
             select_cells(s, &tp, Some((r, Some(c))))
@@ -386,6 +387,13 @@ fn with_table(s: &mut Session, f: impl Fn(&mut Table)) -> CmdResult {
 
 /// Selected cells: (row, cell) pairs covered by the selection (at least the caret's cell).
 fn selected_cells(s: &Session) -> Vec<(usize, usize)> {
+    // Whole cells selected (a column, say): just those, by grid column, so merged cells count.
+    if let Some(range) = s.cell_range()
+        && s.sel.focus.path.cell().is_some_and(|(tp, _, _)| tp == range.table)
+        && let Some(t) = s.doc.table(range.story, &range.table)
+    {
+        return range.cells(t);
+    }
     let (a, b) = s.sel.ordered();
     let (Some((ta, ra, ca)), Some((tb, rb, cb))) = (a.path.cell(), b.path.cell()) else { return Vec::new() };
     if ta != tb {
@@ -456,7 +464,8 @@ fn fix_caret(s: &mut Session, tp: &Path, r: usize, c: usize) -> CmdResult {
     sel_result(s)
 }
 
-fn row(s: &mut Session, below: bool) -> CmdResult {
+/// Insert Above / Below: rows like the caret's, as many as the selection spans; the caret goes into the first.
+pub(super) fn row(s: &mut Session, below: bool) -> CmdResult {
     let (tp, r, c) = cell(s)?;
     let cells = selected_cells(s);
     let n = cells.iter().map(|x| x.0).collect::<std::collections::BTreeSet<_>>().len().max(1);
@@ -467,7 +476,8 @@ fn row(s: &mut Session, below: bool) -> CmdResult {
     fix_caret(s, &tp, if below { r + 1 } else { r }, c)
 }
 
-fn col(s: &mut Session, right: bool) -> CmdResult {
+/// Insert Left / Right: a column beside the caret's cell; the caret goes into it.
+pub(super) fn col(s: &mut Session, right: bool) -> CmdResult {
     let (tp, r, c) = cell(s)?;
     let t = s.doc.table_mut(s.sel.focus.story, &tp)?;
     let g = t.grid_col(r, c);
@@ -740,23 +750,77 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
 fn select_cells(s: &mut Session, tp: &Path, which: Option<(usize, Option<usize>)>) -> CmdResult {
     let story = s.sel.focus.story;
     let Some(t) = s.doc.table(story, tp) else { return sel_result(s) };
-    let (r0, r1, c0, c1) = match which {
-        None => (0, t.rows.len().saturating_sub(1), 0, usize::MAX),
-        Some((r, None)) => (r, r, 0, usize::MAX),
-        Some((r, Some(c))) => (r, r, c, c),
+    let (last_row, last_col) = (t.rows.len().saturating_sub(1), t.cols().saturating_sub(1));
+    let (rows, cols) = match which {
+        None => ((0, last_row), (0, last_col)),
+        Some((r, None)) => ((r, r), (0, last_col)),
+        Some((r, Some(c))) => ((r, r), grid_cols(t, r, c)),
     };
-    let last_c = t.rows.get(r1).map(|x| x.cells.len().saturating_sub(1)).unwrap_or(0).min(c1);
-    let mut a = tp.0.clone();
-    a.extend([r0 as u32, c0 as u32, 0]);
-    let mut b = tp.0.clone();
-    b.extend([r1 as u32, last_c as u32]);
-    let end_path = s.doc.para_paths(story).into_iter().rfind(|q| q.0.starts_with(&b)).unwrap_or_else(|| {
-        let mut x = b.clone();
-        x.push(0);
-        Path(x)
-    });
-    let off = s.doc.para(story, &end_path).map(|x| x.len()).unwrap_or(0);
-    s.sel = Selection { anchor: Pos { story, path: Path(a), off: 0 }, focus: Pos { story, path: end_path, off } };
+    select_range(s, story, tp, rows, cols)
+}
+
+/// The grid columns cell `c` of row `r` covers (first, last).
+pub(super) fn grid_cols(t: &Table, r: usize, c: usize) -> (usize, usize) {
+    let g = t.grid_col(r, c);
+    let span = t.rows.get(r).and_then(|row| row.cells.get(c)).map_or(1, wordcraft_doc::Cell::span);
+    (g, g + span - 1)
+}
+
+/// Table Layout › Table › Select › Select Column: the grid columns of the selected cells, every row.
+fn select_column(s: &mut Session, _: &Value) -> CmdResult {
+    let (tp, r, c) = cell(s)?;
+    let story = s.sel.focus.story;
+    let t = s.doc.table(story, &tp).ok_or_else(|| CmdError::Disabled("the cursor isn't in a table".into()))?;
+    let (mut g0, mut g1) = grid_cols(t, r, c);
+    for (r, c) in selected_cells(s) {
+        let (a, b) = grid_cols(t, r, c);
+        (g0, g1) = (g0.min(a), g1.max(b));
+    }
+    let rows = (0, t.rows.len().saturating_sub(1));
+    select_range(s, story, &tp, rows, (g0, g1))
+}
+
+/// Select whole cells of table `tp`: rows `rows`, and of them every cell reaching into grid
+/// columns `cols` (both inclusive, either order). The selection runs from the first cell's start
+/// to the last cell's end; a block of the cells' paragraphs (`CellRange`) says which cells they
+/// are, so the app shades them and, when they aren't one run of the text (part of a column),
+/// edits and formatting leave the cells between the corners alone.
+pub(crate) fn select_range(s: &mut Session, story: StoryRef, tp: &Path, rows: (usize, usize), cols: (usize, usize)) -> CmdResult {
+    let t = s.doc.table(story, tp).ok_or_else(|| CmdError::Failed("there's no table there".into()))?;
+    let (last_row, last_col) = (t.rows.len().saturating_sub(1), t.cols().saturating_sub(1));
+    let rows = (rows.0.min(rows.1).min(last_row), rows.0.max(rows.1).min(last_row));
+    let cols = (cols.0.min(cols.1).min(last_col), cols.0.max(cols.1).min(last_col));
+    let stream = rows.0 == rows.1 || (cols.0 == 0 && cols.1 == last_col);
+    let range = crate::CellRange { story, table: tp.clone(), rows, cols, stream };
+    let picked: std::collections::BTreeSet<(usize, usize)> = range.cells(t).into_iter().collect();
+    // Every paragraph of the picked cells (nested tables' too), in document order.
+    let depth = tp.0.len();
+    let in_picked = |q: &Path| match (q.0.get(depth), q.0.get(depth + 1)) {
+        (Some(r), Some(c)) => q.0.len() > depth + 2 && q.0.starts_with(&tp.0) && picked.contains(&(*r as usize, *c as usize)),
+        _ => false,
+    };
+    let segments: Vec<(Pos, Pos)> = s
+        .doc
+        .para_paths(story)
+        .into_iter()
+        .filter(|q| in_picked(q))
+        .map(|q| {
+            let len = s.doc.para(story, &q).map_or(0, Paragraph::len);
+            (Pos { story, path: q.clone(), off: 0 }, Pos { story, path: q, off: len })
+        })
+        .collect();
+    let (Some(first), Some(last)) = (segments.first(), segments.last()) else {
+        return Err(CmdError::Failed("there are no cells to select there".into()));
+    };
+    // The end corner is in the last cell's own last paragraph (not a nested table's), so it
+    // names the cell.
+    let focus = segments.iter().rev().find(|(_, b)| b.path.0.len() == depth + 3).map_or(&last.1, |(_, b)| b).clone();
+    let sel = Selection { anchor: first.0.clone(), focus };
+    s.sel = sel.clone();
+    s.column = Some(crate::ColumnBlock { sel, anchor_x: 0.0, focus_x: 0.0, segments, cells: Some(range) });
+    s.column_mode = false;
+    s.goal_x = None;
+    s.pending = None;
     sel_result(s)
 }
 

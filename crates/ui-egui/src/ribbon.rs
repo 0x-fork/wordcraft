@@ -2319,6 +2319,7 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
         stack(ui, |ui| {
             menu_button(ui, app, "selectTable", Some("Select"), "Select", false, "table.selectTable", |ui, app| {
                 mi(ui, app, "Select Cell", "table.selectCell", json!({}));
+                mi(ui, app, "Select Column", "table.selectColumn", json!({}));
                 mi(ui, app, "Select Row", "table.selectRow", json!({}));
                 mi(ui, app, "Select Table", "table.selectTable", json!({}));
             });

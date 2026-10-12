@@ -2061,6 +2061,11 @@
 	Your system has animation effects turned on.	システムのアニメーション効果はオンです。
 	Your system has animation effects turned off.	システムのアニメーション効果はオフです。
 	Your system doesn't report an animation setting, so animation effects stay on.	システムからアニメーションの設定を取得できないため、アニメーション効果はオンのままです。
+	Select Column	列の選択
+	Select Table Cells by Clicking	クリックで表のセルを選択
+	Insert Row or Column by Clicking	クリックで行または列を挿入
+	Move Table by Dragging	ドラッグで表を移動
+	AutoFit Column by Double-Clicking	ダブルクリックで列の幅を自動調整
 	Region:	地域:
 	Automatic ({region})	自動 ({region})
 	Start-up	起動

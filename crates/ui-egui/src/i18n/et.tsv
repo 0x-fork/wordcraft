@@ -2095,6 +2095,11 @@
 	Your system has animation effects turned on.	Süsteemis on animatsiooniefektid sisse lülitatud.
 	Your system has animation effects turned off.	Süsteemis on animatsiooniefektid välja lülitatud.
 	Your system doesn't report an animation setting, so animation effects stay on.	Süsteem ei teata animatsiooniseadet, seega jäävad animatsiooniefektid sisse.
+	Select Column	Vali veerg
+	Select Table Cells by Clicking	Tabelilahtrite valimine klõpsates
+	Insert Row or Column by Clicking	Rea või veeru lisamine klõpsates
+	Move Table by Dragging	Tabeli teisaldamine lohistades
+	AutoFit Column by Double-Clicking	Veeru automaatne sobitus topeltklõpsuga
 	Region:	Piirkond:
 	Automatic ({region})	Automaatne ({region})
 	Start-up	Käivitamine

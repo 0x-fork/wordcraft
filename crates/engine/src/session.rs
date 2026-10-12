@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wordcraft_doc::edit::Fragment;
 use wordcraft_doc::props::CharProps;
-use wordcraft_doc::{Document, Path, Pos, StoryRef};
+use wordcraft_doc::{Document, Path, Pos, StoryRef, Table};
 use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
 
 use crate::{CmdError, Registry};
@@ -51,6 +51,42 @@ pub struct ColumnBlock {
     pub focus_x: f32,
     /// One `(start, end)` per line, in document order, each inside one paragraph.
     pub segments: Vec<(Pos, Pos)>,
+    /// Set when the block is whole table cells (Select Cell, Row, Column or Table, or the mouse in
+    /// a table's selection areas): one segment per paragraph of the cells.
+    pub cells: Option<CellRange>,
+}
+
+/// Whole table cells selected: rows `rows.0..=rows.1` and every cell of them that reaches into
+/// grid columns `cols.0..=cols.1`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellRange {
+    pub story: StoryRef,
+    pub table: Path,
+    pub rows: (usize, usize),
+    pub cols: (usize, usize),
+    /// The cells are one run of the text (cells of one row, or whole rows), so the stream
+    /// selection between the corners holds just them and commands act on that as usual.
+    /// Otherwise (part of a column) text edits and formatting go cell by cell.
+    pub stream: bool,
+}
+
+impl CellRange {
+    /// The selected cells of table `t` (row, cell index), in document order.
+    pub fn cells(&self, t: &Table) -> Vec<(usize, usize)> {
+        let ((r0, r1), (g0, g1)) = (self.rows, self.cols);
+        let mut out = Vec::new();
+        for (r, row) in t.rows.iter().enumerate().take(r1.saturating_add(1)).skip(r0) {
+            let mut g = 0usize;
+            for (c, cell) in row.cells.iter().enumerate() {
+                let end = g.saturating_add(cell.span());
+                if g <= g1 && end > g0 {
+                    out.push((r, c));
+                }
+                g = end;
+            }
+        }
+        out
+    }
 }
 
 /// View state that commands can change (ribbon View tab, status bar).
@@ -230,6 +266,9 @@ struct Undo {
     sel: Selection,
     /// Formatting waiting at the caret (Bold with nothing selected), so Undo takes it back too.
     pending: Option<CharProps>,
+    /// The column block or whole cells the selection was (undoing brings the selection back as
+    /// it was).
+    column: Option<ColumnBlock>,
 }
 
 /// What [`Session::restore`] needs to take commands back exactly: the document, the selection,
@@ -603,7 +642,13 @@ impl Session {
     /// The line pieces of the current column selection, if there is one (the selection hasn't
     /// moved since the block was made).
     pub fn column_segments(&self) -> Option<&[(Pos, Pos)]> {
-        self.column.as_ref().filter(|c| c.sel == self.sel).map(|c| c.segments.as_slice())
+        // Cells that are one run of the text are an ordinary stream selection.
+        self.column.as_ref().filter(|c| c.sel == self.sel && !c.cells.as_ref().is_some_and(|r| r.stream)).map(|c| c.segments.as_slice())
+    }
+
+    /// The whole table cells selected, if the selection is that (see [`CellRange`]).
+    pub fn cell_range(&self) -> Option<&CellRange> {
+        self.column.as_ref().filter(|c| c.sel == self.sel).and_then(|c| c.cells.as_ref())
     }
 
     /// Document revision (bumped by every change).
@@ -743,7 +788,13 @@ impl Session {
             return;
         }
         self.typing_open = label == "Typing";
-        self.history.push(Arc::new(Undo { label: label.to_string(), doc: self.doc.clone(), sel: self.sel.clone(), pending: self.pending.clone() }));
+        self.history.push(Arc::new(Undo {
+            label: label.to_string(),
+            doc: self.doc.clone(),
+            sel: self.sel.clone(),
+            pending: self.pending.clone(),
+            column: self.column.clone(),
+        }));
         if self.history.len() > MAX_UNDO {
             self.history.remove(0);
             self.undo_evicted += 1;
@@ -753,7 +804,7 @@ impl Session {
     /// Record `doc`/`sel` as their own undo step after the fact and close the typing group, so
     /// Undo right after an automatic change (AutoFormat, AutoCorrect) reverts only that change.
     pub fn push_undo(&mut self, label: &str, doc: Document, sel: Selection) {
-        self.history.push(Arc::new(Undo { label: label.to_string(), doc, sel, pending: self.pending.clone() }));
+        self.history.push(Arc::new(Undo { label: label.to_string(), doc, sel, pending: self.pending.clone(), column: None }));
         if self.history.len() > MAX_UNDO {
             self.history.remove(0);
             self.undo_evicted += 1;
@@ -824,6 +875,7 @@ impl Session {
             doc: std::mem::replace(&mut self.doc, u.doc),
             sel: std::mem::replace(&mut self.sel, u.sel),
             pending: std::mem::replace(&mut self.pending, u.pending),
+            column: std::mem::replace(&mut self.column, u.column),
         };
         self.redo.push(Arc::new(cur));
         self.touch();
@@ -842,6 +894,7 @@ impl Session {
             doc: std::mem::replace(&mut self.doc, u.doc),
             sel: std::mem::replace(&mut self.sel, u.sel),
             pending: std::mem::replace(&mut self.pending, u.pending),
+            column: std::mem::replace(&mut self.column, u.column),
         };
         self.history.push(Arc::new(cur));
         self.touch();
@@ -1206,6 +1259,11 @@ impl Session {
 
     /// Selected plain text.
     pub fn selected_text(&self) -> String {
+        // A column block or whole cells that aren't one run of the text: each piece's own text,
+        // a line each, so the status bar and Word Count count those cells only.
+        if let Some(segs) = self.column_segments() {
+            return segs.iter().map(|(a, b)| self.doc.copy_range(a.min(b), a.max(b)).plain_text()).collect::<Vec<_>>().join("\n");
+        }
         let (a, b) = self.sel.ordered();
         self.doc.copy_range(&a, &b).plain_text()
     }

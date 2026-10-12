@@ -2452,6 +2452,11 @@ preview	Title	Örnek
 	Your system has animation effects turned on.	Sisteminizde animasyon efektleri açık.
 	Your system has animation effects turned off.	Sisteminizde animasyon efektleri kapalı.
 	Your system doesn't report an animation setting, so animation effects stay on.	Sisteminiz bir animasyon ayarı bildirmiyor, bu nedenle animasyon efektleri açık kalır.
+	Select Column	Tablo Sütunu Seç
+	Select Table Cells by Clicking	Tablo Hücrelerini Tıklayarak Seç
+	Insert Row or Column by Clicking	Tıklayarak Satır veya Sütun Ekle
+	Move Table by Dragging	Tabloyu Sürükleyerek Taşı
+	AutoFit Column by Double-Clicking	Sütunu Çift Tıklayarak Otomatik Sığdır
 	Region:	Bölge:
 	Automatic ({region})	Otomatik ({region})
 	Start-up	Başlangıç

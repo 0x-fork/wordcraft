@@ -2453,6 +2453,11 @@ preview	Title	Пример
 	Your system has animation effects turned on.	В системе эффекты анимации включены.
 	Your system has animation effects turned off.	В системе эффекты анимации выключены.
 	Your system doesn't report an animation setting, so animation effects stay on.	Система не сообщает о настройке анимации, поэтому эффекты анимации остаются включёнными.
+	Select Column	Выделить столбец таблицы
+	Select Table Cells by Clicking	Выделить ячейки таблицы щелчком
+	Insert Row or Column by Clicking	Вставить строку или столбец щелчком
+	Move Table by Dragging	Переместить таблицу перетаскиванием
+	AutoFit Column by Double-Clicking	Автоподбор ширины столбца двойным щелчком
 	Region:	Регион:
 	Automatic ({region})	Автоматически ({region})
 	Start-up	Запуск

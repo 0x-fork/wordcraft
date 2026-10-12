@@ -2464,3 +2464,8 @@
 	Automatic ({region})	Automatikus ({region})
 	Picture	Kép
 	Pastes the clipboard's picture.	Beilleszti a vágólapon lévő képet.
+	Select Column	Oszlop kijelölése
+	Select Table Cells by Clicking	Táblázatcellák kijelölése kattintással
+	Insert Row or Column by Clicking	Sor vagy oszlop beszúrása kattintással
+	Move Table by Dragging	Táblázat áthelyezése húzással
+	AutoFit Column by Double-Clicking	Oszlop automatikus igazítása dupla kattintással

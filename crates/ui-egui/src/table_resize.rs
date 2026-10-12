@@ -2,7 +2,8 @@
 //! column-resize arrow, over a row's bottom border a row-resize arrow; over a table a small
 //! handle shows past its bottom-right corner. Dragging shows a dashed preview of the new border
 //! (or outline); releasing runs `table.resizeDrag` with page coordinates, one undo step. Shift
-//! while releasing a column border changes only the column on its left. The geometry decisions
+//! while releasing a column border changes only the column on its left; a double-click on a
+//! column border fits the column to its contents (`table.fitColumn`). The geometry decisions
 //! are the engine's (`cmd::table_resize`).
 
 use egui::{Pos2, Rect, Stroke, Ui, pos2};
@@ -14,7 +15,7 @@ use crate::WordApp;
 use crate::theme::Tokens;
 
 /// How near (screen pixels) the pointer has to be to a border to grab it.
-const REACH_PX: f32 = 4.0;
+pub(crate) const REACH_PX: f32 = 4.0;
 
 /// A table border (or the handle) being dragged.
 #[derive(Clone, Debug)]
@@ -26,22 +27,24 @@ pub(crate) struct ResizeDrag {
 }
 
 /// Screen pixels per page point on `page`.
-fn page_scale(rects: &[Rect], layout: &DocLayout, scale: f32, page: usize) -> Option<f32> {
+pub(crate) fn page_scale(rects: &[Rect], layout: &DocLayout, scale: f32, page: usize) -> Option<f32> {
     let r = rects.get(page)?;
     let sc = layout.pages.get(page).filter(|pg| pg.w > 0.0).map_or(scale, |pg| r.width() / pg.w);
     (sc > 0.0 && sc.is_finite()).then_some(sc)
 }
 
-fn to_screen(rects: &[Rect], layout: &DocLayout, scale: f32, page: usize, x: f32, y: f32) -> Option<Pos2> {
+pub(crate) fn to_screen(rects: &[Rect], layout: &DocLayout, scale: f32, page: usize, x: f32, y: f32) -> Option<Pos2> {
     let r = rects.get(page)?;
     let sc = page_scale(rects, layout, scale, page)?;
     Some(pos2(r.min.x + x * sc, r.min.y + y * sc))
 }
 
-/// Whether table resizing is in reach: not while a pen, the eraser, an object drag or a text
-/// drag owns the pointer, nor while editing a header or footer from the body (or back).
-fn available(app: &WordApp) -> bool {
+/// Whether table resizing is in reach: not while a pen, the eraser, an object drag, a text drag
+/// or a press on a table's selection area or move handle (`table_mouse`) owns the pointer, nor
+/// while editing a header or footer from the body (or back).
+pub(crate) fn available(app: &WordApp) -> bool {
     app.canvas.table_tool.is_none()
+        && app.canvas.table_drag.is_none()
         && app.canvas.ink.is_none()
         && app.canvas.obj_drag.is_none()
         && !app.canvas.drag_selecting()
@@ -74,8 +77,16 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
             app.canvas.table_resize = Some(d);
             return true;
         }
-        // A click without a move changes nothing.
+        // A click without a move changes nothing; a double-click on a column border fits the
+        // column left of it to its contents.
         if (d.to.0 - d.from.0).abs() < 0.5 && (d.to.1 - d.from.1).abs() < 0.5 {
+            if resp.double_clicked() && matches!(d.target.edge, Edge::Column(_)) {
+                let sc = page_scale(rects, layout, scale, d.page).unwrap_or(1.0);
+                let params = json!({"page": d.page, "x": d.from.0, "y": d.from.1, "reach": REACH_PX / sc});
+                if let Err(e) = app.run("table.fitColumn", params) {
+                    app.status(e);
+                }
+            }
             return true;
         }
         let shift = ui.input(|i| i.modifiers.shift);
@@ -169,7 +180,7 @@ pub fn paint(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLay
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Screen ↔ page conversion survives a page list that doesn't match the layout.
@@ -184,15 +195,20 @@ mod tests {
         assert!(page_scale(&rects, &layout, 0.0, 0).is_none());
     }
 
-    type H = egui_kittest::Harness<'static, WordApp>;
+    pub(crate) type H = egui_kittest::Harness<'static, WordApp>;
 
     /// The whole window with a 2×3 table whose first cell's text is selected.
-    fn table_window() -> H {
+    pub(crate) fn table_window() -> H {
+        table_window_stepping(0.25)
+    }
+
+    /// The same, each step `dt` seconds apart (short enough for a double-click: 1/60).
+    pub(crate) fn table_window_stepping(dt: f32) -> H {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
         a.run("insert.table", json!({"rows": 2, "cols": 3})).unwrap();
         a.run("text.insert", json!({"text": "Product"})).unwrap();
         a.run("select.text", json!({"text": "Product"})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(dt).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
                 app.logic(&ctx);
@@ -207,7 +223,7 @@ mod tests {
     }
 
     /// Cell (`row`, `cell`)'s rect in page points.
-    fn cell(h: &mut H, row: usize, cell: usize) -> wordcraft_geom::Rect {
+    pub(crate) fn cell(h: &mut H, row: usize, cell: usize) -> wordcraft_geom::Rect {
         h.state_mut().session.layout().pages[0]
             .items
             .iter()
@@ -218,15 +234,15 @@ mod tests {
             .unwrap()
     }
 
-    fn screen(h: &mut H, x: f32, y: f32) -> Pos2 {
+    pub(crate) fn screen(h: &mut H, x: f32, y: f32) -> Pos2 {
         crate::canvas::page_to_screen(h.state_mut(), 0, x, y).unwrap()
     }
 
-    fn button(h: &H, at: Pos2, pressed: bool) {
+    pub(crate) fn button(h: &H, at: Pos2, pressed: bool) {
         h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
     }
 
-    fn steps(h: &mut H, n: usize) {
+    pub(crate) fn steps(h: &mut H, n: usize) {
         for _ in 0..n {
             h.step();
         }
@@ -300,5 +316,29 @@ mod tests {
         steps(&mut h, 3);
         assert_eq!(h.state().session.undo_depth(), depth, "Esc cancelled it");
         assert_eq!(h.state().session.doc.body.iter().find_map(|b| b.as_table()).cloned(), table);
+    }
+
+    /// A double-click on a column border fits the column left of it to its text, the next
+    /// column keeping its width and moving along (the table narrows, as in Word), in one undo
+    /// step.
+    #[test]
+    fn double_clicking_a_column_border_fits_the_column() {
+        let mut h = table_window_stepping(1.0 / 60.0);
+        let (a, b) = (cell(&mut h, 0, 0), cell(&mut h, 0, 1));
+        let depth = h.state().session.undo_depth();
+        let at = screen(&mut h, a.right(), a.y + a.h / 2.0);
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        for _ in 0..2 {
+            button(&h, at, true);
+            h.step();
+            button(&h, at, false);
+            h.step();
+        }
+        steps(&mut h, 2);
+        let (a1, b1) = (cell(&mut h, 0, 0), cell(&mut h, 0, 1));
+        assert!(a1.w < a.w - 40.0, "{a:?} → {a1:?}");
+        assert!((b1.w - b.w).abs() < 1.0 && (b1.x - b.x - (a1.w - a.w)).abs() < 1.0, "the next column keeps its width and moves along");
+        assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step");
     }
 }

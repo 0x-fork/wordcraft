@@ -1946,6 +1946,11 @@
 	Reset Graphic	Resetuj grafikę
 	Reset\nGraphic	Resetuj\ngrafikę
 	Resize Table by Dragging	Zmień rozmiar tabeli przeciąganiem
+	Select Column	Zaznacz kolumnę tabeli
+	Select Table Cells by Clicking	Zaznacz komórki tabeli kliknięciem
+	Insert Row or Column by Clicking	Wstaw wiersz lub kolumnę kliknięciem
+	Move Table by Dragging	Przenieś tabelę przeciąganiem
+	AutoFit Column by Double-Clicking	Dopasuj kolumnę dwukrotnym kliknięciem
 	Revised document	Dokument poprawiony
 	Rich Text Content Control	Formant zawartości tekstu sformatowanego
 	Sat:	Nasycenie:

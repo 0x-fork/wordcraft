@@ -2101,6 +2101,11 @@
 	Your system has animation effects turned on.	Tu sistema tiene activados los efectos de animación.
 	Your system has animation effects turned off.	Tu sistema tiene desactivados los efectos de animación.
 	Your system doesn't report an animation setting, so animation effects stay on.	Tu sistema no indica ningún ajuste de animación, así que los efectos de animación siguen activados.
+	Select Column	Seleccionar columna
+	Select Table Cells by Clicking	Seleccionar celdas de tabla haciendo clic
+	Insert Row or Column by Clicking	Insertar fila o columna haciendo clic
+	Move Table by Dragging	Mover tabla arrastrando
+	AutoFit Column by Double-Clicking	Ajustar automáticamente la columna con doble clic
 
 # Equation gallery (structures, symbol sets, built-in equations), built-in style names, watermark
 # menu labels and other strings that only the Italian and Russian catalogs had.

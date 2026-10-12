@@ -2074,3 +2074,8 @@
 	Automatic ({region})	Automatique ({region})
 	Picture	Image
 	Pastes the clipboard's picture.	Colle l'image du Presse-papiers.
+	Select Column	Sélectionner la colonne
+	Select Table Cells by Clicking	Sélectionner des cellules du tableau en cliquant
+	Insert Row or Column by Clicking	Insérer une ligne ou une colonne en cliquant
+	Move Table by Dragging	Déplacer le tableau en le faisant glisser
+	AutoFit Column by Double-Clicking	Ajuster la colonne en double-cliquant

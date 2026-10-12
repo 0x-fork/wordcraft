@@ -50,7 +50,7 @@ pub struct DrawnRow {
     pub top: f32,
     pub bottom: f32,
     /// Grid lines that are cell borders in this row (a merged cell hides the ones it covers).
-    edges: Vec<usize>,
+    pub(crate) edges: Vec<usize>,
 }
 
 /// A table border (or the handle) under the pointer, with the table's drawn geometry.
@@ -145,15 +145,15 @@ impl ResizeTarget {
 }
 
 /// A table cell's area on a page.
-struct CellBox {
-    rect: Rect,
-    table: Path,
-    story: StoryRef,
-    row: usize,
-    cell: usize,
+pub(crate) struct CellBox {
+    pub(crate) rect: Rect,
+    pub(crate) table: Path,
+    pub(crate) story: StoryRef,
+    pub(crate) row: usize,
+    pub(crate) cell: usize,
 }
 
-fn cell_boxes(l: &DocLayout, page: usize) -> Vec<CellBox> {
+pub(crate) fn cell_boxes(l: &DocLayout, page: usize) -> Vec<CellBox> {
     let Some(pg) = l.pages.get(page) else { return Vec::new() };
     pg.items
         .iter()
@@ -229,7 +229,7 @@ fn geometry(t: &Table, boxes: &[&CellBox]) -> Option<(Vec<f32>, Vec<DrawnRow>)> 
 }
 
 /// Every table drawn on a page, with its geometry there (`edge` is a placeholder).
-fn tables_on(l: &DocLayout, doc: &Document, page: usize) -> Vec<ResizeTarget> {
+pub(crate) fn tables_on(l: &DocLayout, doc: &Document, page: usize) -> Vec<ResizeTarget> {
     let boxes = cell_boxes(l, page);
     let mut tables: Vec<(StoryRef, &Path)> = Vec::new();
     for b in &boxes {
@@ -329,14 +329,8 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     let t = s.doc.table_mut(target.story, &target.table)?;
-    if let Some(widths) = plan.widths
-        && widths.len() == t.cols()
-    {
-        t.grid = widths;
-        // The drag's widths are the table's now: no preferred table width scales them again.
-        t.props.width = None;
-        t.props.width_pct = None;
-        super::table::sync_cell_widths(t);
+    if let Some(widths) = plan.widths {
+        set_widths(t, widths);
     }
     for (r, h) in &plan.heights {
         if let Some(row) = t.rows.get_mut(*r) {
@@ -384,6 +378,17 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
+/// Make `widths` (one per grid column) the table's column widths, as drawn: no preferred table
+/// width scales them again.
+pub(crate) fn set_widths(t: &mut Table, widths: Vec<f32>) {
+    if widths.len() == t.cols() {
+        t.grid = widths;
+        t.props.width = None;
+        t.props.width_pct = None;
+        super::table::sync_cell_widths(t);
+    }
+}
+
 /// The drawn height of each of the target table's rows on `page`.
 fn drawn_heights(l: &DocLayout, doc: &Document, page: usize, target: &ResizeTarget) -> Vec<(usize, f32)> {
     tables_on(l, doc, page)
@@ -394,7 +399,7 @@ fn drawn_heights(l: &DocLayout, doc: &Document, page: usize, target: &ResizeTarg
 }
 
 /// Mark the table's paragraphs changed, so the layout redoes them.
-fn touch(s: &mut Session, target: &ResizeTarget) -> Result<(), CmdError> {
+pub(crate) fn touch(s: &mut Session, target: &ResizeTarget) -> Result<(), CmdError> {
     let story = target.story;
     let paths: Vec<Path> =
         s.doc.para_paths(story).into_iter().filter(|q| q.0.len() > target.table.0.len() && q.0.starts_with(&target.table.0)).collect();
