@@ -4108,3 +4108,38 @@ fn footer_page_total_needs_one_body_pass() {
     p.insert_object(n, field(), &Default::default()).unwrap();
     assert!(matches!(first(&d), Pass::Again(t) if t.pages == 3));
 }
+
+/// Bulgarian text (`w:lang` `bg-BG`) is hyphenated by the Bulgarian syllable rules; the same
+/// Cyrillic text in an English run is not hyphenated (the English data has nothing to say about it).
+#[test]
+fn bulgarian_text_is_hyphenated_by_its_own_rules() {
+    let text = "Сричкопренасянето в професионалните документи задължително следва правописните правила, разработени от специалистите. ".repeat(6);
+    let hyphenated = |d: &Document| -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for it in &lay(d).pages[0].items {
+            if let Placed::Lines { para, .. } = it {
+                for l in para.lines.iter().filter(|x| x.hyphen.is_some()) {
+                    let end = l.stop;
+                    let before = text.get(..end).unwrap_or_default();
+                    let word_start = before.rfind(' ').map_or(0, |i| i + 1);
+                    let after = text.get(end..).unwrap_or_default();
+                    let word_end = after.find(|c: char| !c.is_alphabetic()).unwrap_or(after.len());
+                    out.push((text[word_start..end].to_string(), after[..word_end].to_string()));
+                }
+            }
+        }
+        out
+    };
+    let mut d = Document::from_text(&text);
+    d.settings.auto_hyphenation = true;
+    assert!(hyphenated(&d).is_empty(), "Cyrillic in an English run: {:?}", hyphenated(&d));
+    d.format_range(&Pos::body(0, 0), &Pos::body(0, text.len()), &|c| c.lang = Some("bg-BG".into())).unwrap();
+    let splits = hyphenated(&d);
+    assert!(!splits.is_empty(), "no hyphenated lines");
+    let lim = wordcraft_proof::hyphen::Limits::default();
+    for (head, tail) in &splits {
+        let word = format!("{head}{tail}");
+        let at = head.chars().count();
+        assert!(wordcraft_proof::hyphen::hyphen_points_in(&word, &lim, wordcraft_proof::ProofLang::Bg).contains(&at), "{head}-{tail}");
+    }
+}
