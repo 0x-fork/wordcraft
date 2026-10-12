@@ -1541,41 +1541,26 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     hp.rect_filled(bar, 0.0, t.ruler_margin);
     let text = Rect::from_min_max(pos2(x0 + page.body.x * scale, bar.min.y), pos2(x0 + page.body.right() * scale, bar.max.y));
     hp.rect_filled(text, 0.0, t.ruler);
+    let rp = app.session.doc.para_at(&app.session.sel.focus).map(|para| app.session.doc.styles.resolve_para(&para.props));
     // Graduations in the File › Options unit.
     let (unit, div, step) = ruler_scale(app.session.prefs.units);
-    let origin = page.body.x;
-    let mut k = -((origin / unit).ceil() as i32) * div;
-    loop {
-        let xpt = origin + k as f32 * unit / div as f32;
-        if xpt > page.w {
-            break;
-        }
-        if xpt >= 0.0 {
-            let sx = x0 + xpt * scale;
-            let (len, label) = if k % div == 0 {
-                (0.0, Some(k / div * step))
-            } else if k % (div / 2) == 0 {
-                (5.0, None)
-            } else if div >= 8 && k % (div / 4) == 0 {
-                (3.0, None)
-            } else {
-                (1.5, None)
-            };
-            match label {
-                Some(n) if n != 0 => {
-                    hp.text(pos2(sx, bar.center().y), egui::Align2::CENTER_CENTER, n.abs().to_string(), regular(9.5), t.ruler_tick);
-                }
-                Some(_) => {}
-                None => {
-                    if scale * unit / div as f32 > 4.0 || k % 2 == 0 {
-                        hp.line_segment([pos2(sx, bar.center().y - len / 2.0), pos2(sx, bar.center().y + len / 2.0)], Stroke::new(1.0, t.ruler_tick));
-                    }
-                }
+    // The caret paragraph's reading direction anchors the whole scale (#692): for a right-to-left
+    // paragraph it runs from the page's right edge and the numbers increase right-to-left, so the
+    // ruler matches the indent and tab markers, which sit at the paragraph's start edge.
+    let rtl = rp.as_ref().is_some_and(|rp| rp.bidi);
+    let origin = if rtl { page.w - page.body.right() } else { page.body.x };
+    // A distance along the reading direction (points from the page's start edge) and back.
+    let sx = |d: f32| ruler_x(d, x0, scale, page.w, rtl);
+    let s_at = |x: f32| ruler_d(x, x0, scale, page.w, rtl);
+    for (d, mark) in ruler_marks(origin, page.w, (unit, div, step), scale) {
+        let x = sx(d);
+        match mark {
+            RulerMark::Label(n) => {
+                hp.text(pos2(x, bar.center().y), egui::Align2::CENTER_CENTER, n.abs().to_string(), regular(9.5), t.ruler_tick);
             }
-        }
-        k += 1;
-        if k > 400 {
-            break;
+            RulerMark::Tick(len) => {
+                hp.line_segment([pos2(x, bar.center().y - len / 2.0), pos2(x, bar.center().y + len / 2.0)], Stroke::new(1.0, t.ruler_tick));
+            }
         }
     }
     // Margins: the edges of the white text area drag the section's margins. Registered before
@@ -1589,17 +1574,15 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     }
     // Indent markers for the caret's paragraph (relative to its column).
     let col_x = page.body.x;
-    if let Some(para) = app.session.doc.para_at(&app.session.sel.focus) {
-        let rp = app.session.doc.styles.resolve_para(&para.props);
+    if let Some(rp) = rp {
         // Indents and tabs are measured from the paragraph's start edge: the right margin of a
         // right-to-left paragraph, where the start-indent markers sit.
-        let rtl = rp.bidi;
         let w = page.body.w;
-        let sx = |s: f32| if rtl { x0 + (col_x + w - s) * scale } else { x0 + (col_x + s) * scale };
-        let s_at = |x: f32| if rtl { col_x + w - (x - x0) / scale } else { (x - x0) / scale - col_x };
-        let first = sx(rp.indent_left + rp.indent_first);
-        let left = sx(rp.indent_left);
-        let right = sx(w - rp.indent_right);
+        let px = |s: f32| sx(origin + s);
+        let dist_at = |x: f32| s_at(x) - origin;
+        let first = px(rp.indent_left + rp.indent_first);
+        let left = px(rp.indent_left);
+        let right = px(w - rp.indent_right);
         let c = t.text_dim;
         hp.add(egui::Shape::convex_polygon(
             vec![pos2(first - 4.5, bar.min.y), pos2(first + 4.5, bar.min.y), pos2(first, bar.min.y + 5.0)],
@@ -1625,7 +1608,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         ));
         let mut open_tabs = false;
         for (i, tab) in rp.tabs.iter().enumerate() {
-            let tx = sx(tab.pos);
+            let tx = px(tab.pos);
             let foot = if rtl { -4.0 } else { 4.0 };
             hp.line_segment([pos2(tx, bar.max.y - 6.0), pos2(tx, bar.max.y - 1.0)], Stroke::new(1.5, t.text));
             hp.line_segment([pos2(tx, bar.max.y - 1.0), pos2(tx + foot, bar.max.y - 1.0)], Stroke::new(1.5, t.text));
@@ -1643,7 +1626,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = s_at(pp.x).clamp(-col_x, page.body.w - 18.0);
+            let pt = dist_at(pp.x).clamp(-col_x, page.body.w - 18.0);
             let snapped = (pt / 4.5).round() * 4.5;
             if !r.drag_started() {
                 app.session.join_next_undo();
@@ -1655,7 +1638,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = s_at(pp.x) - rp.indent_left;
+            let pt = dist_at(pp.x) - rp.indent_left;
             if !r.drag_started() {
                 app.session.join_next_undo();
             }
@@ -1666,7 +1649,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = page.body.w - s_at(pp.x);
+            let pt = page.body.w - dist_at(pp.x);
             if !r.drag_started() {
                 app.session.join_next_undo();
             }
@@ -1708,6 +1691,65 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             break;
         }
     }
+}
+
+/// One mark drawn along a horizontal ruler.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RulerMark {
+    /// A whole-inch number, `n` inches from the start margin.
+    Label(i32),
+    /// A tick line, `len` screen points long.
+    Tick(f32),
+}
+
+/// The marks of a horizontal ruler with their distance from the page's start edge (points along
+/// the reading direction): ticks every 1/8 inch past `origin` (the start margin, so the margin is
+/// numbered backwards to the page edge) out to `width`, their labels counting whole inches from
+/// the start margin. Sub-half-inch ticks drop out when they'd sit closer than ~4 screen points.
+fn ruler_marks(origin: f32, width: f32, (unit, div, step): (f32, i32, i32), scale: f32) -> Vec<(f32, RulerMark)> {
+    let div = div.max(2);
+    let mut marks = Vec::new();
+    let mut k = -((origin / unit).ceil() as i32) * div;
+    loop {
+        let d = origin + k as f32 * unit / div as f32;
+        if d > width {
+            break;
+        }
+        if d >= 0.0 {
+            let mark = if k % div == 0 {
+                (k != 0).then_some(RulerMark::Label(k / div * step))
+            } else if scale * unit / div as f32 > 4.0 || k % 2 == 0 {
+                Some(RulerMark::Tick(if k % (div / 2) == 0 {
+                    5.0
+                } else if div >= 8 && k % (div / 4) == 0 {
+                    3.0
+                } else {
+                    1.5
+                }))
+            } else {
+                None
+            };
+            if let Some(mark) = mark {
+                marks.push((d, mark));
+            }
+        }
+        k += 1;
+        if k > 400 {
+            break;
+        }
+    }
+    marks
+}
+
+/// Screen x of a point `d` points from the page's start edge, on a page whose left edge sits at
+/// `x0` drawn at `scale`. A right-to-left paragraph reads from the right, so its scale mirrors.
+fn ruler_x(d: f32, x0: f32, scale: f32, page_w: f32, rtl: bool) -> f32 {
+    if rtl { x0 + (page_w - d) * scale } else { x0 + d * scale }
+}
+
+/// The inverse of [`ruler_x`]: the distance from the page's start edge under screen `x`.
+fn ruler_d(x: f32, x0: f32, scale: f32, page_w: f32, rtl: bool) -> f32 {
+    if rtl { page_w - (x - x0) / scale } else { (x - x0) / scale }
 }
 
 /// A ruler's graduation for a unit: points per numbered step, divisions per step, and how much
@@ -2453,6 +2495,103 @@ mod tests {
         let visual = texel_aligned_rect(layout, vec2(160.0, 240.0), 2.0);
 
         assert_eq!(visual, layout);
+    }
+
+    /// #692: a right-to-left paragraph mirrors the horizontal ruler's scale: the inch numbers
+    /// count from the right margin, and reading a pointer position back inverts the mapping
+    /// exactly, so the indent drags keep editing the same indents.
+    #[test]
+    fn the_ruler_scale_mirrors_for_right_to_left() {
+        let (x0, scale, page_w, unit) = (100.0, 1.25, 612.0, 72.0);
+        // 0 sits on the page's right edge and the inches rise leftward.
+        assert_eq!(ruler_x(0.0, x0, scale, page_w, true), x0 + page_w * scale);
+        assert_eq!(ruler_x(page_w, x0, scale, page_w, true), x0);
+        // The inches count from the start margin, which is the right one: on an asymmetric page
+        // (body from 72 to 468) 1 sits an inch left of the right body edge, mirroring left-to-right.
+        let (body_x, body_right) = (72.0, 468.0);
+        assert_eq!(ruler_x(body_x + unit, x0, scale, page_w, false), x0 + (body_x + unit) * scale);
+        assert_eq!(ruler_x(page_w - body_right + unit, x0, scale, page_w, true), x0 + (body_right - unit) * scale);
+        // Reading the pointer back inverts placing exactly, both ways: drags see the same indents.
+        for rtl in [false, true] {
+            for d in [0.0, 9.0, 72.0, 306.0, 612.0] {
+                let x = ruler_x(d, x0, scale, page_w, rtl);
+                assert!((ruler_d(x, x0, scale, page_w, rtl) - d).abs() < 1e-3, "rtl={rtl}: {x} reads back near {d}");
+            }
+        }
+
+        // The marks: inches labelled from the start margin (the page edge counts backwards into
+        // the margin, the margin itself has no mark), half inches the long ticks, ending on the
+        // far page edge.
+        let marks = ruler_marks(72.0, page_w, (unit, 8, 1), scale);
+        let at = |d: f32| marks.iter().find(|(td, _)| (*td - d).abs() < 1e-4).map(|(_, m)| *m);
+        assert_eq!(marks.first().map(|(d, _)| *d), Some(0.0));
+        assert_eq!(marks.last().map(|(d, _)| *d), Some(page_w));
+        assert_eq!(at(0.0), Some(RulerMark::Label(-1)));
+        assert_eq!(at(72.0), None);
+        assert_eq!(at(72.0 + unit), Some(RulerMark::Label(1)));
+        assert_eq!(at(72.0 + 2.0 * unit), Some(RulerMark::Label(2)));
+        assert_eq!(at(72.0 + unit / 2.0), Some(RulerMark::Tick(5.0)));
+        assert_eq!(at(72.0 + unit / 8.0), Some(RulerMark::Tick(1.5)));
+        // Zoomed out, sub-half-inch ticks drop out rather than smudge together.
+        let coarse = ruler_marks(72.0, page_w, (unit, 8, 1), 0.3);
+        assert!(!coarse.iter().any(|(_, m)| matches!(m, RulerMark::Tick(1.5))));
+        assert!(coarse.iter().any(|(_, m)| matches!(m, RulerMark::Tick(3.0))));
+        // Laid on screen, the same ticks run the other way when mirrored.
+        let xs = |rtl| marks.iter().map(|(d, _)| ruler_x(*d, x0, scale, page_w, rtl)).collect::<Vec<_>>();
+        assert!(xs(false).windows(2).all(|w| w[0] < w[1]));
+        assert!(xs(true).windows(2).all(|w| w[0] > w[1]));
+    }
+
+    /// #692: Home › Paragraph › Right-to-Left Text Direction flips the ruler on screen: the
+    /// inch numbers mirror about the page's centre and rise right-to-left.
+    #[test]
+    fn setting_a_paragraph_rtl_mirrors_the_ruler_numbers() {
+        let ctx = egui::Context::default();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+        let mut t = 0.0;
+        // The horizontal ruler's inch labels: (text, centre x).
+        let mut labels = |a: &mut WordApp| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            let out = ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            });
+            // The first frames only install fonts; the canvas appears after them.
+            let found = a.canvas.canvas_rect.as_ref().map_or_else(Vec::new, |area| {
+                // Ruler labels sit in the strip above the canvas, right of the vertical ruler.
+                out.shapes
+                    .iter()
+                    .filter_map(|clipped| match &clipped.shape {
+                        egui::Shape::Text(text) if text.pos.y >= area.min.y - RULER && text.pos.y < area.min.y && text.pos.x >= area.min.x => {
+                            Some((text.galley.text().to_owned(), text.pos.x + text.galley.size().x / 2.0))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<(String, f32)>>()
+            });
+            out.drop_without_applying_deltas();
+            found
+        };
+        let inch =
+            |labels: &[(String, f32)], n: &str| labels.iter().find(|(s, _)| s == n).map(|(_, x)| *x).unwrap_or_else(|| panic!("the ruler shows {n}"));
+        // The first frames install fonts and lay the page out.
+        for _ in 0..4 {
+            labels(&mut a);
+        }
+        let centre = a.canvas.page_rects[a.session.page_hint].center().x;
+        let before = labels(&mut a);
+        let (before1, before2) = (inch(&before, "1"), inch(&before, "2"));
+        assert!(before1 < centre && before1 < before2, "left to right: the numbers rise away from the left margin");
+
+        a.run("para.rtl", json!({})).unwrap();
+        let after = labels(&mut a);
+        let (after1, after2) = (inch(&after, "1"), inch(&after, "2"));
+        assert!(after1 > centre && after1 > after2, "right to left: the numbers rise away from the right margin");
+        assert!((after1 - (2.0 * centre - before1)).abs() < 1.0, "1 mirrors about the page centre: {before1} → {after1}");
+        assert!((after2 - (2.0 * centre - before2)).abs() < 1.0, "2 mirrors about the page centre: {before2} → {after2}");
     }
 
     #[test]
