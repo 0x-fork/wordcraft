@@ -1514,6 +1514,33 @@ fn vml_lines_and_rectangles() {
     assert!(matches!(&objs[1], InlineObject::Shape { kind: ShapeKind::Rectangle, fill: Some(Rgb(255, 0, 0)), stroke: None, w: 30.0, h: 20.0, .. }));
 }
 
+#[test]
+fn embedded_fonts_survive_a_round_trip() {
+    let table = r#"<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:font w:name="Roboto"><w:embedRegular r:id="rId1"/><w:embedBold r:id="rId2"/></w:font></w:fonts>"#;
+    let table_rels = rels(&[("rId1", "font", "fonts/Roboto-regular.ttf"), ("rId2", "font", "fonts/Roboto-bold.ttf")]);
+    let bytes = docx(
+        "<w:p><w:r><w:t>Hi</w:t></w:r></w:p>",
+        &[("rId9", "fontTable", "fontTable.xml")],
+        &[
+            ("word/fontTable.xml", table),
+            ("word/_rels/fontTable.xml.rels", &table_rels),
+            ("word/fonts/Roboto-regular.ttf", "regular font bytes"),
+            ("word/fonts/Roboto-bold.ttf", "bold font bytes"),
+        ],
+    );
+    let out = wordcraft_docx::write(&wordcraft_docx::read(&bytes).unwrap()).unwrap();
+    let files = unzip(&out);
+    assert_eq!(text(&files, "word/fontTable.xml"), table);
+    assert_eq!(text(&files, "word/fonts/Roboto-regular.ttf"), "regular font bytes");
+    assert_eq!(text(&files, "word/fonts/Roboto-bold.ttf"), "bold font bytes");
+    let table_rels = text(&files, "word/_rels/fontTable.xml.rels");
+    assert!(table_rels.contains(r#"Id="rId1""#) && table_rels.contains("fonts/Roboto-regular.ttf"), "{table_rels}");
+    assert!(text(&files, "word/_rels/document.xml.rels").contains("fontTable.xml"));
+    // A second save keeps them too.
+    let again = unzip(&wordcraft_docx::write(&wordcraft_docx::read(&out).unwrap()).unwrap());
+    assert_eq!(text(&again, "word/fonts/Roboto-bold.ttf"), "bold font bytes");
+}
+
 // ---- native Word ink: opaque preservation, never re-encoded as WordCraft freeforms ----
 
 const INK_NS: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingInk";

@@ -161,6 +161,10 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     r.pc.minor_font = r.doc.settings.minor_font.clone();
     let part = |t: &str| rels.by_type(t).filter(|x| !x.external).map(|x| x.target.clone());
 
+    // The font table and the fonts embedded through it ride along as opaque parts.
+    if let Some(p) = part(rt::FONT_TABLE) {
+        r.keep_part_tree(&p);
+    }
     if let Some(p) = part(rt::THEME) {
         r.read_theme(&p);
     }

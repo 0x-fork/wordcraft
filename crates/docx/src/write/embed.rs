@@ -29,6 +29,9 @@ const PART_COST: u64 = 4096;
 /// Where the stories' parts live: every story this writer makes is a part in `word/`.
 const STORY_PART: &str = "word/document.xml";
 
+/// The font table kept from a file (read by `Reader::keep_part_tree`).
+const FONT_TABLE_PART: &str = "word/fontTable.xml";
+
 /// The embedded-object parts of a package being written.
 pub(crate) struct EmbedWriter<'d> {
     manifest: EmbeddedManifest,
@@ -87,6 +90,14 @@ impl<'d> EmbedWriter<'d> {
             copy_bytes: MAX_COPY_BYTES,
             markup_bytes: MAX_MARKUP_BYTES,
             parts: Vec::new(),
+        }
+    }
+
+    /// Write the font table kept from a file, with the fonts it embeds, relating it from `rels`.
+    pub fn font_table(&mut self, rels: &mut PartRels) {
+        let mut written = Vec::new();
+        if let Some(name) = self.copy_tree(FONT_TABLE_PART, &mut HashMap::new(), &mut written) {
+            rels.add(rt::FONT_TABLE, &relative(STORY_PART, &name), false);
         }
     }
 
