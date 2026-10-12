@@ -20,6 +20,7 @@ mod file_dialogs;
 mod graphics;
 mod logging;
 mod print;
+mod region;
 
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
@@ -302,11 +303,22 @@ fn main() -> eframe::Result {
         "WordCraft",
         options,
         Box::new(move |cc| {
-            let doc = if sample { wordcraft_engine::sample::sample_document() } else { wordcraft_doc::Document::new() };
+            // The system region picks the new document's paper, the units and the decimal
+            // separator (#838).
+            let region = region::system();
+            let doc = if sample { wordcraft_engine::sample::sample_document() } else { wordcraft_engine::blank_document(&region) };
             let (file_dialog, dialogs) = file_dialogs::hook(&cc.egui_ctx);
-            let mut app = WordApp::new(Session::new(doc), services(file_dialog, &cc.egui_ctx));
+            let mut session = Session::new(doc);
+            session.system_region = region;
+            let mut app = WordApp::new(session, services(file_dialog, &cc.egui_ctx));
             load_prefs(&mut app);
             load_user_dictionary(&mut app);
+            // A region chosen in File › Options replaces the system's for the first blank
+            // document too (#838).
+            if !sample && app.session.prefs.region.is_some() {
+                let doc = app.session.blank_document();
+                app.session.set_document(doc);
+            }
             app.watch_desktop_theme(&cc.egui_ctx);
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");

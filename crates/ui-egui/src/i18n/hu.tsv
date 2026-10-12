@@ -2453,5 +2453,7 @@
 	Reading Text Size	Olvasási szövegméret
 	Correct TWo INitial CApitals	KÉt KEzdő NAgybetű javítása
 	Correct accidental usage of cAPS LOCK key	A cAPS LOCK billentyű véletlen használatának javítása
+	Region:	Régió:
+	Automatic ({region})	Automatikus ({region})
 	Picture	Kép
 	Pastes the clipboard's picture.	Beilleszti a vágólapon lévő képet.

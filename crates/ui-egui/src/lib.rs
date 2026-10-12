@@ -301,13 +301,32 @@ impl UiState {
     /// version's idea of it) falls back to its default instead of discarding every setting.
     /// `None` only when the file isn't a JSON object.
     pub fn from_json(bytes: &[u8]) -> Option<UiState> {
-        let v: Value = serde_json::from_slice(bytes).ok()?;
-        v.is_object().then(|| options::lenient(&v))
+        let mut v: Value = serde_json::from_slice(bytes).ok()?;
+        if !v.is_object() {
+            return None;
+        }
+        migrate_units(&mut v);
+        Some(options::lenient(&v))
     }
 
     /// How many recent documents to list.
     pub fn recent_shown(&self) -> usize {
         self.recent_count.min(MAX_RECENT)
+    }
+}
+
+/// Settings saved before #838 kept the measurement unit as `editing.units`, which defaulted to
+/// inches; it now lives in `editing.measurementUnits`, and no value there follows the region. A
+/// unit other than inches under the old key was the user's own choice, so it carries over (an
+/// inch value can't be told from the old default, so it follows the region).
+fn migrate_units(v: &mut Value) {
+    let Some(editing) = v.get_mut("editing").and_then(Value::as_object_mut) else { return };
+    if editing.contains_key("measurementUnits") {
+        return;
+    }
+    if let Some(old) = editing.get("units").and_then(Value::as_str).filter(|u| *u != "inches") {
+        let old = Value::String(old.to_string());
+        editing.insert("measurementUnits".into(), old);
     }
 }
 

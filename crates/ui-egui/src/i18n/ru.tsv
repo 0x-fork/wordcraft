@@ -2449,3 +2449,5 @@ preview	Title	Пример
 	Your system has animation effects turned on.	В системе эффекты анимации включены.
 	Your system has animation effects turned off.	В системе эффекты анимации выключены.
 	Your system doesn't report an animation setting, so animation effects stay on.	Система не сообщает о настройке анимации, поэтому эффекты анимации остаются включёнными.
+	Region:	Регион:
+	Automatic ({region})	Автоматически ({region})

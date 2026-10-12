@@ -51,8 +51,17 @@ pub fn start() {
                     if let Err(e) = listen_for_pasted_pictures(inbox.clone(), cc.egui_ctx.clone()) {
                         log::error!("pasting pictures is unavailable: {e}");
                     }
-                    let doc = if query().contains("sample") { wordcraft_engine::sample::sample_document() } else { wordcraft_doc::Document::new() };
-                    let mut app = WordApp::new(Session::new(doc), services(inbox.clone(), cc.egui_ctx.clone(), dirty, saves.clone()));
+                    // The browser's locale picks the new document's paper, the units and the
+                    // decimal separator (#838).
+                    let region = wordcraft_ui_egui::i18n::system_region();
+                    let doc = if query().contains("sample") {
+                        wordcraft_engine::sample::sample_document()
+                    } else {
+                        wordcraft_engine::blank_document(&region)
+                    };
+                    let mut session = Session::new(doc);
+                    session.system_region = region;
+                    let mut app = WordApp::new(session, services(inbox.clone(), cc.egui_ctx.clone(), dirty, saves.clone()));
                     app.autosave = false;
                     Ok(Box::new(WebShell { app, inbox, saves }))
                 }),

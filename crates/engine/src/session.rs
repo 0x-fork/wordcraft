@@ -353,6 +353,11 @@ pub struct Session {
     pub read_aloud: crate::speech::ReadAloud,
     /// Preferences the front end saves between runs.
     pub prefs: Prefs,
+    /// The system region (#838): the paper a new blank document starts on, the default
+    /// measurement unit and the decimal separator. The front end sets it from the platform (the
+    /// browser's locale on the web); headless sessions keep `en-US`. A region the user chose
+    /// ([`Prefs::region`]) wins: read it with [`Session::region`].
+    pub system_region: wordcraft_geom::Region,
     /// Custom keyboard shortcuts (`tools.customizeKeyboard`); the front end saves them too.
     pub keymap: crate::KeyMap,
     /// Custom ribbon and Quick Access Toolbar (`tools.customizeRibbon`); the front end saves it too.
@@ -419,8 +424,14 @@ pub struct Prefs {
     pub insert_key_overtype: bool,
     /// Overtype: typed characters replace the ones after the caret.
     pub overtype: bool,
-    /// The unit rulers and dialogs show lengths in.
-    pub units: wordcraft_geom::Unit,
+    /// The unit rulers and dialogs show lengths in, when the user chose one (File › Options ›
+    /// Advanced › Measurement units); `None` follows the region ([`Session::units`]). Saved under
+    /// a new key; an older `units` value other than inches (the old default) carries over on load.
+    #[serde(rename = "measurementUnits")]
+    pub units: Option<wordcraft_geom::Unit>,
+    /// The region the user chose for new documents, units and the decimal separator (a locale
+    /// tag like `pl-PL`, File › Options › Advanced › Region); `None` follows the system.
+    pub region: Option<String>,
     /// Formatting marks shown even while Show/Hide ¶ is off.
     pub marks: wordcraft_layout::display::FormattingMarks,
     /// Mark grammar errors as you type (with Check spelling as you type on).
@@ -444,6 +455,7 @@ impl Default for Prefs {
             insert_key_overtype: false,
             overtype: false,
             units: Default::default(),
+            region: None,
             marks: Default::default(),
             mark_grammar: true,
             ignore_uppercase: true,
@@ -537,6 +549,7 @@ impl Session {
             math_normal_text: false,
             also_selected: Vec::new(),
             prefs: Prefs::default(),
+            system_region: Default::default(),
             keymap: crate::KeyMap::default(),
             ribbon: crate::RibbonLayout::default(),
             editing_lang: None,
@@ -820,6 +833,31 @@ impl Session {
         self.typing_open = false;
     }
 
+    /// The region in effect (#838): the one the user chose ([`Prefs::region`]), else the
+    /// system's.
+    pub fn region(&self) -> wordcraft_geom::Region {
+        match self.prefs.region.as_deref() {
+            Some(tag) => wordcraft_geom::Region::from_tag(tag),
+            None => self.system_region.clone(),
+        }
+    }
+
+    /// The unit rulers and dialogs show lengths in: the user's choice, else the region's.
+    pub fn units(&self) -> wordcraft_geom::Unit {
+        self.prefs.units.unwrap_or_else(|| self.region().units())
+    }
+
+    /// `pt` in [`Session::units`], written the region's way (`2,54 cm` in Poland).
+    pub fn format_length(&self, pt: f32) -> String {
+        self.region().format(self.units(), pt)
+    }
+
+    /// A new blank document (the Normal template) on the region's paper: Letter in the US and
+    /// other Letter regions, A4 elsewhere (#838). Margins stay 2.54 cm (1") all round.
+    pub fn blank_document(&self) -> Document {
+        blank_document(&self.region())
+    }
+
     /// Replace the document (open/new).
     pub fn set_document(&mut self, doc: Document) {
         self.document_id = self.document_id.wrapping_add(1);
@@ -901,6 +939,7 @@ impl Session {
             document_id: _,
             read_aloud: _,
             prefs: _,
+            system_region: _,
             keymap: _,
             ribbon: _,
             // A preference for new documents, like `prefs`: not part of this document.
@@ -1148,4 +1187,13 @@ impl Session {
         let (a, b) = self.sel.ordered();
         self.doc.copy_range(&a, &b).plain_text()
     }
+}
+
+/// A new blank document on `region`'s paper (see [`Session::blank_document`]).
+pub fn blank_document(region: &wordcraft_geom::Region) -> Document {
+    let mut d = Document::new();
+    let (_, w, h) = region.paper();
+    d.last_section.page_w = w;
+    d.last_section.page_h = h;
+    d
 }

@@ -4446,3 +4446,65 @@ fn format_font_sets_the_asian_and_latin_fonts_separately() {
     assert_eq!(fonts(&s), before);
     assert!(s.run("format.font", &json!({})).is_err() && s.run("format.font", &json!({"eastAsia": " "})).is_err());
 }
+
+/// A new blank document takes its paper from the region, and lengths are shown in the region's
+/// unit with its decimal separator; an explicit Measurement units choice still wins (#838).
+#[test]
+fn new_documents_follow_the_region() {
+    // Poland: A4, centimetres, decimal comma.
+    let mut s = s();
+    run(&mut s, "file.options", json!({"region": "pl-PL"}));
+    run(&mut s, "file.new", json!({}));
+    let sp = &s.doc.last_section;
+    assert_eq!(wordcraft_geom::paper_name(sp.page_w, sp.page_h), Some("A4"));
+    assert_eq!(sp.margin_left, 72.0);
+    assert_eq!(s.units(), wordcraft_geom::Unit::Centimeters);
+    assert_eq!(s.format_length(sp.margin_left), "2,54 cm");
+    let o = run(&mut s, "file.options", json!({"pane": "advanced", "units": "auto"}));
+    assert_eq!((o["units"].as_str(), o["unitsFromRegion"].as_bool()), (Some("centimeters"), Some(true)));
+    assert_eq!((o["region"]["paper"].as_str(), o["region"]["decimal"].as_str()), (Some("A4"), Some(",")));
+
+    // The user's own choice wins over the region, and `auto` gives the region's back.
+    run(&mut s, "file.options", json!({"units": "inches"}));
+    assert_eq!(s.units(), wordcraft_geom::Unit::Inches);
+    assert_eq!(s.format_length(108.0), "1,5\"");
+    run(&mut s, "file.options", json!({"units": "auto"}));
+    assert_eq!(s.units(), wordcraft_geom::Unit::Centimeters);
+
+    // A chosen region is a saved preference over the system's; `auto` returns to the system's.
+    assert_eq!(s.prefs.region.as_deref(), Some("pl-PL"));
+    let saved: serde_json::Value = serde_json::to_value(&s.prefs).unwrap();
+    assert_eq!(saved["region"], "pl-PL");
+    s.system_region = wordcraft_geom::Region::from_tag("ja-JP");
+    assert_eq!(s.region().territory, "PL", "the choice wins over the system");
+    let o = run(&mut s, "file.options", json!({"region": "auto"}));
+    assert_eq!((o["regionFromSystem"].as_bool(), o["region"]["territory"].as_str()), (Some(true), Some("JP")));
+    assert_eq!(s.prefs.region, None);
+    run(&mut s, "file.options", json!({"region": "de_AT.UTF-8@euro"}));
+    assert_eq!(s.prefs.region.as_deref(), Some("de-AT"), "kept as a short tag");
+    run(&mut s, "file.options", json!({"region": ""}));
+    assert_eq!(s.prefs.region, None);
+
+    // The United States: Letter and inches.
+    let mut us = Session::new(wordcraft_doc::Document::new());
+    run(&mut us, "file.options", json!({"region": "en-US"}));
+    run(&mut us, "file.new", json!({"template": "blank"}));
+    let sp = &us.doc.last_section;
+    assert_eq!((sp.page_w, sp.page_h), (612.0, 792.0));
+    assert_eq!(us.units(), wordcraft_geom::Unit::Inches);
+    assert_eq!(us.format_length(72.0), "1\"");
+    run(&mut us, "file.options", json!({"units": "centimeters"}));
+    assert_eq!(us.format_length(72.0), "2.54 cm");
+
+    // Templates keep their own size; a headless session is en-US; junk is refused or read as en-US.
+    let mut t = Session::new(wordcraft_doc::Document::new());
+    run(&mut t, "file.options", json!({"region": "de-DE"}));
+    run(&mut t, "file.new", json!({"template": "letter"}));
+    assert_eq!(t.doc.last_section.page_w, crate::sample::letter().last_section.page_w);
+    assert_eq!(Session::new(wordcraft_doc::Document::new()).blank_document().last_section.page_w, 612.0);
+    assert!(t.run("file.options", &json!({"region": 7})).is_err());
+    assert!(t.run("file.options", &json!({"units": "furlongs"})).is_err());
+    run(&mut t, "file.options", json!({"region": "\u{0}\u{FFFF}-zz-ZZZZZZZZ"}));
+    assert_eq!(t.region(), wordcraft_geom::Region::default());
+    assert_eq!(t.prefs.region.as_deref(), Some("en-US"), "junk is saved as en-US");
+}

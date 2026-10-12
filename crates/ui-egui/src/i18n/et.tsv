@@ -2091,3 +2091,5 @@
 	Your system has animation effects turned on.	Süsteemis on animatsiooniefektid sisse lülitatud.
 	Your system has animation effects turned off.	Süsteemis on animatsiooniefektid välja lülitatud.
 	Your system doesn't report an animation setting, so animation effects stay on.	Süsteem ei teata animatsiooniseadet, seega jäävad animatsiooniefektid sisse.
+	Region:	Piirkond:
+	Automatic ({region})	Automaatne ({region})

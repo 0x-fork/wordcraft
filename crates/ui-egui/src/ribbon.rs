@@ -4,6 +4,7 @@ use egui::{Align2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
 use crate::colors::{Remember, Target};
+use crate::options::MeasureExt;
 use crate::theme::{Tokens, medium, regular, semibold};
 use crate::widgets::{CONTENT_H, LABEL_H, big, big_toggle, combo, font_combo, group, menu_button, small, split};
 use crate::{WordApp, icons};
@@ -1138,7 +1139,8 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
         });
         menu_button(ui, app, "size", Some("Size"), "Size", true, "layout.size", |ui, app| {
             for (n, w, h) in wordcraft_geom::PAPER_SIZES {
-                mi(ui, app, &format!("{n}   {:.2}\" × {:.2}\"", w / 72.0, h / 72.0), "layout.size", json!({"name": n}));
+                // In the measurement unit, written the region's way (`21 cm × 29,7 cm`, #838).
+                mi(ui, app, &format!("{n}   {} × {}", crate::options::length(*w), crate::options::length(*h)), "layout.size", json!({"name": n}));
             }
         });
         menu_button(ui, app, "columns", Some("Columns"), "Columns", true, "layout.columns", |ui, app| {
@@ -1200,10 +1202,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
             let mut l = rp.indent_left / k;
             let mut b = rp.space_before;
             ui.label(egui::RichText::new(tl!("Left:")).small());
-            if ui
-                .add_sized(FIELD, egui::DragValue::new(&mut l).speed(3.6 / k).range(-792.0 / k..=1584.0 / k).suffix(u.suffix()).max_decimals(2))
-                .changed()
-            {
+            if ui.add_sized(FIELD, egui::DragValue::new(&mut l).speed(3.6 / k).range(-792.0 / k..=1584.0 / k).measure(u).max_decimals(2)).changed() {
                 let _ = app.run("para.indents", json!({"left": l * k}));
             }
             ui.add_space(8.0);
@@ -1215,10 +1214,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
             let mut r = rp.indent_right / k;
             let mut a = rp.space_after;
             ui.label(egui::RichText::new(tl!("Right:")).small());
-            if ui
-                .add_sized(FIELD, egui::DragValue::new(&mut r).speed(3.6 / k).range(-792.0 / k..=1584.0 / k).suffix(u.suffix()).max_decimals(2))
-                .changed()
-            {
+            if ui.add_sized(FIELD, egui::DragValue::new(&mut r).speed(3.6 / k).range(-792.0 / k..=1584.0 / k).measure(u).max_decimals(2)).changed() {
                 let _ = app.run("para.indents", json!({"right": r * k}));
             }
             ui.add_space(8.0);
@@ -2285,7 +2281,7 @@ fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
         crate::widgets::row(ui, |ui| {
             ui.add_sized(vec2(48.0, 18.0), egui::Label::new(egui::RichText::new(tl!(label)).small()));
             let mut v = pt / k;
-            let r = ui.add_sized(vec2(72.0, 18.0), egui::DragValue::new(&mut v).speed(0.01).range(0.02..=22.0).suffix(unit.suffix()).max_decimals(2));
+            let r = ui.add_sized(vec2(72.0, 18.0), egui::DragValue::new(&mut v).speed(0.01).range(0.02..=22.0).measure(unit).max_decimals(2));
             if r.changed() {
                 out = Some((v * k, r.dragged() && !r.drag_started()));
             }

@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use wordcraft_engine::Password;
 
 use crate::WordApp;
+use crate::options::MeasureExt;
 use crate::theme::{Tokens, semibold};
 
 /// The Find and Replace dialog's search options beyond the first row (#543).
@@ -1575,14 +1576,14 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         ui.add(
                             egui::DragValue::new(left)
                                 .speed(3.6 / crate::options::unit().pt_per_unit())
-                                .suffix(crate::options::unit().suffix())
+                                .measure(crate::options::unit())
                                 .max_decimals(2),
                         );
                         ui.label(tl!(r_label));
                         ui.add(
                             egui::DragValue::new(right)
                                 .speed(3.6 / crate::options::unit().pt_per_unit())
-                                .suffix(crate::options::unit().suffix())
+                                .measure(crate::options::unit())
                                 .max_decimals(2),
                         );
                         ui.end_row();
@@ -1590,7 +1591,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         ui.add(
                             egui::DragValue::new(first)
                                 .speed(3.6 / crate::options::unit().pt_per_unit())
-                                .suffix(crate::options::unit().suffix())
+                                .measure(crate::options::unit())
                                 .max_decimals(2),
                         );
                         ui.end_row();
@@ -1840,34 +1841,16 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.label(egui::RichText::new(tl!("Margins")).font(semibold(12.5)));
             egui::Grid::new("ps").num_columns(4).show(ui, |ui| {
                 ui.label(tl!("Top:"));
-                ui.add(
-                    egui::DragValue::new(top)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .suffix(crate::options::unit().suffix())
-                        .max_decimals(2),
-                );
+                ui.add(egui::DragValue::new(top).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
                 ui.label(tl!("Bottom:"));
                 ui.add(
-                    egui::DragValue::new(bottom)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .suffix(crate::options::unit().suffix())
-                        .max_decimals(2),
+                    egui::DragValue::new(bottom).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2),
                 );
                 ui.end_row();
                 ui.label(tl!("Left:"));
-                ui.add(
-                    egui::DragValue::new(left)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .suffix(crate::options::unit().suffix())
-                        .max_decimals(2),
-                );
+                ui.add(egui::DragValue::new(left).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
                 ui.label(tl!("Right:"));
-                ui.add(
-                    egui::DragValue::new(right)
-                        .speed(3.6 / crate::options::unit().pt_per_unit())
-                        .suffix(crate::options::unit().suffix())
-                        .max_decimals(2),
-                );
+                ui.add(egui::DragValue::new(right).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
                 ui.end_row();
             });
             ui.label(egui::RichText::new(tl!("Orientation")).font(semibold(12.5)));
@@ -2719,7 +2702,7 @@ fn recipient_list(app: &mut WordApp, ui: &mut Ui, fields: &mut Vec<String>, rows
 fn table_properties(ui: &mut Ui, f: &mut TableForm) {
     let unit = crate::options::unit();
     fn len(v: &mut f32, lo: f32, unit: wordcraft_geom::Unit) -> egui::DragValue<'_> {
-        egui::DragValue::new(v).speed(0.01).range(lo..=22.0).suffix(unit.suffix()).max_decimals(2)
+        egui::DragValue::new(v).speed(0.01).range(lo..=22.0).measure(unit).max_decimals(2)
     }
     let heading = |ui: &mut Ui, s: &str| {
         ui.add_space(4.0);
@@ -2738,7 +2721,7 @@ fn table_properties(ui: &mut Ui, f: &mut TableForm) {
         });
         ui.end_row();
         ui.label(tl!("Indent from left:"));
-        ui.add_enabled(f.align == "left", egui::DragValue::new(&mut f.indent).speed(0.01).range(-11.0..=22.0).suffix(unit.suffix()).max_decimals(2));
+        ui.add_enabled(f.align == "left", egui::DragValue::new(&mut f.indent).speed(0.01).range(-11.0..=22.0).measure(unit).max_decimals(2));
         ui.end_row();
         ui.label(tl!("Table direction:"));
         ui.horizontal(|ui| {

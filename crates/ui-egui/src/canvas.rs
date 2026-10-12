@@ -1860,7 +1860,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     hp.rect_filled(text, 0.0, t.ruler);
     let rp = app.session.doc.para_at(&app.session.sel.focus).map(|para| app.session.doc.styles.resolve_para(&para.props));
     // Graduations in the File › Options unit.
-    let (unit, div, step) = ruler_scale(app.session.prefs.units);
+    let (unit, div, step) = ruler_scale(app.session.units());
     // The caret paragraph's reading direction anchors the whole scale (#692): for a right-to-left
     // paragraph it runs from the page's right edge and the numbers increase right-to-left, so the
     // ruler matches the indent and tab markers, which sit at the paragraph's start edge.

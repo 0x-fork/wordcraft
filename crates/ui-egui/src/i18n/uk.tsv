@@ -2069,3 +2069,5 @@
 	Your system has animation effects turned on.	У вашій системі ефекти анімації ввімкнено.
 	Your system has animation effects turned off.	У вашій системі ефекти анімації вимкнено.
 	Your system doesn't report an animation setting, so animation effects stay on.	Система не повідомляє про налаштування анімації, тому ефекти анімації залишаються ввімкненими.
+	Region:	Регіон:
+	Automatic ({region})	Автоматично ({region})
