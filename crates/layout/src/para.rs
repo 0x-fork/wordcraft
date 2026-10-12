@@ -1813,10 +1813,12 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
             asc = st.ascent;
             desc = st.descent;
         }
+        // A list label can make the line taller above the baseline, never below it: Word keeps
+        // the text's descent (measured in Word for Windows: a Symbol bullet's taller ascent
+        // counts, a Courier New label's deeper descent doesn't).
         if first && let Some(lab) = &pl.label {
             for st in lab.runs.iter().filter_map(|r| pl.styles.get(r.style as usize)) {
                 asc = asc.max(st.ascent);
-                desc = desc.max(st.descent);
             }
         }
         // Line spacing scales the text's height, never a picture's: a line is at least as tall

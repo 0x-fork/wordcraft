@@ -4177,3 +4177,34 @@ fn spaces_and_tabs_do_not_make_a_line_taller() {
     assert!(pitch("x", &big) > plain + 5.0, "a 20 pt letter does make it taller");
     assert!(pitch("\u{A0}", &big) > plain + 5.0, "so does a no-break space");
 }
+
+/// A list label taller than its text makes the first line taller above the baseline only: Word
+/// keeps the text's descent below it (measured in Word for Windows, `plan/word` R18: a Symbol
+/// bullet's taller ascent counts, a Courier New label's deeper descent doesn't). NIH's bulleted
+/// items each came out a fifth of a point taller, enough to push a paragraph's last lines over
+/// the page bottom.
+#[test]
+fn a_list_label_adds_ascent_but_not_descent() {
+    let first_line = |label_size: Option<f32>| {
+        let mut d = Document::new();
+        let num = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+        for a in &mut d.numbering.abstracts {
+            for l in &mut a.levels {
+                l.chr.size = label_size;
+            }
+        }
+        let ten = wordcraft_doc::props::CharProps { size: Some(10.0), ..Default::default() };
+        let mut p = wordcraft_doc::Paragraph::with_text("Item", ten.clone());
+        p.props.numbering = Some(wordcraft_doc::props::NumRef { num, level: 0 });
+        p.mark = ten;
+        p.props.line_spacing = Some(wordcraft_doc::props::LineSpacing::Multiple(1.0));
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = lay(&d);
+        l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { para.lines.first().cloned() } else { None }).unwrap()
+    };
+    let plain = first_line(None);
+    let big = first_line(Some(30.0));
+    let below = |l: &crate::para::Line| l.top + l.height - l.baseline;
+    assert!(big.baseline - big.top > plain.baseline - plain.top + 5.0, "the big label raises the baseline");
+    assert!((below(&big) - below(&plain)).abs() < 0.01, "the text's descent: {} vs {}", below(&big), below(&plain));
+}
