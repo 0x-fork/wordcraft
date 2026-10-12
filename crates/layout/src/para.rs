@@ -730,6 +730,7 @@ impl<'a> Builder<'a> {
         if let Some(p) = cur {
             segs.push((seg_start, text.len(), p));
         }
+        let no_kern = [wordcraft_fonts::feature_value(b"kern", 0)];
         for (a, b, key) in segs {
             let Some(sub) = text.get(a..b) else { continue };
             let rc = match (&rc_cs, key.complex) {
@@ -759,10 +760,12 @@ impl<'a> Builder<'a> {
             }
             let shape_text = if substituted { mapped.as_str() } else { sub };
             let map = |c: char| if upper { c.to_uppercase().next().unwrap_or(c) } else { c };
+            // The shaper kerns by default; Word kerns only when Kerning for fonts covers the size.
+            let features: &[wordcraft_fonts::Feature] = if rc.kerned() { &[] } else { &no_kern };
             let shaped = if use_levels {
-                wordcraft_fonts::shape_run(&st.face, shape_text, &[], map, key.rtl)
+                wordcraft_fonts::shape_run(&st.face, shape_text, features, map, key.rtl)
             } else {
-                wordcraft_fonts::shape(&st.face, shape_text, &[], map)
+                wordcraft_fonts::shape(&st.face, shape_text, features, map)
             };
             let k = st.size / st.face.upem.max(1.0) as f32;
             let hscale = rc.scale / 100.0;

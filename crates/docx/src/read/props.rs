@@ -292,6 +292,14 @@ impl PropCtx {
                     if let Some(v) = tw(k, "w:after") {
                         p.space_after = Some(v.max(0.0));
                     }
+                    // HTML-style automatic spacing; "0" switches an inherited one off.
+                    let auto = |name| k.attr(name).map(|v| matches!(v.trim(), "1" | "true" | "on"));
+                    if let Some(a) = auto("w:beforeAutospacing") {
+                        p.space_before_auto = Some(a);
+                    }
+                    if let Some(a) = auto("w:afterAutospacing") {
+                        p.space_after_auto = Some(a);
+                    }
                     if let Some(line) = k.attr("w:line") {
                         // Word reads the rule case-insensitively (`atleast` is seen in the wild).
                         let rule = k.attr("w:lineRule").unwrap_or("auto").to_ascii_lowercase();

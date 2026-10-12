@@ -79,6 +79,11 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("para.oneAndHalf", "1.5 Line Spacing", "Home › Paragraph › Line Spacing", |s, _| ls(s, LineSpacing::Multiple(1.5))).key("Mod+5"),
         CommandSpec::new("para.spacing", "Paragraph Spacing", "Layout › Paragraph", |s, v| {
             let (b, a) = (p::f32(v, "before"), p::f32(v, "after"));
+            let (b_auto, a_auto) = (p::bool(v, "beforeAuto"), p::bool(v, "afterAuto"));
+            // A number replaces automatic spacing, as typing one in Word's Paragraph dialog does.
+            let rp = cur(s);
+            let b_auto = b_auto.or((b.is_some() && rp.before_auto).then_some(false));
+            let a_auto = a_auto.or((a.is_some() && rp.after_auto).then_some(false));
             fmt(s, &|p| {
                 if let Some(x) = b {
                     p.space_before = Some(x.clamp(0.0, 1584.0));
@@ -86,17 +91,35 @@ pub fn specs() -> Vec<CommandSpec> {
                 if let Some(x) = a {
                     p.space_after = Some(x.clamp(0.0, 1584.0));
                 }
+                if let Some(on) = b_auto {
+                    p.space_before_auto = Some(on);
+                }
+                if let Some(on) = a_auto {
+                    p.space_after_auto = Some(on);
+                }
             })
         })
-        .params(r#"{"before"?: pt, "after"?: pt}"#),
+        .params(r#"{"before"?: pt, "after"?: pt, "beforeAuto"?: bool, "afterAuto"?: bool (automatic, HTML-style spacing: 14 pt)}"#),
         CommandSpec::new("para.addSpaceBefore", "Add Space Before Paragraph", "Home › Paragraph › Line Spacing", |s, _| {
-            let has = cur(s).space_before > 0.0;
-            fmt(s, &|p| p.space_before = Some(if has { 0.0 } else { 12.0 }))
+            let rp = cur(s);
+            let has = rp.space_before > 0.0;
+            fmt(s, &|p| {
+                p.space_before = Some(if has { 0.0 } else { 12.0 });
+                if rp.before_auto {
+                    p.space_before_auto = Some(false);
+                }
+            })
         })
         .key("Mod+0"),
         CommandSpec::new("para.removeSpaceAfter", "Remove Space After Paragraph", "Home › Paragraph › Line Spacing", |s, _| {
-            let has = cur(s).space_after > 0.0;
-            fmt(s, &|p| p.space_after = Some(if has { 0.0 } else { 8.0 }))
+            let rp = cur(s);
+            let has = rp.space_after > 0.0;
+            fmt(s, &|p| {
+                p.space_after = Some(if has { 0.0 } else { 8.0 });
+                if rp.after_auto {
+                    p.space_after_auto = Some(false);
+                }
+            })
         }),
         // Back to the paragraph style: direct indents, spacing, alignment… go; the style, list
         // membership and drop cap stay. ⌘Q quits on macOS, so Word for Mac uses ⌃Q.

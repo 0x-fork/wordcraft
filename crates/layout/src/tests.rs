@@ -4557,3 +4557,112 @@ fn space_before_at_the_top_of_a_page_like_word() {
     let l = lay(&d);
     assert!(l.caret(&Pos::body(0, "first".len() + brk.len_utf8())).is_some(), "caret after the break");
 }
+
+/// Word kerns a run only when Kerning for fonts (`w:kern`) is set and the font is at least that
+/// size; WordCraft kerned everything, so its lines held more text than Word's (measured in Word for
+/// Windows with Calibri at 14 pt: no `w:kern`, `w:kern="0"` and a threshold above the size are
+/// all unkerned).
+#[test]
+fn kerning_follows_kerning_for_fonts_like_word() {
+    use wordcraft_doc::props::CharProps;
+    let width = |kern: Option<f32>| {
+        let mut d = Document::new();
+        let chr = CharProps { size: Some(14.0), kern, ..Default::default() };
+        d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("AVAVAV To Wo Ty Yo AWAY", chr))];
+        let l = lay(&d);
+        let end = d.para_at(&Pos::body(0, 0)).map_or(0, |p| p.len());
+        l.caret(&Pos::body(0, end)).unwrap().x - l.caret(&Pos::body(0, 0)).unwrap().x
+    };
+    let plain = width(Some(0.0));
+    assert!(width(Some(1.0)) < plain - 1.0, "kerned from 1 pt: {} vs {plain}", width(Some(1.0)));
+    assert!((width(Some(14.0)) - width(Some(1.0))).abs() < 0.01, "a threshold equal to the size kerns");
+    assert!((width(Some(15.0)) - plain).abs() < 0.01, "a threshold above the size doesn't kern");
+    // A new document kerns from 1 pt, like Word's Normal template.
+    assert!((width(None) - width(Some(1.0))).abs() < 0.01, "new documents kern");
+    let mut d = Document::new();
+    d.styles.default_chr.kern = None;
+    assert!(d.styles.resolve_char(None, &Default::default()).kern == 0.0, "no Kerning for fonts: not kerned");
+}
+
+/// Word's automatic (HTML-style) paragraph spacing, measured in Word for Windows: 14 pt at any
+/// size; none before the first paragraph of the document or a cell, none after the last one of a
+/// cell; next to another paragraph's space the larger of the two counts.
+#[test]
+fn automatic_paragraph_spacing_like_word() {
+    let auto = |before: bool, after: bool| ParaProps {
+        space_before: Some(5.0),
+        space_after: Some(5.0),
+        space_before_auto: before.then_some(true),
+        space_after_auto: after.then_some(true),
+        ..Default::default()
+    };
+    let plain = ParaProps { space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+    let tops = |props: [ParaProps; 3]| {
+        let mut d = Document::new();
+        d.body = ["FIRST", "SECOND", "THIRD"]
+            .iter()
+            .zip(props)
+            .map(|(t, p)| {
+                let mut para = wordcraft_doc::Paragraph::with_text(t, Default::default());
+                para.props = p;
+                wordcraft_doc::para_block(para)
+            })
+            .collect();
+        let l = lay(&d);
+        [0, 1, 2].map(|i| l.caret(&Pos::body(i, 0)).unwrap().top)
+    };
+    let base = tops([plain.clone(), plain.clone(), plain.clone()]);
+    let line = base[1] - base[0];
+    let near = |a: f32, b: f32| (a - b).abs() < 0.05;
+    // Space after: 14 pt.
+    let t = tops([plain.clone(), auto(false, true), plain.clone()]);
+    assert!(near(t[2] - t[1], line + 14.0), "{t:?}");
+    // Space before: 14 pt, but none for the document's first paragraph.
+    let t = tops([auto(true, false), auto(true, false), plain.clone()]);
+    assert!(near(t[0], base[0]), "no automatic space at the top of the document");
+    assert!(near(t[1] - t[0], line + 14.0), "{t:?}");
+    // Two automatic spaces meet: 14 pt, not 28; an automatic one beside 10 pt: 14.
+    let t = tops([plain.clone(), auto(true, true), auto(true, true)]);
+    assert!(near(t[2] - t[1], line + 14.0), "{t:?}");
+    let ten = ParaProps { space_before: Some(10.0), ..plain.clone() };
+    let t = tops([plain.clone(), auto(false, true), ten]);
+    assert!(near(t[2] - t[1], line + 14.0), "{t:?}");
+    // Explicitly off: the measured spacing again.
+    let off = ParaProps { space_after_auto: Some(false), ..auto(false, false) };
+    let t = tops([plain.clone(), off, plain.clone()]);
+    assert!(near(t[2] - t[1], line + 5.0), "{t:?}");
+}
+
+/// In a table cell automatic spacing drops at the cell's top and bottom (Word for Windows).
+#[test]
+fn automatic_paragraph_spacing_drops_at_cell_edges() {
+    let cell_tops = |auto: bool| {
+        let mut d = Document::from_text("Above");
+        let mut t = Table::new(1, 1, 300.0);
+        t.rows[0].cells[0].blocks = ["SECOND", "THIRD"]
+            .iter()
+            .map(|s| {
+                let mut p = wordcraft_doc::Paragraph::with_text(s, Default::default());
+                p.props = ParaProps {
+                    space_before: Some(0.0),
+                    space_after: Some(0.0),
+                    space_before_auto: auto.then_some(true),
+                    space_after_auto: auto.then_some(true),
+                    ..Default::default()
+                };
+                wordcraft_doc::para_block(p)
+            })
+            .collect();
+        d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+        d.insert_block(StoryRef::Body, &Path::top(2), wordcraft_doc::Block::Para(wordcraft_doc::Paragraph::with_text("Below", Default::default())))
+            .unwrap();
+        let l = lay(&d);
+        let in_cell = |i: u32| l.caret(&Pos { story: StoryRef::Body, path: Path(vec![1, 0, 0, i]), off: 0 }).unwrap().top;
+        (in_cell(0), in_cell(1), l.caret(&Pos::body(2, 0)).unwrap().top)
+    };
+    let (a0, a1, a_below) = cell_tops(true);
+    let (p0, p1, p_below) = cell_tops(false);
+    assert!((a0 - p0).abs() < 0.05, "no automatic space at the top of the cell");
+    assert!((a1 - a0 - (p1 - p0) - 14.0).abs() < 0.05, "14 pt between the cell's paragraphs");
+    assert!((a_below - a1 - (p_below - p1)).abs() < 0.05, "none after the cell's last paragraph");
+}

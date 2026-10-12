@@ -4716,3 +4716,23 @@ fn new_documents_follow_the_region() {
     assert_eq!(t.region(), wordcraft_geom::Region::default());
     assert_eq!(t.prefs.region.as_deref(), Some("en-US"), "junk is saved as en-US");
 }
+
+/// Automatic (HTML-style) paragraph spacing: `para.spacing` turns it on and off, and a number
+/// replaces it, as typing one in Word's Paragraph dialog does; Ctrl+0 and Remove Space After work
+/// on it too.
+#[test]
+fn spacing_commands_handle_automatic_spacing() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Pasted from the web"}));
+    let rp = |s: &Session| s.doc.styles.resolve_para(&s.doc.para_at(&s.sel.focus).unwrap().props);
+    run(&mut s, "para.spacing", json!({"beforeAuto": true, "afterAuto": true}));
+    assert_eq!((rp(&s).space_before, rp(&s).space_after, rp(&s).before_auto), (14.0, 14.0, true));
+    run(&mut s, "para.spacing", json!({"before": 6}));
+    assert_eq!((rp(&s).space_before, rp(&s).before_auto, rp(&s).after_auto), (6.0, false, true), "a number replaces Auto");
+    run(&mut s, "para.removeSpaceAfter", json!({}));
+    assert_eq!((rp(&s).space_after, rp(&s).after_auto), (0.0, false));
+    run(&mut s, "para.spacing", json!({"beforeAuto": true}));
+    run(&mut s, "para.addSpaceBefore", json!({}));
+    assert_eq!((rp(&s).space_before, rp(&s).before_auto), (0.0, false), "Ctrl+0 removes the automatic space");
+    assert!(s.run("para.spacing", &json!({"beforeAuto": "yes"})).is_ok(), "junk is ignored, never a panic");
+}
