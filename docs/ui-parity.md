@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Layout › Paragraph fields fit and align, #654; previously trivial: ribbon labels clear the group titles, #653; previously trivial: menu buttons grey out, #658; previously trivial: one drop-down marker, #659; previously minor: status bar language follows the caret and sets the proofing language; Review › Language is a menu; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Quick Access Toolbar KeyTips, native Alt handling and a saved KeyTips switch, #620; previously trivial: File › Options panes, #485; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -11,7 +11,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | Area | WordCraft | Word | Parity | Hours |
 |---|---|---|---|---|
 | Ribbon tabs and groups | All Word tabs including contextual Table Design/Layout, Picture Format, Shape Format, Header & Footer, Equation, Outlining (Outline view, #493); ribbon overflow (#43, #129). Draw tab: Select, Eraser, Pen, Pencil, Highlighter with colour and thickness (#307); Lasso (drag to move, Delete, recolour), Add Pen gallery (right-click to remove), Ink to Shape, Ink Replay with play/pause/rewind/forward bar (#395); missing: Ink to Math | Same plus Draw | 85% | (Draw in features) |
-| Keytips (Alt / ⌃⌥ letters) | ✅ (#43) | ✅ | 85% | 1–2 |
+| Keytips (Alt / F10) | Ribbon badges (#43) and numbered Quick Access Toolbar badges in the user's button order (#620); File › Options › Advanced › Display switch saved per user (`ui.keytips`); Alt leaves macOS Option typing alone | ✅ | 85% | 1–2 |
 | Mini-toolbar on selection | ✅ (#43, two rows #535) | ✅ | 80% | 1–2 |
 | Mini-toolbar on selection | ✅ (#43) | ✅ | 80% | 1–2 |
 | Colour drop-downs: theme/standard colours, Recent Colors, More Colors… → Colors dialog (Standard honeycomb, Custom hue/saturation field with lightness, RGB/HSL and hex) | ✅ Font Color (ribbon, mini toolbar, Font dialog), Shading, Page Color, Shape Fill/Outline/Glow, pen colours, dialog colour fields (#606); no Gradient or eyedropper | ✅ | 90% | 1 |
@@ -43,6 +43,8 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Alt activation handles native key/modifier events in either order, including key-up with the old Alt flag; taps toggle once, chords and focus loss do not activate KeyTips |
+| 2026-10-11 | trivial | Quick Access Toolbar KeyTips (#620): 1–9, zero-prefixed numbers for longer toolbars, disabled commands stay disabled, Escape cancels, badge keystrokes never type into the document; persisted File › Options switch |
 | 2026-10-11 | trivial | Ribbon buttons that run a command (alignment, Bold, styles…) hand keyboard focus back to the document, so typing continues without another click; they also report their name and enabled state to screen readers (#686) |
 | 2026-10-11 | trivial | Tables on the page: column and row borders and the resize handle drag, with a dashed guide and one undo step per drag (#217) |
 | 2026-10-11 | trivial | Animation effects › Use system setting also reads macOS (Reduce motion) and the Linux/BSD desktops (settings portal: the cross-desktop reduced-motion preference, GNOME's switch, KDE's animation speed; the GTK and KDE settings files where no portal answers), and follows a change without a restart |
@@ -101,4 +103,9 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | 2026-10-10 | minor | Merged main: Style Inspector, Column Selection, zoom buttons, inertial scrolling, File Info landed |
 | 2026-10-10 | major | First version: ribbon, dialog, shortcut and interaction inventory |
 | 2026-10-10 | trivial | Draw tab tools and Review › Hide Ink (#307) |
+
+Quick Access Toolbar labels are generated from the current button order. For more than nine
+buttons, the remaining labels start with zero and use the same number of digits (for example
+`01`, `02` on a ten-button toolbar; `001` through `011` on a twenty-button toolbar). This keeps
+labels unambiguous. Those extra-number assignments have not been compared with Word.
 | 2026-10-11 | trivial | Draw: Lasso, Add Pen gallery, Ink to Shape and Ink Replay (#395) |
