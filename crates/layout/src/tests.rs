@@ -4262,3 +4262,30 @@ fn a_hidden_cell_mark_takes_no_room() {
     let text = row2([true, true], Some("Tx"));
     assert!((text - line).abs() < 0.5, "text stays, the empty mark after it goes: {text} vs {line}");
 }
+
+/// A text frame in a header, footer or cell (NIH's footers put the page number in one, centred,
+/// with the footer text wrapping around it) is placed apart: it takes no room in the flow, sits
+/// where its alignment says, and the text beside it keeps clear of it. WordCraft laid it out as
+/// an ordinary paragraph, a line of its own above the footer text.
+#[test]
+fn a_text_frame_in_a_cell_floats_beside_the_text() {
+    use wordcraft_doc::props::TextFrame;
+    let mut d = Document::from_text("Above");
+    let mut t = Table::new(1, 1, 300.0);
+    let mut framed = wordcraft_doc::Paragraph::with_text("7", Default::default());
+    framed.props.frame = Some(TextFrame {
+        x_align: Some("right".into()),
+        h_anchor: "text".into(),
+        v_anchor: "text".into(),
+        wrap: "around".into(),
+        ..Default::default()
+    });
+    let text = wordcraft_doc::Paragraph::with_text("Cell text", Default::default());
+    t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(framed), wordcraft_doc::para_block(text)];
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let at = |i: u32| l.caret(&Pos { story: StoryRef::Body, path: Path(vec![1, 0, 0, i]), off: 0 }).unwrap();
+    let (frame, text) = (at(0), at(1));
+    assert!((frame.top - text.top).abs() < 0.5, "the frame takes no room: {} vs {}", frame.top, text.top);
+    assert!(frame.x > text.x + 200.0, "right-aligned in the cell: {} vs {}", frame.x, text.x);
+}

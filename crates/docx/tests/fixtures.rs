@@ -1901,3 +1901,33 @@ fn cell_hide_mark_reads_and_round_trips() {
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert_eq!(hides(&again), [true, false]);
 }
+
+/// Text frames (`w:framePr` without a drop cap), as NIH's templates put a footer's page number in
+/// one: read with their size, anchors, alignment and wrap, and written back (they were dropped on
+/// save).
+#[test]
+fn text_frames_read_and_round_trip() {
+    let body = r#"<w:p><w:pPr><w:framePr w:wrap="around" w:vAnchor="text" w:hAnchor="margin" w:xAlign="center" w:y="1"/></w:pPr><w:r><w:t>3</w:t></w:r></w:p>
+        <w:p><w:pPr><w:framePr w:w="2880" w:h="720" w:hRule="exact" w:hSpace="180" w:wrap="notBeside" w:hAnchor="page" w:vAnchor="page" w:x="1440" w:y="2880"/></w:pPr><w:r><w:t>boxed</w:t></w:r></w:p>
+        <w:p><w:pPr><w:framePr w:wrap="sideways" w:hAnchor="nowhere" w:w="-5" w:x="NaN"/></w:pPr><w:r><w:t>junk</w:t></w:r></w:p>
+        <w:p><w:pPr><w:framePr w:dropCap="drop" w:lines="2" w:wrap="around" w:vAnchor="text" w:hAnchor="text"/></w:pPr><w:r><w:t>D</w:t></w:r></w:p>
+        <w:p><w:r><w:t>rop cap text</w:t></w:r></w:p>"#;
+    let d = read_body(body);
+    let p = paras(&d);
+    let f = p[0].props.frame.clone().expect("a frame");
+    assert_eq!(
+        (f.wrap.as_str(), f.v_anchor.as_str(), f.h_anchor.as_str(), f.x_align.as_deref(), f.y),
+        ("around", "text", "margin", Some("center"), 0.05)
+    );
+    let g = p[1].props.frame.clone().expect("a frame");
+    assert_eq!((g.w, g.h, g.h_exact, g.h_space, g.wrap.as_str(), g.x, g.y), (Some(144.0), Some(36.0), true, 9.0, "notBeside", 72.0, 144.0));
+    let cap = p.iter().find(|q| q.props.drop_cap.is_some()).expect("the drop cap");
+    assert!(cap.props.frame.is_none(), "a drop cap stays a drop cap");
+    let junk = p.iter().find(|q| q.text.contains("junk")).and_then(|q| q.props.frame.clone()).expect("a frame");
+    assert_eq!((junk.wrap.as_str(), junk.h_anchor.as_str(), junk.w, junk.x), ("auto", "page", None, 0.0), "unknown values fall back");
+    let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    let q = paras(&again);
+    assert_eq!(q[0].props.frame, p[0].props.frame);
+    assert_eq!(q[1].props.frame, p[1].props.frame);
+    assert!(q.iter().any(|x| x.props.drop_cap == Some(2) && x.props.frame.is_none()));
+}

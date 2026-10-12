@@ -882,6 +882,24 @@ fn layout_box(
             Block::Para(p) => {
                 let label = ctx.next_label(p);
                 let mut pl = ctx.para_labelled(p, width, table, &[], label.clone());
+                // A text frame (a footer's page number in a frame, say) is placed apart, like a
+                // floating object, and the text after it wraps around it; it takes no room in
+                // the flow.
+                if let Some(fr) = pl.rp.frame.clone() {
+                    let fw = fr.w.unwrap_or_else(|| natural_width(&pl)).clamp(1.0, 1584.0);
+                    let pf = if (fw - width).abs() > 0.01 { ctx.para_labelled(p, fw, table, &[], label) } else { pl };
+                    let h = match fr.h {
+                        Some(h) if fr.h_exact => h,
+                        Some(h) => h.max(pf.height),
+                        None => pf.height,
+                    };
+                    let float = frame_float(&fr);
+                    let r = float_rect(frame, (0.0, width), y, fw, h, &float);
+                    push_para(&mut items, story, &path, &pf, 0, pf.lines.len(), r.x, r.y, fw);
+                    excl.extend(wrap_area(r, &float, None));
+                    float_tables.push(r);
+                    continue;
+                }
                 let ctxl = pl.rp.contextual_spacing;
                 let same = prev_style.as_ref().is_some_and(|(s, c)| *s == pl.rp.style && (*c || ctxl));
                 let before = if same && ctxl { 0.0 } else { pl.rp.space_before };
@@ -961,6 +979,53 @@ fn layout_box(
     let floats_bottom = float_tables.iter().map(|r| r.bottom()).fold(0.0, f32::max);
     ctx.hide_deleted = outer_hide;
     BoxLayout { items, height: y.max(0.0), floats_bottom, last_top: last_top.max(0.0) }
+}
+
+/// The width a text frame without one takes: its widest line, with the paragraph's indents.
+fn natural_width(pl: &ParaLayout) -> f32 {
+    let widest = (0..pl.lines.len())
+        .filter_map(|li| {
+            let l = pl.lines.get(li)?;
+            Some((pl.x_of(li, l.stop)? - pl.x_of(li, l.start)?).abs())
+        })
+        .fold(0.0f32, f32::max);
+    widest + pl.rp.indent_left.max(0.0) + pl.rp.indent_right.max(0.0)
+}
+
+/// A text frame's placement as a floating object's (`w:framePr` → anchors, alignment, wrap).
+fn frame_float(fr: &wordcraft_doc::props::TextFrame) -> Float {
+    let anchor = |a: &str, text: Anchor| match a {
+        "page" => Anchor::Page,
+        "margin" => Anchor::Margin,
+        _ => text,
+    };
+    let align = |a: Option<&str>| match a {
+        Some("left" | "top") => Some(FloatAlign::Start),
+        Some("center") => Some(FloatAlign::Center),
+        Some("right" | "bottom") => Some(FloatAlign::End),
+        Some("inside") => Some(FloatAlign::Inside),
+        Some("outside") => Some(FloatAlign::Outside),
+        _ => None,
+    };
+    Float {
+        wrap: match fr.wrap.as_str() {
+            "notBeside" => Wrap::TopAndBottom,
+            "none" => Wrap::InFrontOfText,
+            "tight" => Wrap::Tight,
+            "through" => Wrap::Through,
+            _ => Wrap::Square,
+        },
+        h_rel: anchor(&fr.h_anchor, Anchor::Column),
+        v_rel: anchor(&fr.v_anchor, Anchor::Paragraph),
+        x: fr.x,
+        y: fr.y,
+        h_align: align(fr.x_align.as_deref()),
+        v_align: align(fr.y_align.as_deref()),
+        dist: fr.h_space,
+        dist_top: fr.v_space,
+        dist_bottom: fr.v_space,
+        ..Default::default()
+    }
 }
 
 /// A laid-out box: items relative to its top-left, the height of its text flow, where its

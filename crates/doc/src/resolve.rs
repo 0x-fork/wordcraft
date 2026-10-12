@@ -153,6 +153,9 @@ pub struct ResolvedPara {
     pub borders: Option<Borders>,
     pub bidi: bool,
     pub drop_cap: u8,
+    /// A text frame the paragraph sits in (see `ParaProps::frame`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<crate::props::TextFrame>,
     pub suppress_hyphens: bool,
     pub suppress_line_numbers: bool,
     /// Asian typography (see `ParaProps`): East Asian line-breaking rules.
@@ -226,6 +229,7 @@ impl ResolvedPara {
             borders: p.borders.filter(Borders::any_visible),
             bidi: p.bidi.unwrap_or(false),
             drop_cap: p.drop_cap.unwrap_or(0).min(10),
+            frame: p.frame.clone().filter(|_| p.drop_cap.unwrap_or(0) == 0),
             suppress_hyphens: p.suppress_hyphens.unwrap_or(false),
             suppress_line_numbers: p.suppress_line_numbers.unwrap_or(false),
             kinsoku: p.kinsoku.unwrap_or(true),

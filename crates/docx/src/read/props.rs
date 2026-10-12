@@ -14,6 +14,28 @@ use wordcraft_doc::section::{
 
 use super::drawing_color::adjust_lum;
 use crate::units::{int, measure, on_off, tw, u32_of};
+
+/// A text frame (`w:framePr` without a drop cap, ECMA-376 §17.3.1.11), sizes and offsets in
+/// points (clamped), names kept as OOXML writes them.
+fn text_frame(k: &El) -> wordcraft_doc::props::TextFrame {
+    let len = |name: &str| tw(k, name).filter(|v| v.is_finite()).map(|v| v.clamp(-1584.0, 1584.0));
+    let word = |name: &str, allowed: &[&str], default: &str| k.attr(name).filter(|v| allowed.contains(v)).unwrap_or(default).to_string();
+    let align = |name: &str, allowed: &[&str]| k.attr(name).filter(|v| allowed.contains(v)).map(str::to_string);
+    wordcraft_doc::props::TextFrame {
+        w: len("w:w").filter(|v| *v > 0.0),
+        h: len("w:h").map(f32::abs).filter(|v| *v > 0.0),
+        h_exact: k.attr("w:hRule") == Some("exact"),
+        x: len("w:x").unwrap_or(0.0),
+        y: len("w:y").unwrap_or(0.0),
+        x_align: align("w:xAlign", &["left", "center", "right", "inside", "outside"]),
+        y_align: align("w:yAlign", &["top", "center", "bottom", "inside", "outside"]),
+        h_anchor: word("w:hAnchor", &["text", "margin", "page"], "page"),
+        v_anchor: word("w:vAnchor", &["text", "margin", "page"], "page"),
+        wrap: word("w:wrap", &["around", "auto", "notBeside", "none", "tight", "through"], "auto"),
+        h_space: len("w:hSpace").unwrap_or(0.0).max(0.0),
+        v_space: len("w:vSpace").unwrap_or(0.0).max(0.0),
+    }
+}
 use crate::xml::El;
 
 /// Context for property reading: theme fonts and colours, and style id aliases.
@@ -240,6 +262,8 @@ impl PropCtx {
                 "w:framePr" => {
                     if matches!(k.attr("w:dropCap"), Some("drop") | Some("margin")) {
                         p.drop_cap = Some(k.attr("w:lines").and_then(u32_of).unwrap_or(3).clamp(1, 10) as u8);
+                    } else {
+                        p.frame = Some(text_frame(k));
                     }
                 }
                 "w:numPr" => {
