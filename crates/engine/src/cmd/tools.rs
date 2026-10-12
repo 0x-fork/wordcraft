@@ -651,6 +651,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("view.sideToSide", "Side to Side", "View › Page Movement", |s, _| {
             s.view.multi_page = true;
+            s.view.single_column = false;
             s.view.fit = "multiplePages".into();
             Ok(json!({"pageMovement": "sideToSide"}))
         })

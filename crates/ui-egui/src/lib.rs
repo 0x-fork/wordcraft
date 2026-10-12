@@ -2411,6 +2411,43 @@ mod tests {
         assert_eq!(caret.page, 3);
     }
 
+    /// Issue #768: after One Page, zooming out (Zoom Out, the Zoom box, Ctrl + wheel) keeps one page per row.
+    #[test]
+    fn zoom_after_one_page_keeps_one_page_per_row() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        for _ in 0..3 {
+            a.run("insert.pageBreak", json!({})).unwrap();
+        }
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        a.run("view.onePage", json!({})).unwrap();
+        for _ in 0..3 {
+            frame(&mut a);
+        }
+        assert_eq!(a.canvas.cols, 1);
+        a.run("view.zoom", json!({"value": 30})).unwrap();
+        for _ in 0..3 {
+            frame(&mut a);
+        }
+        assert_eq!(a.canvas.cols, 1, "30% after One Page: still one page per row");
+        a.run("view.multiplePages", json!({})).unwrap();
+        a.run("view.zoom", json!({"value": 30})).unwrap();
+        for _ in 0..3 {
+            frame(&mut a);
+        }
+        assert_eq!(a.canvas.cols, 4, "30% after Multiple Pages: all four pages fit across");
+    }
+
     #[test]
     fn user_name_survives_restart() {
         let mut first = app();

@@ -478,8 +478,8 @@ pub fn geometry(app: &WordApp, l: &DocLayout, avail: egui::Vec2) -> Geometry {
         scale = PX_PER_PT;
     }
     // Pages flow side by side in Print Layout whenever more than one fits across; One Page and
-    // Page Width show one per row, Web Layout has no pages. Reading Mode is handled above.
-    let (min_cols, auto) = if web || v.fit == "onePage" || v.fit == "pageWidth" {
+    // Page Width show one per row (and so does a zoom after One Page, #768), Web Layout has no pages. Reading Mode is handled above.
+    let (min_cols, auto) = if web || v.fit == "onePage" || v.fit == "pageWidth" || v.single_column {
         (1, false)
     } else if v.multi_page {
         (2, true)
