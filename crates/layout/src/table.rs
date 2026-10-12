@@ -86,6 +86,14 @@ fn default_margins(t: &Table, style: Option<&TableStyleProps>) -> [f32; 4] {
     t.props.cell_margins.or(style.and_then(|s| s.parts.cell_margins)).unwrap_or(DEFAULT_MARGINS)
 }
 
+/// The margins (top, left, bottom, right; points) inside cell `cell` of row `row`: its own, else
+/// the table's defaults, as the layout uses them. The app's ruler measures a cell's indents from
+/// them.
+pub fn cell_margins(doc: &wordcraft_doc::Document, t: &Table, row: usize, cell: usize) -> [f32; 4] {
+    let style = t.props.style.as_deref().and_then(|id| doc.styles.table_style(id));
+    t.rows.get(row).and_then(|r| r.cells.get(cell)).and_then(|c| c.props.margins).unwrap_or_else(|| default_margins(t, style.as_ref()))
+}
+
 /// The most paragraphs [`measure_table_columns`] lays out: a huge table is measured by its first
 /// rows only, so AutoFit stays quick.
 const MEASURE_BUDGET: usize = 4000;

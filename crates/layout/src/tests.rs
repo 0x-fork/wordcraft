@@ -2156,6 +2156,38 @@ fn at_least_rows_add_cell_margins_and_border_bands() {
     assert!((tops[0] - (72.0 + 0.5 + 5.0)).abs() < 0.01, "first cell text at {}", tops[0]);
 }
 
+/// `cell_margins` is what the layout uses: a cell's own margins, else the table's, else Word's;
+/// each cell's text starts its left margin inside the cell.
+#[test]
+fn cell_margins_are_where_cell_text_starts() {
+    let mut d = Document::from_text("");
+    let mut t = Table::new(1, 2, 300.0);
+    t.props.cell_margins = Some([0.0, 9.0, 0.0, 3.0]);
+    t.rows[0].cells[1].props.margins = Some([0.0, 20.0, 0.0, 4.0]);
+    for (c, text) in t.rows[0].cells.iter_mut().zip(["one", "two"]) {
+        c.blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, Default::default()))];
+    }
+    assert_eq!(cell_margins(&d, &t, 0, 0), [0.0, 9.0, 0.0, 3.0]);
+    assert_eq!(cell_margins(&d, &t, 0, 1), [0.0, 20.0, 0.0, 4.0]);
+    assert_eq!(cell_margins(&d, &t, 5, 9), [0.0, 9.0, 0.0, 3.0], "no such cell: the table's");
+    assert_eq!(cell_margins(&d, &Table::new(1, 1, 100.0), 0, 0), [0.0, 5.4, 0.0, 5.4], "Word's");
+    d.body = vec![std::sync::Arc::new(wordcraft_doc::Block::Table(t.clone()))];
+    let l = lay(&d);
+    let items = &l.pages[0].items;
+    for c in 0..2 {
+        let boxed = items.iter().find_map(|it| match it {
+            Placed::Cell { rect, cell, .. } if *cell == c => Some(*rect),
+            _ => None,
+        });
+        let text_x = items.iter().find_map(|it| match it {
+            Placed::Lines { path, x, .. } if path.0.get(2) == Some(&(c as u32)) => Some(*x),
+            _ => None,
+        });
+        let (boxed, text_x) = (boxed.unwrap(), text_x.unwrap());
+        assert!((text_x - boxed.x - cell_margins(&d, &t, 0, c)[1]).abs() < 0.01, "cell {c}: text at {text_x}, cell at {}", boxed.x);
+    }
+}
+
 /// Line count and, per line, how far the text (trailing spaces excluded) reaches.
 fn justified_lines(text: &str, compat_mode: u32, align: Align) -> (usize, Vec<f32>) {
     let mut d = Document::from_text(text);

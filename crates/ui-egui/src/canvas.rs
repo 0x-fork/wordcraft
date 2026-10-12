@@ -1945,14 +1945,19 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     ] {
         margin_handle(app, ui, edge, zone, |p| (p.x - x0) / scale, &sect);
     }
-    // Indent markers for the caret's paragraph (relative to its column).
-    let col_x = page.body.x;
+    // In a table, its column borders; registered before the indent markers, which keep the
+    // pointer where they overlap.
+    crate::table_ruler::columns(app, ui, layout, pi, bar, x0, scale);
+    // Indent markers for the caret's paragraph (relative to its column, or in a table to the
+    // cell's text).
+    let (col_x, w) = crate::table_ruler::text_area(app, layout, pi).unwrap_or((page.body.x, page.body.w));
+    // Where the paragraph starts, from the page's start edge (the right edge when right-to-left).
+    let start = if rtl { page.w - (col_x + w) } else { col_x };
     if let Some(rp) = rp {
         // Indents and tabs are measured from the paragraph's start edge: the right margin of a
         // right-to-left paragraph, where the start-indent markers sit.
-        let w = page.body.w;
-        let px = |s: f32| sx(origin + s);
-        let dist_at = |x: f32| s_at(x) - origin;
+        let px = |s: f32| sx(start + s);
+        let dist_at = |x: f32| s_at(x) - start;
         let first = px(rp.indent_left + rp.indent_first);
         let left = px(rp.indent_left);
         let right = px(w - rp.indent_right);
@@ -1999,7 +2004,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = dist_at(pp.x).clamp(-col_x, page.body.w - 18.0);
+            let pt = dist_at(pp.x).clamp(-col_x, (w - 18.0).max(-col_x));
             let snapped = (pt / 4.5).round() * 4.5;
             if !r.drag_started() {
                 app.session.join_next_undo();
@@ -2022,7 +2027,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = page.body.w - dist_at(pp.x);
+            let pt = w - dist_at(pp.x);
             if !r.drag_started() {
                 app.session.join_next_undo();
             }
@@ -2064,6 +2069,8 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             break;
         }
     }
+    // In a table, its rows' bottom borders.
+    crate::table_ruler::rows(app, ui, layout, pi, vbar, y0, scale);
 }
 
 /// One mark drawn along a horizontal ruler.

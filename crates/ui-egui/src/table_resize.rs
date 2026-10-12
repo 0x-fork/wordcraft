@@ -8,7 +8,7 @@
 
 use egui::{Pos2, Rect, Stroke, Ui, pos2};
 use serde_json::json;
-use wordcraft_engine::cmd::table_resize::{self, Edge, ResizeTarget};
+use wordcraft_engine::cmd::table_resize::{self, Edge, Plan, ResizeTarget};
 use wordcraft_layout::DocLayout;
 
 use crate::WordApp;
@@ -24,6 +24,51 @@ pub(crate) struct ResizeDrag {
     from: (f32, f32),
     to: (f32, f32),
     target: ResizeTarget,
+    /// Started on a ruler marker, where Shift works the other way round, as on Word's ruler:
+    /// without it a column border changes only the column on its left (the columns right of it
+    /// move along), with it the neighbour makes up the difference.
+    ruler: bool,
+}
+
+impl ResizeDrag {
+    /// What the drag so far makes of the table, with Shift held (`shift`) or not: on the page
+    /// Shift changes only the column left of a column border, on a ruler marker it's the other way
+    /// round.
+    fn plan(&self, shift: bool) -> Plan {
+        self.target.plan(self.to.0 - self.from.0, self.to.1 - self.from.1, shift != self.ruler)
+    }
+
+    /// Where the dragged column border (page x) or row bottom (page y) is now; `None` for the
+    /// handle.
+    fn line_now(&self, shift: bool) -> Option<f32> {
+        let plan = self.plan(shift);
+        match self.target.edge {
+            Edge::Column(i) => Some(planned_line(&self.target, &plan, i)),
+            Edge::Row(r) => planned_bottom(&self.target, &plan, r),
+            Edge::Corner => None,
+        }
+    }
+}
+
+/// Page x of `tg`'s grid line `line` with `plan` applied.
+fn planned_line(tg: &ResizeTarget, plan: &Plan, line: usize) -> f32 {
+    match &plan.widths {
+        Some(w) => tg.left() + w.iter().take(line).sum::<f32>(),
+        None => tg.cols.get(line).copied().unwrap_or(tg.left()),
+    }
+}
+
+/// Page y of the bottom of `tg`'s row `row` with `plan` applied (rows above it that change move
+/// it too); `None` when the row isn't drawn on the page.
+fn planned_bottom(tg: &ResizeTarget, plan: &Plan, row: usize) -> Option<f32> {
+    let bottom = tg.rows.iter().find(|r| r.row == row)?.bottom;
+    let grown: f32 = tg
+        .rows
+        .iter()
+        .filter(|r| r.row <= row)
+        .filter_map(|r| plan.heights.iter().find(|(i, _)| *i == r.row).map(|(_, h)| h - (r.bottom - r.top)))
+        .sum();
+    Some(bottom + grown)
 }
 
 /// Screen pixels per page point on `page`.
@@ -89,7 +134,8 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
             }
             return true;
         }
-        let shift = ui.input(|i| i.modifiers.shift);
+        // The command's "shift": only the column left of a column border changes.
+        let shift = ui.input(|i| i.modifiers.shift) != d.ruler;
         let sc = page_scale(rects, layout, scale, d.page).unwrap_or(1.0);
         let params = json!({
             "page": d.page, "x": d.from.0, "y": d.from.1, "toX": d.to.0, "toY": d.to.1,
@@ -105,8 +151,42 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
     }
     let Some(p) = latest else { return false };
     let Some((page, x, y, target)) = target_at(app, layout, rects, scale, p) else { return false };
-    app.canvas.table_resize = Some(ResizeDrag { page, from: (x, y), to: (x, y), target });
+    app.canvas.table_resize = Some(ResizeDrag { page, from: (x, y), to: (x, y), target, ruler: false });
     true
+}
+
+/// Starts dragging the table border at page point (`x`, `y`) on `page` from a ruler marker: it
+/// goes on as a drag on the page (`pointer`: dashed preview, Escape cancels, one undo step), but
+/// a column border changes only the column on its left.
+pub(crate) fn grab(app: &mut WordApp, layout: &DocLayout, page: usize, x: f32, y: f32) {
+    if !available(app) {
+        return;
+    }
+    if let Some(target) = table_resize::resize_target(layout, &app.session.doc, page, x, y, 1.0) {
+        app.canvas.table_resize = Some(ResizeDrag { page, from: (x, y), to: (x, y), target, ruler: true });
+    }
+}
+
+/// Where the caret's table's column border drawn at page x `at` (`column`), or row bottom drawn
+/// at page y `at`, is while one of its borders is dragged on `page` (`shift` held): the rulers'
+/// markers follow the drag.
+pub(crate) fn moved(app: &WordApp, page: usize, shift: bool, column: bool, at: f32) -> f32 {
+    let caret = app.session.sel.focus.path.cell().map(|(tp, _, _)| tp);
+    let Some(d) = app
+        .canvas
+        .table_resize
+        .as_ref()
+        .filter(|d| d.page == page && d.target.story == app.session.sel.focus.story && caret.as_ref() == Some(&d.target.table))
+    else {
+        return at;
+    };
+    let (tg, plan) = (&d.target, d.plan(shift));
+    let near = |v: f32| (v - at).abs() < 0.5;
+    if column {
+        tg.cols.iter().position(|x| near(*x)).map_or(at, |line| planned_line(tg, &plan, line))
+    } else {
+        tg.rows.iter().find(|r| near(r.bottom)).and_then(|r| planned_bottom(tg, &plan, r.row)).unwrap_or(at)
+    }
 }
 
 /// The resize arrow over a border or the handle, and while dragging.
@@ -135,7 +215,7 @@ pub fn paint(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLay
     if let Some(d) = &app.canvas.table_resize {
         let shift = painter.ctx().input(|i| i.modifiers.shift);
         let tg = &d.target;
-        let plan = tg.plan(d.to.0 - d.from.0, d.to.1 - d.from.1, shift);
+        let plan = d.plan(shift);
         let (left, top) = (tg.left(), tg.top());
         let right = plan.widths.as_ref().map_or(tg.right(), |w| left + w.iter().sum::<f32>());
         let bottom = top + tg.rows.iter().map(|r| plan.heights.iter().find(|(i, _)| *i == r.row).map_or(r.bottom - r.top, |(_, h)| *h)).sum::<f32>();
@@ -144,15 +224,11 @@ pub fn paint(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLay
                 painter.extend(egui::Shape::dashed_line(&[a, b], dash, 3.0, 3.0));
             }
         };
+        // The dragged column border's x, or row bottom's y.
+        let at = d.line_now(shift).unwrap_or_default();
         match tg.edge {
-            Edge::Column(i) => {
-                let x = left + plan.widths.as_ref().map_or(0.0, |w| w.iter().take(i).sum::<f32>());
-                line(s(d.page, x, top), s(d.page, x, tg.bottom()));
-            }
-            Edge::Row(r) => {
-                let y = tg.rows.iter().find(|x| x.row == r).map_or(top, |x| x.top) + plan.heights.first().map_or(0.0, |(_, h)| *h);
-                line(s(d.page, left, y), s(d.page, tg.right(), y));
-            }
+            Edge::Column(_) => line(s(d.page, at, top), s(d.page, at, tg.bottom())),
+            Edge::Row(_) => line(s(d.page, left, at), s(d.page, tg.right(), at)),
             Edge::Corner => {
                 if let (Some(a), Some(b)) = (s(d.page, left, top), s(d.page, right, bottom)) {
                     let r = Rect::from_two_pos(a, b);
@@ -281,6 +357,121 @@ pub(crate) mod tests {
         assert_eq!(h.state().session.sel, sel, "the selection is kept");
         assert!(h.state_mut().session.undo());
         assert_eq!(cell(&mut h, 0, 0), a);
+    }
+
+    /// The zone of the ruler marker named `label` nearest to screen point `near`.
+    fn ruler_marker(h: &H, label: &str, near: Pos2) -> Rect {
+        use egui_kittest::kittest::Queryable;
+        h.query_all_by_label(label).map(|n| n.rect()).min_by(|p, q| p.center().distance(near).total_cmp(&q.center().distance(near))).expect(label)
+    }
+
+    /// A real mouse drag from `from` to `to` (screen points), in a few moves.
+    fn drag(h: &mut H, from: Pos2, to: Pos2) {
+        h.event(egui::Event::PointerMoved(from));
+        h.step();
+        button(h, from, true);
+        h.step();
+        for k in 1..=5 {
+            h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 5.0)));
+            h.step();
+        }
+        button(h, to, false);
+        steps(h, 3);
+    }
+
+    /// #49: with the caret in the table, a column marker on the horizontal ruler drags its border,
+    /// in one undo step; only the column left of it changes and the columns right of it move
+    /// along, as on Word's ruler. The marker follows the drag.
+    #[test]
+    fn a_column_marker_on_the_ruler_moves_the_columns_right_of_it() {
+        let mut h = table_window();
+        let (a, b, c) = (cell(&mut h, 0, 0), cell(&mut h, 0, 1), cell(&mut h, 0, 2));
+        let depth = h.state().session.undo_depth();
+        let near = screen(&mut h, a.right(), a.y);
+        let start = ruler_marker(&h, "Table Column Width", near).center();
+        assert!((start.x - near.x).abs() < 0.5, "a marker over the first column border");
+        let end = start + egui::vec2(screen(&mut h, a.right() + 30.0, a.y).x - near.x, 0.0);
+        h.event(egui::Event::PointerMoved(start));
+        h.step();
+        button(&h, start, true);
+        h.step();
+        for k in 1..=5 {
+            h.event(egui::Event::PointerMoved(start + (end - start) * (k as f32 / 5.0)));
+            h.step();
+        }
+        assert!((ruler_marker(&h, "Table Column Width", end).center().x - end.x).abs() < 1.0, "the marker follows the pointer");
+        assert_eq!(h.state().session.undo_depth(), depth, "nothing is written while dragging");
+        button(&h, end, false);
+        steps(&mut h, 3);
+        assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step for the drag");
+        let (a1, b1, c1) = (cell(&mut h, 0, 0), cell(&mut h, 0, 1), cell(&mut h, 0, 2));
+        assert!((a1.w - (a.w + 30.0)).abs() < 1.0, "{a:?} → {a1:?}");
+        assert!((b1.w - b.w).abs() < 0.5 && (c1.w - c.w).abs() < 0.5, "the columns right of it keep their widths");
+        assert!((c1.right() - (c.right() + 30.0)).abs() < 1.0, "and move along, so the table is wider");
+    }
+
+    /// With Shift a column marker on the ruler works the other way round, as on Word's ruler: the
+    /// neighbour on the right makes up the difference, so the table keeps its width.
+    #[test]
+    fn a_shift_drag_on_the_ruler_trades_width_with_the_neighbour() {
+        let mut h = table_window();
+        let (a, b, c) = (cell(&mut h, 0, 0), cell(&mut h, 0, 1), cell(&mut h, 0, 2));
+        let near = screen(&mut h, a.right(), a.y);
+        let start = ruler_marker(&h, "Table Column Width", near).center();
+        let end = start + egui::vec2(screen(&mut h, a.right() + 30.0, a.y).x - near.x, 0.0);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+        drag(&mut h, start, end);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        let (a1, b1, c1) = (cell(&mut h, 0, 0), cell(&mut h, 0, 1), cell(&mut h, 0, 2));
+        assert!((a1.w - (a.w + 30.0)).abs() < 1.0, "{a:?} → {a1:?}");
+        assert!((b1.w - (b.w - 30.0)).abs() < 1.0, "{b:?} → {b1:?}");
+        assert!((c1.w - c.w).abs() < 0.5 && (c1.right() - c.right()).abs() < 1.0, "the table keeps its width");
+    }
+
+    /// #49: a row marker on the vertical ruler drags that row's bottom border: the row gets taller,
+    /// in one undo step.
+    #[test]
+    fn a_row_marker_on_the_ruler_sets_the_row_height() {
+        let mut h = table_window();
+        let a = cell(&mut h, 0, 0);
+        let depth = h.state().session.undo_depth();
+        let near = screen(&mut h, a.x, a.bottom());
+        let start = ruler_marker(&h, "Table Row Height", near).center();
+        assert!((start.y - near.y).abs() < 0.5, "a marker at the first row's bottom");
+        let end = start + egui::vec2(0.0, screen(&mut h, a.x, a.bottom() + 20.0).y - near.y);
+        drag(&mut h, start, end);
+        assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step for the drag");
+        let a1 = cell(&mut h, 0, 0);
+        assert!((a1.h - (a.h + 20.0)).abs() < 1.0, "{a:?} → {a1:?}");
+    }
+
+    /// #49: in a cell the ruler's indents are the cell's: the left-indent marker sits where the
+    /// cell's text starts (its box less its margins), and dragging it 18 points indents the
+    /// paragraph 18 points.
+    #[test]
+    fn in_a_cell_the_ruler_measures_indents_from_its_text() {
+        let mut h = table_window();
+        let b = cell(&mut h, 0, 1);
+        // Into the second cell: its text starts far from the page's left margin.
+        let inside = screen(&mut h, b.x + b.w / 2.0, b.y + b.h / 2.0);
+        h.event(egui::Event::PointerMoved(inside));
+        h.step();
+        button(&h, inside, true);
+        h.step();
+        button(&h, inside, false);
+        steps(&mut h, 3);
+        assert_eq!(h.state().session.sel.focus.path.cell().map(|(_, r, cl)| (r, cl)), Some((0, 1)));
+        let layout = h.state_mut().session.layout();
+        let (left, w) = crate::table_ruler::text_area(h.state(), &layout, 0).unwrap();
+        assert!((left - (b.x + 5.4)).abs() < 0.01 && (w - (b.w - 10.8)).abs() < 0.01, "the cell less its margins: {left}, {w}");
+        // The left-indent marker is at the text's start, just above the ruler's bottom edge.
+        let near = screen(&mut h, left, b.y);
+        let bar_bottom = ruler_marker(&h, "Table Column Width", near).bottom();
+        let start = egui::pos2(near.x, bar_bottom - 3.0);
+        let end = start + egui::vec2(screen(&mut h, left + 18.0, b.y).x - near.x, 0.0);
+        drag(&mut h, start, end);
+        let focus = h.state().session.sel.focus.clone();
+        assert_eq!(h.state().session.doc.para_at(&focus).and_then(|p| p.props.indent_left), Some(18.0));
     }
 
     /// Clicks inside a cell still place the caret (the border doesn't steal them), and Esc drops a

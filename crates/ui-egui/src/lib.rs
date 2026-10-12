@@ -70,6 +70,7 @@ pub mod system_clipboard;
 pub mod table_mouse;
 pub mod table_pen;
 pub mod table_resize;
+pub mod table_ruler;
 pub mod theme;
 pub mod widgets;
 pub mod window_geometry;
