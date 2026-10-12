@@ -5,6 +5,20 @@ pub use craft_ui::printing::{Discover, Duplex, Feedback, Printer, Settings, Stat
 /// Native submission adds WordCraft's PDF-page collation setting to the shared spooler settings.
 pub type Submit = Box<dyn Fn(Vec<u8>, Settings, bool) -> std::sync::mpsc::Receiver<Result<String, String>>>;
 
+/// Metadata for the app-owned commands. Inspecting it never discovers printers or submits.
+pub fn commands(app: &crate::WordApp) -> Vec<serde_json::Value> {
+    use serde_json::json;
+    let enabled = if app.services.print_native.is_some() { app.printing.ready() } else { app.services.print.is_some() };
+    let submit_params = "range?: all|current|selection|custom; pages?: string (1-3,5); parity?: all|odd|even; copies?: integer 1..999; collate?: bool. Native uses the selected printer, duplex and grayscale from ui.printSettings; omitted copies/collation use current settings. Browser printing opens its dialog. Submits only when explicitly executed.";
+    vec![
+        json!({"id":"ui.printSettings", "label":"Print settings", "location":"File › Print", "shortcut":null,
+            "params":"printer?: discovered name; copies?: integer 1..999; duplex?: printerDefault|off|longEdge|shortEdge|null; grayscale?: bool; refresh?: bool. Empty params inspect printer/copies/duplex/grayscale, printers, busy/discovering/ready and status/detail. Updates are atomic; refresh discovers only on native hosts. Never submits or opens a dialog.",
+            "enabled":true}),
+        json!({"id":"ui.printSubmit", "label":"Submit print job", "location":"File › Print", "shortcut":null, "params":submit_params, "enabled":enabled}),
+        json!({"id":"ui.print", "label":"Print (alias of ui.printSubmit)", "location":"File › Print", "shortcut":null, "params":submit_params, "enabled":enabled}),
+    ]
+}
+
 pub fn show(state: &mut State, ui: &mut egui::Ui, discover: &Discover, translate: impl Fn(&str) -> String) {
     let labels = Labels {
         printer: &translate("Printer"),

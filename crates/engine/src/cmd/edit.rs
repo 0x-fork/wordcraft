@@ -7,6 +7,26 @@ use wordcraft_doc::{Pos, StoryRef};
 use super::{delete_selection, find_pattern, pos_json, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
+/// Undo several steps at once: the Undo button's list (#701). `count` is validated here and
+/// clamped to the undo depth, so hostile numbers never reach the stack.
+fn undo_to(s: &mut Session, v: &Value) -> CmdResult {
+    let n = p::u64(v, "count").ok_or_else(|| CmdError::Params("`count` (whole number, 1 or more) is required".into()))?;
+    if n == 0 {
+        return Err(CmdError::Params("`count` must be 1 or more".into()));
+    }
+    let n = usize::try_from(n).unwrap_or(usize::MAX).min(s.undo_depth());
+    if s.step_lifts_protection(false) {
+        return Err(CmdError::Disabled("edit.undoTo: use Stop Protection to lift the document's protection".into()));
+    }
+    let undone = s.undo_steps(n);
+    let mut r = sel_result(s)?;
+    if let Some(m) = r.as_object_mut() {
+        m.insert("undone".into(), json!(undone));
+        m.insert("depth".into(), json!(s.undo_depth()));
+    }
+    Ok(r)
+}
+
 fn has_sel(s: &Session) -> Option<&'static str> {
     if s.sel.is_collapsed() { Some("nothing is selected") } else { None }
 }
@@ -22,6 +42,14 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .key("Mod+Z")
         .pure(),
+        CommandSpec::new("edit.undoTo", "Undo Actions", "Quick Access Toolbar", undo_to)
+            .params(r#"{"count": n (1 = the newest step, like edit.undo; n undoes the newest n steps at once; at most the undo depth)}"#)
+            .when(|s| if s.can_undo() { None } else { Some("there is nothing to undo") })
+            .pure(),
+        CommandSpec::new("edit.undoHistory", "Undo History", "Quick Access Toolbar", |s, _| {
+            Ok(json!({"undo": s.undo_history(), "depth": s.undo_depth(), "redo": s.redo_label()}))
+        })
+        .pure(),
         CommandSpec::new("edit.redo", "Redo", "Quick Access Toolbar", |s, _| {
             if s.step_lifts_protection(true) {
                 return Err(CmdError::Disabled("edit.redo: use Stop Protection to lift the document's protection".into()));
@@ -33,11 +61,12 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("edit.cut", "Cut", "Home › Clipboard", cut).key("Mod+X").when(has_sel),
         CommandSpec::new("edit.copy", "Copy", "Home › Clipboard", copy).key("Mod+C").pure(),
-        CommandSpec::new("edit.paste", "Paste", "Home › Clipboard", paste).key("Mod+V").params(r#"{"text"?: string}"#),
+        CommandSpec::new("edit.paste", "Paste", "Home › Clipboard", paste).key("Mod+V").params(r#"{"text"?: string, "html"?: string, "rtf"?: string}"#),
         CommandSpec::new("edit.pasteText", "Paste: Keep Text Only", "Home › Clipboard › Paste", paste_text)
             .params(r#"{"text"?: string}"#)
             .key("Mod+Shift+Alt+V"),
-        CommandSpec::new("edit.pasteMerge", "Paste: Merge Formatting", "Home › Clipboard › Paste", paste_text).params(r#"{"text"?: string}"#),
+        CommandSpec::new("edit.pasteMerge", "Paste: Merge Formatting", "Home › Clipboard › Paste", paste_merge)
+            .params(r#"{"text"?: string, "html"?: string, "rtf"?: string}"#),
         CommandSpec::new("edit.clipboardPane", "Clipboard Pane", "Home › Clipboard", |s, v| {
             let on = p::bool(v, "value").unwrap_or(!s.view.clipboard_pane);
             s.view.clipboard_pane = on;
@@ -133,14 +162,18 @@ fn cut(s: &mut Session, v: &Value) -> CmdResult {
     Ok(r)
 }
 
+/// Paste keeps the source formatting: our own copy while the system clipboard still holds it,
+/// else another program's HTML or RTF (#687), else the system clipboard's text.
 fn paste(s: &mut Session, v: &Value) -> CmdResult {
-    // An explicit text param (from the system clipboard) wins unless it matches our own copy.
-    let frag = match (p::str(v, "text"), &s.clipboard) {
-        (Some(t), Some(f)) if f.plain_text() == t.replace("\r\n", "\n") => f.clone(),
-        (Some(t), _) => Fragment::from_text(&t.replace("\r\n", "\n")),
-        (None, Some(f)) => f.clone(),
-        (None, None) => return Err(CmdError::Failed("the clipboard is empty".into())),
-    };
+    let frag = super::paste::paste_fragment(s, v)?;
+    super::paste::insert(s, frag)?;
+    sel_result(s)
+}
+
+/// Merge Formatting: the pasted text takes the destination's formatting, keeping its emphasis.
+fn paste_merge(s: &mut Session, v: &Value) -> CmdResult {
+    let mut frag = super::paste::paste_fragment(s, v)?;
+    super::paste::merge_formatting(s, &mut frag);
     super::paste::insert(s, frag)?;
     sel_result(s)
 }
@@ -284,6 +317,9 @@ fn paste_text(s: &mut Session, v: &Value) -> CmdResult {
         Some(t) => t.to_string(),
         None => s.clipboard.as_ref().map(Fragment::plain_text).unwrap_or_default(),
     };
+    if text.is_empty() {
+        return Err(CmdError::Failed("the clipboard is empty".into()));
+    }
     super::paste_text(s, &text.replace("\r\n", "\r").replace('\n', "\r"))?;
     sel_result(s)
 }

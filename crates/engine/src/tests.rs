@@ -126,6 +126,66 @@ fn reset_shortcuts_remove_direct_formatting_but_keep_styles() {
 }
 
 #[test]
+fn custom_dictionary_words_persist_through_their_file() {
+    // #40: adding a word through a command writes it to the session's file, and loading
+    // that file makes the word known (only the desktop app wires this up).
+    let dir = std::env::temp_dir().join(format!("wc-engdict-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("custom-dictionary.txt");
+    let _ = std::fs::remove_file(&path);
+    let mut s = s();
+    s.user_dict_path = Some(path.clone());
+    run(&mut s, "review.addToDictionary", json!({"word": "zxqengpersist"}));
+    let saved = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(saved.lines().any(|l| l == "zxqengpersist"), "the word reaches the file: {saved:?}");
+    run(&mut s, "file.options", json!({"removeWords": ["zxqengpersist"]}));
+    let saved = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(!saved.lines().any(|l| l == "zxqengpersist"), "removal reaches the file too: {saved:?}");
+
+    // Ignore All is for this session only, as in Word: the word is accepted, never saved.
+    assert!(!wordcraft_proof::is_correct("zxqengignored"));
+    run(&mut s, "review.ignoreAll", json!({"word": "zxqengignored"}));
+    assert!(wordcraft_proof::is_correct("zxqengignored"));
+    assert!(!wordcraft_proof::user_dictionary().contains(&"zxqengignored".to_string()));
+    let saved = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(!saved.contains("zxqengignored"), "Ignore All doesn't reach the file: {saved:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_to_dictionary_takes_only_words_the_file_keeps() {
+    // #40: the same rule as loading the dictionary file, so nothing added is dropped on the next load.
+    let mut s = s();
+    for bad in ["two words", "tab\tword", "bell\u{7}", &"x".repeat(65)] {
+        assert!(s.run("review.addToDictionary", &json!({"word": bad})).is_err(), "{bad:?}");
+        assert!(!wordcraft_proof::user_dictionary().iter().any(|w| w == &bad.to_lowercase()));
+    }
+    run(&mut s, "review.addToDictionary", json!({"word": " zxqengtrimmed "}));
+    assert!(wordcraft_proof::user_dictionary().contains(&"zxqengtrimmed".to_string()));
+}
+
+#[test]
+fn non_english_runs_are_not_proofed() {
+    // #100: runs tagged with a proofing language that has no dictionary are skipped
+    // by both proofing paths; English still is proofed.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "ąžuolas labas"}));
+    let before = run(&mut s, "review.issues", json!({}));
+    assert!(!before.as_array().map(|a| a.is_empty()).unwrap_or(true), "default language flags the words: {before}");
+
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "lt-LT"}));
+    let after = run(&mut s, "review.issues", json!({}));
+    assert_eq!(after, json!([]), "Lithuanian runs are skipped: {after}");
+
+    // English typos are still caught.
+    let mut e = Session::new(wordcraft_doc::Document::new());
+    run(&mut e, "text.insert", json!({"text": "Hello helo world"}));
+    let en = run(&mut e, "review.issues", json!({}));
+    assert_eq!(en.as_array().map(|a| a.len()).unwrap_or(0), 1, "English typo still flagged: {en}");
+}
+
+#[test]
 fn typing_enter_undo() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "Hello"}));
@@ -141,6 +201,68 @@ fn typing_enter_undo() {
     assert_eq!(text(&s), "");
     run(&mut s, "edit.redo", json!({}));
     assert_eq!(text(&s), "Hello world");
+}
+
+/// The Undo button's list (#701): several steps undone at once, newest first.
+#[test]
+fn undo_to_takes_several_steps_back_at_once() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.bold", json!({}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "World"}));
+    let h = run(&mut s, "edit.undoHistory", json!({}));
+    assert_eq!(h["undo"], json!(["Typing", "New Paragraph", "Bold", "Typing"]));
+    assert_eq!(h["depth"], 4);
+    assert_eq!(s.undo_history(), ["Typing", "New Paragraph", "Bold", "Typing"]);
+    // Three steps in one command: World, the paragraph and the bold go; Hello stays.
+    let r = run(&mut s, "edit.undoTo", json!({"count": 3}));
+    assert_eq!(r["undone"], 3);
+    assert_eq!(r["depth"], 1);
+    assert_eq!(text(&s), "Hello");
+    assert_eq!(s.doc.para_at(&s.sel.focus).map(|p| p.props_of_char(1).bold), Some(None));
+    assert_eq!(s.undo_history(), ["Typing"]);
+    // Each undone step is one redo step.
+    run(&mut s, "edit.redo", json!({}));
+    run(&mut s, "edit.redo", json!({}));
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(text(&s), "Hello\nWorld");
+    // More than the depth undoes everything.
+    let r = run(&mut s, "edit.undoTo", json!({"count": 1e300}));
+    assert_eq!(r["undone"], 4);
+    assert_eq!(text(&s), "");
+    assert!(!s.can_undo());
+    assert!(s.run("edit.undoTo", &json!({"count": 1})).is_err(), "nothing to undo");
+}
+
+#[test]
+fn undo_to_rejects_bad_counts_and_leaves_the_document_alone() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    let before = (s.doc.clone(), s.undo_depth());
+    for junk in
+        [json!({}), json!(null), json!({"count": 0}), json!({"count": -3}), json!({"count": "2"}), json!({"count": [2]}), json!({"count": -1e308})]
+    {
+        assert!(s.run("edit.undoTo", &junk).is_err(), "{junk}");
+        assert_eq!((s.doc.clone(), s.undo_depth()), before, "{junk}");
+    }
+    // A fraction counts whole steps.
+    let r = run(&mut s, "edit.undoTo", json!({"count": 1.9}));
+    assert_eq!(r["undone"], 1);
+    assert_eq!(text(&s), "Hello");
+}
+
+#[test]
+fn undo_history_is_capped() {
+    let mut s = s();
+    for i in 0..(crate::UNDO_LIST_MAX + 20) {
+        run(&mut s, "para.indents", json!({"left": i as f64}));
+    }
+    assert_eq!(s.undo_history().len(), crate::UNDO_LIST_MAX);
+    assert_eq!(run(&mut s, "edit.undoHistory", json!({}))["undo"].as_array().map(Vec::len), Some(crate::UNDO_LIST_MAX));
 }
 
 #[test]
@@ -767,6 +889,92 @@ fn paste_special_respects_track_changes_and_brings_lists() {
     assert!(s.doc.numbering.nums.iter().any(|x| x.id == n.num), "the list definition came along");
     run(&mut s, "review.acceptAll", json!({}));
     assert!(text(&s).starts_with("one\ntwo"));
+}
+
+/// Character formatting at a body offset of the first paragraph.
+fn props_at(s: &Session, off: usize) -> wordcraft_doc::CharProps {
+    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off };
+    s.doc.para_at(&pos).map(|p| p.props_of_char(off).clone()).unwrap_or_default()
+}
+
+/// Paste of another program's formatted copy keeps its formatting (#687); Merge Formatting keeps
+/// only its emphasis, in the destination's font; Keep Text Only drops it all.
+#[test]
+fn paste_keeps_source_formatting_from_other_programs() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    let html = "<p><span style=\"font-family:'Courier New';color:#ff0000\">red <b>bold</b></span></p>";
+    let clip = json!({"text": "red bold", "html": html});
+    run(&mut s, "edit.paste", clip.clone());
+    assert_eq!(text(&s), "xred bold");
+    assert_eq!(props_at(&s, 1).font.as_deref(), Some("Courier New"));
+    assert!(props_at(&s, 1).color.is_some());
+    assert!(!bold_at(&s, 0, 1) && bold_at(&s, 0, 5));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "x");
+    run(&mut s, "edit.pasteMerge", clip.clone());
+    assert_eq!(text(&s), "xred bold");
+    assert_eq!(props_at(&s, 1).font, None, "Merge Formatting takes the destination's font");
+    assert_eq!(props_at(&s, 1).color, None);
+    assert!(bold_at(&s, 0, 5), "and keeps the emphasis");
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "edit.pasteText", clip);
+    assert_eq!(text(&s), "xred bold");
+    assert!(!bold_at(&s, 0, 5));
+
+    // Windows' "HTML Format" carries a header with the fragment's byte offsets.
+    run(&mut s, "document.setText", json!({"text": ""}));
+    let body = "<html><body><!--StartFragment--><b>win</b><!--EndFragment--></body></html>";
+    let head = "Version:0.9\r\nStartHTML:0000000000\r\nEndHTML:0000000000\r\nStartFragment:SSSSSSSSSS\r\nEndFragment:EEEEEEEEEE\r\n";
+    let start = head.len() + body.find("<b>").unwrap();
+    let end = head.len() + body.find("<!--EndFragment").unwrap();
+    let cf = format!("{head}{body}").replace("SSSSSSSSSS", &format!("{start:010}")).replace("EEEEEEEEEE", &format!("{end:010}"));
+    run(&mut s, "edit.paste", json!({"text": "win", "html": cf}));
+    assert_eq!(text(&s), "win");
+    assert!(bold_at(&s, 0, 0));
+    assert_eq!(crate::cmd::paste::html_fragment("Version:1\r\nStartFragment:99999\r\nEndFragment:5\r\n<i>x</i>"), "<i>x</i>");
+
+    // RTF when there is no HTML.
+    run(&mut s, "document.setText", json!({"text": ""}));
+    run(&mut s, "edit.paste", json!({"text": "bold then", "rtf": r"{\rtf1\ansi {\b bold}\b0  then}"}));
+    assert!(text(&s).starts_with("bold"), "{}", text(&s));
+    assert!(bold_at(&s, 0, 0));
+
+    // HTML with nothing to paste (a web picture by address) or too large: the text is pasted.
+    run(&mut s, "document.setText", json!({"text": ""}));
+    run(&mut s, "edit.paste", json!({"text": "alt", "html": "<img src='https://example.com/a.png'>"}));
+    assert_eq!(text(&s), "alt");
+    let huge = format!("<b>{}</b>", "a".repeat(crate::cmd::paste::MAX_PASTE_BYTES));
+    run(&mut s, "edit.paste", json!({"text": "!", "html": huge}));
+    assert_eq!(text(&s), "alt!");
+    assert!(s.run("edit.paste", &json!({"html": "<p> </p>"})).is_err(), "nothing to paste is an error");
+    assert!(s.run("edit.pasteMerge", &json!({"rtf": "not rtf"})).is_err());
+    assert!(s.run("edit.pasteText", &json!({})).is_err());
+
+    // Our own copy still wins while the system clipboard holds its text.
+    run(&mut s, "document.setText", json!({"text": "Own"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.italic", json!({}));
+    run(&mut s, "edit.copy", json!({}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "edit.paste", json!({"text": "Own"}));
+    assert_eq!(text(&s), "OwnOwn");
+    assert_eq!(props_at(&s, 4).italic, Some(true));
+}
+
+/// Paste Special lists a picture on the system clipboard and pastes it (#687).
+#[test]
+fn paste_special_lists_and_pastes_a_picture() {
+    let mut s = s();
+    let png = crate::cmd::insert::base64_encode(&tiny_png());
+    let r = run(&mut s, "edit.pasteSpecial", json!({"picture": png, "html": "<img src='x.png'>"}));
+    let ids: Vec<&str> = r["formats"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["html", "picture"]);
+    run(&mut s, "edit.pasteSpecial", json!({"as": "picture", "picture": png}));
+    assert_eq!(s.doc.media.len(), 1);
+    assert!(s.run("edit.pasteSpecial", &json!({"as": "picture", "picture": "%%%"})).is_err());
+    assert!(s.run("edit.pasteSpecial", &json!({"as": "picture"})).is_err());
 }
 
 #[test]
@@ -1420,6 +1628,111 @@ fn toc_and_fields() {
     assert!(t.contains("Summary\t1"), "{t}");
     run(&mut s, "references.updateToc", json!({}));
     assert_eq!(s.doc.plain_text(StoryRef::Body).matches("Summary\t").count(), 1, "one TOC entry after update");
+}
+
+#[test]
+fn toc_refresh_after_save_and_reopen() {
+    for extension in ["docx", "json"] {
+        for (headings, levels) in [(&["Top"][..], 1), (&["Top", "Next"][..], 1), (&["Top"][..], 4)] {
+            let mut s = s();
+            run(&mut s, "document.setText", json!({"text": headings.join("\n")}));
+            for i in 0..headings.len() {
+                run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
+                run(&mut s, "styles.apply", json!({"style": "Heading 1"}));
+            }
+            // A level-two heading must stay out of a depth-one TOC after reopening.
+            if levels == 1 {
+                run(&mut s, "caret.docEnd", json!({}));
+                run(&mut s, "text.newParagraph", json!({}));
+                run(&mut s, "text.insert", json!({"text": "Detail"}));
+                run(&mut s, "styles.apply", json!({"style": "Heading 2"}));
+            }
+            run(&mut s, "caret.docStart", json!({}));
+            run(&mut s, "references.toc", json!({"levels": levels}));
+            run(&mut s, "references.updateToc", json!({}));
+            let expected = text(&s);
+            let name = format!("toc.{extension}");
+            let bytes = crate::io::save_bytes(&name, &s.doc).unwrap();
+            s = Session::new(crate::io::open_bytes(&name, &bytes).unwrap());
+            for command in ["references.updateToc", "references.updateToc", "references.updateFields"] {
+                run(&mut s, command, json!({}));
+                assert_eq!(text(&s), expected, "{extension}, levels={levels}, {command}");
+            }
+            let heading = s
+                .doc
+                .body
+                .iter()
+                .position(|b| b.as_para().is_some_and(|p| p.props.style.as_deref() == Some("Heading1") && p.plain_text() == "Top"))
+                .unwrap();
+            // Hyperlinked TOCs bookmark their headings; select the text after those markers.
+            let off = s.doc.body[heading].as_para().unwrap().text.find("Top").unwrap();
+            run(&mut s, "select.range", json!({"anchor": Pos::body(heading, off), "focus": Pos::body(heading, off + 3)}));
+            run(&mut s, "text.insert", json!({"text": "Revised"}));
+            let before_refresh = text(&s);
+            run(&mut s, "references.updateToc", json!({}));
+            let revised = text(&s);
+            assert_eq!(revised.matches("Revised\t").count(), 1, "{revised}");
+            assert!(!revised.contains("Top"), "{revised}");
+            assert_eq!(revised.matches("Next\t").count(), headings.len() - 1, "{revised}");
+            assert_eq!(revised.matches("Detail\t").count(), 0, "{revised}");
+            assert_eq!(revised.lines().filter(|line| *line == "Detail").count(), usize::from(levels == 1), "{revised}");
+            assert!(s.undo());
+            assert_eq!(text(&s), before_refresh);
+            run(&mut s, "references.updateToc", json!({}));
+            assert_eq!(text(&s), revised);
+            let bytes = crate::io::save_bytes(&name, &s.doc).unwrap();
+            s = Session::new(crate::io::open_bytes(&name, &bytes).unwrap());
+            run(&mut s, "references.updateFields", json!({}));
+            assert_eq!(text(&s), revised, "saved edited TOC, {extension}");
+        }
+    }
+}
+
+/// A TOC imported as a range field (no TOC heading, so it isn't turned back into the engine's
+/// TOC on open) is still found by Update Table, Update Field and Table of Contents: it is
+/// refreshed in place, not duplicated, and the refresh is one undo step.
+#[test]
+fn imported_range_toc_is_refreshed_in_place() {
+    use wordcraft_doc::para::InlineObject;
+    use wordcraft_doc::props::CharProps;
+    for locked in [false, true] {
+        let mut d = wordcraft_doc::Document::from_text("Before.\nOld entry\t9\nAlpha\nBeta");
+        {
+            let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(1)).unwrap();
+            let n = p.len();
+            p.insert_object(n, InlineObject::FieldEnd, &CharProps::default()).unwrap();
+            p.insert_object(0, InlineObject::FieldStart { instr: r#"TOC \o "1-2" \h"#.into(), locked }, &CharProps::default()).unwrap();
+        }
+        let mut s = Session::new(d);
+        for (i, style) in [(2, "Heading 1"), (3, "Heading 2")] {
+            run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
+            run(&mut s, "styles.apply", json!({"style": style}));
+        }
+        // Through DOCX, as an imported file is.
+        let bytes = wordcraft_docx::write(&s.doc).unwrap();
+        s = Session::new(wordcraft_docx::read(&bytes).unwrap());
+        assert_eq!(s.doc.field_ranges(StoryRef::Body).len(), 1, "read back as a range field");
+        let before = text(&s);
+        run(&mut s, "references.updateToc", json!({}));
+        let refreshed = text(&s);
+        if locked {
+            // Like Word, a locked field keeps its result.
+            assert_eq!(refreshed, before);
+            continue;
+        }
+        assert!(!refreshed.contains("Old entry"), "{refreshed}");
+        assert!(refreshed.starts_with("Before.\n"), "{refreshed}");
+        assert_eq!(refreshed.matches("Alpha\t").count(), 1, "{refreshed}");
+        assert_eq!(refreshed.matches("Beta\t").count(), 1, "{refreshed}");
+        assert!(s.doc.field_ranges(StoryRef::Body).is_empty(), "now the engine's TOC");
+        for command in ["references.updateToc", "references.updateFields", "references.toc"] {
+            run(&mut s, command, json!({}));
+            assert_eq!(text(&s), refreshed, "{command} refreshes the same TOC");
+        }
+        while s.undo() {}
+        assert_eq!(text(&s), before);
+        assert_eq!(s.doc.field_ranges(StoryRef::Body).len(), 1, "undo brings the imported range back");
+    }
 }
 
 #[test]
@@ -2323,12 +2636,13 @@ fn style_inspector_reports_and_clears_levels() {
     assert!(pdirect.iter().any(|d| d["prop"] == "align" && d["value"] == "center"), "{pdirect:?}");
     assert!(r["character"]["style"].is_null());
     let cdirect = r["character"]["direct"].as_array().unwrap();
-    assert_eq!(cdirect, &vec![json!({"prop": "bold", "value": true})]);
+    assert_eq!(cdirect, &vec![json!({"prop": "bold", "value": true}), json!({"prop": "boldCs", "value": true})]);
 
     // Formatting that matches the style isn't a difference (Heading 1 is 20 pt).
     run(&mut s, "format.size", json!({"size": 20}));
     let r = run(&mut s, "styles.inspect", json!({}));
-    assert_eq!(r["character"]["direct"].as_array().unwrap().len(), 1, "{r}");
+    let cdirect = r["character"]["direct"].as_array().unwrap();
+    assert_eq!(cdirect, &vec![json!({"prop": "bold", "value": true}), json!({"prop": "boldCs", "value": true})]);
 
     // Character style level.
     run(&mut s, "format.charStyle", json!({"style": "Emphasis"}));
@@ -2507,6 +2821,113 @@ fn page_and_table_gridlines_toggle_independently() {
     let state = run(&mut s, "view.state", json!({}));
     assert_eq!(state["gridlines"], false);
     assert_eq!(state["tableGridlines"], false);
+}
+
+/// Issue #768: zooming by percent after One Page or Page Width keeps one page per row.
+#[test]
+fn zoom_after_one_page_keeps_single_column() {
+    let mut s = s();
+    run(&mut s, "view.onePage", json!({}));
+    assert!(s.view.single_column);
+    run(&mut s, "view.zoomOut", json!({}));
+    assert!(s.view.fit.is_empty() && s.view.single_column);
+    run(&mut s, "view.zoom", json!({"value": 50}));
+    assert!(s.view.single_column);
+    run(&mut s, "view.multiplePages", json!({}));
+    assert!(!s.view.single_column);
+    run(&mut s, "view.zoomIn", json!({}));
+    assert!(!s.view.single_column);
+    run(&mut s, "view.pageWidth", json!({}));
+    run(&mut s, "view.sideToSide", json!({}));
+    assert!(!s.view.single_column);
+}
+
+#[test]
+fn navigation_pane_opens_without_changing_view_mode() {
+    // Reading Mode's heading navigation is the Navigation pane; Outline is an editing view (#493).
+    let mut s = s();
+    for command in ["view.printLayout", "view.webLayout", "view.readMode"] {
+        run(&mut s, command, json!({}));
+        let before = (s.view.mode, s.view.read_mode);
+        s.view.nav_pane = false;
+        run(&mut s, "view.navigationPane", json!({"value": true}));
+        assert!(s.view.nav_pane);
+        assert_eq!((s.view.mode, s.view.read_mode), before, "{command}");
+    }
+}
+
+#[test]
+fn reading_mode_reflows_per_viewport_without_changing_document_or_export() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "A long paragraph for reading. ".repeat(200)}));
+    let original = s.doc.clone();
+    let print = s.export_layout();
+    let dirty = s.dirty;
+    run(&mut s, "view.readMode", json!({}));
+    assert!(s.view.read_mode);
+    s.view.read_width = 240.0;
+    s.view.read_height = 420.0;
+    let columns = s.layout();
+    assert!(columns.pages.len() > print.pages.len());
+    assert!(columns.pages.iter().all(|p| p.w == 240.0 && p.h == 420.0));
+    s.view.read_height = 260.0;
+    assert!(s.layout().pages.len() > columns.pages.len(), "height is part of the layout cache key");
+    s.view.read_width = 300.0;
+    assert_eq!(s.layout().pages[0].w, 300.0, "width is part of the layout cache key");
+    let serialized = serde_json::to_value(&s.view).unwrap();
+    assert!(serialized.get("readWidth").is_none() && serialized.get("readHeight").is_none());
+    let restored: crate::ViewState = serde_json::from_value(serialized).unwrap();
+    assert_eq!((restored.read_width, restored.read_height), (300.0, 500.0));
+    run(&mut s, "view.readColumnWidth", json!({"value": "page"}));
+    run(&mut s, "view.readTextSize", json!({"value": 125}));
+    let default_spacing_pages = s.layout().pages.len();
+    run(&mut s, "view.readLineSpacing", json!({"value": 2.0}));
+    assert_eq!(s.view.read_column_width, Some(612.0));
+    assert_eq!(s.view.read_zoom, 1.25);
+    assert_eq!(s.view.read_line_spacing, Some(2.0));
+    let spaced = s.layout();
+    assert!(spaced.pages.len() > default_spacing_pages, "line spacing must invalidate cached pagination");
+    assert!(s.run("view.readTextSize", &json!({"value": -10})).is_err());
+    assert!(s.run("view.readLineSpacing", &json!({"value": 0.01})).is_err());
+    assert!(s.run("view.readColumnWidth", &json!({"value": "giant"})).is_err());
+    let serialized = serde_json::to_value(&s.view).unwrap();
+    for key in ["readColumnWidth", "readZoom", "readLineSpacing"] {
+        assert!(serialized.get(key).is_none());
+    }
+    run(&mut s, "view.printLayout", json!({}));
+    assert!(!s.view.read_mode);
+    assert_eq!(s.layout().pages[0].w, print.pages[0].w);
+    assert_eq!(s.export_layout().pages.len(), print.pages.len());
+    assert_eq!(s.doc, original);
+    assert_eq!(s.dirty, dirty);
+    run(&mut s, "view.readMode", json!({}));
+    assert_eq!(s.view.read_column_width, None);
+    assert_eq!(s.view.read_zoom, 1.0);
+    assert_eq!(s.view.read_line_spacing, None);
+}
+
+/// File › Options › Advanced › Numeral: the display mode for digits (display only).
+#[test]
+fn numeral_mode_sets_gets_and_rejects_junk() {
+    use wordcraft_layout::NumeralMode;
+    let mut s = s();
+    assert_eq!(s.view.numeral, NumeralMode::Arabic, "Western digits by default");
+    let r = run(&mut s, "view.numeral", json!({"value": "hindi"}));
+    assert_eq!(r["value"], "hindi");
+    assert_eq!(s.view.numeral, NumeralMode::Hindi);
+    let r = run(&mut s, "view.numeral", json!({}));
+    assert_eq!(r["value"], "hindi", "no params reads the current mode");
+    run(&mut s, "view.numeral", json!({"value": "Context"}));
+    assert_eq!(s.view.numeral, NumeralMode::Context, "mode names ignore case");
+    assert!(s.run("view.numeral", &json!({"value": "western"})).is_err());
+    assert!(s.run("view.numeral", &json!({"value": 3})).is_err());
+    assert!(s.run("view.numeral", &json!({"value": ["hindi"]})).is_err());
+    assert_eq!(s.view.numeral, NumeralMode::Context, "rejected values keep the mode");
+    // Switching modes relayouts without disturbing the text.
+    s.doc = wordcraft_doc::Document::from_text("Year 2024");
+    run(&mut s, "view.numeral", json!({"value": "hindi"}));
+    let _l = s.layout();
+    assert_eq!(text(&s), "Year 2024");
 }
 
 /// Issue #67: View › Zoom steps. Zoom In/Out leave a fit mode and step 10% from the current zoom
@@ -3468,6 +3889,38 @@ fn enclose_characters_make_an_eq_field_and_come_back_out() {
 }
 
 #[test]
+fn list_buttons_follow_the_paragraphs_own_level() {
+    use crate::cmd::para::{ListButtons, list_buttons};
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "item"}));
+    let state = |s: &Session| {
+        let rp = s.doc.para_at(&s.sel.focus).map(|p| s.doc.styles.resolve_para(&p.props));
+        list_buttons(&s.doc, rp.and_then(|r| r.numbering))
+    };
+    assert_eq!(state(&s), ListButtons::default(), "plain text: no list button on");
+    run(&mut s, "para.bullets", json!({}));
+    assert_eq!(state(&s), ListButtons { bullets: true, numbering: false, multilevel: false });
+    // A bulleted list whose second level is numbered: at level 2 the paragraph is numbered.
+    let num = s.doc.para_at(&s.sel.focus).unwrap().props.numbering.unwrap().num;
+    let numbered = wordcraft_doc::numbering::Level { text: "%2.".into(), ..Default::default() };
+    s.doc.numbering.nums.iter_mut().find(|n| n.id == num).unwrap().level_overrides.push((1, numbered));
+    run(&mut s, "para.listLevel", json!({"level": 1}));
+    assert_eq!(state(&s), ListButtons { bullets: false, numbering: true, multilevel: false });
+    run(&mut s, "para.numbering", json!({}));
+    assert_eq!(state(&s), ListButtons { bullets: false, numbering: true, multilevel: false }, "1. a. i. is not multilevel");
+    // Legal numbering (1. 1.1. 1.1.1.) numbers levels together, even on its first level. (Its
+    // first level reads like "1." numbering, which the button would toggle off, so start plain.)
+    run(&mut s, "para.numbering", json!({"off": true}));
+    run(&mut s, "para.multilevel", json!({"kind": "legal"}));
+    run(&mut s, "para.listLevel", json!({"level": 0}));
+    assert_eq!(state(&s), ListButtons { bullets: false, numbering: true, multilevel: true });
+    run(&mut s, "para.listLevel", json!({"level": 2}));
+    assert!(state(&s).multilevel);
+    run(&mut s, "para.numbering", json!({"off": true}));
+    assert_eq!(state(&s), ListButtons::default());
+}
+
+#[test]
 fn replace_all_splits_paragraphs_at_a_paragraph_mark_in_the_replacement() {
     // Issue #423: untracked Replace All left `\r` in the paragraph instead of splitting it.
     for with in ["A\rB", "A\u{2029}B"] {
@@ -3586,6 +4039,171 @@ fn note_options_per_section_and_convert_notes() {
     assert_eq!(kinds(&s), vec![NoteKind::Footnote, NoteKind::Footnote]);
     assert_eq!(s.doc.parts[&b].kind, PartKind::Footnote);
     assert!(s.run("references.convertNotes", &json!({"to": "sideways"})).is_err());
+}
+
+/// A tiny synthetic Polish Hunspell dictionary (written for these tests). Real dictionaries are
+/// installed on the system, never bundled; every Polish test installs this same one.
+fn polish_test_dictionary() {
+    let aff = "SET UTF-8\nTRY aioeznrwcyszżtkpdmłjlubąęgh\nMAP 2\nMAP oó\nMAP zż\nREP 2\nREP ż rz\nREP rz ż\n";
+    let dic = "12\npłynie\nrzeka\na\nto\nwiem\nże\ntak\nw\nogóle\nzażółć\ngęślą\njaźń\n";
+    wordcraft_proof::pl::install_dictionary(aff, dic).unwrap();
+}
+
+/// A tiny synthetic Portuguese Hunspell dictionary (written for these tests). Real dictionaries
+/// are installed on the system, never bundled; every Portuguese test installs this same one.
+fn portuguese_test_dictionary() {
+    let aff = "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
+    let dic = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
+    wordcraft_proof::pt::install_dictionary(aff, dic).unwrap();
+}
+
+/// Review › Language and the proofing commands work in Portuguese end to end: the language makes
+/// the document's words Portuguese, F7 and the issue list use the Portuguese dictionary and
+/// grammar, suggestions come from it, and a suggestion fixes the text.
+#[test]
+fn portuguese_proofing_through_the_review_commands() {
+    portuguese_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Saudade coraçao, e ele ele disse."}));
+    // English by default: the Portuguese words are English misspellings.
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len() >= 5);
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "pt_br", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pt-BR"), "the tag is normalized");
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "pt-BR");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    let has = |text: &str, kind: &str, sugg: &str| {
+        arr.iter()
+            .any(|i| i["text"] == text && i["kind"] == kind && i["lang"] == "pt" && i["suggestions"].as_array().unwrap().iter().any(|x| x == sugg))
+    };
+    assert!(has("coraçao", "spelling", "coração"), "{issues}");
+    assert!(has("ele ele", "grammar", "ele"), "{issues}");
+    assert_eq!(arr.len(), 2, "{issues}");
+    assert!(arr.iter().any(|i| i["message"] == "Palavra repetida: \"ele\""), "{issues}");
+    // F7 from the start selects the first issue; Change applies a suggestion.
+    run(&mut s, "caret.docStart", json!({}));
+    let first = run(&mut s, "review.spelling", json!({}));
+    assert_eq!(first["text"], "coraçao");
+    run(&mut s, "review.applySuggestion", json!({"text": "coração"}));
+    assert!(text(&s).starts_with("Saudade coração,"), "{}", text(&s));
+    // Add to Dictionary works for Portuguese words too.
+    run(&mut s, "review.addToDictionary", json!({"word": "coraçao"}));
+    let left = run(&mut s, "review.issues", json!({}));
+    assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
+}
+
+/// Review › Language and the proofing commands work in Polish end to end: the language makes
+/// the document's words Polish, F7 and the issue list use the Polish dictionary and grammar,
+/// suggestions come from it, and a suggestion fixes the text.
+#[test]
+fn polish_proofing_through_the_review_commands() {
+    polish_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Płynie żeka, a wogóle to wiem że tak."}));
+    // English by default: the Polish words are English misspellings.
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len() >= 5);
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "pl_PL", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"), "the tag is normalized");
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "pl-PL");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    let has = |text: &str, kind: &str, sugg: &str| {
+        arr.iter()
+            .any(|i| i["text"] == text && i["kind"] == kind && i["lang"] == "pl" && i["suggestions"].as_array().unwrap().iter().any(|x| x == sugg))
+    };
+    assert!(has("żeka", "spelling", "rzeka"), "{issues}");
+    assert!(has("wogóle", "spelling", "w ogóle"), "{issues}");
+    assert!(has(" że", "grammar", ", że"), "{issues}");
+    assert_eq!(arr.len(), 3, "{issues}");
+    assert!(arr.iter().any(|i| i["message"] == "Brak przecinka przed „że”"), "{issues}");
+    // F7 from the start selects the first issue; Change applies a suggestion.
+    run(&mut s, "caret.docStart", json!({}));
+    let first = run(&mut s, "review.spelling", json!({}));
+    assert_eq!(first["text"], "żeka");
+    run(&mut s, "review.applySuggestion", json!({"text": "rzeka"}));
+    assert!(text(&s).starts_with("Płynie rzeka,"), "{}", text(&s));
+    // Add to Dictionary works for Polish words too.
+    run(&mut s, "review.addToDictionary", json!({"word": "wogóle"}));
+    let left = run(&mut s, "review.issues", json!({}));
+    assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
+}
+
+/// `review.language`: tags are validated and normalized, `noProof` alone keeps the language,
+/// no parameters keep the old meaning (US English), and `default` needs a language.
+#[test]
+fn review_language_validates_tags_and_marks_text_unchecked() {
+    polish_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Hello wrold"}));
+    run(&mut s, "select.all", json!({}));
+    assert!(s.run("review.language", &json!({"lang": "not a tag!"})).is_err());
+    assert!(s.run("review.language", &json!({"lang": ""})).is_err());
+    assert!(s.run("review.language", &json!({"default": true, "noProof": true})).is_err(), "default needs a language");
+    assert_eq!(text(&s), "Hello wrold", "a refused command changes nothing");
+    run(&mut s, "review.language", json!({"noProof": true}));
+    let st = run(&mut s, "format.state", json!({}));
+    assert_eq!((st["noProof"].clone(), st["lang"].clone()), (json!(true), json!("en-US")));
+    assert_eq!(run(&mut s, "review.issues", json!({})), json!([]));
+    run(&mut s, "review.language", json!({"noProof": false}));
+    assert_eq!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len(), 1);
+    run(&mut s, "review.language", json!({"lang": "PL"}));
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "pl");
+    run(&mut s, "review.language", json!({}));
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "en-US");
+    // A language without proofing tools: no marks.
+    run(&mut s, "review.language", json!({"lang": "fr-FR"}));
+    assert_eq!(run(&mut s, "review.issues", json!({})), json!([]));
+}
+
+/// The editing language (set by the front end from the interface language): new blank
+/// documents and opened plain text are written in it; the untouched first document switches,
+/// a document with changes never does, and templates stay English.
+#[test]
+fn new_documents_follow_the_editing_language() {
+    polish_test_dictionary();
+    let mut s = s();
+    s.set_editing_language(Some("pl-PL"));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"), "the untouched blank document switches");
+    assert!(!s.dirty && !s.can_undo(), "no change to save or undo");
+    run(&mut s, "text.insert", json!({"text": "Zażółć gęślą jaźń."}));
+    assert_eq!(run(&mut s, "review.issues", json!({})), json!([]));
+    s.set_editing_language(None);
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"), "a document with changes keeps its language");
+    s.set_editing_language(Some("pl"));
+    run(&mut s, "file.new", json!({}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pl"));
+    run(&mut s, "file.new", json!({"template": "letter"}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("en-US"), "templates are English text");
+    let data = crate::cmd::insert::base64_encode("Płynie rzeka.".as_bytes());
+    run(&mut s, "file.open", json!({"path": "notatka.txt", "data": data}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pl"));
+    assert_eq!(run(&mut s, "review.issues", json!({})), json!([]));
+    // Malformed tags fall back to US English.
+    s.set_editing_language(Some("not a tag"));
+    assert_eq!(s.editing_lang, None);
+}
+
+/// A Polish document keeps its languages through .docx: the default (`w:docDefaults`) and an
+/// English run (`w:lang`) come back, and so does the proofing.
+#[test]
+fn proofing_languages_survive_a_docx_round_trip() {
+    polish_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Płynie żeka. Hello wrold."}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "pl-PL", "default": true}));
+    run(&mut s, "select.text", json!({"text": "Hello wrold."}));
+    run(&mut s, "review.language", json!({"lang": "en-GB"}));
+    let bytes = crate::io::save_bytes("polski.docx", &s.doc).unwrap();
+    let doc = crate::io::open_bytes("polski.docx", &bytes).unwrap();
+    assert_eq!(doc.styles.default_chr.lang.as_deref(), Some("pl-PL"));
+    let mut back = Session::new(doc);
+    let issues = run(&mut back, "review.issues", json!({}));
+    let found: Vec<(String, String)> =
+        issues.as_array().unwrap().iter().map(|i| (i["text"].as_str().unwrap().to_string(), i["lang"].as_str().unwrap().to_string())).collect();
+    assert_eq!(found, [("żeka".to_string(), "pl".to_string()), ("wrold".to_string(), "en".to_string())], "{issues}");
 }
 
 #[test]
@@ -3843,6 +4461,48 @@ fn outline_collapse_hides_descendants_and_expand_restores() {
     assert_eq!(s.selected_text(), "One\na\nTwo\nb");
 }
 
+/// #745: layout keeps a picture's size, so pictures read from HTML, Markdown, ODT or RTF at
+/// their pixel size are fitted to the text width when the file is opened (and when pasted),
+/// keeping their proportions; small pictures keep their size.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn imported_pictures_fit_the_text_width() {
+    let png = |w: u32, h: u32| {
+        let mut b = Vec::new();
+        image::RgbaImage::from_pixel(w, h, image::Rgba([200, 30, 30, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut b), image::ImageFormat::Png)
+            .unwrap();
+        cmd::insert::base64_encode(&b)
+    };
+    let sizes = |doc: &wordcraft_doc::Document| -> Vec<(f32, f32)> {
+        doc.body
+            .iter()
+            .filter_map(|b| b.as_para())
+            .flat_map(|p| p.objects.iter())
+            .filter_map(|o| match o {
+                wordcraft_doc::InlineObject::Image { w, h, .. } => Some((*w, *h)),
+                _ => None,
+            })
+            .collect()
+    };
+    let md = format!("![wide](data:image/png;base64,{})\n\n![small](data:image/png;base64,{})\n", png(1200, 300), png(40, 20));
+    let doc = crate::io::open_bytes("p.md", md.as_bytes()).unwrap();
+    let max_w = crate::io::text_width(&doc);
+    let got = sizes(&doc);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!((got[0].0 - max_w).abs() < 0.01, "wide picture fits: {got:?} (text width {max_w})");
+    assert!((got[0].1 - max_w / 4.0).abs() < 0.01, "and keeps its proportions: {got:?}");
+    assert!((got[1].0 - 30.0).abs() < 0.01 && (got[1].1 - 15.0).abs() < 0.01, "small picture keeps its size: {got:?}");
+
+    // Pasting HTML fits our text width too.
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    let html = format!("<p><img src=\"data:image/png;base64,{}\"></p>", png(1200, 300));
+    s.run("edit.pasteSpecial", &json!({"as": "html", "html": html})).unwrap();
+    let max_w = crate::io::text_width(&s.doc);
+    let got = sizes(&s.doc);
+    assert!(got.iter().any(|(w, _)| (w - max_w).abs() < 0.01), "pasted picture fits: {got:?}");
+}
+
 #[test]
 fn format_font_sets_the_asian_and_latin_fonts_separately() {
     // #505: Word's Font dialog sets an Asian text font and a Latin text font of their own.
@@ -3866,4 +4526,213 @@ fn format_font_sets_the_asian_and_latin_fonts_separately() {
     run(&mut s, "edit.undo", json!({}));
     assert_eq!(fonts(&s), before);
     assert!(s.run("format.font", &json!({})).is_err() && s.run("format.font", &json!({"eastAsia": " "})).is_err());
+}
+
+/// A one-column table (no header row) holding `cells`, in a document whose default language
+/// is `lang`; the caret ends in the last cell.
+fn column_table(lang: &str, cells: &[&str]) -> Session {
+    let mut s = s();
+    run(&mut s, "review.language", json!({"lang": lang, "default": true}));
+    run(&mut s, "insert.table", json!({"rows": cells.len(), "cols": 1}));
+    for (k, c) in cells.iter().enumerate() {
+        if k > 0 {
+            run(&mut s, "text.tab", json!({}));
+        }
+        if !c.is_empty() {
+            run(&mut s, "text.insert", json!({"text": c}));
+        }
+    }
+    s
+}
+
+fn column_texts(s: &Session) -> Vec<String> {
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+    t.rows.iter().map(|r| r.cells[0].blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect::<String>()).collect()
+}
+
+/// #836: table sort reads numbers in the text's language: `1,5` is one and a half in Polish.
+#[test]
+fn table_sort_reads_decimal_comma_in_polish() {
+    let mut s = column_table("pl-PL", &["12", "1,5", "2"]);
+    run(&mut s, "table.sort", json!({"column": 0, "header": false}));
+    assert_eq!(column_texts(&s), ["1,5", "2", "12"]);
+    run(&mut s, "table.sort", json!({"column": 0, "header": false, "descending": true}));
+    assert_eq!(column_texts(&s), ["12", "2", "1,5"]);
+    // English keeps the comma as a thousands separator.
+    let mut s = column_table("en-US", &["1,250", "12.5", "2"]);
+    run(&mut s, "table.sort", json!({"column": 0, "header": false}));
+    assert_eq!(column_texts(&s), ["2", "12.5", "1,250"]);
+}
+
+/// #836: table formulas read each cell in its language and write the result with its decimal
+/// separator.
+#[test]
+fn table_formula_reads_and_writes_decimal_comma_in_polish() {
+    let mut s = column_table("pl-PL", &["3,50", "2,25", ""]);
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=SUM(ABOVE)"}))["result"], "5,75");
+    let mut s = column_table("pl-PL", &["1 250,00", "100", ""]);
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=SUM(ABOVE)"}))["result"], "1350");
+    let mut s = column_table("pl-PL", &["1\u{a0}250,50 zł", "100", ""]);
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=SUM(ABOVE)"}))["result"], "1350,50");
+    let mut s = column_table("en-US", &["$1,250.50", "3.25", ""]);
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=SUM(ABOVE)"}))["result"], "1253.75");
+}
+
+/// #837: text sorts follow the language's alphabet: Polish `ł` after `l`, `ć` after `c`.
+#[test]
+fn table_and_paragraph_sort_use_polish_alphabet() {
+    let mut s = column_table("pl-PL", &["Zakopane", "Łódź", "Kraków"]);
+    run(&mut s, "table.sort", json!({"column": 0, "header": false}));
+    assert_eq!(column_texts(&s), ["Kraków", "Łódź", "Zakopane"]);
+    let mut s = Session::new(wordcraft_doc::Document::from_text("zebra\nćma\ndom"));
+    run(&mut s, "review.language", json!({"lang": "pl-PL", "default": true}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "para.sort", json!({}));
+    assert_eq!(text(&s), "ćma\ndom\nzebra");
+    // Swedish puts å ä ö after z; German sorts ä with a.
+    let mut s = column_table("sv-SE", &["ödla", "zebra", "åka", "apa"]);
+    run(&mut s, "table.sort", json!({"column": 0, "header": false}));
+    assert_eq!(column_texts(&s), ["apa", "zebra", "åka", "ödla"]);
+    let mut s = column_table("de-DE", &["Zug", "Äpfel", "Bach"]);
+    run(&mut s, "table.sort", json!({"column": 0, "header": false}));
+    assert_eq!(column_texts(&s), ["Äpfel", "Bach", "Zug"]);
+}
+
+/// #837: index entries and letter headings follow the language: `Łódź` files under its own
+/// `Ł` heading between `K` and `Z` in Polish.
+#[test]
+fn index_sorts_polish_entries_and_headings() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("Zakopane.\nŁódź.\nKraków."));
+    run(&mut s, "review.language", json!({"lang": "pl-PL", "default": true}));
+    for w in ["Zakopane", "Łódź", "Kraków"] {
+        run(&mut s, "select.text", json!({"text": w}));
+        run(&mut s, "references.markEntry", json!({}));
+    }
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "references.index", json!({}));
+    let lines: Vec<String> =
+        s.doc.body.iter().filter_map(|b| b.as_para()).filter(|p| p.props.style.as_deref() == Some("ListEntry")).map(|p| p.plain_text()).collect();
+    let order: Vec<&str> = lines.iter().map(|l| l.split([',', '\t']).next().unwrap_or("")).collect();
+    let pos = |w: &str| order.iter().position(|x| *x == w).unwrap_or(usize::MAX);
+    assert!(pos("Kraków") < pos("Łódź") && pos("Łódź") < pos("Zakopane"), "{lines:?}");
+}
+
+/// Review of #844: a numbered column (`1.`, `2.`, `10.`) sorts as numbers; text with no language
+/// at all follows the editing language (a Polish interface reads `3,50` as 3.5).
+#[test]
+fn ordinals_and_untagged_text_sort_and_sum_as_numbers() {
+    let mut t = column_table("pl-PL", &["10.", "2.", "1."]);
+    run(&mut t, "table.sort", json!({"column": 0, "header": false}));
+    assert_eq!(column_texts(&t), ["1.", "2.", "10."]);
+
+    let mut s = s();
+    s.set_editing_language(Some("pl-PL"));
+    s.doc.styles.default_chr.lang = None;
+    run(&mut s, "insert.table", json!({"rows": 3, "cols": 1}));
+    run(&mut s, "text.insert", json!({"text": "3,50"}));
+    run(&mut s, "text.tab", json!({}));
+    run(&mut s, "text.insert", json!({"text": "2,25"}));
+    run(&mut s, "text.tab", json!({}));
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=SUM(ABOVE)"}))["result"], "5,75");
+}
+
+/// Review of #844: the bibliography lists Polish authors in the Polish alphabet.
+#[test]
+fn bibliography_sorts_polish_authors() {
+    let mut s = s();
+    run(&mut s, "review.language", json!({"lang": "pl-PL", "default": true}));
+    for author in ["Mazur, Jan", "Łukasiewicz, Jan", "Lis, Anna"] {
+        run(&mut s, "references.citation", json!({"source": {"author": author, "title": format!("Książka {author}"), "year": "2020"}}));
+        run(&mut s, "text.insert", json!({"text": " "}));
+    }
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "references.bibliography", json!({}));
+    let all = text(&s);
+    // The list, not the citations before it.
+    let t = all.split_once("References").map_or(all.as_str(), |(_, list)| list);
+    let at = |name: &str| t.find(&format!("{name}, ")).unwrap_or_else(|| panic!("{name} in {all}"));
+    assert!(at("Lis") < at("Łukasiewicz") && at("Łukasiewicz") < at("Mazur"), "{t}");
+}
+
+/// A new blank document takes its paper from the region, and lengths are shown in the region's
+/// unit with its decimal separator; an explicit Measurement units choice still wins (#838).
+#[test]
+fn new_documents_follow_the_region() {
+    // Poland: A4, centimetres, decimal comma.
+    let mut s = s();
+    run(&mut s, "file.options", json!({"region": "pl-PL"}));
+    run(&mut s, "file.new", json!({}));
+    let sp = &s.doc.last_section;
+    assert_eq!(wordcraft_geom::paper_name(sp.page_w, sp.page_h), Some("A4"));
+    assert_eq!(sp.margin_left, 72.0);
+    assert_eq!(s.units(), wordcraft_geom::Unit::Centimeters);
+    assert_eq!(s.format_length(sp.margin_left), "2,54 cm");
+    let o = run(&mut s, "file.options", json!({"pane": "advanced", "units": "auto"}));
+    assert_eq!((o["units"].as_str(), o["unitsFromRegion"].as_bool()), (Some("centimeters"), Some(true)));
+    assert_eq!((o["region"]["paper"].as_str(), o["region"]["decimal"].as_str()), (Some("A4"), Some(",")));
+
+    // The user's own choice wins over the region, and `auto` gives the region's back.
+    run(&mut s, "file.options", json!({"units": "inches"}));
+    assert_eq!(s.units(), wordcraft_geom::Unit::Inches);
+    assert_eq!(s.format_length(108.0), "1,5\"");
+    run(&mut s, "file.options", json!({"units": "auto"}));
+    assert_eq!(s.units(), wordcraft_geom::Unit::Centimeters);
+
+    // A chosen region is a saved preference over the system's; `auto` returns to the system's.
+    assert_eq!(s.prefs.region.as_deref(), Some("pl-PL"));
+    let saved: serde_json::Value = serde_json::to_value(&s.prefs).unwrap();
+    assert_eq!(saved["region"], "pl-PL");
+    s.system_region = wordcraft_geom::Region::from_tag("ja-JP");
+    assert_eq!(s.region().territory, "PL", "the choice wins over the system");
+    let o = run(&mut s, "file.options", json!({"region": "auto"}));
+    assert_eq!((o["regionFromSystem"].as_bool(), o["region"]["territory"].as_str()), (Some(true), Some("JP")));
+    assert_eq!(s.prefs.region, None);
+    run(&mut s, "file.options", json!({"region": "de_AT.UTF-8@euro"}));
+    assert_eq!(s.prefs.region.as_deref(), Some("de-AT"), "kept as a short tag");
+    run(&mut s, "file.options", json!({"region": ""}));
+    assert_eq!(s.prefs.region, None);
+
+    // The United States: Letter and inches.
+    let mut us = Session::new(wordcraft_doc::Document::new());
+    run(&mut us, "file.options", json!({"region": "en-US"}));
+    run(&mut us, "file.new", json!({"template": "blank"}));
+    let sp = &us.doc.last_section;
+    assert_eq!((sp.page_w, sp.page_h), (612.0, 792.0));
+    assert_eq!(us.units(), wordcraft_geom::Unit::Inches);
+    assert_eq!(us.format_length(72.0), "1\"");
+    run(&mut us, "file.options", json!({"units": "centimeters"}));
+    assert_eq!(us.format_length(72.0), "2.54 cm");
+
+    // Templates keep their own size; a headless session is en-US; junk is refused or read as en-US.
+    let mut t = Session::new(wordcraft_doc::Document::new());
+    run(&mut t, "file.options", json!({"region": "de-DE"}));
+    run(&mut t, "file.new", json!({"template": "letter"}));
+    assert_eq!(t.doc.last_section.page_w, crate::sample::letter().last_section.page_w);
+    assert_eq!(Session::new(wordcraft_doc::Document::new()).blank_document().last_section.page_w, 612.0);
+    assert!(t.run("file.options", &json!({"region": 7})).is_err());
+    assert!(t.run("file.options", &json!({"units": "furlongs"})).is_err());
+    run(&mut t, "file.options", json!({"region": "\u{0}\u{FFFF}-zz-ZZZZZZZZ"}));
+    assert_eq!(t.region(), wordcraft_geom::Region::default());
+    assert_eq!(t.prefs.region.as_deref(), Some("en-US"), "junk is saved as en-US");
+}
+
+/// Automatic (HTML-style) paragraph spacing: `para.spacing` turns it on and off, and a number
+/// replaces it, as typing one in Word's Paragraph dialog does; Ctrl+0 and Remove Space After work
+/// on it too.
+#[test]
+fn spacing_commands_handle_automatic_spacing() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Pasted from the web"}));
+    let rp = |s: &Session| s.doc.styles.resolve_para(&s.doc.para_at(&s.sel.focus).unwrap().props);
+    run(&mut s, "para.spacing", json!({"beforeAuto": true, "afterAuto": true}));
+    assert_eq!((rp(&s).space_before, rp(&s).space_after, rp(&s).before_auto), (14.0, 14.0, true));
+    run(&mut s, "para.spacing", json!({"before": 6}));
+    assert_eq!((rp(&s).space_before, rp(&s).before_auto, rp(&s).after_auto), (6.0, false, true), "a number replaces Auto");
+    run(&mut s, "para.removeSpaceAfter", json!({}));
+    assert_eq!((rp(&s).space_after, rp(&s).after_auto), (0.0, false));
+    run(&mut s, "para.spacing", json!({"beforeAuto": true}));
+    run(&mut s, "para.addSpaceBefore", json!({}));
+    assert_eq!((rp(&s).space_before, rp(&s).before_auto), (0.0, false), "Ctrl+0 removes the automatic space");
+    assert!(s.run("para.spacing", &json!({"beforeAuto": "yes"})).is_ok(), "junk is ignored, never a panic");
 }

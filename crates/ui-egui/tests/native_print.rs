@@ -6,6 +6,56 @@ use wordcraft_ui_egui::printing::{Duplex, Feedback, Printer};
 use wordcraft_ui_egui::{Services, WordApp};
 
 #[test]
+fn control_print_discovery_reports_metadata_without_host_side_effects() {
+    use std::cell::Cell;
+    use wordcraft_ui_egui::control::{ControlRequest, Outcome, handle};
+    let discoveries = Rc::new(Cell::new(0));
+    let submissions = Rc::new(Cell::new(0));
+    let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+    let observed = discoveries.clone();
+    app.services.printers = Some(Box::new(move || {
+        observed.set(observed.get() + 1);
+        let (_, receiver) = std::sync::mpsc::channel();
+        receiver
+    }));
+    let observed = submissions.clone();
+    app.services.print_native = Some(Box::new(move |_, _, _| {
+        observed.set(observed.get() + 1);
+        let (_, receiver) = std::sync::mpsc::channel();
+        receiver
+    }));
+    let ctx = egui::Context::default();
+    let (request, _) = ControlRequest::new("engine.commands", json!({"search":"print"}));
+    let Outcome::Done(reply) = handle(&mut app, &ctx, &request) else { panic!("metadata replies immediately") };
+    assert_eq!(reply["ok"], true);
+    let commands = reply["result"].as_array().unwrap();
+    assert!(commands.iter().any(|command| command["id"] == "file.print"), "engine print commands remain visible");
+    let settings = commands.iter().find(|command| command["id"] == "ui.printSettings").unwrap();
+    assert_eq!(settings["enabled"], true, "settings/status inspection is available");
+    for field in ["printer", "copies", "duplex", "grayscale", "refresh", "status", "detail"] {
+        assert!(settings["params"].as_str().unwrap().contains(field), "documented setting: {field}");
+    }
+    for id in ["ui.printSubmit", "ui.print"] {
+        let command = commands.iter().find(|command| command["id"] == id).unwrap();
+        assert_eq!(command["enabled"], false, "a printer must be selected before submission");
+        for field in ["range", "pages", "parity", "copies", "collate"] {
+            assert!(command["params"].as_str().unwrap().contains(field), "{id}: {field}");
+        }
+    }
+    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
+    let Outcome::Done(reply) = handle(&mut app, &ctx, &request) else { panic!("metadata replies immediately") };
+    for id in ["ui.printSubmit", "ui.print"] {
+        let command = reply["result"].as_array().unwrap().iter().find(|command| command["id"] == id).unwrap();
+        assert_eq!(command["enabled"], true, "the selected queue enables {id}");
+    }
+    assert_eq!(discoveries.get(), 0, "metadata never starts printer discovery");
+    assert_eq!(submissions.get(), 0, "metadata never submits");
+    assert!(app.dialog.is_none() && !app.ui.backstage, "metadata never opens a dialog or Print page");
+    assert!(!app.printing.busy() && !app.session.dirty);
+}
+
+#[test]
 fn native_print_uses_selected_settings_and_reports_spool_errors() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
     app.run("text.insert", json!({"text": "A document to print"})).unwrap();

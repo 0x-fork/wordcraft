@@ -161,6 +161,10 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     r.pc.minor_font = r.doc.settings.minor_font.clone();
     let part = |t: &str| rels.by_type(t).filter(|x| !x.external).map(|x| x.target.clone());
 
+    // The font table and the fonts embedded through it ride along as opaque parts.
+    if let Some(p) = part(rt::FONT_TABLE) {
+        r.keep_part_tree(&p);
+    }
     if let Some(p) = part(rt::THEME) {
         r.read_theme(&p);
     }
@@ -229,8 +233,9 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
         let mut blocks = Blocks::new();
         r.read_blocks(&mut sc, body, &rels, &mut blocks, 0);
         r.flush_pending(&mut sc, &mut blocks);
-        toc_field_to_heading(&mut blocks);
         r.doc.body = blocks;
+        unstyle_toc_links(&mut r.doc);
+        toc_field_to_heading(&mut r.doc.body);
         if let Some(s) = body.child("w:sectPr") {
             r.doc.last_section = r.read_section(s, &rels);
         }
@@ -385,8 +390,25 @@ fn keep_glued_ids(doc: &mut Document, glued: &HashSet<u32>) {
     });
 }
 
-/// Word starts a TOC field in the first entry; the engine keeps it at the end of the TOC heading
-/// (the paragraph holding the field marks where the TOC is). Move it there when one precedes it.
+/// Word draws a table of contents' entry links without the Hyperlink character style (no blue,
+/// no underline) though the entries carry it (measured in Word for Windows: a Hyperlink-styled run
+/// in a hyperlink inside a TOC field's result is plain; one outside a hyperlink, another style,
+/// direct formatting, or a hyperlink in another field keep their look). The style is dropped from
+/// those runs so they look the same here; the links stay.
+fn unstyle_toc_links(doc: &mut Document) {
+    for f in doc.field_ranges(wordcraft_doc::StoryRef::Body) {
+        if is_toc(&f.instr) {
+            let _ = doc.format_range(&f.start, &f.end, &|c| {
+                if c.link.is_some() && c.style.as_deref() == Some("Hyperlink") {
+                    c.style = None;
+                }
+            });
+        }
+    }
+}
+
+/// Normalize only a complete TOC range that the engine's heading/entry representation can
+/// reproduce exactly. Other imported TOCs keep their explicit boundaries, independent of styles.
 fn toc_field_to_heading(body: &mut Blocks) {
     for i in 1..body.len() {
         let heading = body[i - 1].as_para().filter(|p| p.props.style.as_deref() == Some("TOCHeading"));
@@ -394,12 +416,23 @@ fn toc_field_to_heading(body: &mut Blocks) {
         if heading.is_none_or(|h| h.objects.iter().any(has_toc)) {
             continue;
         }
-        let Some((field, props)) = body[i].as_para().and_then(|p| match p.object_at(0) {
-            Some(f @ InlineObject::Field { result, .. }) if result.is_empty() && has_toc(f) => Some((f.clone(), p.props_of_char(0).clone())),
-            _ => None,
+        let Some((field, props, end)) = body[i].as_para().and_then(|p| {
+            let (field, end) = match p.object_at(0) {
+                Some(InlineObject::FieldStart { instr, locked }) if is_toc(instr) => {
+                    (InlineObject::Field { instr: instr.clone(), result: String::new(), locked: *locked, code: false }, Some(toc_range_end(body, i)?))
+                }
+                Some(f @ InlineObject::Field { result, .. }) if result.is_empty() && has_toc(f) => (f.clone(), None),
+                _ => return None,
+            };
+            Some((field, p.props_of_char(0).clone(), end))
         }) else {
             continue;
         };
+        // Delete the end first: the two markers may occupy the same paragraph.
+        if let Some(Block::Para(p)) = end.and_then(|end| body.get_mut(end)).map(Arc::make_mut) {
+            let off = p.len().saturating_sub(OBJ.len_utf8());
+            let _ = p.delete(off, p.len());
+        }
         if let Some(Block::Para(p)) = body.get_mut(i).map(Arc::make_mut) {
             let _ = p.delete(0, OBJ.len_utf8());
         }
@@ -411,7 +444,32 @@ fn toc_field_to_heading(body: &mut Blocks) {
 }
 
 fn is_toc(instr: &str) -> bool {
-    instr.trim_start().get(..3).is_some_and(|k| k.eq_ignore_ascii_case("TOC"))
+    instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("TOC"))
+}
+
+/// The actual matching end must also be the end the styled writer would choose: at the end
+/// of the last contiguous TOC entry, with no section break or trailing content outside it.
+fn toc_range_end(body: &Blocks, start: usize) -> Option<usize> {
+    let entry =
+        |p: &wordcraft_doc::Paragraph| p.section.is_none() && p.props.style.as_deref().is_some_and(|s| s.starts_with("TOC") && s != "TOCHeading");
+    let mut depth = 0_usize;
+    for (i, b) in body.iter().enumerate().skip(start) {
+        let p = b.as_para().filter(|p| entry(p))?;
+        for (off, o) in p.object_offsets().into_iter().zip(&p.objects) {
+            match o {
+                InlineObject::FieldStart { .. } => depth = depth.checked_add(1)?,
+                InlineObject::FieldEnd => {
+                    depth = depth.checked_sub(1)?;
+                    if depth == 0 {
+                        let following_entry = body.get(i + 1).and_then(|b| b.as_para()).is_some_and(entry);
+                        return (off.checked_add(OBJ.len_utf8()) == Some(p.len()) && !following_entry).then_some(i);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
 }
 
 /// Built-in style names Word stores in lower case, and how the UI shows them.
@@ -733,6 +791,25 @@ impl Reader<'_> {
                 st.table = (parts != TableStyleParts::default()).then_some(parts);
             }
             sheet.styles.push(st);
+        }
+        // Styles that give only a list level take the list from the style they are based on
+        // (Heading 3: level 3 of Heading 2's outline list).
+        let fixed: Vec<Option<wordcraft_doc::props::NumRef>> = sheet
+            .styles
+            .iter()
+            .map(|s| match s.para.numbering {
+                Some(n) if n.num == props::LEVEL_ONLY => {
+                    let base = s.based_on.as_deref().and_then(|b| props::chain_list(&sheet, b));
+                    base.map(|num| wordcraft_doc::props::NumRef { num, level: n.level })
+                }
+                other => other,
+            })
+            .collect();
+        for (s, n) in sheet.styles.iter_mut().zip(fixed) {
+            s.para.numbering = n;
+        }
+        if sheet.default_para.numbering.is_some_and(|n| n.num == props::LEVEL_ONLY) {
+            sheet.default_para.numbering = None;
         }
         self.doc.styles = sheet;
         Ok(())

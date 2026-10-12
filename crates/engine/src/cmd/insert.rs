@@ -183,19 +183,11 @@ pub fn base64_encode(b: &[u8]) -> String {
     out
 }
 
-fn picture(s: &mut Session, v: &Value) -> CmdResult {
+pub(crate) fn picture(s: &mut Session, v: &Value) -> CmdResult {
     let bytes = if let Some(d) = p::str(v, "data") {
         base64_decode(d).ok_or_else(|| CmdError::Params("bad base64 data".into()))?
     } else if let Some(path) = p::str(v, "path") {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            std::fs::read(path).map_err(|e| CmdError::Failed(format!("{path}: {e}")))?
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let _ = path;
-            return Err(CmdError::Failed("reading files by path isn't available on the web".into()));
-        }
+        crate::io::read_file(path).map_err(CmdError::Failed)?
     } else {
         s.ui_requests.push(json!({"open": "insertPicture"}));
         return sel_result(s);

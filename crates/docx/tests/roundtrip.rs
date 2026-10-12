@@ -141,6 +141,8 @@ fn every_para_prop_round_trips() {
         indent_first_chars: Some(-1.0),
         space_before: Some(6.0),
         space_after: Some(12.0),
+        space_before_auto: Some(true),
+        space_after_auto: Some(false),
         line_spacing: Some(LineSpacing::Multiple(1.5)),
         contextual_spacing: Some(true),
         mirror_indents: Some(true),
@@ -163,6 +165,20 @@ fn every_para_prop_round_trips() {
         suppress_line_numbers: Some(true),
         bidi: Some(false),
         drop_cap: None,
+        frame: Some(wordcraft_doc::props::TextFrame {
+            w: Some(144.0),
+            h: Some(36.0),
+            h_exact: true,
+            x: 0.0,
+            y: 12.0,
+            x_align: Some("right".into()),
+            y_align: None,
+            h_anchor: "margin".into(),
+            v_anchor: "text".into(),
+            wrap: "around".into(),
+            h_space: 9.0,
+            v_space: 0.0,
+        }),
         kinsoku: Some(false),
         word_wrap: Some(false),
         overflow_punct: Some(false),
@@ -685,41 +701,46 @@ fn word_note_mark_round_trips_once() {
 /// or Word shows them as plain text with no Update Table.
 #[test]
 fn toc_field_wraps_its_entries() {
-    let mut head = Paragraph::with_text("Contents", CharProps::default()).styled("TOCHeading");
-    let end = head.len();
-    head.insert_object(
-        end,
-        InlineObject::Field { instr: "TOC \\o \"1-2\" \\h \\z \\u".into(), result: String::new(), locked: false, code: false },
-        &CharProps::default(),
-    )
-    .unwrap();
-    let entries = [("Intro\t1", "TOC1"), ("Detail\t2", "TOC2")];
-    let mut blocks = vec![head];
-    blocks.extend(entries.iter().map(|(t, st)| Paragraph::with_text(t, CharProps::default()).styled(st)));
-    blocks.push(Paragraph::with_text("Body", CharProps::default()));
-    let d = doc_with(blocks);
+    for entries in [&[("Intro\t1", "TOC1")][..], &[("Intro\t1", "TOC1"), ("Detail\t2", "TOC2")][..]] {
+        let mut head = Paragraph::with_text("Contents", CharProps::default()).styled("TOCHeading");
+        let end = head.len();
+        head.insert_object(
+            end,
+            InlineObject::Field { instr: "TOC \\o \"1-2\" \\h \\z \\u".into(), result: String::new(), locked: false, code: false },
+            &CharProps::default(),
+        )
+        .unwrap();
+        let mut blocks = vec![head];
+        blocks.extend(entries.iter().map(|(t, st)| Paragraph::with_text(t, CharProps::default()).styled(st)));
+        blocks.push(Paragraph::with_text("Body", CharProps::default()));
+        let d = doc_with(blocks);
 
-    let bytes = wordcraft_docx::write(&d).expect("write");
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
-    let mut xml = String::new();
-    std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
-    let sdt = xml.find("<w:sdt>").expect("TOC content control");
-    assert!(xml.contains(r#"<w:docPartGallery w:val="Table of Contents"/>"#), "{xml}");
-    let (begin, fend) = (xml.find(r#"fldCharType="begin""#).unwrap(), xml.find(r#"fldCharType="end""#).unwrap());
-    let last_entry = xml.find("Detail").unwrap();
-    assert!(sdt < xml.find("Contents").unwrap() && xml.find("</w:sdt>").unwrap() < xml.find(">Body<").unwrap(), "{xml}");
-    assert!(begin < xml.find("Intro").unwrap() && fend > last_entry && fend < xml.find("</w:sdt>").unwrap(), "field must span the entries: {xml}");
-    // Word starts the field in the first entry; started in the heading, LibreOffice splits the heading.
-    let heading_end = xml[..xml.find("Intro").unwrap()].rfind("</w:p>").unwrap();
-    assert!(begin > heading_end, "field must start in the first entry, not the heading: {xml}");
+        let bytes = wordcraft_docx::write(&d).expect("write");
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        let mut xml = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+        let sdt = xml.find("<w:sdt>").expect("TOC content control");
+        assert!(xml.contains(r#"<w:docPartGallery w:val="Table of Contents"/>"#), "{xml}");
+        let (begin, fend) = (xml.find(r#"fldCharType="begin""#).unwrap(), xml.find(r#"fldCharType="end""#).unwrap());
+        let last_entry = xml.find(entries.last().unwrap().0.split('\t').next().unwrap()).unwrap();
+        assert!(sdt < xml.find("Contents").unwrap() && xml.find("</w:sdt>").unwrap() < xml.find(">Body<").unwrap(), "{xml}");
+        assert!(
+            begin < xml.find("Intro").unwrap() && fend > last_entry && fend < xml.find("</w:sdt>").unwrap(),
+            "field must span the entries: {xml}"
+        );
+        // Word starts the field in the first entry; started in the heading, LibreOffice splits the heading.
+        let heading_end = xml[..xml.find("Intro").unwrap()].rfind("</w:p>").unwrap();
+        assert!(begin > heading_end, "field must start in the first entry, not the heading: {xml}");
 
-    // WordCraft reads its own TOC back unchanged.
-    let r = wordcraft_docx::read(&bytes).expect("read");
-    let ps = paras(&r);
-    assert_eq!(ps.iter().map(|p| p.plain_text()).collect::<Vec<_>>(), ["Contents", "Intro\t1", "Detail\t2", "Body"]);
-    assert!(matches!(ps[0].objects.first(), Some(InlineObject::Field { instr, .. }) if instr.starts_with("TOC")), "{:?}", ps[0].objects);
-    assert!(ps[1].objects.is_empty(), "the field goes back on the heading: {:?}", ps[1].objects);
-    assert_eq!(ps[1].props.style.as_deref(), Some("TOC1"));
+        // WordCraft reads its own TOC back unchanged.
+        let r = wordcraft_docx::read(&bytes).expect("read");
+        let ps = paras(&r);
+        let expected: Vec<_> = std::iter::once("Contents").chain(entries.iter().map(|(t, _)| *t)).chain(std::iter::once("Body")).collect();
+        assert_eq!(ps.iter().map(|p| p.plain_text()).collect::<Vec<_>>(), expected);
+        assert!(matches!(ps[0].objects.first(), Some(InlineObject::Field { instr, .. }) if instr.starts_with("TOC")), "{:?}", ps[0].objects);
+        assert!(ps[1].objects.is_empty(), "the field goes back on the heading: {:?}", ps[1].objects);
+        assert_eq!(ps[1].props.style.as_deref(), Some("TOC1"));
+    }
 }
 
 /// Table Layout › Text Direction (#226): each direction is written as Word's `w:textDirection`

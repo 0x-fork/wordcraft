@@ -14,6 +14,7 @@ pub mod bidi;
 pub mod chart;
 mod cjk_numbers;
 pub mod cluster;
+pub mod collate;
 pub mod connector;
 pub mod control;
 pub mod edit;
@@ -24,6 +25,7 @@ pub mod fields;
 pub mod freeform;
 pub mod graphic;
 pub mod link;
+pub mod locale_number;
 pub mod math;
 pub mod math_edit;
 pub mod math_latex;
@@ -134,6 +136,11 @@ impl BoxBudget {
     /// Done expanding the box last entered.
     pub fn leave(&mut self) {
         self.open.pop();
+    }
+
+    /// Whether a text box is being expanded now.
+    pub fn inside(&self) -> bool {
+        !self.open.is_empty()
     }
 
     /// Boxes expanded so far.
@@ -274,11 +281,27 @@ pub struct TextBody {
     /// continues in when it doesn't fit this one. The linked box shows the rest of this box's
     /// story; its own blocks are unused. See [`Document::text_box_chains`].
     pub next: Option<u32>,
+    /// Internal margins (left, top, right, bottom), EMU, when the file gives its own
+    /// (`wps:bodyPr` `lIns`… ECMA-376 Part 1 §21.1.2.1.1); `None` is Word's defaults.
+    pub inset: Option<[u32; 4]>,
+    /// Resize shape to fit text (`a:spAutoFit`): Word grows the box to its text, so none of
+    /// the text is cut.
+    pub auto_fit: bool,
 }
+
+/// Word's default text box margins (left, top, right, bottom), EMU: 0.1" and 0.05".
+pub const TEXT_BOX_INSET: [u32; 4] = [91_440, 45_720, 91_440, 45_720];
+/// Widest text box margin kept, EMU (22", the largest page side).
+pub const MAX_TEXT_BOX_INSET: u32 = 20_116_800;
 
 impl TextBody {
     pub fn is_default(&self) -> bool {
         *self == TextBody::default()
+    }
+
+    /// The internal margins (left, top, right, bottom) in points.
+    pub fn insets_pt(&self) -> [f32; 4] {
+        self.inset.unwrap_or(TEXT_BOX_INSET).map(|v| v.min(MAX_TEXT_BOX_INSET) as f32 / 12_700.0)
     }
 }
 
