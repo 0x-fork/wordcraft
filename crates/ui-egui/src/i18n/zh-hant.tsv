@@ -1633,6 +1633,12 @@
 	Enlarge symbol	放大符號
 	Enclosure	圍繞符號
 	Circle	圓形
+	Numerals:	數字：
+	Numerals	數字
+	Arabic	阿拉伯
+	Hindi	印地
+	Context	上下文
+	System	系統
 	Templates	範本
 	Templates and Add-ins	範本與增益集
 	Attach Template	附加範本
@@ -1978,7 +1984,6 @@
 	Add line numbering	新增行號
 	Add to Document	新增至文件
 	Address labels	地址標籤
-	Arabic	阿拉伯文
 	Auto	自動
 	Automatically hyphenate document	自動斷字
 	Chinese (Simplified)	中文（簡體）

@@ -1644,6 +1644,12 @@
 	Enlarge symbol	Збільшити символ
 	Enclosure	Обведення
 	Circle	Коло
+	Numerals:	Цифри:
+	Numerals	Цифри
+	Arabic	Арабські
+	Hindi	Гінді
+	Context	Контекст
+	System	Системні
 	Templates	Шаблони
 	Templates and Add-ins	Шаблони й надбудови
 	Attach Template	Приєднати шаблон
@@ -1989,7 +1995,6 @@
 	Add line numbering	Додати нумерацію рядків
 	Add to Document	Додати до документа
 	Address labels	Адресні етикетки
-	Arabic	Арабська
 	Auto	Авто
 	Automatically hyphenate document	Автоматично переносити слова в документі
 	Chinese (Simplified)	Китайська (спрощена)

@@ -1579,6 +1579,12 @@
 	Right (vertical)	Paremal (vertikaalne)
 	Ruby text:	Ruby-tekst:
 	Size (pt):	Suurus (pt):
+	Numerals:	Numbrid:
+	Numerals	Numbrid
+	Arabic	Araabia
+	Hindi	Hindi
+	Context	Kontekst
+	System	Süsteem
 	Couldn't make WordCraft the default: {error}	WordCrafti ei õnnestunud vaikerakenduseks määrata: {error}
 	In Default apps, choose WordCraft for the document types you want it to open.	Vali jaotises „Vaikerakendused“ WordCraft nende dokumenditüüpide jaoks, mida see peaks avama.
 	Make WordCraft the default for Word documents…	Määra WordCraft Wordi dokumentide vaikerakenduseks…
@@ -1987,7 +1993,6 @@
 	Add line numbering	Lisa reanummerdus
 	Add to Document	Lisa dokumenti
 	Address labels	Aadressisildid
-	Arabic	Araabia
 	Auto	Automaatne
 	Automatically hyphenate document	Poolita dokumenti automaatselt
 	Chinese (Simplified)	Hiina (lihtsustatud)

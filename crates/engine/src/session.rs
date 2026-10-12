@@ -1,13 +1,22 @@
 //! The editing session: document, selection, undo/redo, layout, view state.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// The system locale (BCP 47 tag) the shell found at startup, for Numeral › System.
+static SYSTEM_LOCALE: OnceLock<String> = OnceLock::new();
+
+/// Tell the engine the system locale (the shell calls this once at startup; layout never reads
+/// the environment). Headless sessions without it show Western digits for Numeral › System.
+pub fn set_system_locale(tag: &str) {
+    let _ = SYSTEM_LOCALE.set(tag.to_string());
+}
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wordcraft_doc::edit::Fragment;
 use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Document, Path, Pos, StoryRef};
-use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, ViewMode};
+use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
 
 use crate::{CmdError, Registry};
 
@@ -86,6 +95,9 @@ pub struct ViewState {
     pub track_changes_pane: bool,
     /// Check spelling and grammar as you type.
     pub proofing: bool,
+    /// How digits look on screen (Word › File › Options › Advanced › Numeral).
+    #[serde(default)]
+    pub numeral: NumeralMode,
     /// Review › Hide Ink: ink strokes aren't shown on screen (they stay in the document).
     #[serde(default)]
     pub hide_ink: bool,
@@ -138,6 +150,7 @@ impl Default for ViewState {
             show_markup: true,
             track_changes_pane: false,
             proofing: true,
+            numeral: NumeralMode::default(),
             hide_ink: false,
             draw: Default::default(),
             field_codes: false,
@@ -269,8 +282,8 @@ pub struct Session {
     document_id: u64,
     cache: LayoutCache,
     /// (revision, web width, view, layout, proofing, outline, (deletions left out, body
-    /// deletions in balloons)).
-    layout: Option<(u64, f32, ViewMode, Arc<DocLayout>, bool, Option<wordcraft_layout::outline::OutlineView>, (bool, bool))>,
+    /// deletions in balloons), numeral display).
+    layout: Option<(u64, f32, ViewMode, Arc<DocLayout>, bool, Option<wordcraft_layout::outline::OutlineView>, (bool, bool), NumeralMode)>,
     /// Picture edits: edited media key → original media key (Reset Picture).
     pub originals: std::collections::HashMap<String, String>,
     /// Last mutating command (Repeat).
@@ -572,11 +585,12 @@ impl Session {
         let hide_deleted = !self.view.show_markup || self.prefs.markup.hides_deletions();
         let deleted = (hide_deleted, self.revisions_in_balloons());
         let outline = (self.view.mode == ViewMode::Outline).then(|| self.view.outline.view());
-        if let Some((r, w, m, l, pf, o, hd)) = &self.layout
+        if let Some((r, w, m, l, pf, o, hd, n)) = &self.layout
             && *r == self.rev
             && (*w == ww || self.view.mode == ViewMode::Print)
             && *m == self.view.mode
             && *pf == self.view.proofing
+            && *n == self.view.numeral
             && *hd == deleted
             && *o == outline
         {
@@ -589,13 +603,14 @@ impl Session {
             hide_deleted,
             deletions_in_balloons: deleted.1,
             proofing: self.view.proofing,
+            numeral: self.view.numeral.resolve(SYSTEM_LOCALE.get().map(String::as_str)),
             comment_balloons: false,
             field_codes: self.view.field_codes,
             outline: outline.clone(),
             proof: wordcraft_layout::ProofOptions { grammar: self.prefs.mark_grammar, spelling: self.prefs.spelling() },
         };
         let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
-        self.layout = Some((self.rev, ww, self.view.mode, l.clone(), self.view.proofing, outline, deleted));
+        self.layout = Some((self.rev, ww, self.view.mode, l.clone(), self.view.proofing, outline, deleted, self.view.numeral));
         l
     }
     /// A layout for output (PDF, images, print): no proofing marks, print view.

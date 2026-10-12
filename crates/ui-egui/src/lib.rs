@@ -404,6 +404,10 @@ impl SaveChoice {
 
 impl WordApp {
     pub fn new(session: Session, services: Services) -> Self {
+        // Numeral › System follows the system locale, found here rather than in layout.
+        if let Some(tag) = sys_locale::get_locale() {
+            wordcraft_engine::set_system_locale(&tag);
+        }
         WordApp {
             session,
             ui: UiState::default(),

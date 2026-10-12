@@ -1648,6 +1648,12 @@
 	Enlarge symbol	Agrandar símbolo
 	Enclosure	Contorno
 	Circle	Círculo
+	Numerals:	Números:
+	Numerals	Números
+	Arabic	Árabe
+	Hindi	Hindi
+	Context	Contexto
+	System	Sistema
 	Templates	Plantillas
 	Templates and Add-ins	Plantillas y complementos
 	Attach Template	Adjuntar plantilla
@@ -1993,7 +1999,6 @@
 	Add line numbering	Agregar numeración de líneas
 	Add to Document	Agregar al documento
 	Address labels	Etiquetas de dirección
-	Arabic	Árabe
 	Auto	Auto
 	Automatically hyphenate document	Separar palabras automáticamente en el documento
 	Chinese (Simplified)	Chino (simplificado)

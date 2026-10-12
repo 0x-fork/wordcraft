@@ -191,6 +191,7 @@ fn display(app: &mut WordApp, ui: &mut Ui) {
     if ui.checkbox(&mut ruler, tl!("Show rulers")).changed() {
         let _ = app.run("view.ruler", json!({"value": ruler}));
     }
+    numeral_picker(app, ui);
     ui.add_space(8.0);
     section(ui, "Printing");
     ui.checkbox(&mut app.ui.print_backgrounds, tl!("Print the page color"));
@@ -502,6 +503,24 @@ fn default_app_button(app: &mut WordApp, ui: &mut Ui) {
                 .weak(),
         );
     }
+}
+
+/// File ▸ Options ▸ Numerals: how digits look on screen (display only, like Word's
+/// File › Options › Advanced › Numeral).
+fn numeral_picker(app: &mut WordApp, ui: &mut Ui) {
+    use wordcraft_layout::NumeralMode;
+    ui.horizontal(|ui| {
+        ui.label(tl!("Numerals:"));
+        let mut sel = app.session.view.numeral;
+        egui::ComboBox::from_id_salt("numerals").selected_text(tl!(sel.label())).width(220.0).show_ui(ui, |ui| {
+            for m in [NumeralMode::Arabic, NumeralMode::Hindi, NumeralMode::Context, NumeralMode::System] {
+                ui.selectable_value(&mut sel, m, tl!(m.label()));
+            }
+        });
+        if sel != app.session.view.numeral {
+            let _ = app.run("view.numeral", json!({ "value": sel }));
+        }
+    });
 }
 
 #[cfg(test)]

@@ -1644,6 +1644,12 @@
 	Enlarge symbol	增大圈号
 	Enclosure	圈号
 	Circle	圆形
+	Numerals:	数字：
+	Numerals	数字
+	Arabic	阿拉伯
+	Hindi	印地
+	Context	上下文
+	System	系统
 	Templates	模板
 	Templates and Add-ins	模板和加载项
 	Attach Template	附加模板
@@ -1989,7 +1995,6 @@
 	Add line numbering	添加行号
 	Add to Document	添加到文档
 	Address labels	地址标签
-	Arabic	阿拉伯语
 	Auto	自动
 	Automatically hyphenate document	自动断字
 	Chinese (Simplified)	中文（简体）

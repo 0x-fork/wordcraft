@@ -1646,6 +1646,12 @@
 	Enlarge symbol	Увећај симбол
 	Enclosure	Оквир
 	Circle	Круг
+	Numerals:	Бројеви:
+	Numerals	Бројеви
+	Arabic	Арапски
+	Hindi	Хинди
+	Context	Контекст
+	System	Систем
 	Templates	Шаблони
 	Templates and Add-ins	Шаблони и додаци
 	Attach Template	Приложи шаблон
@@ -1991,7 +1997,6 @@
 	Add line numbering	Додај бројеве редова
 	Add to Document	Додај у документ
 	Address labels	Адресне налепнице
-	Arabic	Арапски
 	Auto	Аутоматски
 	Automatically hyphenate document	Аутоматски дели речи у документу
 	Chinese (Simplified)	Кинески (поједностављени)

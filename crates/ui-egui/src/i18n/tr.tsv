@@ -1623,6 +1623,12 @@
 	Search icons	Simgelerde ara
 	No icons match your search.	Aramanızla eşleşen simge yok.
 	Recolor a one-color picture, such as an icon	Simge gibi tek renkli bir resmi yeniden renklendir
+	Numerals:	Rakamlar:
+	Numerals	Rakamlar
+	Arabic	Arapça
+	Hindi	Hintçe
+	Context	Bağlam
+	System	Sistem
 	Couldn't make WordCraft the default: {error}	WordCraft varsayılan yapılamadı: {error}
 	In Default apps, choose WordCraft for the document types you want it to open.	Varsayılan uygulamalar bölümünde, WordCraft'ın açmasını istediğiniz belge türlerini seçin.
 	Make WordCraft the default for Word documents…	WordCraft'ı Word belgeleri için varsayılan yap…
@@ -1945,7 +1951,6 @@
 	Add line numbering	Satır numaralandırma ekle
 	Add to Document	Belgeye Ekle
 	Address labels	Adres etiketleri
-	Arabic	Arapça
 	Auto	Otomatik
 	Automatically hyphenate document	Belgede otomatik heceleme yap
 	Chinese (Simplified)	Çince (Basitleştirilmiş)

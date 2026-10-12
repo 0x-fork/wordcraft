@@ -1644,6 +1644,12 @@
 	Enlarge symbol	Ampliar símbolo
 	Enclosure	Contorno
 	Circle	Círculo
+	Numerals:	Numerais:
+	Numerals	Numerais
+	Arabic	Arábico
+	Hindi	Hindi
+	Context	Contexto
+	System	Sistema
 	Templates	Modelos
 	Templates and Add-ins	Modelos e suplementos
 	Attach Template	Anexar modelo
@@ -1989,7 +1995,6 @@
 	Add line numbering	Adicionar numeração de linhas
 	Add to Document	Adicionar ao documento
 	Address labels	Etiquetas de endereço
-	Arabic	Árabe
 	Auto	Auto
 	Automatically hyphenate document	Hifenizar o documento automaticamente
 	Chinese (Simplified)	Chinês (simplificado)

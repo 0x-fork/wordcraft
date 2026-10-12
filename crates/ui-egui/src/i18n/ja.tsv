@@ -1632,6 +1632,12 @@
 	Enlarge symbol	記号を拡大
 	Enclosure	囲い
 	Circle	円
+	Numerals:	数字:
+	Numerals	数字
+	Arabic	アラビア
+	Hindi	ヒンディー
+	Context	コンテキスト
+	System	システム
 	Templates	テンプレート
 	Templates and Add-ins	テンプレートとアドイン
 	Attach Template	テンプレートの添付
@@ -1977,7 +1983,6 @@
 	Add line numbering	行番号を追加する
 	Add to Document	文書に追加
 	Address labels	宛名ラベル
-	Arabic	アラビア語
 	Auto	自動
 	Automatically hyphenate document	文書を自動的にハイフネーションする
 	Chinese (Simplified)	中国語（簡体字）
