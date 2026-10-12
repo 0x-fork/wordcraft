@@ -4483,3 +4483,21 @@ fn paragraph_relative_floats_start_above_the_space_before() {
     let (top, first_bottom) = shape_top(0.0, 10.0, 0.0);
     assert!((top - (first_bottom + 10.0)).abs() < 1.0, "below the previous paragraph's space after: {top} vs {first_bottom}");
 }
+
+/// Unequal columns (a narrow label column and a wide text column, as in NIH's SARP form): text
+/// after a column break is broken for the column it lands in. WordCraft broke it for the narrow
+/// column it started in, so a paragraph took a dozen lines a word or two wide.
+#[test]
+fn text_after_a_column_break_takes_the_new_column_s_width() {
+    let mut d = Document::new();
+    d.last_section.columns = wordcraft_doc::section::Columns { count: 2, space: 36.0, separator: false, widths: vec![(67.0, 52.0), (348.0, 0.0)] };
+    let brk = wordcraft_doc::para::COLUMN_BREAK;
+    let text = format!("Label{brk}Provide a description of the planned recruitment methods including use of contact lists and databases.");
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&text, Default::default()))];
+    let l = lay(&d);
+    let lines: Vec<(f32, usize)> =
+        l.pages[0].items.iter().filter_map(|it| if let Placed::Lines { x, l0, l1, .. } = it { Some((*x, l1 - l0)) } else { None }).collect();
+    let (wide_x, wide_lines) = lines.last().copied().unwrap();
+    assert!(wide_x > 72.0 + 67.0, "the text is in the second column: {lines:?}");
+    assert!(wide_lines <= 3, "broken for the 348 pt column, not the 67 pt one: {lines:?}");
+}

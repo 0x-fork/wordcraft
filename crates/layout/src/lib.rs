@@ -2840,7 +2840,21 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             Some(LineEnd::PageBreak) => pb.new_page(block, body_top),
             Some(LineEnd::ColumnBreak) => {
                 pb.col_break_page = Some(pb.pages.len().saturating_sub(1));
-                pb.advance(block, body_top)
+                pb.advance(block, body_top);
+                // Unequal columns: the text after the break is broken for its own column's width
+                // (Word), not the width of the column it started in.
+                if (pb.col_w() - width).abs() > 0.5
+                    && let Some(resume) = pl.lines.get(l0).map(|l| l.start)
+                {
+                    let y0 = pb.y;
+                    let (rects, relaid) = anchor_floats(ctx, pb, p, y0, 0.0, excl_mark, &label);
+                    if let Some(k) = relaid.lines.iter().position(|l| l.start == resume) {
+                        (float_rects, pl) = (rects, relaid);
+                        anchor_y = y0;
+                        n = pl.lines.len();
+                        l0 = k;
+                    }
+                }
             }
             _ if l0 < n => pb.advance(block, body_top),
             _ => {}
