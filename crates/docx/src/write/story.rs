@@ -1031,13 +1031,25 @@ impl Writer<'_> {
         if body.anchor != wordcraft_doc::props::VAlign::Top {
             attrs.push(("anchor", wordcraft_doc::props::anchor_ooxml(body.anchor)));
         }
-        match extra.warp.as_ref().and_then(|t| t.sanitized()) {
-            Some(warp) => {
-                w.open("wps:bodyPr", &attrs);
-                text_warp(w, &warp);
-                w.close("wps:bodyPr");
+        // Internal margins, when the box has its own.
+        let inset = body.inset.map(|i| i.map(|v| v.min(wordcraft_doc::MAX_TEXT_BOX_INSET).to_string()));
+        if let Some(inset) = &inset {
+            for (n, v) in ["lIns", "tIns", "rIns", "bIns"].into_iter().zip(inset) {
+                attrs.push((n, v));
             }
-            None => w.empty("wps:bodyPr", &attrs),
+        }
+        let warp = extra.warp.as_ref().and_then(|t| t.sanitized());
+        if warp.is_none() && !body.auto_fit {
+            w.empty("wps:bodyPr", &attrs);
+        } else {
+            w.open("wps:bodyPr", &attrs);
+            if let Some(warp) = &warp {
+                text_warp(w, warp);
+            }
+            if body.auto_fit {
+                w.empty("a:spAutoFit", &[]);
+            }
+            w.close("wps:bodyPr");
         }
         w.close("wps:wsp");
     }

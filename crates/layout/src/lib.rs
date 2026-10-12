@@ -1026,8 +1026,11 @@ fn clear_of_float_tables(mut r: Rect, f: &TableFloat, legacy: f32, text_left: f3
     r
 }
 
-/// A text box's internal margins (Word's defaults: 0.1" left/right, 0.05" top/bottom).
+/// A text box's default internal margins (Word's: 0.1" left/right, 0.05" top/bottom); a box's
+/// own come from its [`wordcraft_doc::TextBody`].
+#[cfg(test)]
 const BOX_INSET_X: f32 = 7.2;
+#[cfg(test)]
 const BOX_INSET_Y: f32 = 3.6;
 
 /// Keep what fits in a box `height` tall (items relative to its top): lines that don't fit are

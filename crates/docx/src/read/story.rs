@@ -936,17 +936,14 @@ impl Reader<'_> {
         } else {
             let wsp = gd.find("wps:wsp")?;
             let mut obj = self.read_wsp(sc, wsp, rels, w, h, float);
-            // A freeform: its custom geometry, and whether it's ink WordCraft wrote.
-            if let InlineObject::Shape { kind, freeform, .. } = &mut obj
-                && let Some(sppr) = wsp.child("wps:spPr")
-                && let Some(mut f) = super::freeform::cust_geom(sppr, w, h)
+            // A freeform: whether it's ink WordCraft wrote.
+            if let InlineObject::Shape { freeform: Some(f), .. } = &mut obj
+                && let Some(name) = c.child("wp:docPr").and_then(|p| p.attr("name"))
+                && let Some(tool) = super::freeform::ink_tool(name)
             {
-                f.alpha = super::freeform::line_alpha(sppr.child("a:ln"));
-                let name = c.child("wp:docPr").and_then(|p| p.attr("name"));
-                f.ink = name.and_then(super::freeform::ink_tool);
-                f.order = name.filter(|_| f.ink.is_some()).and_then(super::freeform::ink_order);
-                *kind = ShapeKind::Freeform;
-                *freeform = Some(Arc::new(f));
+                let f = Arc::make_mut(f);
+                f.ink = Some(tool);
+                f.order = super::freeform::ink_order(name);
             }
             obj
         };
@@ -1217,6 +1214,15 @@ impl Reader<'_> {
             if let Some(a) = bp.attr("anchor") {
                 part.body.anchor = wordcraft_doc::props::valign_from_anchor(a);
             }
+            // Internal margins, each defaulting to Word's (#743).
+            let mut inset = wordcraft_doc::TEXT_BOX_INSET;
+            for (slot, n) in inset.iter_mut().zip(["lIns", "tIns", "rIns", "bIns"]) {
+                if let Some(v) = bp.attr(n).and_then(int) {
+                    *slot = u32::try_from(v.clamp(0, i64::from(wordcraft_doc::MAX_TEXT_BOX_INSET))).unwrap_or(0);
+                }
+            }
+            part.body.inset = (inset != wordcraft_doc::TEXT_BOX_INSET).then_some(inset);
+            part.body.auto_fit = bp.child("a:spAutoFit").is_some();
         }
         let mut extra = ShapeExtra::default();
         // Arrowheads: any end type but `none` (ECMA-376 §20.1.10.33) is drawn as a triangle.
@@ -1236,7 +1242,13 @@ impl Reader<'_> {
             self.glued.extend(extra.start.iter().chain(extra.end.iter()).map(|e| e.id));
         }
         extra.warp = wsp.child("wps:bodyPr").and_then(|b| b.child("a:prstTxWarp")).and_then(text_warp);
-        InlineObject::Shape { kind, w, h, fill, stroke, stroke_width, float, story, freeform: None, effects, extra }
+        // A freeform: its custom geometry (#743: in a group too).
+        let freeform = sppr.and_then(|s| super::freeform::cust_geom(s, w, h)).map(|mut f| {
+            f.alpha = super::freeform::line_alpha(ln);
+            kind = ShapeKind::Freeform;
+            Arc::new(f)
+        });
+        InlineObject::Shape { kind, w, h, fill, stroke, stroke_width, float, story, freeform, effects, extra }
     }
 
     /// Keep drawing id `id` on a shape read from a file (see [`Reader::glued`]).
