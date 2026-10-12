@@ -329,6 +329,12 @@ fn main() -> eframe::Result {
                 app = app.with_control(rx);
                 key_file = file;
             }
+            // Nothing to open (no files, no sample, no control channel driving the editor): start
+            // on File › Home, as Word does (#766), unless the Start screen option is off. Files
+            // macOS hands over later open on top of it and close it (`apple_events`).
+            if files.is_empty() && !sample && control_port.is_none() {
+                app.start_screen();
+            }
             for f in files {
                 if let Err(e) = app.run("file.open", serde_json::json!({"path": f})) {
                     log::warn!("{f}: {e}");

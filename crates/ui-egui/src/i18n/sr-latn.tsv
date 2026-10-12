@@ -2069,3 +2069,6 @@
 	Your system doesn't report an animation setting, so animation effects stay on.	Sistem ne prijavljuje podešavanje animacije, pa efekti animacije ostaju uključeni.
 	Region:	Region:
 	Automatic ({region})	Automatski ({region})
+	Start-up	Pokretanje
+	Show the Start screen when WordCraft starts	Prikaži početni ekran pri pokretanju programa WordCraft
+	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Uključeno: WordCraft se otvara na Fajl › Početak, sa praznim dokumentom, šablonima i nedavnim dokumentima. Isključeno: otvara prazan dokument.

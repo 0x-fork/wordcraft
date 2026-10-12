@@ -2450,3 +2450,6 @@ preview	Title	Örnek
 	Your system doesn't report an animation setting, so animation effects stay on.	Sisteminiz bir animasyon ayarı bildirmiyor, bu nedenle animasyon efektleri açık kalır.
 	Region:	Bölge:
 	Automatic ({region})	Otomatik ({region})
+	Start-up	Başlangıç
+	Show the Start screen when WordCraft starts	WordCraft açılırken Başlangıç ekranını göster
+	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Açık: WordCraft, Dosya › Giriş sayfasında boş belge, şablonlar ve son belgelerinizle açılır. Kapalı: boş bir belge açar.

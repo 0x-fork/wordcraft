@@ -183,6 +183,18 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
     default_app_button(app, ui);
     ui.add_space(8.0);
+    section(ui, "Start-up");
+    let mut start = app.ui.start_screen;
+    if ui
+        .checkbox(&mut start, tl!("Show the Start screen when WordCraft starts"))
+        .on_hover_text(tl!(
+            "On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document."
+        ))
+        .changed()
+    {
+        let _ = app.run("ui.startScreen", json!({"value": start}));
+    }
+    ui.add_space(8.0);
     section(ui, "Personalize");
     egui::Grid::new("options_user").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("User name:"));
@@ -724,6 +736,29 @@ mod tests {
         assert_eq!(h.state().ui.animations, Animations::On);
         assert!(h.state().animations_on());
         assert!(h.query_by_label("Your system has animation effects turned off.").is_none(), "only said while the system is followed");
+    }
+
+    /// File › Options › General › Start-up (#766): the checkbox is the `ui.startScreen` setting.
+    #[test]
+    fn general_start_up_turns_the_start_screen_off_and_on() {
+        let mut a = app();
+        a.run("file.options", json!({"pane": "general"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label("Start-up").is_some(), "the section is there");
+        h.get_by_label("Show the Start screen when WordCraft starts").click();
+        h.run_steps(4);
+        assert!(!h.state().ui.start_screen, "the checkbox turns it off");
+        h.get_by_label("Show the Start screen when WordCraft starts").click();
+        h.run_steps(4);
+        assert!(h.state().ui.start_screen, "and on again");
     }
 
     /// File › Options › Advanced › Animation: the checkbox is the `ui.caretAnimation` setting,

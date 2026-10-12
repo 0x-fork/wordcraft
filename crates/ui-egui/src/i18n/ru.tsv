@@ -2451,3 +2451,6 @@ preview	Title	Пример
 	Your system doesn't report an animation setting, so animation effects stay on.	Система не сообщает о настройке анимации, поэтому эффекты анимации остаются включёнными.
 	Region:	Регион:
 	Automatic ({region})	Автоматически ({region})
+	Start-up	Запуск
+	Show the Start screen when WordCraft starts	Показывать начальный экран при запуске WordCraft
+	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Вкл.: WordCraft открывается на странице Файл › Главная с пустым документом, шаблонами и недавними документами. Выкл.: открывается пустой документ.

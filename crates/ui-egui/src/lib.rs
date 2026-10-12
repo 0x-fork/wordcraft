@@ -238,6 +238,9 @@ pub struct UiState {
     pub recent_count: usize,
     /// File › Options › General: show the mini toolbar over a selection.
     pub mini_toolbar: bool,
+    /// File › Options › General: start on File › Home (Blank document, templates, Recent) when
+    /// the app opens without a document (#766); on, as in Word. See [`WordApp::start_screen`].
+    pub start_screen: bool,
     /// File › Options › Display: print the page colour (off, as in Word).
     pub print_backgrounds: bool,
     /// File › Options › Display: update fields (dates, page numbers, SEQ…) before printing.
@@ -289,6 +292,7 @@ impl Default for UiState {
             options_pane: "general".into(),
             recent_count: 12,
             mini_toolbar: true,
+            start_screen: true,
             print_backgrounds: false,
             update_fields_before_print: false,
             dictionary: Vec::new(),
@@ -507,6 +511,20 @@ impl WordApp {
     pub fn with_control(mut self, rx: std::sync::mpsc::Receiver<ControlRequest>) -> Self {
         self.control_rx = Some(rx);
         self
+    }
+
+    /// Start-up with no document to open (#766): show File › Home (Blank document, the templates
+    /// and Recent), as Word starts, when the Start screen setting is on (the default). Esc or the
+    /// back arrow leaves the empty document the app was created with. Hosts call this after
+    /// [`WordApp::apply_prefs`] when they have nothing to open; [`WordApp::new`] never does, so
+    /// tests, `ui_shot` and windows opened for a document start in the editor. Returns whether
+    /// the Start screen shows.
+    pub fn start_screen(&mut self) -> bool {
+        if self.ui.start_screen {
+            self.ui.backstage = true;
+            self.ui.backstage_page = "home".into();
+        }
+        self.ui.start_screen
     }
 
     /// Preferences to save between runs: the UI state plus the current user name and editing
@@ -1082,6 +1100,16 @@ impl WordApp {
                     Some(_) => return Some(Err("`value` must be true or false".into())),
                 }
                 json!({"caretAnimation": self.ui.caret_animation})
+            }
+            "ui.startScreen" => {
+                // File › Options › General › Start-up (#766): `value` true or false turns showing
+                // File › Home at start-up on or off; no value reads it.
+                match p.get("value") {
+                    None => {}
+                    Some(Value::Bool(on)) => self.ui.start_screen = *on,
+                    Some(_) => return Some(Err("`value` must be true or false".into())),
+                }
+                json!({"startScreen": self.ui.start_screen})
             }
             // Shape Format › Text › Create Link: the next click on an empty text box links the
             // selected box to it (`shape.link` with that box as the target); Esc cancels.
@@ -1859,6 +1887,65 @@ mod tests {
         let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
         assert!(old.caret_animation && old.tab == "Insert");
         assert_eq!(a.run("ui.caretAnimation", json!({"value": true})).unwrap()["caretAnimation"], true);
+    }
+
+    /// #766: started with nothing to open, the app shows File › Home (the Start screen) as Word
+    /// does; Esc leaves the empty blank document it was created with. With the setting off it
+    /// starts in the editor, and `WordApp::new` alone (tests, ui_shot, windows opened for a
+    /// document) never shows it.
+    #[test]
+    fn start_screen_shows_file_home_and_esc_leaves_a_blank_document() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        assert!(!a.ui.backstage, "`new` starts in the editor");
+        a.ui.backstage_page = "print".into();
+        assert!(a.start_screen(), "on by default");
+        assert!(a.ui.backstage && a.ui.backstage_page == "home");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label("Blank document").is_some(), "Home lists Blank document and the templates");
+        assert!(h.query_by_label("Recent").is_some(), "and the Recent list");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(4);
+        assert!(!h.state().ui.backstage, "Esc leaves the Start screen");
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim(), "", "for an empty blank document");
+        assert!(!h.state().session.dirty);
+
+        let mut b = app();
+        b.run("ui.startScreen", json!({"value": false})).unwrap();
+        assert!(!b.start_screen(), "off: today's behaviour");
+        assert!(!b.ui.backstage);
+    }
+
+    /// The Start screen setting is a UI command, kept between runs; settings saved before it
+    /// existed leave it on, and opening saved settings never reopens the Backstage by itself.
+    #[test]
+    fn start_screen_setting_is_a_ui_command_and_survives_a_restart() {
+        let mut a = app();
+        assert_eq!(a.run("ui.startScreen", json!({})).unwrap(), json!({"startScreen": true}), "on by default; no value reads it");
+        assert_eq!(a.run("ui.startScreen", json!({"value": false})).unwrap(), json!({"startScreen": false}));
+        for junk in [json!({"value": "yes"}), json!({"value": 1}), json!({"value": null}), json!({"value": [true]})] {
+            assert!(a.run("ui.startScreen", junk).is_err());
+        }
+        assert!(!a.ui.start_screen, "a rejected value keeps the setting");
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        assert!(saved.contains(r#""startScreen":false"#), "{saved}");
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert!(!b.ui.start_screen && !b.start_screen());
+        let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
+        assert!(old.start_screen, "settings from before the option leave it on");
+        let mut c = app();
+        c.apply_prefs(old);
+        assert!(!c.ui.backstage, "applying settings alone stays in the editor");
+        assert!(c.start_screen() && c.ui.backstage_page == "home");
     }
 
     /// Insert › Icons (#309) opens the icon picker from the ribbon; an id inserts without it.

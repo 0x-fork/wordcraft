@@ -2422,6 +2422,9 @@
 	✓ None	✓ Nessuno
 preview	Title	Esempio
 	Do Not Check Spelling or Grammar	Non controllare ortografia e grammatica
+	Start-up	Avvio
+	Show the Start screen when WordCraft starts	Mostra la schermata iniziale all'avvio di WordCraft
+	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Attivo: WordCraft si apre su File › Home, con un documento vuoto, i modelli e i documenti recenti. Disattivo: apre un documento vuoto.
 	Couldn't make WordCraft the default: {error}	Impossibile rendere WordCraft l'app predefinita: {error}
 	In Default apps, choose WordCraft for the document types you want it to open.	In App predefinite, scegli WordCraft per i tipi di documento che deve aprire.
 	Make WordCraft the default for Word documents…	Rendi WordCraft l'app predefinita per i documenti Word…
