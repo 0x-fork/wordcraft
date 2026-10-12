@@ -111,8 +111,22 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
     }
     let qid = egui::Id::new("nav_query");
     let mut q = ui.data(|d| d.get_temp::<String>(qid)).unwrap_or_default();
-    let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY));
-    if r.changed() {
+    // Ctrl+F with text selected searches for it, as Word does (a selection within one line).
+    let focus = std::mem::take(&mut app.nav_search_focus);
+    let picked = focus.then(|| app.session.selected_text()).filter(|t| !t.is_empty() && !t.contains(['\n', '\r']) && t.chars().count() <= 255);
+    if let Some(t) = &picked {
+        q = t.clone();
+    }
+    let mut out = egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY).show(ui);
+    let r = out.response.clone();
+    if focus {
+        // Focused with its text selected, so typing replaces it.
+        r.request_focus();
+        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(q.chars().count()));
+        out.state.cursor.set_char_range(Some(all));
+        out.state.store(ui.ctx(), r.id);
+    }
+    if r.changed() || picked.is_some() {
         ui.data_mut(|d| d.insert_temp(qid, q.clone()));
         if !q.is_empty() {
             let _ = app.session.run("edit.find", &json!({"text": q}));

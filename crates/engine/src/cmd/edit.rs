@@ -114,12 +114,25 @@ pub fn specs() -> Vec<CommandSpec> {
         .key(super::mac_or("Mod+Shift+G / Mod+PageUp", "Mod+PageUp"))
         .params(r#"{"text"?: string, "matchCase"?: bool, "wholeWord"?: bool, "regex"?: bool}"#)
         .pure(),
-        CommandSpec::new("edit.replace", "Replace", "Home › Editing", replace).key("Mod+H").params(r#"{"text": string, "with": string, …options of edit.replaceAll}"#),
+        CommandSpec::new("edit.replace", "Replace", "Home › Editing", replace).params(r#"{"text": string, "with": string, …options of edit.replaceAll}"#),
+        // Ctrl+H, Home › Replace: the Find and Replace dialog on its Replace tab (#712). Opening
+        // it changes nothing, so it is its own command and never marks the document edited.
+        CommandSpec::new("edit.findReplace", "Find and Replace", "Home › Editing", |s, v| {
+            let tab = match p::str(v, "tab").unwrap_or("replace") {
+                t @ ("find" | "replace" | "goto") => t,
+                other => return Err(CmdError::Params(format!("`tab` is find, replace or goto, not `{other}`"))),
+            };
+            s.ui_requests.push(json!({"open": tab}));
+            Ok(json!({"open": tab}))
+        })
+        .key("Mod+H")
+        .params(r#"{"tab"?: "find|replace|goto" (default replace)}"#)
+        .pure(),
         CommandSpec::new("edit.replaceAll", "Replace All", "Home › Editing › Replace", replace_all)
             .params(r#"{"text": string, "with": string (^p ^t ^& ^c …; \\1 with wildcards), …options of edit.find}"#),
         CommandSpec::new("edit.goto", "Go To", "Home › Editing › Find", goto)
             .key("Mod+Alt+G / F5")
-            .params(r#"{"page"?: n, "bookmark"?: string, "paragraph"?: n}"#)
+            .params(r#"{"page"?: n, "pageBy"?: int (pages forward, negative back, from the caret's page), "bookmark"?: string, "paragraph"?: n}; none opens Find and Replace on its Go To tab"#)
             .pure(),
         CommandSpec::new("edit.goBack", "Go Back", "Navigation", |s, _| {
             let p = s.go_back().ok_or_else(|| CmdError::Failed("no edits to go back to yet".into()))?;
@@ -521,8 +534,10 @@ fn read_opts(s: &mut Session, v: &Value) {
 fn find(s: &mut Session, v: &Value) -> CmdResult {
     read_opts(s, v);
     if p::str(v, "text").is_none() {
+        // Word's Ctrl+F: the Navigation pane with its search box ready to type in (#712); the
+        // Find and Replace dialog is Advanced Find.
         s.view.nav_pane = true;
-        s.ui_requests.push(json!({"open": "find"}));
+        s.ui_requests.push(json!({"focus": "navSearch"}));
         return Ok(json!({"count": s.find.results.len()}));
     }
     let story = s.sel.focus.story;
@@ -633,7 +648,13 @@ fn replace_all(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 fn goto(s: &mut Session, v: &Value) -> CmdResult {
-    if let Some(pg) = p::u64(v, "page") {
+    // Relative pages, Go To's "+2" / "-1": from the page the caret is on.
+    let by = v.get("pageBy").and_then(Value::as_i64);
+    let rel = by.map(|by| {
+        let here = s.layout().caret_on(&s.sel.focus, s.page_hint).map_or(0, |c| c.page) as i64;
+        (here + 1).saturating_add(by).max(1) as u64
+    });
+    if let Some(pg) = rel.or_else(|| p::u64(v, "page")) {
         let l = s.layout();
         let idx = (pg.max(1) as usize - 1).min(l.pages.len().saturating_sub(1));
         let target = l.pages.get(idx).and_then(|page| {

@@ -172,7 +172,7 @@ fn controls(tab: &str) -> Vec<Control> {
             m("Line and Paragraph Spacing", "para.lineSpacing"),
             m("Shading", "para.shading"),
             m("Borders", "para.borders"),
-            d("Find", "find"),
+            c("Find", "edit.find"),
             d("Replace", "replace"),
             m("Select", "select.all"),
             c("Dictate", "tools.dictate"),

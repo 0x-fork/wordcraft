@@ -31,6 +31,25 @@ pub struct FindExtra {
     pub to_replace: bool,
 }
 
+/// The tabs of the Find and Replace dialog (#712).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FindTab {
+    #[default]
+    Find,
+    Replace,
+    GoTo,
+}
+
+/// What Go To moves to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GoToWhat {
+    #[default]
+    Page,
+    Bookmark,
+}
+
 /// The Special ▾ menu: (name, code) for Find what, without and with wildcards.
 const SPECIAL_FIND: &[(&str, &str)] = &[
     ("Paragraph Mark", "^p"),
@@ -202,13 +221,14 @@ pub enum Dialog {
         regex: bool,
         /// Search options under "Search Options" (#543).
         extra: FindExtra,
-        replace_mode: bool,
+        /// Find, Replace or Go To, one dialog as in Word (#712).
+        tab: FindTab,
+        goto_what: GoToWhat,
+        /// Go To's box: a page number (`+2`, `-1` move from the current page) or a bookmark.
+        goto_target: String,
         message: String,
         /// Put the caret in Find what on the first frame, so typing searches (#772).
         focus: bool,
-    },
-    Goto {
-        page: String,
     },
     InsertTable {
         rows: u32,
@@ -852,9 +872,9 @@ impl Dialog {
             Dialog::Paragraph { .. } => "paragraph",
             Dialog::Tabs { .. } => "tabs",
             Dialog::Borders { .. } => "borders",
-            Dialog::Find { replace_mode: false, .. } => "find",
-            Dialog::Find { .. } => "replace",
-            Dialog::Goto { .. } => "goto",
+            Dialog::Find { tab: FindTab::Find, .. } => "find",
+            Dialog::Find { tab: FindTab::Replace, .. } => "replace",
+            Dialog::Find { tab: FindTab::GoTo, .. } => "goto",
             Dialog::InsertTable { .. } => "insertTable",
             Dialog::PageSetup { .. } => "pageSetup",
             Dialog::Link { .. } => "link",
@@ -1010,7 +1030,7 @@ impl Dialog {
                 };
                 Dialog::Borders { form: Box::new(crate::dialogs_para::BordersForm::read(app, tab)?) }
             }
-            "find" | "replace" => Dialog::Find {
+            "find" | "replace" | "goto" => Dialog::Find {
                 query: if app.session.sel.is_collapsed() { app.session.find.query.clone() } else { app.session.selected_text() },
                 replace: app.session.find.replace.clone(),
                 match_case: app.session.find.match_case,
@@ -1029,11 +1049,16 @@ impl Dialog {
                         || app.session.find.ignore_space,
                     to_replace: false,
                 },
-                replace_mode: name == "replace",
+                tab: match name {
+                    "replace" => FindTab::Replace,
+                    "goto" => FindTab::GoTo,
+                    _ => FindTab::Find,
+                },
+                goto_what: GoToWhat::Page,
+                goto_target: String::new(),
                 message: String::new(),
                 focus: true,
             },
-            "goto" => Dialog::Goto { page: String::new() },
             "insertTable" => Dialog::InsertTable { rows: 2, cols: 5 },
             "pageSetup" => {
                 let sp = wordcraft_engine::cmd::page::sect(&app.session);
@@ -1298,9 +1323,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::Paragraph { .. } => "Paragraph",
         Dialog::Tabs { .. } => "Tabs",
         Dialog::Borders { .. } => "Borders and Shading",
-        Dialog::Find { replace_mode: false, .. } => "Find",
         Dialog::Find { .. } => "Find and Replace",
-        Dialog::Goto { .. } => "Go To",
         Dialog::InsertTable { .. } => "Insert Table",
         Dialog::PageSetup { .. } => "Page Setup",
         Dialog::Link { .. } => "Insert Hyperlink",
@@ -1670,15 +1693,20 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::Tabs { form } => crate::dialogs_para::tabs(app, ui, form),
         Dialog::Borders { form } => crate::dialogs_para::borders(app, ui, form),
-        Dialog::Find { query, replace, match_case, whole_word, regex, extra, replace_mode, message, focus } => {
+        Dialog::Find { query, replace, match_case, whole_word, regex, extra, tab, goto_what, goto_target, message, focus } => {
             ui.horizontal(|ui| {
-                if ui.selectable_label(!*replace_mode, tl!("Find")).clicked() {
-                    *replace_mode = false;
-                }
-                if ui.selectable_label(*replace_mode, tl!("Replace")).clicked() {
-                    *replace_mode = true;
+                for (t, label) in [(FindTab::Find, "Find"), (FindTab::Replace, "Replace"), (FindTab::GoTo, "Go To")] {
+                    if ui.selectable_label(*tab == t, tl!(label)).clicked() && *tab != t {
+                        *tab = t;
+                        message.clear();
+                    }
                 }
             });
+            ui.separator();
+            if *tab == FindTab::GoTo {
+                return goto_body(app, ui, goto_what, goto_target, message);
+            }
+            let replace_mode = *tab == FindTab::Replace;
             ui.horizontal(|ui| {
                 ui.label(tl!("Find what:"));
                 let r = ui.add(egui::TextEdit::singleline(query).id(egui::Id::new("find_what")).desired_width(240.0));
@@ -1689,7 +1717,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     extra.to_replace = false;
                 }
             });
-            if *replace_mode {
+            if replace_mode {
                 ui.horizontal(|ui| {
                     ui.label(tl!("Replace with:"));
                     if ui.add(egui::TextEdit::singleline(replace).desired_width(228.0)).gained_focus() {
@@ -1738,7 +1766,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 "ignorePunct": extra.ignore_punct,
                 "ignoreSpace": extra.ignore_space,
             });
-            if !*replace_mode {
+            if !replace_mode {
                 ui.horizontal(|ui| {
                     let lit = app.session.find.highlight;
                     if ui.selectable_label(lit, tl!("Reading Highlight")).clicked() {
@@ -1757,7 +1785,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             let mut close = false;
             ui.horizontal(|ui| {
-                if *replace_mode {
+                if replace_mode {
                     if ui.button(tl!("Replace All")).clicked() {
                         match app.run("edit.replaceAll", opts.clone()) {
                             Ok(r) => *message = format!("All done. We made {} replacements.", r["replaced"]),
@@ -1780,17 +1808,6 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 }
             });
             close
-        }
-        Dialog::Goto { page } => {
-            ui.horizontal(|ui| {
-                ui.label(tl!("Enter page number:"));
-                ui.text_edit_singleline(page);
-            });
-            let (ok, cancel) = buttons(ui, tl!("Go To"));
-            if ok && let Ok(n) = page.trim().parse::<u64>() {
-                let _ = app.run("edit.goto", json!({"page": n}));
-            }
-            ok || cancel
         }
         Dialog::Enclose { style, text, shape } => {
             ui.label(egui::RichText::new(tl!("Style")).font(semibold(12.5)));
@@ -3048,6 +3065,101 @@ fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
     query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()) || hay.contains(&crate::i18n::lowercase(w)))
 }
 
+/// The Find and Replace dialog's Go To tab (#712): a page (a number, or `+2` / `-1` from the
+/// current page; empty, Next and Previous step a page) or a bookmark. Returns true to close.
+fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut String, message: &mut String) -> bool {
+    // The document's bookmarks, only while they are listed (finding them walks the document).
+    let bookmarks: Vec<String> = if *what == GoToWhat::Bookmark {
+        app.session.doc.bookmarks().into_iter().map(|(n, _)| n).filter(|n| !n.starts_with('_')).collect()
+    } else {
+        Vec::new()
+    };
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.label(tl!("Go to what:"));
+            for (w, label) in [(GoToWhat::Page, "Page"), (GoToWhat::Bookmark, "Bookmark")] {
+                if ui.selectable_label(*what == w, tl!(label)).clicked() && *what != w {
+                    *what = w;
+                    target.clear();
+                    message.clear();
+                }
+            }
+        });
+        ui.add_space(16.0);
+        ui.vertical(|ui| match what {
+            GoToWhat::Page => {
+                ui.label(tl!("Enter page number:"));
+                ui.add(egui::TextEdit::singleline(target).desired_width(220.0)).request_focus();
+                ui.label(egui::RichText::new(tl!("Type +2 or -1 to move from the page you are on.")).weak());
+            }
+            GoToWhat::Bookmark => {
+                ui.label(tl!("Enter bookmark name:"));
+                egui::ComboBox::from_id_salt("goto_bookmark").width(220.0).selected_text(target.as_str()).show_ui(ui, |ui| {
+                    for b in &bookmarks {
+                        ui.selectable_value(target, b.clone(), b.as_str());
+                    }
+                });
+                if bookmarks.is_empty() {
+                    ui.label(egui::RichText::new(tl!("This document has no bookmarks.")).weak());
+                }
+            }
+        });
+    });
+    if !message.is_empty() {
+        ui.label(egui::RichText::new(message.as_str()).weak());
+    }
+    let mut close = false;
+    let mut go: Option<Value> = None;
+    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        let page_step = *what == GoToWhat::Page && target.trim().is_empty();
+        if page_step && ui.button(tl!("Previous")).clicked() {
+            go = Some(json!({"pageBy": -1}));
+        }
+        let label = if page_step { tl!("Next") } else { tl!("Go To") };
+        if ui.button(label).clicked() || enter {
+            go = match what {
+                GoToWhat::Page => match goto_page(target) {
+                    Some(p) => Some(p),
+                    None => {
+                        *message = tl!("Type a page number, or +2 / -1.").to_string();
+                        None
+                    }
+                },
+                GoToWhat::Bookmark if !target.is_empty() => Some(json!({"bookmark": target.clone()})),
+                GoToWhat::Bookmark => None,
+            };
+        }
+        if ui.button(tl!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            close = true;
+        }
+    });
+    if let Some(params) = go {
+        match app.run("edit.goto", params) {
+            Ok(_) => message.clear(),
+            Err(e) => *message = e,
+        }
+    }
+    close
+}
+
+/// Go To's page box as `edit.goto` params: empty steps one page on, `+n` / `-n` move from the
+/// current page, a number is that page. `None` for anything else.
+fn goto_page(text: &str) -> Option<Value> {
+    let t = text.trim().replace('\u{2212}', "-");
+    if t.is_empty() {
+        return Some(json!({"pageBy": 1}));
+    }
+    if let Some(rest) = t.strip_prefix('+') {
+        return rest.parse::<i64>().ok().filter(|n| *n >= 0).map(|n| json!({"pageBy": n}));
+    }
+    if t.starts_with('-') {
+        return t.parse::<i64>().ok().map(|n| json!({"pageBy": n}));
+    }
+    t.parse::<u64>().ok().filter(|n| *n >= 1).map(|n| json!({"page": n}))
+}
+
 /// path data; Insert (or a double click) runs `insert.icon`. Returns true to close.
 fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, category: &mut String, selected: &mut String) -> bool {
     use wordcraft_render::icon_lib::{self, Category};
@@ -3159,6 +3271,31 @@ mod tests {
     use wordcraft_doc::Pos;
     use wordcraft_doc::props::Align;
     use wordcraft_engine::Session;
+
+    /// Go To's page box (#712): a number, +n / -n from the current page (a typographic minus
+    /// too), empty for the next page; anything else is refused.
+    #[test]
+    fn go_to_reads_its_page_box() {
+        assert_eq!(goto_page("7"), Some(json!({"page": 7})));
+        assert_eq!(goto_page(" +2 "), Some(json!({"pageBy": 2})));
+        assert_eq!(goto_page("-1"), Some(json!({"pageBy": -1})));
+        assert_eq!(goto_page("\u{2212}3"), Some(json!({"pageBy": -3})));
+        assert_eq!(goto_page(""), Some(json!({"pageBy": 1})));
+        for junk in ["0", "abc", "+x", "1.5", "99999999999999999999999"] {
+            assert_eq!(goto_page(junk), None, "{junk}");
+        }
+    }
+
+    /// Find, Replace and Go To are one dialog with three tabs (#712).
+    #[test]
+    fn find_replace_and_go_to_are_one_dialog() {
+        let mut app = app_with("One");
+        for (name, tab) in [("find", FindTab::Find), ("replace", FindTab::Replace), ("goto", FindTab::GoTo)] {
+            let _ = app.run("ui.dialog", json!({"name": name}));
+            assert!(matches!(&app.dialog, Some(Dialog::Find { tab: t, .. }) if *t == tab), "{name}");
+            assert_eq!(app.dialog.as_ref().map(|d| d.name()), Some(name));
+        }
+    }
 
     fn app_with(text: &str) -> WordApp {
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());

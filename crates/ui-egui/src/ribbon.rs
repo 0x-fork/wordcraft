@@ -738,7 +738,8 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Editing", None, app, |ui, app| {
         stack(ui, |ui| {
             menu_button(ui, app, "find", Some("Find"), "Find", false, "edit.find", |ui, app| {
-                mi(ui, app, "Find", "ui.dialog", json!({"name": "find"}));
+                // As in Word: Find searches in the Navigation pane; Advanced Find is the dialog (#712).
+                mi(ui, app, "Find", "edit.find", json!({}));
                 mi(ui, app, "Advanced Find…", "edit.advancedFind", json!({}));
                 mi(ui, app, "Go To…", "ui.dialog", json!({"name": "goto"}));
             });
