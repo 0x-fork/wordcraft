@@ -453,6 +453,7 @@ struct Key {
     eq: u32,
     read_spacing: Option<u32>,
     grid: (u32, u32, u32, bool),
+    fit: bool,
     hide_deleted: bool,
 }
 
@@ -647,6 +648,7 @@ impl Ctx<'_> {
             eq_number: 0,
             read_line_spacing: None,
             grid: para::Grid::default(),
+            fit_objects: false,
         };
         let pl = Arc::new(para::layout_para(&p, &env));
         self.numbers.insert(n, pl.clone());
@@ -696,6 +698,7 @@ impl Ctx<'_> {
             eq: if eq_here > 0 { eq_number } else { 0 },
             read_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing.map(f32::to_bits) } else { None },
             grid: self.grid.key(),
+            fit: self.boxes.inside(),
             hide_deleted: self.hide_deleted,
         };
         self.cache.used.insert(key.clone());
@@ -719,6 +722,7 @@ impl Ctx<'_> {
             eq_number,
             read_line_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing } else { None },
             grid: self.grid,
+            fit_objects: self.boxes.inside(),
         };
         let pl = Arc::new(para::layout_para(p, &env));
         self.cache.paras.insert(key, pl.clone());
@@ -2827,6 +2831,7 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32) -> f32 {
                 eq_number: ctx.eq_count,
                 read_line_spacing: if ctx.opts.view == ViewMode::Read { ctx.opts.read_line_spacing } else { None },
                 grid: ctx.grid,
+                fit_objects: false,
             };
             let _ = rp;
             let pl = para::layout_para(p, &env);

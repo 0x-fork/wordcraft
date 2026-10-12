@@ -345,6 +345,9 @@ pub struct ParaEnv<'a> {
     pub read_line_spacing: Option<f32>,
     /// The section's document grid (`Grid::default()`: none).
     pub grid: Grid,
+    /// Shrink inline drawings wider than the line to fit it: in text boxes, which don't clip what
+    /// runs past their sides. Elsewhere such a drawing keeps its size and the page edge clips it.
+    pub fit_objects: bool,
 }
 
 /// The section's document grid as layout applies it (`w:docGrid`, ECMA-376 §17.6.5).
@@ -1208,9 +1211,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                             if let Some((w, h, float)) = o.frame()
                                 && float.wrap == wordcraft_doc::para::Wrap::Inline
                             {
+                                // A picture wider than the line keeps its size, as in Word: it runs past
+                                // the margin and the page edge clips it (see `ParaEnv::fit_objects`).
                                 let maxw = (env.width - rp.indent_left.max(0.0) - rp.indent_right.max(0.0)).max(18.0);
                                 let (w, h) = (w.clamp(1.0, 4000.0), h.clamp(1.0, 4000.0));
-                                let s = if w > maxw { maxw / w } else { 1.0 };
+                                let s = if env.fit_objects && w > maxw { maxw / w } else { 1.0 };
                                 // The line makes room for effects (shadows) around the picture too, and
                                 // for a rotated one's bounds, as Word does.
                                 let [el, et, er, eb] = float.effect_extent();
