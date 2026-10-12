@@ -70,11 +70,21 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("edit.advancedFind", "Advanced Find", "Home › Editing › Find", advanced_find)
             .params(r#"{"text"?: string, …options of edit.find, "in"?: "main|selection", "highlight"?: bool}"#)
             .pure(),
-        CommandSpec::new("edit.findNext", "Find Next", "Home › Editing › Find", |s, _| step(s, 1)).key("Mod+G / F3 / Mod+PageDown").pure(),
-        CommandSpec::new("edit.findPrevious", "Find Previous", "Home › Editing › Find", |s, _| step(s, -1))
-            // Elsewhere Ctrl+Shift+G is Word Count; Ctrl+Page Up/Down browse the find results.
-            .key(super::mac_or("Mod+Shift+G / Mod+PageUp", "Mod+PageUp"))
-            .pure(),
+        CommandSpec::new("edit.findNext", "Find Next", "Home › Editing › Find", |s, v| {
+            read_opts(s, v);
+            step(s, 1)
+        })
+        .key("Mod+G / F3 / Mod+PageDown")
+        .params(r#"{"text"?: string, "matchCase"?: bool, "wholeWord"?: bool, "regex"?: bool}"#)
+        .pure(),
+        CommandSpec::new("edit.findPrevious", "Find Previous", "Home › Editing › Find", |s, v| {
+            read_opts(s, v);
+            step(s, -1)
+        })
+        // Elsewhere Ctrl+Shift+G is Word Count; Ctrl+Page Up/Down browse the find results.
+        .key(super::mac_or("Mod+Shift+G / Mod+PageUp", "Mod+PageUp"))
+        .params(r#"{"text"?: string, "matchCase"?: bool, "wholeWord"?: bool, "regex"?: bool}"#)
+        .pure(),
         CommandSpec::new("edit.replace", "Replace", "Home › Editing", replace).key("Mod+H").params(r#"{"text": string, "with": string, …options of edit.replaceAll}"#),
         CommandSpec::new("edit.replaceAll", "Replace All", "Home › Editing › Replace", replace_all)
             .params(r#"{"text": string, "with": string (^p ^t ^& ^c …; \\1 with wildcards), …options of edit.find}"#),
