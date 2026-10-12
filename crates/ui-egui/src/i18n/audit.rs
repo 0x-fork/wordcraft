@@ -112,6 +112,10 @@ impl Exempt {
         names.extend(app.session.doc.styles.styles.iter().map(|s| s.name.clone()));
         // Fonts a document asks for, installed or not (Aptos is drawn with a substitute).
         names.extend([wordcraft_doc::styles::BODY_FONT, wordcraft_doc::styles::HEADING_FONT].map(str::to_string));
+        // The selected SmartArt graphic's items (the Text Pane): document content.
+        if let Some(g) = wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session) {
+            names.extend(g.items.iter().map(|i| i.text.clone()));
+        }
         // The accessibility checker's findings: like command messages, they answer scripts and
         // MCP too, so they stay English for now.
         for i in wordcraft_engine::cmd::accessibility::check(&app.session.doc) {
@@ -243,6 +247,16 @@ fn untranslated_interface_text() {
         let drawn = frame(&ctx, &mut app);
         record(&app, &format!("tab {tab}"), drawn);
     }
+    let _ = app.run("insert.smartArt", json!({"layout": "hierarchy"}));
+    let _ = app.run("smartArt.textPane", json!({"value": true}));
+    let _ = app.run("ui.tab", json!({"tab": "SmartArt Design"}));
+    let drawn = frame(&ctx, &mut app);
+    record(&app, "tab SmartArt Design", drawn);
+    let _ = app.run("smartArt.textPane", json!({"value": false}));
+    let _ = app.run("ui.dialog", json!({"name": "insertSmartArt"}));
+    let drawn = frame(&ctx, &mut app);
+    record(&app, "dialog insertSmartArt", drawn);
+    app.dialog = None;
     let _ = app.run("insert.chart", json!({"type": "column"}));
     let _ = app.run("ui.tab", json!({"tab": "Chart Design"}));
     let drawn = frame(&ctx, &mut app);
@@ -261,13 +275,14 @@ fn untranslated_interface_text() {
     // tab keeps one tab's commands from changing the next.
     // A fresh app per control, set up the same way, so no click changes what the next one hits
     // (Escape, for one, leaves an equation and takes the Equation tab with it).
-    let contextual = ["Table Design", "Table Layout", "Equation", "Chart Design"];
+    let contextual = ["Table Design", "Table Layout", "Equation", "Chart Design", "SmartArt Design"];
     let open = |tab: &str| {
         let ctx = egui::Context::default();
         let mut app = fresh_app(&ctx);
         match tab {
             "Table Design" | "Table Layout" => drop(app.run("insert.table", json!({"rows": 2, "cols": 2}))),
             "Equation" => drop(app.run("insert.equation", json!({}))),
+            "SmartArt Design" => drop(app.run("insert.smartArt", json!({"layout": "process"}))),
             "Chart Design" => drop(app.run("insert.chart", json!({"type": "column"}))),
             _ => {}
         }

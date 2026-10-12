@@ -433,6 +433,13 @@ Shape Format|Accessibility|Alt Text|object.altText
 Picture Format|Size|Crop|picture.crop
 Picture Format|Size|Size|picture.size
 Picture Format|Size|Rotation|arrange.rotation
+SmartArt Design|Create Graphic|Add Shape|smartArt.addShape
+SmartArt Design|Create Graphic|Promote|smartArt.promote
+SmartArt Design|Create Graphic|Demote|smartArt.demote
+SmartArt Design|Create Graphic|Text Pane|smartArt.textPane
+SmartArt Design|Layouts|Layouts|smartArt.layout
+SmartArt Design|SmartArt Styles|Change Colors|smartArt.colors
+SmartArt Design|Reset|Reset Graphic|smartArt.reset
 Chart Design|Type|Change Chart Type|chart.type
 Chart Design|Data|Edit Data|chart.editData
 Chart Design|Chart Layouts|Chart Title|chart.title

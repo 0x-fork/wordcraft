@@ -33,6 +33,7 @@ pub mod dialogs_para;
 pub mod dialogs_refs;
 pub mod dialogs_review;
 pub mod dialogs_ribbon;
+pub mod dialogs_smart_art;
 pub mod dialogs_templates;
 pub mod equation_tab;
 pub mod file_dialogs;
@@ -278,6 +279,10 @@ pub struct WordApp {
     last_autosave: f64,
     /// The tab shown before the Equation tab came up (restored when editing ends).
     pub(crate) equation_prev_tab: Option<String>,
+    /// SmartArt Text Pane: the item last focused (Promote, Demote and Add Shape act on it) and
+    /// the item being typed in (its keystrokes join one undo step).
+    pub smart_art_item: Option<usize>,
+    pub(crate) smart_art_typing: Option<usize>,
     /// The tab shown before Outline view brought up the Outlining tab (restored when it closes).
     pub(crate) outline_prev_tab: Option<String>,
     /// Zotero commands in flight (`ui.zotero.*`).
@@ -350,6 +355,8 @@ impl WordApp {
             word_count: (0, 0),
             last_autosave: 0.0,
             equation_prev_tab: None,
+            smart_art_item: None,
+            smart_art_typing: None,
             outline_prev_tab: None,
             zotero: zotero::ZoteroLink::default(),
             ctx: None,
@@ -1285,6 +1292,8 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "insert.field" if !has("instr") => Some("field"),
         // Edit Field Code shows the selected field's code (#339).
         "fields.setCode" if !has("code") => Some("editFieldCode"),
+        // SmartArt without a layout or items shows the layout picker.
+        "insert.smartArt" if !has("layout") && !has("items") => Some("insertSmartArt"),
         // Chart without a type shows the gallery; Change Chart Type and Edit Data their dialogs.
         "insert.chart" if !has("type") && !has("data") => Some("insertChart"),
         "chart.type" if !has("type") => Some("changeChartType"),

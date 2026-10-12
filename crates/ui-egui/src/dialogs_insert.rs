@@ -16,6 +16,7 @@ pub enum InsertDialog {
     Columns(ColumnsForm),
     Symbol(SymbolForm),
     Field(FieldForm),
+    SmartArt(crate::dialogs_smart_art::SmartArtForm),
     ChartType(crate::dialogs_chart::ChartTypeForm),
     ChartData(crate::dialogs_chart::ChartDataForm),
 }
@@ -26,6 +27,7 @@ impl InsertDialog {
             InsertDialog::Columns(_) => "columns",
             InsertDialog::Symbol(_) => "symbol",
             InsertDialog::Field(_) => "field",
+            InsertDialog::SmartArt(_) => "insertSmartArt",
             InsertDialog::ChartType(f) if f.change => "changeChartType",
             InsertDialog::ChartType(_) => "insertChart",
             InsertDialog::ChartData(_) => "chartData",
@@ -38,6 +40,7 @@ impl InsertDialog {
             InsertDialog::Columns(_) => "Columns",
             InsertDialog::Symbol(_) => "Symbol",
             InsertDialog::Field(_) => "Field",
+            InsertDialog::SmartArt(_) => "Insert SmartArt",
             InsertDialog::ChartType(f) if f.change => "Change Chart Type",
             InsertDialog::ChartType(_) => "Insert Chart",
             InsertDialog::ChartData(_) => "Edit Data",
@@ -46,13 +49,15 @@ impl InsertDialog {
 }
 
 /// The dialog `ui.dialog` opens by `name`: `columns`, `symbol`, `specialCharacters`, `field`,
-/// `insertChart`, `changeChartType` or `chartData` (the last two for the selected chart).
+/// `insertChart`, `changeChartType` or `chartData` (the last two for the selected chart), or
+/// `insertSmartArt`.
 pub fn open(name: &str, app: &WordApp) -> Option<InsertDialog> {
     Some(match name {
         "columns" => InsertDialog::Columns(ColumnsForm::read(app)),
         "symbol" => InsertDialog::Symbol(SymbolForm::new(app, 0)),
         "specialCharacters" => InsertDialog::Symbol(SymbolForm::new(app, 1)),
         "field" => InsertDialog::Field(FieldForm::new(app)),
+        "insertSmartArt" => InsertDialog::SmartArt(crate::dialogs_smart_art::SmartArtForm::new(app)),
         "insertChart" => InsertDialog::ChartType(crate::dialogs_chart::ChartTypeForm::new(app, false)?),
         "changeChartType" => InsertDialog::ChartType(crate::dialogs_chart::ChartTypeForm::new(app, true)?),
         "chartData" => InsertDialog::ChartData(crate::dialogs_chart::ChartDataForm::new(app)?),
@@ -66,13 +71,14 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut InsertDialog) -> bool {
         InsertDialog::Columns(f) => columns_ui(app, ui, f),
         InsertDialog::Symbol(f) => symbol_ui(app, ui, f),
         InsertDialog::Field(f) => field_ui(app, ui, f),
+        InsertDialog::SmartArt(f) => crate::dialogs_smart_art::picker_ui(app, ui, f),
         InsertDialog::ChartType(f) => crate::dialogs_chart::type_ui(app, ui, f),
         InsertDialog::ChartData(f) => crate::dialogs_chart::data_ui(app, ui, f),
     }
 }
 
 /// OK / Cancel (or another OK label); returns (ok, cancel). `ok_enabled` greys OK out.
-fn buttons(ui: &mut Ui, ok: &str, cancel: &str, ok_enabled: bool) -> (bool, bool) {
+pub(crate) fn buttons(ui: &mut Ui, ok: &str, cancel: &str, ok_enabled: bool) -> (bool, bool) {
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {

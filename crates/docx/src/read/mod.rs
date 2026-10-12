@@ -1,7 +1,7 @@
 //! DOCX → [`Document`].
 
 pub(crate) mod chart;
-mod diagram;
+pub(crate) mod diagram;
 mod drawing_color;
 mod embed;
 mod freeform;

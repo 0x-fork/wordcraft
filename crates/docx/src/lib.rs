@@ -12,6 +12,7 @@ mod crypt;
 mod custom;
 mod package;
 mod read;
+mod smart_art;
 mod units;
 mod write;
 mod xml;
@@ -22,6 +23,7 @@ pub use crypt::{
     is_encrypted, protection_hash,
 };
 pub use read::read;
+pub use smart_art::smart_art_items;
 pub use write::{write, write_as};
 
 /// What [`DocxError::PasswordRequired`] says.
