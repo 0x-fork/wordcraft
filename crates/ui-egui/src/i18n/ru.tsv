@@ -1790,6 +1790,19 @@ preview	Title	Пример
 	Left Only	Только слева
 	Right Only	Только справа
 	Largest Only	Только по большей стороне
+	Recent Colors	Последние цвета
+	More Colors…	Другие цвета…
+	Standard	Обычные
+	Current	Текущий
+	Colors:	Цвета:
+	Color model:	Цветовая модель:
+	Red:	Красный:
+	Green:	Зеленый:
+	Blue:	Синий:
+	Hue:	Оттенок:
+	Sat:	Насыщенность:
+	Lum:	Яркость:
+	Hex:	Hex:
 	Accessibility Pane	Область специальных возможностей
 	Alt Text Pane	Область замещающего текста
 	Alt\nText	Замещающий\nтекст
