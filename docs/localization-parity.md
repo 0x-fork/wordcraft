@@ -19,9 +19,9 @@ native-speaker review (human).
 
 ## What WordCraft ships (measured)
 
-- **23 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
-  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219) and Croatian `hr` (#1271). Catalogs have 2,061–2,504 entries
-  each; Polish has every key of every other catalog, including the built-in style names and the equation gallery, except the citation style names only Hungarian, Bulgarian and Swedish translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
+- **24 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
+  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219), Croatian `hr` (#1271) and Slovenian `sl`. Catalogs have 2,061–2,507 entries
+  each; Polish has every key of every other catalog, including the built-in style names and the equation gallery, except the citation style names only Hungarian, Bulgarian, Swedish and Slovenian translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
   label and ribbon location is translated in every language.
   `pl`, `pl-PL` and `pl_PL.UTF-8` system locales pick Polish automatically.
 - Of the 675 English strings a scan extracts from `tl!(…)` calls and command labels/locations, each
@@ -59,8 +59,8 @@ shared items below.
 | Korean | ko | 2,463 entries (all catalog keys and preview context) | most; newer panes English | Hangul ✅ (Korean-first embedded/system UI font fallback); macOS Korean IME fixes pending (#163, #164) | no | partial | 3–5 |
 | Vietnamese | vi | 2,448 entries; every key of the reference catalogs (#1434); 98% of extracted, ~95% of visible | most | Latin ✅ | no | partial | 0–1 (review) |
 
-Other shipped languages: **16** — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
-Cyrillic and Latin (`sr`, `sr-latn`, #250), Estonian (`et`), Turkish (`tr`), Russian (`ru`), Italian (`it`, #594), Polish (`pl`), Czech (`cs`), Hungarian (`hu`), French (`fr`), Bulgarian (`bg`), Vietnamese (`vi`, #1434), Swedish (`sv`, #1219) and Croatian (`hr`, #1271), all partial.
+Other shipped languages: **17** — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
+Cyrillic and Latin (`sr`, `sr-latn`, #250), Estonian (`et`), Turkish (`tr`), Russian (`ru`), Italian (`it`, #594), Polish (`pl`), Czech (`cs`), Hungarian (`hu`), French (`fr`), Bulgarian (`bg`), Vietnamese (`vi`, #1434), Swedish (`sv`, #1219), Croatian (`hr`, #1271) and Slovenian (`sl`), all partial.
 Swedish (`sv-SE` and `sv-FI` system locales, `{"value":"sv"}`) has 2,504 entries. Counts use
 count-neutral wording (`{words} ord`: the noun is the same in the singular and the plural). The
 catalog is an AI-assisted draft whose terminology and running app were reviewed by a native
@@ -77,6 +77,9 @@ Bulgarian (`bg-BG` system locales, `{"value":"bg"}`) has 2,419 entries: every ke
 catalog, the equation gallery's labels and everything the interface audit finds (the audit checks
 Bulgarian as it does Russian). Counts use count-neutral wording (`Думи: 21`). Bulgarian text is
 hyphenated by the Bulgarian syllable rules (#826); Bulgarian spelling and grammar are not included.
+Slovenian (`sl-SI` system locales, `{"value":"sl"}`) has 2,463 entries: every key of every other
+catalog. Counts use count-neutral wording (`Besede: 21`); terminology: [`localization-sl.md`](localization-sl.md).
+Slovenian proofing is not included.
 Hungarian follows `hu-HU` system locales and `{"value":"hu"}`, with a complete catalog of 2,419 entries: every key of
 the Russian catalog, built-in style names shown translated, plus the citation style names. Hungarian proofing is not included; terminology and conventions:
 [`localization-hu.md`](localization-hu.md).
@@ -218,6 +221,7 @@ WordCraft keeps 2,54 cm).
 | 2026-10-11 | minor | Font list shows installed fonts by their names in the interface language (宋体 for SimSun in Chinese, Japanese and Korean names likewise) and finds them by either name; a Chinese, Japanese or Korean font is stored as `w:eastAsia` too (#505) |
 | 2026-10-11 | minor | Chinese/Japanese interface fonts: a test checks every catalog character has a glyph; an installed CJK font follows the embedded faces whenever they miss one; macOS font asset folders searched for PingFang (#486) |
 | 2026-10-10 | minor | Russian interface (#300; 1,524 entries, built-in style names shown translated; covers everything the interface audit finds) |
+| 2026-10-12 | minor | Slovenian interface catalog (2,463 entries), locale selection, saved preference, audit coverage and font checks |
 | 2026-10-12 | minor | Bulgarian interface catalog (2,419 entries), locale selection, saved preference, audit coverage and font checks |
 | 2026-10-13 | minor | Croatian interface catalog (2,507 entries, built-in style names shown translated), `hr-*` system locales, saved preference and font coverage checks; the template name "Letter" has its own `template` context so the paper size keeps its name; no Croatian proofing |
 | 2026-10-11 | minor | Hungarian interface catalog (2,419 entries, built-in style names shown translated; covers everything the interface audit finds), locale selection, saved preference and font coverage checks |
