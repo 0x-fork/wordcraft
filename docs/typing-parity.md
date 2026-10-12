@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** trivial (outline keys in Outline view, #493) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** minor (AutoFormat tables, arrow bullets, smileys inside words, undo after a border line, #546; previously minor: Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -22,6 +22,7 @@ overall picture is in [`target-app-parity.md`](target-app-parity.md).
 | Shift+Enter in an item | line break inside the same item | `shift_enter_stays_inside_the_list_item` |
 | Paste: Keep Text Only `A`, empty line, `B` into an empty item | three paragraphs `A`, empty, `B`: pasted paragraph breaks are text, not Enter (they never end the list) | `plain_text_paste_keeps_an_empty_paragraph_in_a_list` |
 | `* ` `- ` `1. ` `1) ` `a. ` `a) ` `A. ` `i. ` `I. ` + text | bullet, dash bullet, 1. 1) a. a) A. i. I. lists | `list_autoformat_triggers` |
+| `> ` `-> ` `=> ` + text | bulleted list with an arrow bullet (➢ ➔ ⇨; Word takes them from a symbol font, we use the Unicode arrows) ¹ | `arrow_bullets` |
 | `1. ` after other text | a new list restarting at 1 (never continues an earlier list) | `typing_1_dot_starts_numbering_again` |
 | ⌘Z right after an AutoFormat | undoes only the AutoFormat (`* ` comes back as text) | `undo_right_after_autoformat_undoes_only_the_autoformat` |
 
@@ -70,7 +71,16 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
   paragraphs Enter makes from it aren't links (#413; `a_link_covers_only_its_own_text`,
   `typing_at_either_end_of_a_link_is_not_linked`).
 - Enter after `---` `===` `***` `___` `~~~` `###` → a bottom border on the paragraph above
-  (single, double, dotted, thick, wave, triple) (`border_line_autoformat`).
+  (single, double, dotted, thick, wave, triple) (`border_line_autoformat`). ⌘Z right after brings the
+  characters back and removes the border; the Enter stays (one undo step) ¹
+  (`undo_right_after_a_border_line_brings_the_characters_back`).
+- `+---+------+` Enter (plus signs around runs of hyphens, the whole paragraph) → a one-row
+  table across the text width, each column as wide as its share of the hyphens; the caret goes
+  into the first cell. ⌘Z right after brings the characters back. More than 63 columns stay
+  text ¹ (`plus_and_hyphen_line_becomes_a_table`).
+- Smileys `:)` `:-)` `:(` `:-(` `:|` → ☺ ☹ 😐, also straight after a word (`ok:)` → `ok☺`) ¹
+  (`smileys_are_replaced_inside_words_too`).
+
 - Names of days are capitalised (`monday` → `Monday`). AutoCorrect Options (#412,
   `tools.autocorrect`, saved per user) switch each of these off: replacements, sentence and
   table-cell capitals, days, smart quotes, fractions, ordinals, dashes, links, bulleted and
@@ -78,6 +88,8 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
   and "don't capitalize after" exceptions extend the abbreviation list. A replacement of several
   words takes a sentence capital on its first (`autocorrect_options_change_what_typing_does`).
 
+¹ From Word's documented AutoFormat and AutoCorrect options; not yet keystroke-compared with
+Word.
 ## Editing options (File › Options › Advanced)
 
 | Keys / setting | Result | Test |
@@ -94,12 +106,10 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
 
 - Word's body font Aptos isn't installed outside Office; our substitute (Carlito, else Helvetica
   Neue) is wider, so lines wrap earlier than in Word. Needs a metric-matched open substitute.
-- `:)` inside a word (`ok:)`) isn't replaced (Word replaces it).
 - Moving paragraphs with Track Changes on isn't recorded as a tracked move; whole table rows
   don't move yet (a selection across cells is refused). Go Back's places aren't mapped through
   later edits (they are clamped to the document).
-- Not yet compared: `+---+---+` Enter (table AutoFormat), `> ` arrow bullets, undo after a
-  border line, Correct TWo INitial CApitals.
+- Not yet compared: Correct TWo INitial CApitals; the rows marked ¹ above.
 
 ## How to compare
 
@@ -115,6 +125,7 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | minor | AutoFormat tables from `+---+`, arrow bullets, smileys inside words, undo after a border line (#546) |
 | 2026-10-11 | trivial | Outline view keys: expand/collapse, Show Level, moving and promoting with collapsed content (#493) |
 | 2026-10-11 | minor | Editing options: typing replaces selection, overtype and the Insert key (#485) |
 | 2026-10-11 | minor | Pasted paragraph breaks: tracked under Track Changes (#417), kept in a list by Keep Text Only (#422) |

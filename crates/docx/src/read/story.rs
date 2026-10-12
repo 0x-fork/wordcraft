@@ -41,9 +41,10 @@ enum Phase {
     Result,
 }
 
+/// A buffered piece of a field's result. Objects are boxed: an inline object is much larger than
+/// a string.
 enum Item {
     Text(String),
-    // Field results mostly contain text; a picture/shape must not enlarge every buffer item.
     Obj(Box<InlineObject>),
 }
 

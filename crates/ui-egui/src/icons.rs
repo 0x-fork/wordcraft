@@ -1197,7 +1197,9 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             pen.line(&[(5.0, 5.0), (15.0, 15.0)]);
             pen.line(&[(15.0, 5.0), (5.0, 15.0)]);
         }
-        "dropdown" => pen.arrow_down(10.0, 10.0, c),
+        // A triangle filling most of its box: it is drawn at 9–12 pt beside combos and split
+        // buttons, where a smaller one shrank to a dot (#535).
+        "dropdown" => pen.fill(&[(3.0, 7.0), (17.0, 7.0), (10.0, 14.0)], c),
         "more" => {
             for x in [5.0, 10.0, 15.0] {
                 pen.fcircle(x, 10.0, 1.3, c);
