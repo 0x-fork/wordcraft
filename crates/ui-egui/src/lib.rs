@@ -2838,6 +2838,59 @@ mod tests {
         }
     }
 
+    /// #861: the save prompt answers from the keyboard alone. Save has focus when it opens, and
+    /// Left/Right move the focus between Save, Don't Save and Cancel (stopping at the ends).
+    #[test]
+    fn arrow_keys_choose_the_save_prompt_answer() {
+        use egui_kittest::kittest::Queryable;
+        for (arrows, focused, quits, saves) in [
+            (vec![egui::Key::ArrowLeft], "Save", true, true),
+            (vec![egui::Key::ArrowRight], "Don't Save", true, false),
+            (vec![egui::Key::ArrowRight, egui::Key::ArrowRight, egui::Key::ArrowRight], "Cancel", false, false),
+            (vec![egui::Key::ArrowRight, egui::Key::ArrowRight, egui::Key::ArrowLeft], "Don't Save", true, false),
+        ] {
+            let dir = scratch(&format!("arrows-{}-{}", arrows.len(), focused.len()));
+            let path = docx_on_disk(&dir, "Draft");
+            let before = std::fs::read(&path).unwrap();
+            let mut a = app();
+            a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+            a.run("text.insert", json!({"text": "Revised "})).unwrap();
+            a.run("file.close", json!({})).unwrap();
+            assert_eq!(prompt(&a), Some("saveChanges"));
+            let mut fonts = false;
+            let mut h = egui_kittest::Harness::builder().build_ui_state(
+                move |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    if fonts {
+                        dialogs::show(app, &ctx);
+                    } else {
+                        theme::install_fonts_for(&ctx, false);
+                        fonts = true;
+                    }
+                },
+                a,
+            );
+            for _ in 0..3 {
+                h.step();
+            }
+            assert!(h.get_by_label("Save").is_focused(), "Save has focus when the prompt opens");
+            for key in &arrows {
+                h.key_press(*key);
+                h.step();
+            }
+            assert!(h.get_by_label(focused).is_focused(), "{arrows:?}: {focused} has focus");
+            h.key_press(egui::Key::Enter);
+            for _ in 0..3 {
+                h.step();
+            }
+            let a = h.state();
+            assert_eq!(prompt(a), None, "{arrows:?}: answered");
+            assert_eq!(a.quit_requested, quits, "{arrows:?}: quit");
+            assert_eq!(std::fs::read(&path).unwrap() != before, saves, "{arrows:?}: file written");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     /// `ui.print` hands the document's PDF to the host's print hook, and is an error (with
     /// nothing printed) when the host has none.
     #[test]

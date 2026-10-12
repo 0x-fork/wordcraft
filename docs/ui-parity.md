@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (table border drags with Ctrl and Alt, from the left edge and of selected cells, #711; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -54,6 +54,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | 2026-10-12 | trivial | Alt+Q moves to "Tell me" command search, as in Word for Windows (#819) |
 | 2026-10-12 | trivial | Ribbon groups fit above their labels: View › Show puts Hide White Space (#645) in a second column instead of a fourth row over the "Show" label; Developer › Controls drops the gaps that pushed it into its label; Layout › Paragraph (#654) puts its column gap inside cells (no `add_space` in the grid, a debug assertion) and 1.5 pt between rows so it fits; `ribbon_groups_fit_above_their_labels` checks every tab in every language |
 | 2026-10-12 | trivial | Window caption: a file name in a script the interface fonts lack (Hebrew, Arabic, and the rest; CJK via the CJK UI font) is drawn with a fallback face instead of `?` |
+| 2026-10-12 | trivial | Save Changes prompt: Save has focus when it opens, so Enter, Tab and the arrow keys answer without the mouse (#861) |
 | 2026-10-12 | trivial | Navigation headings truncate with an ellipsis within the pane width, preserving resizing and full-text hover (#759) |
 | 2026-10-11 | minor | Reading Mode: viewport-height horizontal columns, animated paging, transient display controls, heading navigation and responsive anchored resizing |
 | 2026-10-11 | trivial | Alt activation handles native key/modifier events in either order, including key-up with the old Alt flag; taps toggle once, chords and focus loss do not activate KeyTips |
