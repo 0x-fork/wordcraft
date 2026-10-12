@@ -31,6 +31,7 @@ File|Backstage|Recover Unsaved|file.recover
 File|Backstage|New from Template|file.newFromTemplate
 File|Backstage|Save as Template|file.saveTemplate
 Quick Access|Toolbar|Undo|edit.undo
+Quick Access|Toolbar|Undo List|edit.undoTo
 Quick Access|Toolbar|Redo|edit.redo
 Quick Access|Toolbar|Repeat|edit.repeat
 Quick Access|Toolbar|AutoSave|file.autosave

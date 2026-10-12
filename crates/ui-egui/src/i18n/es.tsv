@@ -955,6 +955,10 @@
 	Underline Words Only	Subrayar solo las palabras
 	Undo	Deshacer
 	Undo {action}	Deshacer {action}
+	Undo Actions	Deshacer acciones
+	Undo History	Historial de deshacer
+	Undo 1 Action	Deshacer 1 acción
+	Undo {n} Actions	Deshacer {n} acciones
 	Unformatted Text	Texto sin formato
 	Up	Arriba
 	Update Field	Actualizar campo

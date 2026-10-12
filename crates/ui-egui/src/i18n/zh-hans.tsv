@@ -919,6 +919,10 @@
 	Underline Words Only	仅给字词加下划线
 	Undo	撤消
 	Undo {action}	撤消{action}
+	Undo Actions	撤消多项操作
+	Undo History	撤消历史记录
+	Undo 1 Action	撤消 1 项操作
+	Undo {n} Actions	撤消 {n} 项操作
 	Ungroup	取消组合
 	Up	上
 	Update Field	更新域

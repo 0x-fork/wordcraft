@@ -907,6 +907,10 @@
 	Underline Words Only	単語のみ下線
 	Undo	元に戻す
 	Undo {action}	元に戻す: {action}
+	Undo Actions	複数の操作を元に戻す
+	Undo History	元に戻す履歴
+	Undo 1 Action	1 件の操作を元に戻す
+	Undo {n} Actions	{n} 件の操作を元に戻す
 	Ungroup	グループ解除
 	Up	上
 	Update Field	フィールドの更新

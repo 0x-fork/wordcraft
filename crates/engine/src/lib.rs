@@ -26,7 +26,9 @@ use serde_json::Value;
 pub use io::Password;
 pub use keymap::KeyMap;
 pub use ribbon::RibbonLayout;
-pub use session::{ColumnBlock, EditSnapshot, FindState, MathEdit, Prefs, Selection, Session, ViewState, blank_document, set_system_locale};
+pub use session::{
+    ColumnBlock, EditSnapshot, FindState, MathEdit, Prefs, Selection, Session, UNDO_LIST_MAX, ViewState, blank_document, set_system_locale,
+};
 pub use wordcraft_doc as doc;
 pub use wordcraft_geom::Region;
 pub use wordcraft_layout as layout;

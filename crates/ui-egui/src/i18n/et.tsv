@@ -831,6 +831,10 @@
 	Underline Words Only	Jooni alla ainult sõnad
 	Undo	Võta tagasi
 	Undo {action}	Võta tagasi: {action}
+	Undo Actions	Võta toimingud tagasi
+	Undo History	Tagasivõtmise ajalugu
+	Undo 1 Action	Võta tagasi 1 toiming
+	Undo {n} Actions	Võta tagasi {n} toimingut
 	Unformatted Text	Vormindamata tekst
 	Up	Üles
 	Update Field	Uuenda välja

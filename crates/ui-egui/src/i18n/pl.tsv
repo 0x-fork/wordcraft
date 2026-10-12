@@ -2055,6 +2055,10 @@
 	{name} already exists. Choose Save again to replace it.	Plik {name} już istnieje. Wybierz ponownie Zapisz, aby go zastąpić.
 	{name} wasn't found.	Nie znaleziono: {name}.
 	“{text}” ({row}, {series}) isn't a number.	„{text}” ({row}, {series}) nie jest liczbą.
+	Undo Actions	Cofnij kilka akcji
+	Undo History	Historia cofania
+	Undo 1 Action	Cofnij 1 akcję
+	Undo {n} Actions	Cofnij akcje: {n}
 	Start-up	Uruchamianie
 	Show the Start screen when WordCraft starts	Pokazuj ekran startowy po uruchomieniu programu WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Włączone: WordCraft otwiera się na karcie Plik › Start z pustym dokumentem, szablonami i ostatnimi dokumentami. Wyłączone: otwiera pusty dokument.

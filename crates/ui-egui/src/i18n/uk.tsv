@@ -934,6 +934,10 @@
 	Underline Words Only	Підкреслити лише слова
 	Undo	Скасувати
 	Undo {action}	Скасувати {action}
+	Undo Actions	Скасувати дії
+	Undo History	Журнал скасування
+	Undo 1 Action	Скасувати 1 дію
+	Undo {n} Actions	Скасувати дій: {n}
 	Ungroup	Розгрупувати
 	Unformatted Text	Неформатований текст
 	Up	Угору

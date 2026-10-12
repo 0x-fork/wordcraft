@@ -778,6 +778,10 @@ preview	Title	Пример
 	Underline Words Only	Подчёркивать только слова
 	Undo	Отменить
 	Undo {action}	Отменить: {action}
+	Undo Actions	Отменить действия
+	Undo History	Журнал отмены
+	Undo 1 Action	Отменить действие
+	Undo {n} Actions	Отменить действий: {n}
 	Up	Вверх
 	Update Field	Обновить поле
 	Update Index	Обновить указатель

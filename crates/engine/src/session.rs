@@ -490,6 +490,8 @@ fn doc_bib_style(doc: &Document) -> String {
 
 /// Maximum undo depth.
 const MAX_UNDO: usize = 500;
+/// How many steps the Undo button's list shows (#701); `edit.undoTo` reaches no further.
+pub const UNDO_LIST_MAX: usize = 100;
 
 impl Session {
     /// File name of the persisted custom dictionary inside the settings folder.
@@ -799,6 +801,21 @@ impl Session {
     pub fn undo_labels(&self) -> Vec<String> {
         self.history.iter().rev().map(|u| u.label.clone()).collect()
     }
+    /// The Undo button's list (#701): the undo steps' labels (English, as commands name them),
+    /// newest first, at most [`UNDO_LIST_MAX`].
+    pub fn undo_history(&self) -> Vec<&str> {
+        self.history.iter().rev().take(UNDO_LIST_MAX).map(|u| u.label.as_str()).collect()
+    }
+    /// Undo the newest `count` steps in one go, as picking an entry in the Undo list does (#701).
+    /// More than the undo depth undoes everything; a step that would take the document's
+    /// protection away stops it (only Stop Protection lifts it). Returns the steps undone.
+    pub fn undo_steps(&mut self, count: usize) -> usize {
+        let mut done = 0;
+        while done < count && !self.step_lifts_protection(false) && self.undo() {
+            done += 1;
+        }
+        done
+    }
     pub fn undo(&mut self) -> bool {
         self.typing_open = false;
         let Some(u) = self.history.pop().map(Arc::unwrap_or_clone) else { return false };
@@ -1089,7 +1106,8 @@ impl Session {
             self.typing_open = false;
         }
         // Only the paste right after a tracked cut makes it a move.
-        if (spec.mutates || matches!(id, "edit.undo" | "edit.redo")) && !matches!(id, "edit.cut" | "edit.paste" | "edit.pasteSpecial") {
+        if (spec.mutates || matches!(id, "edit.undo" | "edit.undoTo" | "edit.redo")) && !matches!(id, "edit.cut" | "edit.paste" | "edit.pasteSpecial")
+        {
             self.pending_move = None;
         }
         let sel_before = self.sel.clone();

@@ -784,6 +784,11 @@ preview	Title	Örnek
 	Underline Words Only	Yalnızca Sözcüklerin Altını Çiz
 	Undo	Geri Al
 	Undo {action}	Geri Al: {action}
+	Undo Actions	Eylemleri Geri Al
+	Undo History	Geri Alma Geçmişi
+	Undo 1 Action	1 Eylemi Geri Al
+	Undo {n} Actions	{n} Eylemi Geri Al
+	Unformatted Text	Biçimlendirilmemiş Metin
 	Up	Yukarı
 	Update Field	Alanı Güncelle
 	Update Index	Dizini Güncelle
@@ -966,7 +971,6 @@ preview	Title	Örnek
 	Formatted Text	Biçimlendirilmiş Metin
 	Rich Text Format (RTF)	Zengin Metin Biçimi (RTF)
 	HTML Format	HTML Biçimi
-	Unformatted Text	Biçimlendirilmemiş Metin
 	Result	Sonuç
 	Drops all formatting and pastes plain text.	Tüm biçimlendirmeyi kaldırır ve düz metin yapıştırır.
 	Advanced Find	Gelişmiş Bul

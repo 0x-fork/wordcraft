@@ -908,6 +908,10 @@
 	Underline Words Only	只在文字下加底線
 	Undo	復原
 	Undo {action}	復原{action}
+	Undo Actions	復原多項動作
+	Undo History	復原記錄
+	Undo 1 Action	復原 1 項動作
+	Undo {n} Actions	復原 {n} 項動作
 	Ungroup	取消群組
 	Up	上
 	Update Field	更新功能變數

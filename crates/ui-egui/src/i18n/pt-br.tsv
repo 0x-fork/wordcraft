@@ -907,6 +907,10 @@
 	Underline Words Only	Sublinhar somente palavras
 	Undo	Desfazer
 	Undo {action}	Desfazer {action}
+	Undo Actions	Desfazer ações
+	Undo History	Histórico de desfazer
+	Undo 1 Action	Desfazer 1 ação
+	Undo {n} Actions	Desfazer {n} ações
 	Ungroup	Desagrupar
 	Up	Para cima
 	Update Field	Atualizar campo

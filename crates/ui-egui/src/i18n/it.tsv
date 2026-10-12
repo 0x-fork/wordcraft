@@ -857,6 +857,10 @@
 	Underline Words Only	Sottolinea solo le parole
 	Undo	Annulla
 	Undo {action}	Annulla {action}
+	Undo Actions	Annulla azioni
+	Undo History	Cronologia annullamenti
+	Undo 1 Action	Annulla 1 azione
+	Undo {n} Actions	Annulla {n} azioni
 	Unformatted Text	Testo non formattato
 	Up	Su
 	Update Field	Aggiorna campo

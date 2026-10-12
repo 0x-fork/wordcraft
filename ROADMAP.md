@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (Start screen at launch, #766; previously trivial: Turkish interface catalog completed, #774; previously trivial: Hungarian interface landed; previously trivial: Quick Access Toolbar KeyTips and a saved enable/disable option, #620; previously trivial: new documents follow the system region, #838; previously minor: Polish interface and Polish proofing; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (Undo history list, #701; previously trivial: Turkish interface catalog completed, #774; previously trivial: Hungarian interface landed; previously trivial: Quick Access Toolbar KeyTips and a saved enable/disable option, #620; previously trivial: new documents follow the system region, #838; previously minor: Polish interface and Polish proofing; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 WordCraft aims for complete parity with Microsoft Word, then goes further on speed, openness and
 agent control. This page is the summary; the assessment is
@@ -14,7 +14,7 @@ agent control. This page is the summary; the assessment is
 
 | Number | Value | Kind |
 |---|---|---|
-| Ribbon/menu catalog coverage | **484 / 499 (97.0%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ribbon/menu catalog coverage | **485 / 500 (97.0%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | **Feature breadth** (weighted, incl. dialog options, styles, languages beyond the ribbon) | **~80%** | estimated |
 | **Ready for real work** (full target) | **~60%** (55–63%) | estimated, additive weighted sum over the dimensions |
 | **Mainstream practitioner** | **~55%** | estimated: weekly-work depth × discounts for interaction (×0.93), stability (×0.90), file exchange (×0.90) |
@@ -139,6 +139,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | 32-bit Windows starts on OpenGL. DirectX 12 graphics pipeline creation returns "The parameter is incorrect" and the app exited before the window appeared |
 | 2026-10-12 | New documents follow the system region (#838): A4 and centimetres outside the US (Letter in the CLDR Letter territories, inches in the US), lengths written with the region's decimal separator (`2,54 cm`) and typed with either; an explicit Measurement units choice wins; `file.options {"region"}` for agents |
 | 2026-10-12 | Paste from other programs keeps their formatting (#687): Ctrl+V and Home › Paste read the system clipboard's HTML (and RTF on Windows and Wayland); Merge Formatting takes the destination's font and paragraph and keeps bold, italic, underline and strikethrough; Paste Special lists what the system clipboard holds (HTML, RTF, picture, text). Linux: pictures copied in a browser or Spectacle paste on KDE and other Wayland desktops (data-control clipboard), and a paste that finds nothing usable names what the clipboard holds instead of "empty" (#833) |
+| 2026-10-12 | Undo history list (#701): a ▾ beside the Quick Access Toolbar's Undo lists recent steps newest first; hovering highlights what a click undoes ("Undo 3 Actions"), and a click undoes them in one go. `edit.undoTo {count}` and `edit.undoHistory` (newest first, up to 100) for CLI and MCP |
 | 2026-10-12 | Start screen (#766): launched with nothing to open, WordCraft starts on File › Home (Blank document, templates, Recent) like Word, desktop and web; Esc leaves a blank document; File › Options › General › Start-up turns it off |
 | 2026-10-12 | Word 365 cover pages (#743): a freeform inside a group keeps its shape (it was drawn as a rectangle); text boxes keep their own internal margins and Resize shape to fit text, so a tight title box no longer loses its second line; both survive saving. The missing fills in the report were theme-coloured shapes, fixed by #611 |
 | 2026-10-12 | Alt+Q moves to "Tell me" command search, as in Word for Windows (#819); not on macOS, where Option+Q types a character |
@@ -246,6 +247,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | trivial | Progress log: Undo history list (#701) |
 | 2026-10-12 | trivial | Progress log: Start screen at launch (#766) |
 | 2026-10-12 | trivial | Progress log: Alt+Q command search (#819); log table header fixed |
 | 2026-10-12 | trivial | Progress log: ribbon groups fit above their labels |

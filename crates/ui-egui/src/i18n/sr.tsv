@@ -970,6 +970,10 @@
 	Underline Words Only	Подвуци само речи
 	Undo	Опозови
 	Undo {action}	Опозови {action}
+	Undo Actions	Опозови радње
+	Undo History	Историја опозивања
+	Undo 1 Action	Опозови 1 радњу
+	Undo {n} Actions	Опозови радње: {n}
 	Ungroup	Разгруписање
 	Up	Горе
 	Update Field	Ажурирај поље

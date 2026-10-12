@@ -840,6 +840,10 @@
 	Underline Words Only	Nur Wörter unterstreichen
 	Undo	Rückgängig
 	Undo {action}	{action} rückgängig
+	Undo Actions	Mehrere Aktionen rückgängig
+	Undo History	Rückgängig-Verlauf
+	Undo 1 Action	1 Aktion rückgängig
+	Undo {n} Actions	{n} Aktionen rückgängig
 	Ungroup	Gruppierung aufheben
 	Up	Nach oben
 	Update Field	Feld aktualisieren

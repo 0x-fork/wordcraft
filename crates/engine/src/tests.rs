@@ -203,6 +203,68 @@ fn typing_enter_undo() {
     assert_eq!(text(&s), "Hello world");
 }
 
+/// The Undo button's list (#701): several steps undone at once, newest first.
+#[test]
+fn undo_to_takes_several_steps_back_at_once() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.bold", json!({}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "World"}));
+    let h = run(&mut s, "edit.undoHistory", json!({}));
+    assert_eq!(h["undo"], json!(["Typing", "New Paragraph", "Bold", "Typing"]));
+    assert_eq!(h["depth"], 4);
+    assert_eq!(s.undo_history(), ["Typing", "New Paragraph", "Bold", "Typing"]);
+    // Three steps in one command: World, the paragraph and the bold go; Hello stays.
+    let r = run(&mut s, "edit.undoTo", json!({"count": 3}));
+    assert_eq!(r["undone"], 3);
+    assert_eq!(r["depth"], 1);
+    assert_eq!(text(&s), "Hello");
+    assert_eq!(s.doc.para_at(&s.sel.focus).map(|p| p.props_of_char(1).bold), Some(None));
+    assert_eq!(s.undo_history(), ["Typing"]);
+    // Each undone step is one redo step.
+    run(&mut s, "edit.redo", json!({}));
+    run(&mut s, "edit.redo", json!({}));
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(text(&s), "Hello\nWorld");
+    // More than the depth undoes everything.
+    let r = run(&mut s, "edit.undoTo", json!({"count": 1e300}));
+    assert_eq!(r["undone"], 4);
+    assert_eq!(text(&s), "");
+    assert!(!s.can_undo());
+    assert!(s.run("edit.undoTo", &json!({"count": 1})).is_err(), "nothing to undo");
+}
+
+#[test]
+fn undo_to_rejects_bad_counts_and_leaves_the_document_alone() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    let before = (s.doc.clone(), s.undo_depth());
+    for junk in
+        [json!({}), json!(null), json!({"count": 0}), json!({"count": -3}), json!({"count": "2"}), json!({"count": [2]}), json!({"count": -1e308})]
+    {
+        assert!(s.run("edit.undoTo", &junk).is_err(), "{junk}");
+        assert_eq!((s.doc.clone(), s.undo_depth()), before, "{junk}");
+    }
+    // A fraction counts whole steps.
+    let r = run(&mut s, "edit.undoTo", json!({"count": 1.9}));
+    assert_eq!(r["undone"], 1);
+    assert_eq!(text(&s), "Hello");
+}
+
+#[test]
+fn undo_history_is_capped() {
+    let mut s = s();
+    for i in 0..(crate::UNDO_LIST_MAX + 20) {
+        run(&mut s, "para.indents", json!({"left": i as f64}));
+    }
+    assert_eq!(s.undo_history().len(), crate::UNDO_LIST_MAX);
+    assert_eq!(run(&mut s, "edit.undoHistory", json!({}))["undo"].as_array().map(Vec::len), Some(crate::UNDO_LIST_MAX));
+}
+
 #[test]
 fn joined_commands_are_one_undo_step() {
     let mut s = s();
