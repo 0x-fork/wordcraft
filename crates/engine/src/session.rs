@@ -95,6 +95,11 @@ pub struct ViewState {
     /// Show field codes instead of their results (`view.fieldCodes`, Alt+F9).
     #[serde(default)]
     pub field_codes: bool,
+    /// Print Layout › Hide White Space: pages run together, the top and bottom margins (with
+    /// headers and footers) between pages collapse to a thin line. On screen only; the layout
+    /// and page count are unchanged.
+    #[serde(default)]
+    pub hide_white_space: bool,
     /// Outline view: collapsed headings, Show Level, first lines, text formatting.
     #[serde(default)]
     pub outline: crate::cmd::outline::OutlineState,
@@ -136,6 +141,7 @@ impl Default for ViewState {
             hide_ink: false,
             draw: Default::default(),
             field_codes: false,
+            hide_white_space: false,
             outline: Default::default(),
             design_mode: false,
         }

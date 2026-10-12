@@ -3588,6 +3588,17 @@ fn note_options_per_section_and_convert_notes() {
     assert!(s.run("references.convertNotes", &json!({"to": "sideways"})).is_err());
 }
 
+#[test]
+fn hide_white_space_toggles_view_state_only() {
+    let mut s = s();
+    let before = s.doc.body.len();
+    assert!(!s.view.hide_white_space);
+    assert_eq!(run(&mut s, "view.hideWhiteSpace", json!({}))["value"], true);
+    assert!(s.view.hide_white_space);
+    assert_eq!(run(&mut s, "view.hideWhiteSpace", json!({"value": false}))["value"], false);
+    assert_eq!(s.doc.body.len(), before, "a view option never edits the document");
+}
+
 /// The first SmartArt (or other graphic) in the body, selected.
 fn select_graphic(s: &mut Session) {
     let (path, off) = (0..s.doc.body.len() as u32)
