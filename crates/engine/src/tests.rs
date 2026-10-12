@@ -3882,6 +3882,50 @@ fn polish_test_dictionary() {
     wordcraft_proof::pl::install_dictionary(aff, dic).unwrap();
 }
 
+/// A tiny synthetic Portuguese Hunspell dictionary (written for these tests). Real dictionaries
+/// are installed on the system, never bundled; every Portuguese test installs this same one.
+fn portuguese_test_dictionary() {
+    let aff = "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
+    let dic = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
+    wordcraft_proof::pt::install_dictionary(aff, dic).unwrap();
+}
+
+/// Review › Language and the proofing commands work in Portuguese end to end: the language makes
+/// the document's words Portuguese, F7 and the issue list use the Portuguese dictionary and
+/// grammar, suggestions come from it, and a suggestion fixes the text.
+#[test]
+fn portuguese_proofing_through_the_review_commands() {
+    portuguese_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Saudade coraçao, e ele ele disse."}));
+    // English by default: the Portuguese words are English misspellings.
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len() >= 5);
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "pt_br", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("pt-BR"), "the tag is normalized");
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "pt-BR");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    let has = |text: &str, kind: &str, sugg: &str| {
+        arr.iter()
+            .any(|i| i["text"] == text && i["kind"] == kind && i["lang"] == "pt" && i["suggestions"].as_array().unwrap().iter().any(|x| x == sugg))
+    };
+    assert!(has("coraçao", "spelling", "coração"), "{issues}");
+    assert!(has("ele ele", "grammar", "ele"), "{issues}");
+    assert_eq!(arr.len(), 2, "{issues}");
+    assert!(arr.iter().any(|i| i["message"] == "Palavra repetida: \"ele\""), "{issues}");
+    // F7 from the start selects the first issue; Change applies a suggestion.
+    run(&mut s, "caret.docStart", json!({}));
+    let first = run(&mut s, "review.spelling", json!({}));
+    assert_eq!(first["text"], "coraçao");
+    run(&mut s, "review.applySuggestion", json!({"text": "coração"}));
+    assert!(text(&s).starts_with("Saudade coração,"), "{}", text(&s));
+    // Add to Dictionary works for Portuguese words too.
+    run(&mut s, "review.addToDictionary", json!({"word": "coraçao"}));
+    let left = run(&mut s, "review.issues", json!({}));
+    assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
+}
+
 /// Review › Language and the proofing commands work in Polish end to end: the language makes
 /// the document's words Polish, F7 and the issue list use the Polish dictionary and grammar,
 /// suggestions come from it, and a suggestion fixes the text.

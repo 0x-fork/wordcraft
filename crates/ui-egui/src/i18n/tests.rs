@@ -997,9 +997,9 @@ fn a_polish_interface_writes_new_documents_in_polish() {
 }
 
 #[test]
-fn only_polish_has_an_editing_language() {
+fn the_editing_languages_are_the_ones_wordcraft_can_proof() {
     let with: Vec<(&str, &str)> = Lang::all().filter_map(|l| l.editing_lang().map(|e| (l.code(), e))).collect();
-    assert_eq!(with, [("pl", "pl-PL")]);
+    assert_eq!(with, [("pt-br", "pt-BR"), ("pl", "pl-PL")]);
 }
 
 #[test]

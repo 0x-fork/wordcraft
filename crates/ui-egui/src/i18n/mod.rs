@@ -85,7 +85,7 @@ pub static LANGUAGES: [LangInfo; 18] = [
         name: "Português (Brasil)",
         source: include_str!("pt-br.tsv"),
         prefer_hans: false,
-        editing_lang: None,
+        editing_lang: Some("pt-BR"),
         catalog: OnceLock::new(),
     },
     // Serbian, Cyrillic script (the default per BCP 47 when no script is given); `sr`, `sr-RS`,

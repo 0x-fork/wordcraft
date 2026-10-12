@@ -409,8 +409,8 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 3] =
-    [("en-US", "English (United States)"), ("en-GB", "English (United Kingdom)"), ("pl-PL", "Polish")];
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 4] =
+    [("en-US", "English (United States)"), ("en-GB", "English (United Kingdom)"), ("pl-PL", "Polish"), ("pt-BR", "Portuguese (Brazil)")];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
 /// default, US English; a tag without a name here: the tag).
@@ -421,6 +421,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
     }
     match wordcraft_engine::proof::ProofLang::from_tag(Some(tag)) {
         wordcraft_engine::proof::ProofLang::Pl => "Polish".into(),
+        wordcraft_engine::proof::ProofLang::Pt => "Portuguese (Brazil)".into(),
         wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
         _ => tag.to_string(),
     }
@@ -441,7 +442,9 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
     let current = st.get("lang").and_then(Value::as_str).unwrap_or("").to_string();
     let no_proof = st.get("noProof").and_then(Value::as_bool).unwrap_or(false);
     for (tag, name) in PROOFING_LANGUAGES {
-        let on = current.eq_ignore_ascii_case(tag) || (tag == "pl-PL" && current.eq_ignore_ascii_case("pl"));
+        let on = current.eq_ignore_ascii_case(tag)
+            || (tag == "pl-PL" && current.eq_ignore_ascii_case("pl"))
+            || (tag == "pt-BR" && current.eq_ignore_ascii_case("pt"));
         mi_check(ui, app, name, on, "review.language", json!({"lang": tag}));
     }
     ui.separator();
@@ -2433,6 +2436,14 @@ mod tests {
         for id in ["table.selectTable", "table.deleteTable", "table.autofit"] {
             assert!(menu_enabled(&a, id), "{id} is on inside a table");
         }
+    }
+
+    #[test]
+    fn portuguese_has_a_name_in_the_language_menu() {
+        assert!(PROOFING_LANGUAGES.iter().any(|(t, _)| *t == "pt-BR"));
+        assert_eq!(language_name(Some("pt-BR")), "Portuguese (Brazil)");
+        assert_eq!(language_name(Some("pt")), "Portuguese (Brazil)");
+        assert_eq!(language_name(Some("PT-BR".to_string().as_str())), "Portuguese (Brazil)");
     }
 
     #[test]
