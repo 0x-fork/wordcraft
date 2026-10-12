@@ -470,6 +470,7 @@
 	Insert Above	插入上方列
 	Insert Below	插入下方列
 	Insert Caption	插入標號
+	Insert Caption…	插入標號…
 	Insert Citation	插入引文
 	Insert Endnote	插入章節附註
 	Insert Footnote	插入註腳
@@ -859,6 +860,7 @@
 	Table of Contents	目錄
 	Table of\nContents	目錄
 	Table Properties	表格內容
+	Table Properties…	表格內容…
 	Table Row Height	表格列高
 	Table Style Options	表格樣式選項
 	Table Styles	表格樣式

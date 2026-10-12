@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** trivial (table selection areas, insert buttons, move handle and double-click AutoFit on the page; previously trivial: DOCX complex-script formatting inheritance fixed; broader RTL work remains; previously trivial: #24 narrowed: Customize Keyboard and Customize Ribbon landed; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** trivial (table context menu whose items follow the selection, as in Word; previously trivial: table selection areas, insert buttons, move handle and double-click AutoFit on the page; previously trivial: DOCX complex-script formatting inheritance fixed; broader RTL work remains; previously trivial: #24 narrowed: Customize Keyboard and Customize Ribbon landed; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 The work list. One entry per shortfall, ranked by how much it stops a Word user from switching
 (**B** = blocks beta). Each says what's missing, the evidence, who it hurts, an Opus 5.5 agent
@@ -63,7 +63,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 - **UI/UX gaps:** #7, #18, #24; crop handles on the canvas (rotation handle landed, #332); table column markers on the
   ruler (#49; dragging borders and the resize handle on the page landed, #217, and selecting, inserting and moving with the mouse);
   ordinary drags and Shift+arrows over cells of several rows still select a run of text, not a rectangle of cells;
-  context menus for objects and tables; Linux title bar theming (#78); File ›
+  context menus for objects (the table's landed; it still lacks Border Styles); Linux title bar theming (#78); File ›
   Options › Animation effects › Use system setting reads macOS (Reduce motion) and the Linux/BSD
   desktops (`apps/wordcraft/src/animations.rs`) but hasn't been tried on a Mac or in a real
   GNOME or KDE session yet.
@@ -76,6 +76,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | UI/UX gaps: the table context menu landed, its items following the selection as in Word (Delete Cells, Rows, Columns or Table, Merge and Split Cells, Distribute, AutoFit, Text Direction, Insert Caption…, Table Properties…); objects' menus and Border Styles remain |
 | 2026-10-11 | trivial | Tables: selection areas, insert buttons, move handle and double-click AutoFit on the page landed; ordinary drags over cells of several rows (a run of text, not a rectangle) added to the UI/UX gaps |
 | 2026-10-12 | trivial | #1: Word 365 cover page (#743): freeforms in groups keep their outline; text boxes keep their own margins and Resize shape to fit text, so no line is cut |
 | 2026-10-12 | trivial | #3: 32-bit Windows no longer exits at launch; DirectX 12 graphics pipelines fail to create, so that build starts on OpenGL |

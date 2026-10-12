@@ -469,6 +469,7 @@
 	Insert Above	上に行を挿入
 	Insert Below	下に行を挿入
 	Insert Caption	図表番号の挿入
+	Insert Caption…	図表番号の挿入…
 	Insert Citation	引用文献の挿入
 	Insert Endnote	文末脚注の挿入
 	Insert Footnote	脚注の挿入
@@ -858,6 +859,7 @@
 	Table of Contents	目次
 	Table of\nContents	目次
 	Table Properties	表のプロパティ
+	Table Properties…	表のプロパティ…
 	Table Row Height	表の行の高さ
 	Table Style Options	表スタイルのオプション
 	Table Styles	表のスタイル

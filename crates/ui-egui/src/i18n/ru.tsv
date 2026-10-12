@@ -341,6 +341,7 @@
 	Insert Above	Вставить сверху
 	Insert Below	Вставить снизу
 	Insert Caption	Вставить подпись
+	Insert Caption…	Вставить подпись…
 	Insert Citation	Вставить ссылку на источник
 	Insert Endnote	Вставить концевую сноску
 	Insert Footnote	Вставить сноску
@@ -728,6 +729,7 @@
 	Table of Figures	Список иллюстраций
 	Table of\nContents	Оглавление
 	Table Properties	Свойства таблицы
+	Table Properties…	Свойства таблицы…
 	Table Row Height	Высота строки таблицы
 	Table Style Options	Параметры стилей таблиц
 	Table Styles	Стили таблиц
