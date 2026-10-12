@@ -1882,3 +1882,22 @@ fn a_list_level_without_a_list_takes_the_style_s_list() {
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert_eq!(again.styles.get("Heading3").and_then(|s| s.para.numbering).map(|n| (n.num, n.level)), Some((15, 2)));
 }
+
+/// `w:hideMark` on a cell is read and written back (it was dropped, and the empty rows NIH's
+/// tables collapse with it showed as blank lines).
+#[test]
+fn cell_hide_mark_reads_and_round_trips() {
+    let body = r#"<w:tbl><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:hideMark/></w:tcPr><w:p/></w:tc><w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:p/>"#;
+    let hides = |d: &Document| -> Vec<bool> {
+        d.body
+            .iter()
+            .find_map(|b| {
+                if let wordcraft_doc::Block::Table(t) = &**b { Some(t.rows[0].cells.iter().map(|c| c.props.hide_mark).collect()) } else { None }
+            })
+            .unwrap()
+    };
+    let d = read_body(body);
+    assert_eq!(hides(&d), [true, false]);
+    let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    assert_eq!(hides(&again), [true, false]);
+}

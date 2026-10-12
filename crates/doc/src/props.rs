@@ -1013,6 +1013,10 @@ pub struct CellProps {
     /// Which way the cell's text runs.
     pub text_direction: TextDirection,
     pub no_wrap: bool,
+    /// The cell's last paragraph takes no room when it is empty (`w:hideMark`): a row of such
+    /// empty cells shrinks to its borders.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hide_mark: bool,
     /// Tracked formatting change (`w:tcPrChange`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fmt_change: Option<Box<PropChange<CellProps>>>,

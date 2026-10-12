@@ -506,6 +506,7 @@ pub fn tcpr(pc: &PropCtx, e: &El) -> (CellProps, bool) {
             "w:tcBorders" => c.borders = Some(borders(k)),
             "w:shd" => c.shading = pc.shd_fill(k),
             "w:noWrap" => c.no_wrap = on_off(k),
+            "w:hideMark" => c.hide_mark = on_off(k),
             "w:tcMar" => c.margins = Some(margins(k)),
             "w:textDirection" => c.text_direction = TextDirection::from_ooxml(k.attr("w:val").unwrap_or("")),
             "w:vAlign" => {

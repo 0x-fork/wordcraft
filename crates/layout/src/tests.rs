@@ -4208,3 +4208,58 @@ fn a_list_label_adds_ascent_but_not_descent() {
     assert!(big.baseline - big.top > plain.baseline - plain.top + 5.0, "the big label raises the baseline");
     assert!((below(&big) - below(&plain)).abs() < 0.01, "the text's descent: {} vs {}", below(&big), below(&plain));
 }
+
+/// A cell's hidden end-of-cell mark (`w:hideMark`), measured in Word for Windows (`plan/word`
+/// R20, 9 cases): its empty last paragraph takes no room, spacing and all, so a row of such empty
+/// cells is only its borders; one ordinary empty cell keeps the row a line tall, and a paragraph
+/// with text is never hidden. NIH's Table A showed a blank row Word doesn't.
+#[test]
+fn a_hidden_cell_mark_takes_no_room() {
+    let row3_top = |hide: [bool; 2], second: Option<&str>| {
+        let mut d = Document::from_text("Above");
+        let mut t = Table::new(3, 2, 300.0);
+        for (r, text) in [(0, "R1"), (2, "R3")] {
+            for c in 0..2 {
+                t.rows[r].cells[c].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, Default::default()))];
+            }
+        }
+        for c in 0..2 {
+            let cell = &mut t.rows[1].cells[c];
+            cell.props.hide_mark = hide[c];
+            let mut blocks = Vec::new();
+            if let Some(text) = second {
+                blocks.push(wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, Default::default())));
+            }
+            let mut mark = wordcraft_doc::Paragraph::with_text("", Default::default());
+            mark.props.space_before = Some(10.0);
+            blocks.push(wordcraft_doc::para_block(mark));
+            cell.blocks = blocks;
+        }
+        d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let at = |r: u32| l.caret(&Pos { story: StoryRef::Body, path: Path(vec![1, r, 0, 0]), off: 0 }).unwrap().top;
+        // Rows 1 and 2 together.
+        at(2) - at(0)
+    };
+    // Row 1 is one line of text; row 2's height is what's left.
+    let line = {
+        let both = row3_top([false, false], Some("Tx"));
+        let mut d = Document::from_text("Above");
+        let mut t = Table::new(2, 1, 300.0);
+        t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("R1", Default::default()))];
+        t.rows[1].cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("R3", Default::default()))];
+        d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let at = |r: u32| l.caret(&Pos { story: StoryRef::Body, path: Path(vec![1, r, 0, 0]), off: 0 }).unwrap().top;
+        assert!(both > at(1) - at(0));
+        at(1) - at(0)
+    };
+    let row2 = |hide: [bool; 2], second: Option<&str>| row3_top(hide, second) - line;
+    let hidden = row2([true, true], None);
+    assert!(hidden < 1.5, "a row of hidden marks is only its borders: {hidden} vs a line of {line}");
+    let mixed = row2([true, false], None);
+    let plain = row2([false, false], None);
+    assert!(plain > 5.0 && (mixed - plain).abs() < 0.01, "an ordinary empty cell keeps the row: {mixed} vs {plain}");
+    let text = row2([true, true], Some("Tx"));
+    assert!((text - line).abs() < 0.5, "text stays, the empty mark after it goes: {text} vs {line}");
+}

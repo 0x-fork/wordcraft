@@ -411,6 +411,8 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
         let mut rh = 0.0f32;
         // The tallest cell margins plus border bands in the row.
         let mut row_insets = 0.0f32;
+        // Every cell an empty one with a hidden end-of-cell mark: the row is only its borders.
+        let mut collapsed = true;
         let is_header = header_rows && ri == 0;
         let is_total = t.props.look.total_row && ri + 1 == nrows && nrows > 1;
         let band = banded(t, style.as_ref(), ri);
@@ -497,6 +499,7 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
             let (items, h) = if cell.props.vmerge == VMerge::Continue {
                 (Vec::new(), 0.0)
             } else if turn.is_turned() {
+                collapsed = false;
                 // Turned text: its lines run along the cell's height. An exact row height sets
                 // their length; otherwise they get the length the text needs unwrapped and the row
                 // grows to fit (the second pass lays them out again if the row ends up taller).
@@ -509,12 +512,20 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
                         natural_length(&probe).clamp(4.0, TURNED_MAX)
                     }
                 };
-                let BoxLayout { items, height, floats_bottom } = layout_box(ctx, story, &cell.blocks, &cpath, len, text, depth, None);
+                let BoxLayout { items, height, floats_bottom, .. } = layout_box(ctx, story, &cell.blocks, &cpath, len, text, depth, None);
                 let across = height.max(floats_bottom);
                 turned = Some(Turned { turn, len, across, snap, region, ci, top: margins[0] + band_t });
                 (items, len)
             } else {
-                let BoxLayout { mut items, height, floats_bottom } = layout_box(ctx, story, &cell.blocks, &cpath, cw, text, depth, None);
+                let BoxLayout { mut items, mut height, floats_bottom, last_top } =
+                    layout_box(ctx, story, &cell.blocks, &cpath, cw, text, depth, None);
+                // A hidden end-of-cell mark: an empty last paragraph takes no room (Word for
+                // Windows: a row of empty such cells is only its borders).
+                if cell.props.hide_mark && cell.blocks.last().and_then(|b| b.as_para()).is_some_and(|p| p.text.is_empty()) {
+                    height = last_top;
+                } else {
+                    collapsed = false;
+                }
                 for it in &mut items {
                     it.translate(x0 + margins[1], margins[0] + band_t);
                 }
@@ -549,7 +560,7 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
             (Some(h), _) if h > 0.0 => rh.max(h + row_insets),
             _ => rh,
         };
-        heights.push(rh.max(4.0));
+        heights.push(if collapsed && !cells.is_empty() { rh.max(0.0) } else { rh.max(4.0) });
         rows.push(cells);
     }
     // Vertically merged cells: grow the last row of the merge if the content is taller.

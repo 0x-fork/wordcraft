@@ -497,6 +497,9 @@ fn tcpr_inner(w: &mut W, c: &CellProps) {
         VAlign::Center => w.val("w:vAlign", "center"),
         VAlign::Bottom => w.val("w:vAlign", "bottom"),
     }
+    if c.hide_mark {
+        w.empty("w:hideMark", &[]);
+    }
 }
 
 /// `w:tblpPr` and `w:tblOverlap` for a floating table.
