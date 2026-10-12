@@ -448,7 +448,7 @@ fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
             assert!(missing.is_empty(), "{code}: no glyph in {font:?} for {missing}");
         }
         // So the interface reads no installed CJK font for these languages.
-        assert_eq!(wordcraft_fonts::ui_uncovered_cjk(&[l.0.source, &names], &wordcraft_fonts::ui_cjk_fonts(l.prefers_hans())), []);
+        assert_eq!(wordcraft_fonts::ui_uncovered_cjk(&[l.0.source, &names], &wordcraft_fonts::ui_cjk_fonts(l.prefers_hans())), Vec::<char>::new());
     }
 }
 
