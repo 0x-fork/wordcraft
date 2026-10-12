@@ -392,6 +392,7 @@
 	Export PDF	导出 PDF
 	Exported {path}	已导出 {path}
 	Extend Selection	扩展选定范围
+	Extend Selection by Units	按单位扩展选定范围
 	Field	域
 	File	文件
 	Find	查找
@@ -1410,6 +1411,8 @@
 	Formatted	已设置格式
 	Interface size:	界面大小：
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	在系统显示缩放的基础上放大或缩小功能区、菜单和对话框。文档缩放单独设置。
+	Print Markup	打印标记
+	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	在 PDF、打印和图像中于每页旁显示批注和修订；在网页、Markdown 和文本末尾附上批注列表。
 
 # Compare / Combine, AutoCorrect Options and Restrict Editing (#412)
 	1. Formatting restrictions	1. 格式限制
@@ -1530,6 +1533,19 @@
 	New Group	新建组
 	Rename…	重命名…
 	Ribbon and Quick Access Toolbar:	功能区和快速访问工具栏：
+	Recent Colors	最近使用的颜色
+	More Colors…	其他颜色…
+	Standard	标准
+	Current	当前
+	Colors:	颜色:
+	Color model:	颜色模式:
+	Red:	红色:
+	Green:	绿色:
+	Blue:	蓝色:
+	Hue:	色调:
+	Sat:	饱和度:
+	Lum:	亮度:
+	Hex:	十六进制:
 	Accessibility Pane	辅助功能窗格
 	Alt Text Pane	替代文字窗格
 	Alt\nText	替代\n文字
@@ -1678,6 +1694,22 @@
 	Continuous numbering	连续编号
 	Apply	应用
 	Convert Notes	转换注释
+	Hide White Space	隐藏空白
+	All pages	所有页面
+	Current page	当前页
+	Selected pages	所选页面
+	Custom range	自定义范围
+	All pages in the range	范围内的所有页面
+	Odd pages only	仅奇数页
+	Even pages only	仅偶数页
+	Copies	份数
+	Collate copies	逐份打印
+	Pages like 1-3, 5	页码,如 1-3, 5
+	{count} of {total} pages will print	将打印 {total} 页中的 {count} 页
+	Save these pages as PDF…	将这些页面另存为 PDF…
+	The printer, two-sided printing and pages per sheet are chosen in that dialog.	打印机、双面打印和每张页数在该对话框中选择。
+	Previous Page	上一页
+	Print to PDF	打印到 PDF
 	Add Shape	添加形状
 	Change Colors	更改颜色
 	Change Layout	更改布局

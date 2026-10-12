@@ -159,7 +159,12 @@ pub enum Dialog {
         first: f32,
         before: f32,
         after: f32,
+        /// Line spacing as a multiple; Exactly and At Least show as 1.0.
         line: f32,
+        /// `line` when the dialog opened: OK keeps the paragraph's spacing, whatever its rule,
+        /// unless this changed (#467).
+        #[serde(skip)]
+        line_was: f32,
         keep_next: bool,
         keep_lines: bool,
         page_break: bool,
@@ -283,7 +288,7 @@ pub enum Dialog {
         name: String,
         /// Style id.
         based_on: String,
-        /// Index into `regions` (see [`REGION_LABELS`]).
+        /// Index into `regions` (see `REGION_LABELS`).
         region: usize,
         regions: Box<[TableRegion; 7]>,
         /// What the regions showed when the dialog opened (or the base style changed): only
@@ -798,8 +803,16 @@ fn region_changes(r: &TableRegion, basis: &TableRegion) -> Value {
 
 /// A colour menu: a swatch with the colour grid and No Color. `value` is hex, empty for none.
 pub(crate) fn color_menu(ui: &mut Ui, theme: &[wordcraft_doc::Rgb], value: &mut String) {
-    let c = wordcraft_doc::Rgb::parse(value);
+    color_field(ui, theme, value, "No Color", "");
+}
+
+/// A colour field: a swatch and a drop-down with `none_label` (which sets `none_value`), the
+/// colour grid, Recent Colors and More Colors… (#606). `value` is hex or `none_value`.
+pub(crate) fn color_field(ui: &mut Ui, theme: &[wordcraft_doc::Rgb], value: &mut String, none_label: &str, none_value: &str) {
     ui.horizontal(|ui| {
+        let id = ui.id().with("colorField");
+        crate::colors::take_field(ui.ctx(), id, value);
+        let c = wordcraft_doc::Rgb::parse(value);
         let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
         let t = Tokens::get(ui.ctx());
         match c {
@@ -811,16 +824,13 @@ pub(crate) fn color_menu(ui: &mut Ui, theme: &[wordcraft_doc::Rgb], value: &mut 
             }
         }
         ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
-        let label = if c.is_some() { value.clone() } else { tl!("No Color").to_string() };
+        let label = if c.is_some() { value.clone() } else { tl!(none_label).to_string() };
         ui.menu_button(label, |ui| {
-            if ui.button(tl!("No Color")).clicked() {
-                value.clear();
+            if ui.button(tl!(none_label)).clicked() {
+                *value = none_value.to_string();
                 ui.close();
             }
-            if let Some(hex) = crate::widgets::color_grid(ui, theme) {
-                *value = hex;
-                ui.close();
-            }
+            crate::colors::field_menu(ui, theme, id, value);
         });
     });
 }
@@ -969,6 +979,7 @@ impl Dialog {
                     before: rp.space_before,
                     after: rp.space_after,
                     line,
+                    line_was: line,
                     keep_next: rp.keep_next,
                     keep_lines: rp.keep_lines,
                     page_break: rp.page_break_before,
@@ -1337,11 +1348,13 @@ pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            // Enter and Escape belong to the Colors dialog while it is open above this one.
+            let keys = !crate::colors::is_open(ui.ctx());
+            if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
                 r.1 = true;
             }
             let okb = ui.add(egui::Button::new(egui::RichText::new(ok).color(egui::Color32::WHITE)).fill(crate::theme::APP_COLOR));
-            if okb.clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            if okb.clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                 r.0 = true;
             }
         });
@@ -1382,6 +1395,9 @@ fn font_props(d: &Dialog) -> serde_json::Map<String, Value> {
     }
     if let Some(c) = wordcraft_doc::Rgb::parse(color) {
         props.insert("color".into(), json!({"Rgb": [c.0, c.1, c.2]}));
+    } else if color.eq_ignore_ascii_case("auto") {
+        // Automatic, from the colour field's drop-down (#606).
+        props.insert("color".into(), json!("Auto"));
     }
     props
 }
@@ -1457,7 +1473,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.text_edit_singleline(size);
                 ui.end_row();
                 ui.label(tl!("Font color:"));
-                ui.text_edit_singleline(color);
+                let theme = app.session.doc.settings.theme_colors.clone();
+                color_field(ui, &theme, color, "Automatic", "auto");
                 ui.end_row();
                 ui.label(tl!("Spacing (pt):"));
                 ui.add(egui::DragValue::new(spacing).speed(0.1).range(-20.0..=20.0));
@@ -1503,6 +1520,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             before,
             after,
             line,
+            line_was,
             keep_next,
             keep_lines,
             page_break,
@@ -1620,7 +1638,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     *first,
                     *before,
                     *after,
-                    *line,
+                    (*line, *line_was),
                     [*keep_next, *keep_lines, *page_break, *widow],
                     (*opts, *opts_was),
                 );
@@ -2762,11 +2780,12 @@ fn apply_paragraph(
     first: f32,
     before: f32,
     after: f32,
-    line: f32,
+    line: (f32, f32),
     flags: [bool; 4],
     opts: ([bool; 4], [bool; 4]),
 ) {
     let [keep_next, keep_lines, page_break, widow] = flags;
+    let (line, line_was) = line;
     // Direction first: the alignment and indents are as seen on the page, and their logical
     // values depend on it.
     let _ = app.run(if rtl { "para.rtl" } else { "para.ltr" }, json!({}));
@@ -2774,9 +2793,15 @@ fn apply_paragraph(
     let (start, end) = if rtl { (right, left) } else { (left, right) };
     let mut props = json!({
         "indentLeft": start * crate::options::unit().pt_per_unit(), "indentRight": end * crate::options::unit().pt_per_unit(), "indentFirst": first * crate::options::unit().pt_per_unit(),
-        "spaceBefore": before, "spaceAfter": after, "lineSpacing": {"rule": "multiple", "value": line},
+        "spaceBefore": before, "spaceAfter": after,
         "keepNext": keep_next, "keepLines": keep_lines, "pageBreakBefore": page_break, "widowControl": widow,
     });
+    // The dialog edits only multiples: an untouched value keeps Exactly and At Least.
+    if line != line_was
+        && let Some(m) = props.as_object_mut()
+    {
+        m.insert("lineSpacing".into(), json!({"rule": "multiple", "value": line}));
+    }
     let (now, was) = opts;
     for (key, (on, was)) in ["mirrorIndents", "contextualSpacing", "suppressLineNumbers", "suppressHyphens"].into_iter().zip(now.into_iter().zip(was))
     {
@@ -3135,14 +3160,40 @@ mod tests {
     /// Open the Paragraph dialog, change its options (`opts`) with `edit` and press OK.
     fn ok_with(app: &mut WordApp, edit: impl FnOnce(&mut [bool; 4])) {
         let Some(Dialog::Paragraph {
-            rtl, align, left, right, first, before, after, line, keep_next, keep_lines, page_break, widow, mut opts, ..
+            rtl,
+            align,
+            left,
+            right,
+            first,
+            before,
+            after,
+            line,
+            line_was,
+            keep_next,
+            keep_lines,
+            page_break,
+            widow,
+            mut opts,
+            ..
         }) = Dialog::open("paragraph", app)
         else {
             panic!("no paragraph dialog")
         };
         let was = opts;
         edit(&mut opts);
-        apply_paragraph(app, rtl, &align, left, right, first, before, after, line, [keep_next, keep_lines, page_break, widow], (opts, was));
+        apply_paragraph(
+            app,
+            rtl,
+            &align,
+            left,
+            right,
+            first,
+            before,
+            after,
+            (line, line_was),
+            [keep_next, keep_lines, page_break, widow],
+            (opts, was),
+        );
     }
 
     #[test]
@@ -3192,6 +3243,60 @@ mod tests {
     }
 
     #[test]
+    fn paragraph_dialog_keeps_fixed_line_spacing() {
+        use wordcraft_doc::props::LineSpacing;
+        for (cmd, rule) in [(json!({"exactly": 24}), LineSpacing::Exactly(24.0)), (json!({"atLeast": 24}), LineSpacing::AtLeast(24.0))] {
+            // OK without changes, and OK after changing only Keep with next (#467).
+            let mut app = app_with("Example");
+            let _ = app.run("para.lineSpacing", cmd.clone());
+            ok_unchanged(&mut app);
+            assert_eq!(props(&app).line_spacing, Some(rule), "unchanged OK, {cmd}");
+            let Some(Dialog::Paragraph { rtl, align, left, right, first, before, after, line, line_was, keep_lines, page_break, widow, .. }) =
+                Dialog::open("paragraph", &mut app)
+            else {
+                panic!("no paragraph dialog")
+            };
+            apply_paragraph(
+                &mut app,
+                rtl,
+                &align,
+                left,
+                right,
+                first,
+                before,
+                after,
+                (line, line_was),
+                [true, keep_lines, page_break, widow],
+                ([false; 4], [false; 4]),
+            );
+            let p = props(&app);
+            assert_eq!((p.line_spacing, p.keep_next), (Some(rule), Some(true)), "Keep with next, {cmd}");
+        }
+        // A changed value still sets a multiple.
+        let mut app = app_with("Example");
+        let _ = app.run("para.lineSpacing", json!({"exactly": 24}));
+        let Some(Dialog::Paragraph { rtl, align, left, right, first, before, after, line_was, keep_next, keep_lines, page_break, widow, .. }) =
+            Dialog::open("paragraph", &mut app)
+        else {
+            panic!("no paragraph dialog")
+        };
+        apply_paragraph(
+            &mut app,
+            rtl,
+            &align,
+            left,
+            right,
+            first,
+            before,
+            after,
+            (1.5, line_was),
+            [keep_next, keep_lines, page_break, widow],
+            ([false; 4], [false; 4]),
+        );
+        assert_eq!(props(&app).line_spacing, Some(LineSpacing::Multiple(1.5)));
+    }
+
+    #[test]
     fn font_dialog_sets_the_asian_and_latin_fonts_separately() {
         // #505: the Asian text font box and the Latin text font box each set their own font, and
         // OK leaves the one not changed as it was.
@@ -3223,7 +3328,7 @@ mod tests {
     #[test]
     fn paragraph_dialog_changes_direction() {
         let mut app = app_with("Hello");
-        let Some(Dialog::Paragraph { align, left, right, first, before, after, line, keep_next, keep_lines, page_break, widow, .. }) =
+        let Some(Dialog::Paragraph { align, left, right, first, before, after, line, line_was, keep_next, keep_lines, page_break, widow, .. }) =
             Dialog::open("paragraph", &mut app)
         else {
             panic!()
@@ -3238,7 +3343,7 @@ mod tests {
             first,
             before,
             after,
-            line,
+            (line, line_was),
             [keep_next, keep_lines, page_break, widow],
             ([false; 4], [false; 4]),
         );

@@ -26,12 +26,13 @@ pub fn finish_pending_jobs() {
 }
 
 pub fn submit() -> Submit {
-    Box::new(|bytes, settings: Settings| {
+    Box::new(|bytes, settings: Settings, collate| {
         let (sender, receiver) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new().name("print-submit".into()).spawn(move || {
             let job = craft_print::Job {
                 printer: Some(settings.printer),
                 copies: settings.copies.clamp(1, 999),
+                collate,
                 duplex: settings.duplex.map(|value| match value {
                     Duplex::LongEdge => craft_print::Duplex::LongEdge,
                     Duplex::ShortEdge => craft_print::Duplex::ShortEdge,

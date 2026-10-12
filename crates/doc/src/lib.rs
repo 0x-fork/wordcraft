@@ -13,6 +13,7 @@
 pub mod bidi;
 pub mod chart;
 mod cjk_numbers;
+pub mod cluster;
 pub mod connector;
 pub mod control;
 pub mod edit;
@@ -22,6 +23,7 @@ pub mod eq;
 pub mod fields;
 pub mod freeform;
 pub mod graphic;
+pub mod link;
 pub mod math;
 pub mod math_edit;
 pub mod math_latex;

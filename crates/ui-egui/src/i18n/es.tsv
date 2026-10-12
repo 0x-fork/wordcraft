@@ -378,6 +378,7 @@
 	Export a copy to share (PDF, Word document)	Exporta una copia para compartir (PDF, documento de Word)
 	Exported {path}	Exportado: {path}
 	Extend Selection	Ampliar selección
+	Extend Selection by Units	Ampliar selección por unidades
 	Field	Campo
 	File	Archivo
 	Find	Buscar
@@ -1414,6 +1415,8 @@
 	Formatted	Con formato
 	Interface size:	Tamaño de la interfaz:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Agranda o reduce la cinta, los menús y los cuadros de diálogo, además del escalado de pantalla del sistema. El zoom del documento es aparte.
+	Print Markup	Imprimir marcas
+	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Comentarios junto a cada página y cambios marcados en PDF, impresiones e imágenes; una lista de comentarios al final de páginas web, Markdown y texto.
 
 # Compare / Combine, AutoCorrect Options and Restrict Editing (#412)
 	1. Formatting restrictions	1. Restricciones de formato
@@ -1534,6 +1537,19 @@
 	New Group	Nuevo grupo
 	Rename…	Cambiar nombre…
 	Ribbon and Quick Access Toolbar:	Cinta de opciones y barra de acceso rápido:
+	Recent Colors	Colores recientes
+	More Colors…	Más colores…
+	Standard	Estándar
+	Current	Actual
+	Colors:	Colores:
+	Color model:	Modelo de color:
+	Red:	Rojo:
+	Green:	Verde:
+	Blue:	Azul:
+	Hue:	Matiz:
+	Sat:	Sat.:
+	Lum:	Lum.:
+	Hex:	Hex.:
 	Accessibility Pane	Panel de accesibilidad
 	Alt Text Pane	Panel de texto alternativo
 	Alt\nText	Texto\nalternativo
@@ -1682,6 +1698,22 @@
 	Continuous numbering	Numeración continua
 	Apply	Aplicar
 	Convert Notes	Convertir notas
+	Hide White Space	Ocultar espacio en blanco
+	All pages	Todas las páginas
+	Current page	Página actual
+	Selected pages	Páginas seleccionadas
+	Custom range	Intervalo personalizado
+	All pages in the range	Todas las páginas del intervalo
+	Odd pages only	Solo páginas impares
+	Even pages only	Solo páginas pares
+	Copies	Copias
+	Collate copies	Intercalar copias
+	Pages like 1-3, 5	Páginas como 1-3, 5
+	{count} of {total} pages will print	Se imprimirán {count} de {total} páginas
+	Save these pages as PDF…	Guardar estas páginas como PDF…
+	The printer, two-sided printing and pages per sheet are chosen in that dialog.	La impresora, la impresión a doble cara y las páginas por hoja se eligen en ese cuadro de diálogo.
+	Previous Page	Página anterior
+	Print to PDF	Imprimir en PDF
 	Add Shape	Agregar forma
 	Change Colors	Cambiar colores
 	Change Layout	Cambiar diseño

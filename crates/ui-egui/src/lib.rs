@@ -18,6 +18,7 @@ pub mod a11y_pane;
 pub mod backstage;
 pub mod canvas;
 pub mod chrome;
+pub mod colors;
 pub mod content_controls;
 pub mod control;
 pub mod credits;
@@ -49,6 +50,7 @@ pub mod options;
 pub mod panes;
 pub mod paste_picture;
 pub mod previews;
+pub mod print_page;
 pub mod printing;
 pub mod read_aloud;
 pub mod ribbon;
@@ -111,10 +113,15 @@ pub struct UiState {
     pub tab: String,
     pub backstage: bool,
     pub backstage_page: String,
+    /// File › Print settings (#641); not saved.
+    #[serde(skip)]
+    pub print: print_page::PrintSettings,
     pub ribbon_collapsed: bool,
     pub recent: Vec<String>,
     /// Symbols inserted from the Symbol dialog, most recent first (#321).
     pub recent_symbols: Vec<dialogs_insert::RecentSymbol>,
+    /// Colours picked in the Colors dialog (More Colors…), most recent first (#606).
+    pub recent_colors: Vec<String>,
     /// Interface theme: light, dark, or follow the OS appearance (#115).
     pub theme: theme::Appearance,
     /// Interface size in percent (#475): scales the whole interface on top of the system's
@@ -186,9 +193,11 @@ impl Default for UiState {
             tab: "Home".into(),
             backstage: false,
             backstage_page: "home".into(),
+            print: print_page::PrintSettings::default(),
             ribbon_collapsed: false,
             recent: Vec::new(),
             recent_symbols: Vec::new(),
+            recent_colors: Vec::new(),
             theme: theme::Appearance::default(),
             interface_size: theme::InterfaceSize::default(),
             legacy_dark: None,
@@ -244,6 +253,8 @@ pub struct WordApp {
     /// Content control frames, check boxes and lists on the page.
     pub controls: content_controls::ControlUi,
     pub dialog: Option<dialogs::Dialog>,
+    /// The Colors dialog (More Colors…), shown above any other dialog (#606).
+    pub colors: Option<colors::ColorsDialog>,
     /// The Restrict Editing pane (#412).
     pub restrict: dialogs_review::RestrictPane,
     pub status_msg: Option<(String, f64)>,
@@ -340,6 +351,7 @@ impl WordApp {
             canvas: canvas::CanvasState::default(),
             controls: Default::default(),
             dialog: None,
+            colors: None,
             restrict: Default::default(),
             status_msg: None,
             previews: previews::Previews::default(),
@@ -520,7 +532,8 @@ impl WordApp {
             // Word documents are encrypted with the document's password, if it has one.
             let password =
                 if matches!(id, "file.save" | "file.saveAs") { self.session.password.as_ref().map(wordcraft_engine::Password::as_str) } else { None };
-            let bytes = wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password)?;
+            let opts = wordcraft_engine::cmd::file::export_options(&self.session, &params);
+            let bytes = wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password, &opts)?;
             if let Some(d) = &self.services.download
                 && let Err(e) = d(&name, &bytes)
             {
@@ -721,12 +734,25 @@ impl WordApp {
                 }
                 json!({"backstage": self.ui.backstage})
             }
+            "ui.dialog" if s("name") == Some("colors") => {
+                // The font colour's More Colors… (#606); `tab`: standard or custom.
+                let target = colors::Target::cmd("format.color").remember(colors::Remember::FontColor);
+                let current =
+                    self.session.run("format.state", &json!({})).ok().and_then(|st| st.get("color").and_then(Value::as_str).and_then(colors::parse));
+                let mut d = colors::ColorsDialog::new(current, target);
+                if s("tab") == Some("custom") {
+                    d.tab = colors::ColorsTab::Custom;
+                }
+                self.colors = Some(d);
+                json!({"dialog": "colors"})
+            }
             "ui.dialog" => {
                 self.dialog = dialogs::Dialog::open(s("name").unwrap_or(""), self);
                 json!({"dialog": self.dialog.as_ref().map(|d| d.name())})
             }
             "ui.closeDialog" => {
                 self.dialog = None;
+                self.colors = None;
                 json!({})
             }
             "ui.changePicture" => {
@@ -804,10 +830,9 @@ impl WordApp {
                 self.pick_recipient_list();
                 json!({"pending": self.recipient_list_pending})
             }
-            // Explicit submission: the browser owns its dialog; native submits the selected
-            // job on a worker. `file.print` opens the settings page instead.
+            // Native printing submits the selected queue on a worker; the browser owns its dialog.
             "ui.printSettings" => return Some(printing::settings(&mut self.printing, p, self.services.printers.as_ref())),
-            "ui.print" | "ui.printSubmit" => return Some(self.print_to_system()),
+            "ui.print" | "ui.printSubmit" => return Some(self.print_to_system(p)),
             "ui.discord" => {
                 self.canvas.open_url = Some("https://discord.gg/artcraft".into());
                 json!({})
@@ -825,50 +850,9 @@ impl WordApp {
         }))
     }
 
-    /// `ui.print`: export the document to PDF in memory and hand it to the host's print hook.
-    /// An error when the host can't print (File › Print then only saves a PDF).
-    fn print_to_system(&mut self) -> Result<Value, String> {
-        if self.services.print.is_none() && self.services.print_native.is_none() {
-            return Err("printing to the system print dialog isn't available here; export a PDF instead".into());
-        }
-        if self.services.print_native.is_some() && !self.printing.ready() {
-            return Err("Select an available printer in File > Print before submitting.".into());
-        }
-        // File › Options › Display: fields first, and the page colour only when asked for.
-        if self.ui.update_fields_before_print
-            && let Err(e) = self.session.run("references.updateFields", &json!({}))
-        {
-            log::warn!("updating fields before printing: {e}");
-        }
-        let without_colour = (!self.ui.print_backgrounds && self.session.doc.settings.page_color.is_some()).then(|| {
-            let mut d = self.session.doc.clone();
-            d.settings.page_color = None;
-            d
-        });
-        let result = wordcraft_engine::io::save_bytes("document.pdf", without_colour.as_ref().unwrap_or(&self.session.doc)).and_then(|bytes| {
-            let len = bytes.len();
-            if let Some(submit) = &self.services.print_native {
-                self.printing
-                    .begin(submit(bytes, self.printing.settings.clone()))
-                    .map_err(|_| "A print job is already being submitted.".to_owned())?;
-                self.print_feedback_seen = None;
-                Ok(len)
-            } else {
-                self.services.print.as_ref().map_or(Ok(()), |print| print(&bytes)).map(|()| len)
-            }
-        });
-        match result {
-            Ok(len) => {
-                self.status(if self.services.print_native.is_some() { tl!("Submitting print job…") } else { tl!("Opening print dialog…") });
-                Ok(json!({"printing": true, "bytes": len, "pending": self.services.print_native.is_some()}))
-            }
-            Err(e) => {
-                log::error!("print failed: {e}");
-                let msg = i18n::fmt(tl!("Print failed: {error}"), &[("error", &e)]);
-                self.status(msg.clone());
-                Err(msg)
-            }
-        }
+    /// Submit the selected print job; the implementation lives beside its localized controls.
+    fn print_to_system(&mut self, p: &Value) -> Result<Value, String> {
+        printing::submit(self, p)
     }
 
     pub fn status(&mut self, s: impl Into<String>) {
@@ -986,7 +970,7 @@ impl WordApp {
         // interface that doesn't open the language list.
         let system_cjk = self.fonts_system_cjk || self.want_system_cjk || lang.uses_cjk();
         if !self.styled || lang.prefers_hans() != self.fonts_hans || system_cjk != self.fonts_system_cjk {
-            theme::install_fonts_with(ctx, lang.prefers_hans(), system_cjk);
+            theme::install_fonts_extra(ctx, lang.prefers_hans(), system_cjk, &self.canvas.ime_faces);
             self.fonts_hans = lang.prefers_hans();
             self.fonts_system_cjk = system_cjk;
             // Mod with -, = and 0 are Word shortcuts (optional hyphen, subscript, paragraph spacing);
@@ -1152,6 +1136,7 @@ impl WordApp {
         }
         content_controls::popup(self, &ctx);
         dialogs::show(self, &ctx);
+        colors::show(self, &ctx);
         zotero::show_alert(self, &ctx);
         read_aloud::show(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
@@ -1177,11 +1162,12 @@ impl WordApp {
         for (name, bytes) in files {
             let lower = name.to_ascii_lowercase();
             let img = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].iter().any(|e| lower.ends_with(e));
-            let list =
-                lower.ends_with(".csv") || lower.ends_with(".tsv") || (lower.ends_with(".txt") && std::mem::take(&mut self.recipient_list_pending));
+            // Any recipient file ends the pending picker request, so a later .txt drop opens normally.
+            let asked = std::mem::take(&mut self.recipient_list_pending);
+            let list = lower.ends_with(".csv") || lower.ends_with(".tsv") || (lower.ends_with(".txt") && asked);
             let sheet = [".xlsx", ".xlsm", ".ods"].iter().any(|e| lower.ends_with(e));
+            self.recipient_list_pending = asked && !list && !sheet;
             let r = if sheet {
-                self.recipient_list_pending = false;
                 self.load_recipients(json!({"path": name, "data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}))
             } else if list {
                 self.load_recipients(json!({"csv": wordcraft_engine::io::decode_text(&bytes)}))
@@ -1942,6 +1928,23 @@ mod tests {
         let e = a.run("ui.print", json!({})).unwrap_err();
         assert!(e.contains("blocked by the browser"), "{e}");
         assert!(a.status_msg.as_ref().is_some_and(|(m, _)| m.contains("blocked by the browser")), "the status bar says why");
+    }
+
+    /// The print settings reach the hook: bad ones print nothing, `copies` repeats the pages.
+    #[test]
+    fn ui_print_honours_the_print_settings() {
+        let mut a = typed();
+        let sizes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = sizes.clone();
+        a.services.print = Some(Box::new(move |bytes| {
+            seen.borrow_mut().push(bytes.len());
+            Ok(())
+        }));
+        assert!(a.run("ui.print", json!({"pages": "7-9"})).is_err(), "page 7 doesn't exist");
+        assert!(a.run("ui.print", json!({"range": "nope"})).is_err());
+        assert!(sizes.borrow().is_empty(), "nothing was sent");
+        a.run("ui.print", json!({"range": "current", "copies": 3})).unwrap();
+        assert_eq!(sizes.borrow().len(), 1);
     }
 
     /// The Print page shows the Print button only when the host can print, and the button
@@ -2927,9 +2930,45 @@ mod tests {
         inbox.lock().unwrap().push(("more.csv".into(), b"Name\nBo\nCy\n".to_vec()));
         a.drain_inbox();
         assert_eq!(a.session.merge.rows.len(), 2);
+        // A CSV picked through the picker must not turn the next .txt drop into recipients.
+        a.run("ui.openRecipientList", json!({})).unwrap();
+        inbox.lock().unwrap().push(("people.csv".into(), b"Name,City\nAda,London\n".to_vec()));
+        a.drain_inbox();
+        assert!(!a.recipient_list_pending);
+        inbox.lock().unwrap().push(("notes.txt".into(), b"A plain text document.\nAnother line.\n".to_vec()));
+        a.drain_inbox();
+        assert_eq!(prompt(&a), Some("saveChanges"), "the TXT opens like any document");
+        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert_eq!(a.session.merge.headers, vec!["Name", "City"], "the recipients stay");
+        assert!(body_text(&a).contains("A plain text document."), "the TXT opened as a document");
         // A cancelled picker leaves nothing pending once the user does something else.
         a.run("ui.openRecipientList", json!({})).unwrap();
         a.run("format.bold", json!({})).unwrap();
         assert!(!a.recipient_list_pending);
+    }
+
+    /// `ui.render` and `ui.screenshot` without a `path` return the PNG in the reply instead of
+    /// writing a fixed name into the shared temporary folder, where another user could have
+    /// planted a link to one of this user's files.
+    #[test]
+    fn render_and_screenshot_without_a_path_reply_with_the_png() {
+        let ctx = egui::Context::default();
+        let mut a = typed();
+        let (req, _reply) = ControlRequest::new("ui.render", json!({"page": 1, "scale": 0.5}));
+        let control::Outcome::Done(v) = control::handle(&mut a, &ctx, &req) else { panic!("ui.render replies at once") };
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v["result"].get("path").is_none(), "no file: {v}");
+        let png = wordcraft_engine::cmd::insert::base64_decode(v["result"]["png"].as_str().expect("png")).expect("base64");
+        assert_eq!(&png[..4], b"\x89PNG", "{v}");
+        assert!(v["result"]["width"].as_u64().unwrap() > 0 && v["result"]["pages"].as_u64().unwrap() >= 1, "{v}");
+
+        let image = egui::ColorImage::from_rgba_unmultiplied([2, 1], &[255, 0, 0, 255, 0, 0, 255, 255]);
+        let v = control::save_screenshot(&image, None);
+        assert_eq!(v["ok"], true, "{v}");
+        assert!(v["result"].get("path").is_none(), "no file: {v}");
+        let png = wordcraft_engine::cmd::insert::base64_decode(v["result"]["png"].as_str().expect("png")).expect("base64");
+        assert_eq!(&png[..4], b"\x89PNG");
+        assert_eq!(v["result"]["width"], 2, "{v}");
+        assert_eq!(v["result"]["height"], 1, "{v}");
     }
 }

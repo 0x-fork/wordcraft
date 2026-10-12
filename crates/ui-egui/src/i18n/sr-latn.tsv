@@ -428,6 +428,7 @@
 	Export PDF	Izvezi PDF
 	Exported {path}	Izvezeno: {path}
 	Extend Selection	Proširi izbor
+	Extend Selection by Units	Proširi izbor po jedinicama
 	Field	Polje
 	File	Fajl
 	Find	Pronađi
@@ -1408,6 +1409,8 @@
 	Formatted	Formatirano
 	Interface size:	Veličina interfejsa:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Povećava ili smanjuje traku, menije i dijaloge, povrh skaliranja ekrana u sistemu. Zumiranje dokumenta je zasebno.
+	Print Markup	Štampaj oznake
+	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Komentari pored svake stranice i praćene izmene u PDF-ovima, otiscima i slikama; lista komentara na kraju veb-stranica, Markdown-a i teksta.
 
 # Compare / Combine, AutoCorrect Options and Restrict Editing (#412)
 	1. Formatting restrictions	1. Ograničenja oblikovanja
@@ -1528,6 +1531,19 @@
 	New Group	Nova grupa
 	Rename…	Preimenuj…
 	Ribbon and Quick Access Toolbar:	Traka i traka sa alatkama za brzi pristup:
+	Recent Colors	Nedavne boje
+	More Colors…	Još boja…
+	Standard	Standardne
+	Current	Trenutna
+	Colors:	Boje:
+	Color model:	Model boja:
+	Red:	Crvena:
+	Green:	Zelena:
+	Blue:	Plava:
+	Hue:	Nijansa:
+	Sat:	Zasićenost:
+	Lum:	Osvetljenost:
+	Hex:	Heks:
 	Accessibility Pane	Okno pristupačnosti
 	Alt Text Pane	Okno alternativnog teksta
 	Alt\nText	Alternativni\ntekst
@@ -1676,6 +1692,22 @@
 	Continuous numbering	Neprekidna numeracija
 	Apply	Primeni
 	Convert Notes	Pretvori napomene
+	Hide White Space	Sakrij prazan prostor
+	All pages	Sve stranice
+	Current page	Trenutna stranica
+	Selected pages	Izabrane stranice
+	Custom range	Prilagođeni opseg
+	All pages in the range	Sve stranice u opsegu
+	Odd pages only	Samo neparne stranice
+	Even pages only	Samo parne stranice
+	Copies	Kopije
+	Collate copies	Složi kopije
+	Pages like 1-3, 5	Stranice poput 1-3, 5
+	{count} of {total} pages will print	Štampaće se {count} od {total} stranica
+	Save these pages as PDF…	Sačuvaj ove stranice kao PDF…
+	The printer, two-sided printing and pages per sheet are chosen in that dialog.	Štampač, obostrana štampa i broj stranica po listu biraju se u tom dijalogu.
+	Previous Page	Prethodna stranica
+	Print to PDF	Štampaj u PDF
 	Add Shape	Dodaj oblik
 	Change Colors	Promeni boje
 	Change Layout	Promeni raspored

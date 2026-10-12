@@ -8,6 +8,7 @@
 //! - [`hit`]: point ↔ position, caret geometry, line navigation, selection rectangles.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod balloons;
 mod contour;
 pub mod display;
 pub mod fields;
@@ -61,6 +62,10 @@ pub struct LayoutOptions {
     pub hide_deleted: bool,
     /// Check spelling as you type (squiggles).
     pub proofing: bool,
+    /// Print Markup (PDF, print, page images): widen each page by [`balloons::MARKUP_AREA`]
+    /// and show the comments there in balloons joined to their anchors, as Word prints them.
+    /// The editor draws its own interactive balloons and leaves this off.
+    pub comment_balloons: bool,
     /// Show field codes (`{ PAGE }`, shaded) instead of field results (View › Field Codes, Alt+F9).
     /// A field whose own `code` flag is set shows the other one.
     pub field_codes: bool,
@@ -152,9 +157,12 @@ pub enum Placed {
         spin: Spin,
         items: Vec<Placed>,
     },
-    /// A table cell's area (for hit testing and cell selection).
+    /// A table cell's area (for hit testing and cell selection). A vertically merged cell is
+    /// one `Cell` as tall as all its rows; its continuation rows get a `covered` `Cell` (their
+    /// own row's height) so the rows keep a box each, but it isn't a cell of its own on screen.
     Cell {
         rect: Rect,
+        covered: bool,
         table: Path,
         row: usize,
         cell: usize,
@@ -314,6 +322,9 @@ pub struct Page {
     pub footer_story: Option<u32>,
     /// Top-level body block index at the start of the page.
     pub first_block: usize,
+    /// Width of the markup area on the right of `w` that holds comment balloons (Print Markup,
+    /// [`LayoutOptions::comment_balloons`]); 0 without one. The document page is `w - markup` wide.
+    pub markup: f32,
 }
 
 /// The whole layout.
@@ -1783,7 +1794,12 @@ fn layout_pass(
             }
         }
     }
-    Pass::Done(DocLayout { pages, index, ms: 0.0, text_boxes: ctx.boxes.total().saturating_sub(boxes_discarded) })
+    let mut lay = DocLayout { pages, index, ms: 0.0, text_boxes: 0 };
+    if opts.comment_balloons && !web {
+        balloons::add(&mut ctx, &mut lay);
+    }
+    lay.text_boxes = ctx.boxes.total().saturating_sub(boxes_discarded);
+    Pass::Done(lay)
 }
 
 /// Pagination state saved before a block, to lay the blocks from there out again (balancing
@@ -2990,6 +3006,8 @@ pub fn now_ms() -> f64 {
 mod tests;
 #[cfg(test)]
 mod tests_bidi;
+#[cfg(test)]
+mod tests_complex;
 #[cfg(test)]
 mod tests_grid;
 #[cfg(test)]

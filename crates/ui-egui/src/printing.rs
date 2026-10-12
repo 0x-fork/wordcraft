@@ -1,6 +1,9 @@
 //! Localized print-page wording around the shared, backend-independent controls.
 use craft_ui::printing::Labels;
-pub use craft_ui::printing::{Discover, Duplex, Feedback, Printer, Settings, State, Submit};
+pub use craft_ui::printing::{Discover, Duplex, Feedback, Printer, Settings, State};
+
+/// Native submission adds WordCraft's PDF-page collation setting to the shared spooler settings.
+pub type Submit = Box<dyn Fn(Vec<u8>, Settings, bool) -> std::sync::mpsc::Receiver<Result<String, String>>>;
 
 pub fn show(state: &mut State, ui: &mut egui::Ui, discover: &Discover, translate: impl Fn(&str) -> String) {
     let labels = Labels {
@@ -94,5 +97,64 @@ pub fn feedback(message: &Feedback, translate: impl Fn(&str) -> String) -> Strin
         Feedback::Submitted(receipt) => translate("Print job submitted: {receipt}").replace("{receipt}", receipt),
         Feedback::Failed(error) => translate("Print failed: {error}").replace("{error}", error),
         Feedback::WorkerStopped => translate("Print failed: the printing worker stopped."),
+    }
+}
+
+/// Build the upstream page-range/markup PDF and hand it to the chosen host print flow.
+pub fn submit(app: &mut crate::WordApp, params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    if app.services.print.is_none() && app.services.print_native.is_none() {
+        return Err("printing to the system print dialog isn't available here; export a PDF instead".into());
+    }
+    let native = app.services.print_native.is_some();
+    if native && !app.printing.ready() {
+        return Err("Select an available printer in File > Print before submitting.".into());
+    }
+    let mut pdf_params = params.clone();
+    let mut settings = app.printing.settings.clone();
+    let collate = params.get("collate").map(|value| value.as_bool().ok_or("collate must be a boolean")).transpose()?.unwrap_or(app.ui.print.collate);
+    if native {
+        let object = pdf_params.as_object_mut().ok_or("print settings must be an object")?;
+        if let Some(copies) = object.get("copies") {
+            settings.copies = copies.as_u64().filter(|copies| (1..=999).contains(copies)).ok_or("copies must be an integer from 1 to 999")? as u32;
+        }
+        // Copies/collation belong to the spooler. Baking them into the PDF would multiply
+        // the copies twice, and duplex could put the end of one copy behind the next.
+        object.insert("copies".into(), json!(1));
+    }
+    if app.ui.update_fields_before_print
+        && let Err(error) = app.session.run("references.updateFields", &json!({}))
+    {
+        log::warn!("updating fields before printing: {error}");
+    }
+    let colour = if app.ui.print_backgrounds { None } else { app.session.doc.settings.page_color.take() };
+    let pdf = app.session.print_pdf(&pdf_params).map_err(|error| error.to_string());
+    if colour.is_some() {
+        app.session.doc.settings.page_color = colour;
+    }
+    let result = pdf.and_then(|(bytes, plan)| {
+        if native && plan.chosen.checked_mul(settings.copies as usize).is_none_or(|pages| pages > wordcraft_engine::print::MAX_PRINT_PAGES) {
+            return Err("the selected pages and copies exceed the print-job page limit".into());
+        }
+        let len = bytes.len();
+        if let Some(submit) = &app.services.print_native {
+            app.printing.begin(submit(bytes, settings, collate)).map_err(|_| "A print job is already being submitted.".to_owned())?;
+            app.print_feedback_seen = None;
+        } else if let Some(print) = &app.services.print {
+            print(&bytes)?;
+        }
+        Ok(len)
+    });
+    match result {
+        Ok(len) => {
+            app.status(if native { tl!("Submitting print job…") } else { tl!("Opening print dialog…") });
+            Ok(json!({"printing": true, "bytes": len, "pending": native}))
+        }
+        Err(error) => {
+            log::error!("print failed: {error}");
+            let msg = crate::i18n::fmt(tl!("Print failed: {error}"), &[("error", &error)]);
+            app.status(msg.clone());
+            Err(msg)
+        }
     }
 }

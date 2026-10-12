@@ -390,6 +390,7 @@
 	Export PDF	Експортувати PDF
 	Exported {path}	Експортовано {path}
 	Extend Selection	Розширити виділення
+	Extend Selection by Units	Розширити виділення за одиницями
 	Field	Поле
 	File	Файл
 	Find	Знайти
@@ -1410,6 +1411,8 @@
 	Formatted	Відформатовано
 	Interface size:	Розмір інтерфейсу:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Збільшує або зменшує стрічку, меню й діалогові вікна понад системне масштабування екрана. Масштаб документа налаштовується окремо.
+	Print Markup	Друкувати примітки та виправлення
+	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Коментарі біля кожної сторінки й відстежені зміни в PDF, друку та зображеннях; список коментарів наприкінці вебсторінок, Markdown і тексту.
 
 # Compare / Combine, AutoCorrect Options and Restrict Editing (#412)
 	1. Formatting restrictions	1. Обмеження форматування
@@ -1530,6 +1533,19 @@
 	New Group	Нова група
 	Rename…	Перейменувати…
 	Ribbon and Quick Access Toolbar:	Стрічка й панель швидкого доступу:
+	Recent Colors	Останні кольори
+	More Colors…	Інші кольори…
+	Standard	Стандартні
+	Current	Поточний
+	Colors:	Кольори:
+	Color model:	Колірна модель:
+	Red:	Червоний:
+	Green:	Зелений:
+	Blue:	Синій:
+	Hue:	Відтінок:
+	Sat:	Насиченість:
+	Lum:	Яскравість:
+	Hex:	Hex:
 	Accessibility Pane	Панель доступності
 	Alt Text Pane	Панель альтернативного тексту
 	Alt\nText	Альтернативний\nтекст
@@ -1678,6 +1694,22 @@
 	Continuous numbering	Наскрізна нумерація
 	Apply	Застосувати
 	Convert Notes	Перетворити примітки
+	Hide White Space	Приховати порожній простір
+	All pages	Усі сторінки
+	Current page	Поточна сторінка
+	Selected pages	Вибрані сторінки
+	Custom range	Власний діапазон
+	All pages in the range	Усі сторінки діапазону
+	Odd pages only	Лише непарні сторінки
+	Even pages only	Лише парні сторінки
+	Copies	Копії
+	Collate copies	Розсортувати копії
+	Pages like 1-3, 5	Сторінки, наприклад 1-3, 5
+	{count} of {total} pages will print	Буде надруковано {count} зі сторінок: {total}
+	Save these pages as PDF…	Зберегти ці сторінки як PDF…
+	The printer, two-sided printing and pages per sheet are chosen in that dialog.	Принтер, двобічний друк і кількість сторінок на аркуші вибирають у цьому діалозі.
+	Previous Page	Попередня сторінка
+	Print to PDF	Друк у PDF
 	Add Shape	Додати фігуру
 	Change Colors	Змінити кольори
 	Change Layout	Змінити макет

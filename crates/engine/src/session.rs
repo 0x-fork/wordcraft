@@ -95,6 +95,11 @@ pub struct ViewState {
     /// Show field codes instead of their results (`view.fieldCodes`, Alt+F9).
     #[serde(default)]
     pub field_codes: bool,
+    /// Print Layout › Hide White Space: pages run together, the top and bottom margins (with
+    /// headers and footers) between pages collapse to a thin line. On screen only; the layout
+    /// and page count are unchanged.
+    #[serde(default)]
+    pub hide_white_space: bool,
     /// Outline view: collapsed headings, Show Level, first lines, text formatting.
     #[serde(default)]
     pub outline: crate::cmd::outline::OutlineState,
@@ -136,6 +141,7 @@ impl Default for ViewState {
             hide_ink: false,
             draw: Default::default(),
             field_codes: false,
+            hide_white_space: false,
             outline: Default::default(),
             design_mode: false,
         }
@@ -335,6 +341,10 @@ pub struct Prefs {
     /// Track Changes Options: what markup shows and how revisions are drawn (per user, as in
     /// Word).
     pub markup: wordcraft_layout::display::MarkupOptions,
+    /// File › Print / Export: Print Markup. PDFs, prints and page images show comments in
+    /// balloons beside each page and tracked changes as marked up; HTML, Markdown and text
+    /// copies end with the comments (`file.printMarkup`).
+    pub print_markup: bool,
     /// Language › Detect language automatically (per user, as in Word).
     pub detect_language: bool,
     /// Typing over a selection replaces it; off, the typed text goes in front of it.
@@ -363,6 +373,7 @@ impl Default for Prefs {
         Prefs {
             count_notes: true,
             markup: Default::default(),
+            print_markup: false,
             typing_replaces_selection: true,
             insert_key_overtype: false,
             overtype: false,
@@ -537,6 +548,7 @@ impl Session {
             show_hidden: self.view.marks || self.prefs.marks.hidden,
             hide_deleted: !self.view.show_markup || self.prefs.markup.hides_deletions(),
             proofing: self.view.proofing,
+            comment_balloons: false,
             field_codes: self.view.field_codes,
             outline: outline.clone(),
             proof: wordcraft_layout::ProofOptions { grammar: self.prefs.mark_grammar, spelling: self.prefs.spelling() },
@@ -547,7 +559,13 @@ impl Session {
     }
     /// A layout for output (PDF, images, print): no proofing marks, print view.
     pub fn export_layout(&self) -> Arc<DocLayout> {
-        let opts = LayoutOptions { view: ViewMode::Print, ..Default::default() };
+        self.export_layout_with(false)
+    }
+
+    /// [`Session::export_layout`]; with `markup` (Print Markup) each page also has the markup
+    /// area with the comments in balloons.
+    pub fn export_layout_with(&self, markup: bool) -> Arc<DocLayout> {
+        let opts = LayoutOptions { view: ViewMode::Print, comment_balloons: markup && self.prefs.markup.comments, ..Default::default() };
         Arc::new(wordcraft_layout::layout(&self.doc, &mut LayoutCache::new(), &opts))
     }
 

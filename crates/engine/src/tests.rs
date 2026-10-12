@@ -3218,6 +3218,191 @@ fn insert_icon_places_a_picture_of_the_requested_size_that_saves_and_recolours()
     assert!(s.run("picture.iconColor", &json!({})).is_err());
 }
 
+/// Print Markup (#589): `file.printMarkup` or a command's `markup` puts the comments into PDFs
+/// (balloons beside the scaled page) and at the end of HTML, Markdown and text copies.
+#[test]
+fn print_markup_exports_comments() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("The quarterly figures look strong."));
+    s.author = "Ada Reviewer".into();
+    s.run("select.text", &json!({"text": "figures"})).unwrap();
+    let id = s.run("review.newComment", &json!({"text": "Check the totals"})).unwrap()["id"].as_u64().unwrap();
+    s.run("review.reply", &json!({"id": id, "text": "Totals checked"})).unwrap();
+    let opts = |s: &Session, v| cmd::file::export_options(s, &v);
+    assert!(!opts(&s, json!({})).markup, "off by default");
+    let pdf = |s: &Session, v| crate::io::save_bytes_opts("x.pdf", &s.doc, &opts(s, v)).unwrap();
+    let html = |s: &Session, v| String::from_utf8(crate::io::save_bytes_opts("x.html", &s.doc, &opts(s, v)).unwrap()).unwrap();
+    let txt = |s: &Session, v| String::from_utf8(crate::io::save_bytes_opts("x.txt", &s.doc, &opts(s, v)).unwrap()).unwrap();
+    assert!(!html(&s, json!({})).contains("Check the totals"));
+    assert!(!txt(&s, json!({})).contains("Check the totals"));
+    let plain = pdf(&s, json!({}));
+    // The setting turns it on for every copy; a command's `markup` overrides it.
+    assert_eq!(s.run("file.printMarkup", &json!({})).unwrap()["value"], true);
+    let h = html(&s, json!({}));
+    assert!(
+        h.contains("<section class=\"comments\">") && h.contains("Ada Reviewer") && h.contains("<q>figures</q>") && h.contains("Totals checked"),
+        "{h}"
+    );
+    assert!(h.find("Check the totals") < h.find("</body>"));
+    let t = txt(&s, json!({}));
+    assert!(t.contains("[1] Ada Reviewer on “figures”: Check the totals") && t.contains("Totals checked"), "{t}");
+    let md = String::from_utf8(crate::io::save_bytes_opts("x.md", &s.doc, &opts(&s, json!({}))).unwrap()).unwrap();
+    assert!(md.contains("## Comments") && md.contains("1. **Ada Reviewer**"), "{md}");
+    assert_ne!(pdf(&s, json!({})), plain);
+    assert!(!html(&s, json!({"markup": false})).contains("Check the totals"));
+    // Comments hidden in Track Changes Options stay out.
+    s.prefs.markup.comments = false;
+    assert!(!html(&s, json!({})).contains("Check the totals"));
+    s.prefs.markup.comments = true;
+    assert_eq!(s.run("file.printMarkup", &json!({"value": false})).unwrap()["value"], false);
+    assert!(html(&s, json!({"markup": true})).contains("Check the totals"));
+    // file.exportPdf and file.exportPng take it too.
+    let dir = std::env::temp_dir().join(format!("wordcraft-print-markup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("m.pdf");
+    let r = s.run("file.exportPdf", &json!({"path": path.to_string_lossy(), "markup": true})).unwrap();
+    assert_eq!(r["markup"], true);
+    assert!(std::fs::read(&path).unwrap().starts_with(b"%PDF-"));
+    let png = dir.join("m.png");
+    let wide = s.run("file.exportPng", &json!({"path": png.to_string_lossy(), "markup": true, "scale": 1.0})).unwrap()["width"].as_u64().unwrap();
+    let narrow = s.run("file.exportPng", &json!({"path": png.to_string_lossy(), "scale": 1.0})).unwrap()["width"].as_u64().unwrap();
+    assert!(wide > narrow + 200, "{wide} vs {narrow}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #606: the colour commands behind More Colors… take any `RRGGBB` (with or without `#`, any
+/// case), not only the palette's colours; junk is a params error and changes nothing.
+#[test]
+fn colour_commands_take_any_custom_hex() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Custom"}));
+    run(&mut s, "select.all", json!({}));
+    for (given, want) in [("7A3EC8", "7A3EC8"), ("#0b5d1e", "0B5D1E"), ("  ff8800 ", "FF8800")] {
+        run(&mut s, "format.color", json!({"color": given}));
+        assert_eq!(run(&mut s, "format.state", json!({})).get("color"), Some(&json!(want)));
+    }
+    let doc = s.doc.clone();
+    for junk in [json!("#12"), json!("purple"), json!("GG0000"), json!(12), json!(null), json!("ééé")] {
+        assert!(s.run("format.color", &json!({"color": junk})).is_err(), "{junk}");
+    }
+    assert_eq!(s.doc, doc);
+    run(&mut s, "format.color", json!({"color": "auto"}));
+    assert_eq!(run(&mut s, "format.state", json!({})).get("color"), Some(&json!("auto")));
+    // Shading and page colour take custom colours the same way.
+    run(&mut s, "para.shading", json!({"color": "#C0FFEE"}));
+    let shading = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.shading);
+    assert_eq!(shading, wordcraft_doc::Rgb::parse("C0FFEE"));
+    run(&mut s, "design.pageColor", json!({"color": "123ABC"}));
+    assert_eq!(s.doc.settings.page_color, wordcraft_doc::Rgb::parse("123ABC"));
+}
+
+/// #569: a playlist (.m3u / .m3u8) — or any file with an extension WordCraft doesn't know —
+/// opens as plain text with its encoding detected, like Word's text import; a binary file is a
+/// clean error, never garbage or a panic.
+#[test]
+fn unknown_text_extensions_open_as_text() {
+    let lines = |doc: &wordcraft_doc::Document| doc.plain_text(StoryRef::Body);
+    let m3u8 = "#EXTM3U\r\n#EXTINF:215,Björk — Jóga\r\nmusic/Jóga.mp3\r\n#EXTINF:-1,Радио\r\nhttp://example.org/live\r\n";
+    let doc = crate::io::open_bytes("Mix.M3U8", m3u8.as_bytes()).unwrap();
+    assert!(
+        lines(&doc).starts_with("#EXTM3U\n#EXTINF:215,Björk — Jóga\nmusic/Jóga.mp3\n#EXTINF:-1,Радио\nhttp://example.org/live"),
+        "{:?}",
+        lines(&doc)
+    );
+    assert!(!lines(&doc).contains('\r'));
+    // With a BOM, which must not show up as a character.
+    let bom = [&[0xEF, 0xBB, 0xBF][..], m3u8.as_bytes()].concat();
+    assert!(lines(&crate::io::open_bytes("a.m3u8", &bom).unwrap()).starts_with("#EXTM3U\n"));
+    // A plain .m3u in Windows-1252 (é = E9, — = 97).
+    let cp1252 = b"#EXTM3U\r\n#EXTINF:100,Caf\xE9 \x97 Live\r\nC:\\Music\\caf\xE9.mp3\r\n";
+    assert_eq!(lines(&crate::io::open_bytes("old.m3u", cp1252).unwrap()), "#EXTM3U\n#EXTINF:100,Café — Live\nC:\\Music\\café.mp3\n");
+    // Other text files, a file without an extension, a dot in a folder name only.
+    for name in ["server.log", "settings.ini", "subs.srt", "README", "/home/a.b/README", "C:\\v1.2\\notes"] {
+        assert_eq!(lines(&crate::io::open_bytes(name, b"one\ntwo").unwrap()), "one\ntwo", "{name}");
+    }
+    // Binary files: an error naming the file, no panic.
+    for (name, bytes) in
+        [("song.mp3", &b"ID3\x04\0\0\0\0\x01\x02\x03"[..]), ("pic.dat", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"), ("blob", &[0u8, 1, 2, 3, 0, 255])]
+    {
+        let err = crate::io::open_bytes(name, bytes).unwrap_err();
+        assert!(err.contains(name) && err.contains("not a document"), "{name}: {err}");
+    }
+    assert!(crate::io::open_bytes("x.pdf", b"%PDF-1.7\n1 0 obj\n").is_err());
+    // A Word document or RTF file with the wrong extension opens by what it holds.
+    let docx = crate::io::save_bytes("x.docx", &crate::sample::letter()).unwrap();
+    assert_eq!(lines(&crate::io::open_bytes("letter.bak", &docx).unwrap()), lines(&crate::io::open_bytes("x.docx", &docx).unwrap()));
+    let rtf = crate::io::open_bytes("note.tmp", br"{\rtf1\ansi Hello {\b bold}\par}").unwrap();
+    assert!(lines(&rtf).starts_with("Hello bold"), "{:?}", lines(&rtf));
+    // Through file.open, both from disk and with the bytes (the web's picker and drops).
+    let dir = std::env::temp_dir().join(format!("wordcraft-569-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("road trip.m3u");
+    std::fs::write(&path, cp1252).unwrap();
+    let mut s = s();
+    let r = run(&mut s, "file.open", json!({"path": path.to_string_lossy()}));
+    assert_eq!(r["paragraphs"], 4);
+    assert!(text(&s).contains("Café — Live"));
+    let data = crate::cmd::insert::base64_encode(m3u8.as_bytes());
+    run(&mut s, "file.open", json!({"path": "Mix.m3u8", "data": data}));
+    assert!(text(&s).contains("Радио"));
+    let bad = crate::cmd::insert::base64_encode(b"\0\x01\x02binary\0");
+    assert!(s.run("file.open", &json!({"path": "x.bin", "data": bad})).is_err());
+    assert!(text(&s).contains("Радио"), "a failed open leaves the document alone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #549: after a double-click, dragging extends the selection by whole words; after a
+/// triple-click by whole paragraphs; after Ctrl/⌘+click by whole sentences. Forward drags keep
+/// the first unit's start as the anchor, backward drags its end.
+#[test]
+fn drag_after_multi_click_extends_by_units() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Alpha beta gamma. Delta epsilon.\rSecond para here.\rThird one."}));
+    let drag = |s: &mut Session, unit: &str, start: Pos, end: Pos, pos: Pos| {
+        run(s, "select.dragUnit", json!({"unit": unit, "start": start, "end": end, "pos": pos}));
+        (s.sel.anchor.clone(), s.sel.focus.clone())
+    };
+    // Double-click "beta" (6..11 with its trailing space).
+    run(&mut s, "caret.set", json!({"pos": Pos::body(0, 7)}));
+    run(&mut s, "select.word", json!({}));
+    let (a, b) = s.sel.ordered();
+    assert_eq!((a.off, b.off), (6, 11));
+    // Forward into the middle of "gamma": the whole word joins.
+    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 13)), (Pos::body(0, 6), Pos::body(0, 16)));
+    // Back into "Alpha": anchored at the end of "beta ", focus at the start of "Alpha".
+    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 2)), (Pos::body(0, 11), Pos::body(0, 0)));
+    // Back inside the first word: just that word.
+    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 8)), (Pos::body(0, 6), Pos::body(0, 11)));
+    // Into the next paragraph: whole word there.
+    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(1, 8)), (Pos::body(0, 6), Pos::body(1, 12)));
+
+    // Ctrl+click a sentence, drag into the next sentence.
+    run(&mut s, "caret.set", json!({"pos": Pos::body(0, 3)}));
+    run(&mut s, "select.sentence", json!({}));
+    let (a, b) = s.sel.ordered();
+    let (_, f) = drag(&mut s, "sentence", a, b, Pos::body(0, 20));
+    assert_eq!(f.off, 32, "the second sentence is selected to its end");
+
+    // Triple-click the second paragraph, drag up into the first and down into the third.
+    run(&mut s, "caret.set", json!({"pos": Pos::body(1, 3)}));
+    run(&mut s, "select.paragraph", json!({}));
+    let (a, b) = s.sel.ordered();
+    assert_eq!((a.clone(), b.clone()), (Pos::body(1, 0), Pos::body(2, 0)));
+    assert_eq!(drag(&mut s, "paragraph", a.clone(), b.clone(), Pos::body(0, 5)), (Pos::body(2, 0), Pos::body(0, 0)));
+    assert_eq!(drag(&mut s, "paragraph", a.clone(), b.clone(), Pos::body(2, 2)), (Pos::body(1, 0), Pos::body(2, 10)));
+
+    // Junk never panics and leaves the document alone.
+    let before = text(&s);
+    for v in [
+        json!({}),
+        json!({"unit": "line", "start": Pos::body(0, 0), "end": Pos::body(0, 1), "pos": Pos::body(0, 1)}),
+        json!({"unit": "word", "start": Pos::body(99, 999), "end": Pos::body(0, 0), "pos": Pos::body(77, usize::MAX)}),
+        json!({"unit": "word", "start": {"block": 0, "off": 9_999}, "end": {"block": 0, "off": 1}, "pos": {"block": 5}}),
+    ] {
+        let _ = s.run("select.dragUnit", &v);
+    }
+    assert_eq!(text(&s), before);
+}
+
 /// Home › Font › Enclose Characters (#297): the selection becomes an `EQ \o\ac` field, saved the
 /// way Word stores it (the style in the code's run sizes) and read back; null takes the text out
 /// again, and each step undoes.
@@ -3401,6 +3586,17 @@ fn note_options_per_section_and_convert_notes() {
     assert_eq!(kinds(&s), vec![NoteKind::Footnote, NoteKind::Footnote]);
     assert_eq!(s.doc.parts[&b].kind, PartKind::Footnote);
     assert!(s.run("references.convertNotes", &json!({"to": "sideways"})).is_err());
+}
+
+#[test]
+fn hide_white_space_toggles_view_state_only() {
+    let mut s = s();
+    let before = s.doc.body.len();
+    assert!(!s.view.hide_white_space);
+    assert_eq!(run(&mut s, "view.hideWhiteSpace", json!({}))["value"], true);
+    assert!(s.view.hide_white_space);
+    assert_eq!(run(&mut s, "view.hideWhiteSpace", json!({"value": false}))["value"], false);
+    assert_eq!(s.doc.body.len(), before, "a view option never edits the document");
 }
 
 /// The first SmartArt (or other graphic) in the body, selected.

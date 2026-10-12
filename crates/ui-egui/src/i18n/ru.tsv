@@ -253,6 +253,7 @@
 	Export PDF	Экспорт в PDF
 	Exported {path}	Экспортировано: {path}
 	Extend Selection	Расширить выделение
+	Extend Selection by Units	Расширить выделение по единицам
 	Field	Поле
 	File	Файл
 	Find	Найти
@@ -1789,6 +1790,21 @@ preview	Title	Пример
 	Left Only	Только слева
 	Right Only	Только справа
 	Largest Only	Только по большей стороне
+	Print Markup	Печатать исправления и примечания
+	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Примечания рядом с каждой страницей и отслеживаемые изменения в PDF, при печати и в изображениях; список примечаний в конце веб-страниц, Markdown и текста.
+	Recent Colors	Последние цвета
+	More Colors…	Другие цвета…
+	Standard	Обычные
+	Current	Текущий
+	Colors:	Цвета:
+	Color model:	Цветовая модель:
+	Red:	Красный:
+	Green:	Зеленый:
+	Blue:	Синий:
+	Hue:	Оттенок:
+	Sat:	Насыщенность:
+	Lum:	Яркость:
+	Hex:	Hex:
 	Accessibility Pane	Область специальных возможностей
 	Alt Text Pane	Область замещающего текста
 	Alt\nText	Замещающий\nтекст
@@ -2111,6 +2127,22 @@ preview	Title	Пример
 	Continuous numbering	Сквозная нумерация
 	Apply	Применить
 	Convert Notes	Преобразовать сноски
+	Hide White Space	Скрыть пустое место между страницами
+	All pages	Все страницы
+	Current page	Текущая страница
+	Selected pages	Выбранные страницы
+	Custom range	Свой диапазон
+	All pages in the range	Все страницы диапазона
+	Odd pages only	Только нечётные страницы
+	Even pages only	Только чётные страницы
+	Copies	Копии
+	Collate copies	Разобрать по копиям
+	Pages like 1-3, 5	Страницы, например 1-3, 5
+	{count} of {total} pages will print	Будет напечатано страниц: {count} из {total}
+	Save these pages as PDF…	Сохранить эти страницы как PDF…
+	The printer, two-sided printing and pages per sheet are chosen in that dialog.	Принтер, двусторонняя печать и число страниц на листе выбираются в этом диалоге.
+	Previous Page	Предыдущая страница
+	Print to PDF	Печать в PDF
 
 # Word XML Document (#548).
 	Word XML Document (*.xml)	Документ Word XML (*.xml)

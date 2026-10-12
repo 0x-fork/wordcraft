@@ -60,8 +60,8 @@ and set `WORDCRAFT_CONTROL_KEY` to that app's key.
 | `ui.press` / `ui.release` | `x`,`y`, modifiers | primary button down / up there (with `ui.move` between: a drag you can screenshot halfway) |
 | `ui.key` | `key` (`B`, `Enter`, `Left`…), `shift?`, `alt?`, `cmd?` | key press through egui (shortcuts apply) |
 | `ui.text` | `text` | typed text through egui |
-| `ui.screenshot` | `path?` | PNG of the window |
-| `ui.render` | `path`, `page?` (1-based), `scale?` | PNG of a page, rendered by the engine |
+| `ui.screenshot` | `path?` | PNG of the window: written to `path`, or without one returned as base64 `png` in the reply |
+| `ui.render` | `path?`, `page?` (1-based), `scale?` | PNG of a page, rendered by the engine: written to `path`, or without one returned as base64 `png` in the reply (never a fixed name in the shared temporary folder) |
 | `ui.parity` | — | feature-catalog parity |
 | `ui.resize` / `ui.focus` / `app.quit` | | window control |
 
@@ -79,3 +79,9 @@ false. Set `printer` to a discovered name, integer `copies` from 1 to 999, `dupl
 rejected without changing earlier settings. `ui.printSubmit` explicitly submits the current
 print-ready PDF without opening a dialog; inspect `ui.printSettings` until `busy` becomes false
 and check `status`/`detail`. The browser keeps its own print hook. PDF export remains separate.
+
+`ui.printSubmit` / `ui.print` also accept the upstream PDF page settings (`range`, `pages`,
+`parity`, `copies`, `collate`). Native printing renders the selected pages once and passes
+copies/collation to the spooler; the browser and `file.printPdf` keep copies in the PDF.
+Omitting native `copies` uses the configured `ui.printSettings` value. `collate` defaults to
+File › Print's setting; invalid ranges submit no job.

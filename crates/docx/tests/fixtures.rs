@@ -47,6 +47,52 @@ fn read_body(body: &str) -> Document {
     wordcraft_docx::read(&docx(body, &[], &[])).unwrap()
 }
 
+#[test]
+fn paragraph_default_presence_survives_repeated_saves() {
+    // Omission leaves paragraph defaults application-defined (ISO 29500 pPrDefault).
+    // An explicitly empty container must therefore remain distinct from omission.
+    for (defaults, present, after) in [
+        ("", false, None),
+        ("<w:docDefaults/>", false, None),
+        ("<w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val=\"22\"/></w:rPr></w:rPrDefault></w:docDefaults>", false, None),
+        ("<w:docDefaults><w:pPrDefault/></w:docDefaults>", true, None),
+        ("<w:docDefaults><w:pPrDefault><w:pPr/></w:pPrDefault></w:docDefaults>", true, None),
+        ("<w:docDefaults><w:pPrDefault><w:pPr><w:spacing w:after=\"160\"/></w:pPr></w:pPrDefault></w:docDefaults>", true, Some(8.0)),
+    ] {
+        let styles = format!(
+            r#"<w:styles {W_NS}>{defaults}<w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style></w:styles>"#
+        );
+        let mut d = wordcraft_docx::read(&docx(
+            "<w:p><w:r><w:t>First</w:t></w:r></w:p><w:p><w:r><w:t>Second</w:t></w:r></w:p>",
+            &[("rId1", "styles", "styles.xml")],
+            &[("word/styles.xml", &styles)],
+        ))
+        .unwrap();
+        for _ in 0..2 {
+            let bytes = wordcraft_docx::write(&d).unwrap();
+            let xml = text(&unzip(&bytes), "word/styles.xml");
+            assert_eq!(xml.contains("<w:pPrDefault>"), present, "{defaults}");
+            d = wordcraft_docx::read(&bytes).unwrap();
+            assert_eq!(d.styles.default_para.space_after, after);
+            assert_eq!(paras(&d).iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["First", "Second"]);
+        }
+    }
+}
+
+#[test]
+fn omitted_paragraph_defaults_can_be_edited() {
+    let styles =
+        format!(r#"<w:styles {W_NS}><w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style></w:styles>"#);
+    let mut d = wordcraft_docx::read(&docx("<w:p/>", &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+    assert!(!d.styles.default_para_present);
+    d.styles.default_para.space_after = Some(12.0);
+    let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    assert!(again.styles.default_para_present);
+    assert_eq!(again.styles.default_para.space_after, Some(12.0));
+    let new = Document::new();
+    assert_eq!(wordcraft_docx::read(&wordcraft_docx::write(&new).unwrap()).unwrap().styles.default_para, new.styles.default_para);
+}
+
 fn paras(d: &Document) -> Vec<&Paragraph> {
     d.body.iter().filter_map(|b| b.as_para()).collect()
 }
@@ -1365,4 +1411,81 @@ fn includepicture_keeps_its_embedded_picture() {
         check(&d);
         check(&wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap());
     }
+}
+
+/// One anchored Word shape (`wps:wsp` inside `mc:AlternateContent`, as Word writes them) with
+/// shape properties `sppr`, style `style` and extra `wsp` content.
+fn anchored_wsp(name: &str, cx: u32, cy: u32, sppr: &str, style: &str, extra: &str) -> String {
+    format!(
+        r#"<w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="1" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>12700</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>25400</wp:posOffset></wp:positionV><wp:extent cx="{cx}" cy="{cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="1" name="{name}"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><wps:wsp>{extra}<wps:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>{sppr}</wps:spPr>{style}<wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict><v:line from="0,0" to="1pt,2pt"/></w:pict></mc:Fallback></mc:AlternateContent></w:r>"#
+    )
+}
+
+/// #611: diagrams drawn with Word's shapes were mostly missing. Connectors and boxes take their
+/// outline and fill from the theme through their style references, or name preset and scheme
+/// colours; all of these are read, with line widths and arrowheads.
+#[test]
+fn theme_styled_connectors_and_callout_boxes_keep_their_paint() {
+    let style = |ln: u8, fill: u8, clr: &str| {
+        format!(
+            r#"<wps:style><a:lnRef idx="{ln}"><a:schemeClr val="{clr}"/></a:lnRef><a:fillRef idx="{fill}"><a:schemeClr val="{clr}"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="{clr}"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></wps:style>"#
+        )
+    };
+    let body = [
+        // A connector with only a style: accent4, the theme's thinnest line, an arrowhead.
+        anchored_wsp("Arrow", 673100, 889000, r#"<a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom><a:ln><a:tailEnd type="triangle"/></a:ln>"#, &style(1, 0, "accent4"), "<wps:cNvCnPr/>"),
+        // A callout text box: scheme fill, preset black outline.
+        anchored_wsp(
+            "Text Box",
+            3073400,
+            673100,
+            r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:schemeClr val="lt1"/></a:solidFill><a:ln w="6350"><a:solidFill><a:prstClr val="black"/></a:solidFill></a:ln>"#,
+            "",
+            r#"<wps:cNvSpPr txBox="1"/><wps:txbx><w:txbxContent><w:p><w:r><w:t>Callout</w:t></w:r></w:p></w:txbxContent></wps:txbx>"#,
+        ),
+        // A filled rectangle from its style alone.
+        anchored_wsp("Rect", 292100, 647700, r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>"#, &style(2, 1, "accent1"), "<wps:cNvSpPr/>"),
+        // An elbow connector.
+        anchored_wsp("Elbow", 1270000, 635000, r#"<a:prstGeom prst="bentConnector3"><a:avLst/></a:prstGeom>"#, &style(1, 0, "accent2"), "<wps:cNvCnPr/>"),
+        // A rounded-rectangle callout.
+        anchored_wsp("Callout", 1270000, 635000, r#"<a:prstGeom prst="wedgeRoundRectCallout"><a:avLst/></a:prstGeom>"#, &style(2, 1, "accent1"), "<wps:cNvSpPr/>"),
+    ]
+    .concat();
+    let d = read_body(&format!("<w:p>{body}</w:p>"));
+    let theme = &d.settings.theme_colors;
+    let objs = &paras(&d)[0].objects;
+    assert_eq!(objs.len(), 5);
+    let shape = |i: usize| match &objs[i] {
+        InlineObject::Shape { kind, fill, stroke, stroke_width, extra, story, .. } => {
+            (*kind, *fill, *stroke, *stroke_width, extra.arrow_end, story.is_some())
+        }
+        o => panic!("{o:?}"),
+    };
+    assert_eq!(shape(0), (ShapeKind::StraightConnector, None, Some(theme[7]), 0.5, true, false));
+    assert_eq!(shape(1), (ShapeKind::TextBox, Some(theme[1]), Some(Rgb(0, 0, 0)), 0.5, false, true));
+    assert_eq!(shape(2), (ShapeKind::Rectangle, Some(theme[4]), Some(theme[4]), 1.0, false, false));
+    assert_eq!(shape(3), (ShapeKind::ElbowConnector, None, Some(theme[5]), 0.5, false, false));
+    assert_eq!(shape(4).0, ShapeKind::RoundedRectangle);
+    // The themed outline and the arrowhead survive saving.
+    let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    assert!(matches!(&paras(&again)[0].objects[0], InlineObject::Shape { stroke, extra, .. } if *stroke == Some(theme[7]) && extra.arrow_end));
+}
+
+/// #611: legacy VML lines and rectangles (documents without DrawingML).
+#[test]
+fn vml_lines_and_rectangles() {
+    let body = r##"<w:p><w:r><w:pict><v:line style="position:absolute;flip:y;z-index:1" from="10pt,20pt" to="40pt,60pt" strokecolor="#4472c4 [3204]" strokeweight=".5pt"><v:stroke endarrow="block"/></v:line></w:pict></w:r>
+<w:r><w:pict><v:rect style="position:absolute;margin-left:5pt;margin-top:6pt;width:30pt;height:20pt" fillcolor="#ff0000" stroked="f"/></w:pict></w:r></w:p>"##;
+    let d = read_body(body);
+    let objs = &paras(&d)[0].objects;
+    assert_eq!(objs.len(), 2, "{objs:?}");
+    match &objs[0] {
+        InlineObject::Shape { kind: ShapeKind::Line, w, h, stroke, stroke_width, float, extra, .. } => {
+            assert_eq!((*w, *h, *stroke, *stroke_width), (30.0, 40.0, Some(Rgb(0x44, 0x72, 0xC4)), 0.5));
+            assert_eq!((float.x, float.y, float.flip_h, float.flip_v), (10.0, 20.0, false, true));
+            assert!(extra.arrow_end && !extra.arrow_start);
+        }
+        o => panic!("{o:?}"),
+    }
+    assert!(matches!(&objs[1], InlineObject::Shape { kind: ShapeKind::Rectangle, fill: Some(Rgb(255, 0, 0)), stroke: None, w: 30.0, h: 20.0, .. }));
 }

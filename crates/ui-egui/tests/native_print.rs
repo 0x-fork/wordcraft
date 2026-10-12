@@ -11,8 +11,8 @@ fn native_print_uses_selected_settings_and_reports_spool_errors() {
     app.run("text.insert", json!({"text": "A document to print"})).unwrap();
     let jobs = Rc::new(RefCell::new(Vec::new()));
     let observed = jobs.clone();
-    app.services.print_native = Some(Box::new(move |bytes, settings| {
-        observed.borrow_mut().push((bytes, settings));
+    app.services.print_native = Some(Box::new(move |bytes, settings, collate| {
+        observed.borrow_mut().push((bytes, settings, collate));
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(Err("printer is offline".into())).unwrap();
         receiver
@@ -33,6 +33,7 @@ fn native_print_uses_selected_settings_and_reports_spool_errors() {
     assert_eq!(jobs[0].1.copies, 3);
     assert_eq!(jobs[0].1.duplex, Some(Duplex::ShortEdge));
     assert!(jobs[0].1.grayscale);
+    assert!(jobs[0].2, "copies are collated by default");
     app.poll_printing(&egui::Context::default());
     assert_eq!(app.printing.message, Some(Feedback::Failed("printer is offline".into())));
     assert!(app.status_msg.as_ref().unwrap().0.contains("printer is offline"));
@@ -48,7 +49,7 @@ fn print_settings_are_visible_in_a_narrow_window() {
         sender.send(vec![Printer { name: "Test queue".into(), default: true }]).unwrap();
         receiver
     }));
-    app.services.print_native = Some(Box::new(|_, _| {
+    app.services.print_native = Some(Box::new(|_, _, _| {
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(Ok("queued".into())).unwrap();
         receiver
@@ -99,7 +100,7 @@ fn repeated_fast_jobs_each_surface_an_identical_receipt() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
     app.printing.printers.push(Printer { name: "Queue".into(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
-    app.services.print_native = Some(Box::new(|_, _| {
+    app.services.print_native = Some(Box::new(|_, _, _| {
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(Ok("same receipt".into())).unwrap();
         receiver
@@ -115,4 +116,38 @@ fn repeated_fast_jobs_each_surface_an_identical_receipt() {
         app.poll_printing(&egui::Context::default());
         assert!(app.status_msg.is_none());
     }
+}
+
+#[test]
+fn native_ranges_and_parity_do_not_duplicate_spooler_copies() {
+    let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+    for page in 1..=3 {
+        app.run("text.insert", json!({"text":format!("Distinct page {page}")})).unwrap();
+        if page < 3 {
+            app.run("insert.pageBreak", json!({})).unwrap();
+        }
+    }
+    assert_eq!(app.session.export_layout().pages.len(), 3);
+    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.run("ui.printSettings", json!({"printer":"Queue","copies":3})).unwrap();
+    let jobs = Rc::new(RefCell::new(Vec::new()));
+    let observed = jobs.clone();
+    app.services.print_native = Some(Box::new(move |bytes, settings, collate| {
+        observed.borrow_mut().push((bytes, settings, collate));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(Ok("queued".into())).unwrap();
+        receiver
+    }));
+    for bad in [json!({"pages":"8"}), json!({"parity":"bad"}), json!({"copies":0}), json!({"collate":"yes"})] {
+        assert!(app.run("ui.printSubmit", bad).is_err());
+    }
+    assert!(jobs.borrow().is_empty(), "invalid settings do not send any job");
+    let params = json!({"pages":"1-3","parity":"odd","collate":false});
+    let (expected, plan) = app.session.print_pdf(&params).unwrap();
+    assert_eq!(plan.pages, vec![0, 2]);
+    app.run("ui.printSubmit", params).unwrap();
+    let jobs = jobs.borrow();
+    assert_eq!(jobs[0].0, expected, "the PDF contains only the two selected pages, once each");
+    assert_eq!(jobs[0].1.copies, 3, "copies go to the spooler, not the PDF");
+    assert!(!jobs[0].2, "uncollated copies reach the spooler");
 }
