@@ -49,6 +49,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | 2026-10-11 | trivial | Line Numbers, Hyphenation (with Manual Hyphenation), Language, Envelopes and Labels dialogs (#407); the three duplicated modal-dialog rows merged into one |
 | 2026-10-11 | trivial | Accessibility pane (errors/warnings/tips, jump-to, fixes) and Alt Text pane, opened from Picture/Shape Format › Accessibility and right-click › View Alt Text… (#386) |
 | 2026-10-11 | trivial | References dialogs: Caption (New/Delete Label, Numbering with chapter numbers), Index and Mark Index Entry (Mark All), Custom Table of Contents (Options, TOC styles via Modify Style), Source Manager and Create/Edit Source; modal dialog count 34 (#402) |
+| 2026-10-11 | trivial | Font dialog: Asian text font and Latin text font boxes, each with its own list and type-to-find, shown for a Chinese/Japanese interface or East Asian text in the selection; OK sets only the fonts changed; `format.font {"eastAsia"}` (#505) |
 | 2026-10-11 | trivial | Customize Ribbon (custom tabs and groups, hidden and reordered tabs) and a customizable Quick Access Toolbar with a working … menu (#379, #376) |
 | 2026-10-11 | trivial | Customize Keyboard dialog (Tools › Customize Keyboard, File › Options › Keyboard shortcuts): custom keys override built-ins and persist (#368) |
 | 2026-10-11 | minor | Keyboard shortcuts 101 → 125 commands (#330): Reset Paragraph/Character Formatting, symbols, DATE/TIME/PAGE fields, view switches, Word Count, mail merge, F4 Repeat now reachable |

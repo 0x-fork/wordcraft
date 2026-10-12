@@ -2359,3 +2359,6 @@ preview	Title	Пример
 	Typing replaces selected text	Ввод заменяет выделенный текст
 	Update fields before printing	Обновлять поля перед печатью
 	Use the Insert key to switch overtype on and off	Клавиша Insert включает и выключает режим замены
+# Asian and Latin text fonts (#505).
+	Asian text font:	Шрифт азиатского текста:
+	Latin text font:	Шрифт латинского текста:
