@@ -269,8 +269,10 @@ fn fallback_reads_each_installed_font_file_once_however_many_characters_miss() {
     let latin = db.face(FALLBACK_FAMILY, "Regular");
     let found = db.fallback_for('\u{30000}', latin.id()).expect("the installed font maps it");
     assert_eq!((found.family.as_str(), found.style.as_str()), (FAMILY, "Regular"));
-    // 2,000 distinct characters nothing maps: the index answers, no file is read again.
-    for cp in 0x30001..0x30001 + 2000 {
+    // 2,000 distinct characters nothing maps (Supplementary Private Use Area-A: no font here,
+    // bundled or craft-fonts, maps it; CJK Extension G after U+30000 is partly in Noto Sans CJK
+    // SC): the index answers, no file is read again.
+    for cp in 0xF_0001..0xF_0001 + 2000 {
         let c = char::from_u32(cp).unwrap();
         assert!(db.fallback_for(c, latin.id()).is_none());
     }

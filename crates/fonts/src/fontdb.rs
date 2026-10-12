@@ -855,11 +855,12 @@ fn style_italic(style: &str) -> bool {
 
 impl FontDb {
     /// A database holding the bundled fonts, then the craft-fonts Japanese faces (Mincho first,
-    /// so they are the fallback for Japanese text after the requested and bundled fonts; empty
+    /// so they are the fallback for Japanese text after the requested and bundled fonts), then the
+    /// craft-fonts Simplified Chinese faces, for the ideographs the Japanese fonts lack (both empty
     /// without `CRAFT_FONTS_DIR`), whose system font scan reads `font_dirs`.
     pub fn with_font_dirs(font_dirs: Vec<std::path::PathBuf>) -> Self {
         let mut faces = Vec::new();
-        let craft = crate::japanese_document_fonts().into_iter().map(|f| f.bytes);
+        let craft = crate::japanese_document_fonts().into_iter().chain(crate::chinese_fonts()).map(|f| f.bytes);
         for data in BUNDLED.iter().copied().chain(craft) {
             for f in enumerate_faces(data) {
                 if let Some(mut face) = make_face(FontBytes::Static(data), f.index, f.family, f.style, f.legacy, f.coords) {
