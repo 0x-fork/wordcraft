@@ -595,6 +595,22 @@ impl<'a> Builder<'a> {
             .filter(|r| !r.substituted)
             .map(|r| r.face);
         let use_levels = para_text && !self.levels.is_empty();
+        // One fallback face for the run's East Asian characters: the first face in fallback order
+        // covering every character the primary font lacks, so the run draws in a single CJK face
+        // instead of mixing faces per character (e.g. a bundled Japanese Mincho for JIS-covered
+        // ideographs beside a Simplified-Chinese sans for the rest). Whitespace and characters the
+        // primary covers don't constrain the choice. `None` keeps the per-character fallback.
+        let ea_face: Option<FaceRef> = {
+            let ea: Vec<char> = text
+                .chars()
+                .filter(|c| crate::kinsoku::is_east_asian(*c) && !primary.covers(*c) && !c.is_whitespace() && !c.is_control() && *c != SOFT_HYPHEN)
+                .collect();
+            if ea.is_empty() {
+                None
+            } else {
+                wordcraft_fonts::FontDb::global().fallback_for_east_asian(&ea, primary.id(), rc.bold, rc.italic).map(|f| FaceRef::of(&f))
+            }
+        };
         // Split by font coverage (fallback faces), small caps case, script formatting and direction.
         let mut seg_start = 0;
         let mut cur: Option<SegKey> = None;
@@ -612,6 +628,8 @@ impl<'a> Builder<'a> {
                 _ if prim.covers(c) || c.is_whitespace() || c.is_control() || c == SOFT_HYPHEN => None,
                 // Stay in the fallback face the word started in while it covers the letters.
                 Some(SegKey { face: Some(f), .. }) if f.covers(c) => Some(f),
+                // The run's unified East Asian face, when one face covers the whole run.
+                _ if !complex && ea_face.is_some() && crate::kinsoku::is_east_asian(c) => ea_face,
                 _ => {
                     let (bold, italic) = if complex { (rc.bold_cs, rc.italic_cs) } else { (rc.bold, rc.italic) };
                     wordcraft_fonts::FontDb::global().fallback_styled(c, prim.id(), bold, italic).map(|f| FaceRef::of(&f))
