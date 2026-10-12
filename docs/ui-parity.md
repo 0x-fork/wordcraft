@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -28,6 +28,8 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | Rotation handle, crop handles on canvas, alignment guides, smart guides | rotation handle (Shift: 15° steps), turned frames resize along their axes (#332); crop handles and guides missing | ✅ | 25% | 3–5 |
 | Selection: word/sentence/paragraph clicks, dragging after a double-click/triple-click/Ctrl+click extends by whole words/paragraphs/sentences (#549), Shift extend, F8 extend mode, column (Alt+drag, #237) | ✅ | ✅ | 90% | 1 |
 | Zoom: Ctrl+scroll, pinch (#179), zoom buttons (#232), pages side by side when zoomed out (#251), still one per row after One Page or Page Width (#768) | ✅ | ✅ | 85% | — |
+| Selection: word/sentence/paragraph clicks, dragging after a double-click/triple-click/Ctrl+click extends by whole words/paragraphs/sentences (#549), Shift extend, F8 extend mode, column (Alt+drag, #237), selection bar in the left margin (click a line, double-click a paragraph, triple-click or Ctrl+click everything, drag by lines, Shift+click extends; #856) | ✅ Missing: the selection bar in the right margin for right-to-left paragraphs, beside table rows, and Word's right-pointing arrow cursor (egui has none; the plain arrow shows) | ✅ | 92% | 1 |
+| Zoom: Ctrl+scroll, pinch (#179), zoom buttons (#232), pages side by side when zoomed out (#251) | ✅ | ✅ | 85% | — |
 | Touchpad smooth/inertial scroll | ✅ (#252) | ✅ | 90% | — |
 | Reading Mode | Existing Read Mode ribbon button opens a read-only, viewport-column layout with animated horizontal paging, transient width/text/spacing controls, heading navigation (Navigation pane) and resize anchoring; print/export layout unchanged | reading-optimized view and navigation | 75% | 1–2 |
 | Status bar (page x of y, words, language, view buttons, zoom slider) | ✅ (the language is the caret's; a click sets the proofing language) | ✅ | 85% | — |
@@ -81,6 +83,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | 2026-10-11 | trivial | Screen readers: the document canvas exposes paragraphs, headings, lists, tables, links, pictures and the caret through AccessKit (#488); 25% → 50% |
 | 2026-10-11 | trivial | More Colors… in every colour drop-down and a Colors dialog (Standard and Custom tabs, RGB/HSL numbers, hex box) with Recent Colors (#606) |
 | 2026-10-11 | trivial | Selection by units: double-click and drag extends by whole words, triple-click and drag by paragraphs, Ctrl/⌘+click and drag by sentences; `select.dragUnit` (#549) |
+| 2026-10-12 | trivial | Selection bar: clicks in the left margin select the line, paragraph or document, drags select whole lines, Shift+click extends by lines; `select.line {"pos"}`, `select.dragUnit` units `line` and `document` (#856) |
 | 2026-10-11 | trivial | Compare / Combine Documents (original and revised document, label changes with, comparison settings, word or character level, show changes in) and AutoCorrect Options (replacement list, capitalization, exceptions, AutoFormat As You Type, Math AutoCorrect) dialogs; Restrict Editing pane (formatting and editing restrictions, exceptions for everyone, password); modal dialog rows merged into one (#412) |
 | 2026-10-11 | trivial | Line Numbers, Hyphenation (with Manual Hyphenation), Language, Envelopes and Labels dialogs (#407); the three duplicated modal-dialog rows merged into one |
 | 2026-10-11 | trivial | Accessibility pane (errors/warnings/tips, jump-to, fixes) and Alt Text pane, opened from Picture/Shape Format › Accessibility and right-click › View Alt Text… (#386) |

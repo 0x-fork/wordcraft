@@ -87,6 +87,39 @@ fn hit_and_caret_agree() {
 }
 
 #[test]
+fn selection_bar_finds_the_line_beside_the_pointer() {
+    // #856: the left margin beside a line is Word's selection bar.
+    let text = format!("{}\nShort.", "The quick brown fox jumps over the lazy dog. ".repeat(8));
+    let mut d = Document::from_text(&text);
+    d.insert_block(StoryRef::Body, &Path::top(2), wordcraft_doc::Block::Table(Table::new(1, 1, 468.0))).unwrap();
+    let l = lay(&d);
+    let p = &l.pages[0];
+    let c = l.caret(&Pos::body(0, 0)).unwrap();
+    let first = l.selection_bar_at(0, 30.0, c.top + c.height / 2.0).unwrap();
+    assert_eq!(first, Pos::body(0, 0));
+    // The second line of the wrapped paragraph: its start, and its span is the whole line.
+    let line2 = l.selection_bar_at(0, 30.0, c.top + c.height * 1.5).unwrap();
+    assert_eq!(line2.path, Path::top(0));
+    assert!(line2.off > 0);
+    let (a, b, last) = l.line_span(&line2, 0).unwrap();
+    assert_eq!(a, line2);
+    assert!(b.off > a.off && !last);
+    let (_, b, last) = l.line_span(&Pos::body(1, 0), 0).unwrap();
+    assert_eq!(b.off, "Short.".len());
+    assert!(last);
+    // In the text column, the header area, off the page or beside a table: not the bar.
+    assert_eq!(l.selection_bar_at(0, p.body.x + 5.0, c.top + 2.0), None);
+    assert_eq!(l.selection_bar_at(0, 30.0, p.body.y - 10.0), None);
+    assert_eq!(l.selection_bar_at(0, -5.0, c.top + 2.0), None);
+    assert_eq!(l.selection_bar_at(0, f32::NAN, c.top), None);
+    assert_eq!(l.selection_bar_at(9, 30.0, c.top), None);
+    let cell = l.caret(&Pos { story: StoryRef::Body, path: Path(vec![2, 0, 0, 0]), off: 0 }).unwrap();
+    assert_eq!(l.selection_bar_at(0, 30.0, cell.top + cell.height / 2.0), None);
+    // Dragging takes the nearest top-level line at any height.
+    assert_eq!(l.body_line_at(0, -100.0), Some(Pos::body(0, 0)));
+}
+
+#[test]
 fn deletions_leave_the_final_text_layout() {
     // "Keep " + deleted "DELETEDTEXT " (5..17) + inserted "INSERTED".
     let mut d = Document::from_text("Keep DELETEDTEXT INSERTED");

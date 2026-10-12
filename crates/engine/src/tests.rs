@@ -3815,13 +3815,46 @@ fn drag_after_multi_click_extends_by_units() {
     let before = text(&s);
     for v in [
         json!({}),
-        json!({"unit": "line", "start": Pos::body(0, 0), "end": Pos::body(0, 1), "pos": Pos::body(0, 1)}),
+        json!({"unit": "page", "start": Pos::body(0, 0), "end": Pos::body(0, 1), "pos": Pos::body(0, 1)}),
         json!({"unit": "word", "start": Pos::body(99, 999), "end": Pos::body(0, 0), "pos": Pos::body(77, usize::MAX)}),
         json!({"unit": "word", "start": {"block": 0, "off": 9_999}, "end": {"block": 0, "off": 1}, "pos": {"block": 5}}),
     ] {
         let _ = s.run("select.dragUnit", &v);
     }
     assert_eq!(text(&s), before);
+}
+
+/// #856: a click in the selection bar selects the whole line (its trailing space; the
+/// paragraph mark on the last line); dragging extends by lines; triple-click takes the document.
+#[test]
+fn selection_bar_selects_and_drags_by_lines() {
+    let mut s = s();
+    let long = "The quick brown fox jumps over the lazy dog. ".repeat(8);
+    run(&mut s, "text.insert", json!({"text": format!("{}\rShort one.\rLast.", long.trim_end())}));
+    let l = s.layout();
+    let c = l.caret(&Pos::body(0, 0)).unwrap();
+    let line2 = l.selection_bar_at(c.page, 20.0, c.top + c.height * 1.5).unwrap();
+    assert!(line2.off > 0);
+    run(&mut s, "select.line", json!({"pos": line2.clone()}));
+    let (a, b) = s.sel.ordered();
+    assert_eq!(a, line2);
+    assert_eq!(b.path, wordcraft_doc::Path::top(0));
+    assert!(b.off > a.off && b.off < long.trim_end().len());
+    assert_eq!(s.doc.para_at(&b).unwrap().text.as_bytes()[b.off - 1], b' ', "the trailing space is in");
+    // The last line of a paragraph takes its mark.
+    run(&mut s, "select.line", json!({"pos": Pos::body(1, 3)}));
+    assert_eq!(s.sel.ordered(), (Pos::body(1, 0), Pos::body(2, 0)));
+    // Drag from the "Short one." line down to "Last." and back up into the first paragraph.
+    let (a, b) = s.sel.ordered();
+    run(&mut s, "select.dragUnit", json!({"unit": "line", "start": a.clone(), "end": b.clone(), "pos": Pos::body(2, 0)}));
+    assert_eq!((s.sel.anchor.clone(), s.sel.focus.clone()), (Pos::body(1, 0), Pos::body(2, 5)));
+    run(&mut s, "select.dragUnit", json!({"unit": "line", "start": a.clone(), "end": b.clone(), "pos": line2.clone()}));
+    assert_eq!((s.sel.anchor.clone(), s.sel.focus.clone()), (Pos::body(2, 0), line2));
+    run(&mut s, "select.dragUnit", json!({"unit": "document", "start": a.clone(), "end": b.clone(), "pos": Pos::body(0, 0)}));
+    assert_eq!(s.sel.ordered(), (Pos::body(0, 0), Pos::body(2, 5)));
+    // Junk positions never panic.
+    let _ = s.run("select.line", &json!({"pos": {"block": 99, "off": usize::MAX}}));
+    let _ = s.run("select.line", &json!({"pos": 5}));
 }
 
 /// Home › Font › Enclose Characters (#297): the selection becomes an `EQ \o\ac` field, saved the

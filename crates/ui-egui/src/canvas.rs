@@ -1325,8 +1325,15 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if let Some(c) = crate::ink::cursor(app).filter(|_| resp.hovered() || app.canvas.ink.is_some()) {
         ui.ctx().set_cursor_icon(c);
     } else if resp.hovered() || app.canvas.obj_drag.is_some() {
-        let over_object = ui.input(|i| i.pointer.latest_pos()).and_then(|p| crate::objects::cursor(app, &layout, &rects, geo.scale, p));
-        ui.ctx().set_cursor_icon(over_object.unwrap_or(egui::CursorIcon::Text));
+        let latest = ui.input(|i| i.pointer.latest_pos());
+        let over_object = latest.and_then(|p| crate::objects::cursor(app, &layout, &rects, geo.scale, p));
+        // The selection bar: Word shows a right-pointing arrow there; egui has none, so the
+        // plain arrow stands in (#856).
+        let in_bar = app.session.sel.focus.story == StoryRef::Body
+            && (app.canvas.unit_drag.as_ref().is_some_and(|d| d.unit == "line")
+                || latest.and_then(|p| page_at(&rects, &layout, geo.scale, p)).is_some_and(|(pg, x, y)| layout.selection_bar_at(pg, x, y).is_some()));
+        let fallback = if in_bar { egui::CursorIcon::Default } else { egui::CursorIcon::Text };
+        ui.ctx().set_cursor_icon(over_object.unwrap_or(fallback));
     }
     crate::table_resize::cursor(app, ui, &resp, &layout, &rects, geo.scale);
     crate::table_mouse::cursor(app, ui, &resp, &layout, &rects, geo.scale);
@@ -1868,6 +1875,42 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         if app.session.math.is_some() {
             let _ = app.run("equation.exit", json!({}));
         }
+        // The selection bar (the left margin beside body text, #856): a click selects the line,
+        // a double-click the paragraph, a triple-click or Ctrl/⌘+click the document; Shift+click
+        // extends by lines; dragging grows the selection by the clicked unit.
+        if story == StoryRef::Body
+            && !mods.alt
+            && let Some(line) = layout.selection_bar_at(page, x, y)
+        {
+            app.canvas.column_drag = None;
+            app.session.page_hint = page;
+            let lj = serde_json::to_value(&line).unwrap_or_default();
+            let (unit, start, end) = if mods.shift {
+                let anchor = app.session.sel.anchor.clone();
+                let aj = serde_json::to_value(&anchor).unwrap_or_default();
+                let _ = app.run("select.dragUnit", json!({"unit": "line", "start": aj, "end": aj, "pos": lj}));
+                ("line", anchor.clone(), anchor)
+            } else {
+                let unit = match clicks {
+                    _ if mods.command => "document",
+                    3.. => "document",
+                    2 => "paragraph",
+                    _ => "line",
+                };
+                let _ = app.run("caret.set", json!({"pos": lj}));
+                let id = match unit {
+                    "document" => "select.all",
+                    "paragraph" => "select.paragraph",
+                    _ => "select.line",
+                };
+                let _ = app.run(id, json!({}));
+                let (start, end) = app.session.sel.ordered();
+                (unit, start, end)
+            };
+            app.canvas.unit_drag = Some(UnitDrag { unit, clicks, start, end, last: line });
+            app.canvas.dragging = true;
+            return;
+        }
         let Some(pos) = layout.hit(page, x, y, story) else { return };
         // Ctrl/⌘+click follows a hyperlink.
         if mods.command
@@ -1926,7 +1969,13 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         && ui.input(|i| i.pointer.primary_down())
         && let Some(d) = app.canvas.unit_drag.as_mut()
     {
-        if let Some(pos) = layout.hit(page, x, y, story)
+        // Lines grow line by line wherever the pointer is across; the whole document can't grow.
+        let target = match d.unit {
+            "line" => layout.body_line_at(page, y),
+            "document" => None,
+            _ => layout.hit(page, x, y, story),
+        };
+        if let Some(pos) = target
             && pos != d.last
         {
             d.last = pos.clone();
@@ -2775,6 +2824,104 @@ mod tests {
         multi_drag(&mut h, at, at, 2);
         let (s, e) = h.state().session.sel.ordered();
         assert_eq!((s, e), (Pos::body(0, 0), Pos::body(0, 6)));
+    }
+
+    /// #856: the left margin beside body text is Word's selection bar. A click selects the line,
+    /// a double-click the paragraph, a triple-click (or Ctrl/⌘+click) the document; dragging
+    /// selects whole lines and Shift+click extends by lines.
+    #[test]
+    fn selection_bar_clicks_select_lines() {
+        use egui::{Event, Modifiers, PointerButton};
+        let long = "The quick brown fox jumps over the lazy dog. ".repeat(8);
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": format!("{}\rSecond para\rThird para", long.trim_end())})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        // A point in the left margin beside the line `li` lines below the one holding `pos`.
+        let margin = |h: &mut egui_kittest::Harness<'_, WordApp>, pos: Pos, li: f32| {
+            let c = h.state_mut().session.layout().caret(&pos).expect("caret");
+            page_to_screen(h.state_mut(), c.page, 30.0, c.top + c.height * (li + 0.5)).expect("on screen")
+        };
+        let line_start = |h: &mut egui_kittest::Harness<'_, WordApp>, at: Pos2| {
+            let (rects, scale) = (h.state().canvas.page_rects.clone(), h.state().canvas.scale);
+            let layout = h.state_mut().session.layout();
+            let (pg, x, y) = page_at(&rects, &layout, scale, at).expect("page");
+            layout.selection_bar_at(pg, x, y).expect("in the selection bar")
+        };
+        let span = |h: &mut egui_kittest::Harness<'_, WordApp>, pos: &Pos| h.state_mut().session.layout().line_span(pos, 0).expect("line");
+        let button =
+            |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let clicks_drag = |h: &mut egui_kittest::Harness<'_, WordApp>, from: Pos2, to: Pos2, clicks: usize| {
+            h.event(Event::PointerMoved(from));
+            for i in 0..clicks {
+                h.event(button(from, true));
+                h.step();
+                if i + 1 < clicks {
+                    h.event(button(from, false));
+                    h.step();
+                }
+            }
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+                h.step();
+            }
+            h.event(button(to, false));
+            for _ in 0..3 {
+                h.step();
+            }
+        };
+        let pause = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            for _ in 0..40 {
+                h.step();
+            }
+        };
+        // Click beside the second line: that whole line is selected, not a caret at its start.
+        let at = margin(&mut h, Pos::body(0, 0), 1.0);
+        let l2 = line_start(&mut h, at);
+        assert!(l2.off > 0 && l2.path == wordcraft_doc::Path::top(0));
+        clicks_drag(&mut h, at, at, 1);
+        let (_, l2_end, _) = span(&mut h, &l2);
+        assert_eq!(h.state().session.sel.ordered(), (l2.clone(), l2_end.clone()), "the line");
+        // Double-click: the paragraph, mark included.
+        pause(&mut h);
+        clicks_drag(&mut h, at, at, 2);
+        assert_eq!(h.state().session.sel.ordered(), (Pos::body(0, 0), Pos::body(1, 0)), "the paragraph");
+        // Triple-click: the whole document.
+        pause(&mut h);
+        clicks_drag(&mut h, at, at, 3);
+        assert_eq!(h.state().session.sel.ordered(), (Pos::body(0, 0), Pos::body(2, 10)), "everything");
+        // Drag from beside the first line down past the third: three whole lines.
+        pause(&mut h);
+        let (from, to) = (margin(&mut h, Pos::body(0, 0), 0.0), margin(&mut h, Pos::body(0, 0), 2.0));
+        let l3 = line_start(&mut h, to);
+        clicks_drag(&mut h, from, to, 1);
+        let (_, l3_end, _) = span(&mut h, &l3);
+        let sel = h.state().session.sel.clone();
+        assert_eq!((sel.anchor, sel.focus), (Pos::body(0, 0), l3_end), "three lines");
+        // Shift+click beside "Second para" extends by lines, to that paragraph's mark.
+        pause(&mut h);
+        let second = margin(&mut h, Pos::body(1, 0), 0.0);
+        h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+        h.step();
+        clicks_drag(&mut h, second, second, 1);
+        h.event(Event::ModifiersChanged(Modifiers::default()));
+        h.step();
+        let sel = h.state().session.sel.clone();
+        assert_eq!((sel.anchor, sel.focus), (Pos::body(0, 0), Pos::body(2, 0)), "extended by lines");
+        // Hovering the bar shows the arrow, not the I-beam.
+        h.event(Event::PointerMoved(at));
+        h.step();
+        assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default);
     }
 
     /// #167: a comment balloon edits in place like Word's: click it, type, leave it, and the
