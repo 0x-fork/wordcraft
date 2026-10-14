@@ -204,13 +204,33 @@ fn save_prefs(app: &WordApp) {
         return;
     }
     if let Some(p) = prefs_path() {
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        if let Some(dir) = p.parent()
+            && let Err(e) = std::fs::create_dir_all(dir)
+        {
+            log::warn!("preferences: cannot create {}: {e}", dir.display());
+            return;
         }
-        if let Ok(bytes) = serde_json::to_vec_pretty(&app.prefs()) {
-            let _ = std::fs::write(&p, bytes);
+        match serde_json::to_vec_pretty(&app.prefs()) {
+            Ok(bytes) => {
+                if let Err(e) = write_prefs(&p, &bytes) {
+                    log::warn!("preferences: cannot save {}: {e}", p.display());
+                }
+            }
+            Err(e) => log::warn!("preferences: cannot serialize: {e}"),
         }
     }
+}
+
+/// Writes `bytes` to a sibling temporary file and renames it over `path`, so a failed or
+/// interrupted write leaves the previous preferences in place.
+fn write_prefs(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "ui.json".into());
+    let tmp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    let written = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 /// Native file dialogs, shown without blocking the window (`file_dialogs`, #94), File › Print
@@ -406,4 +426,24 @@ fn main() -> eframe::Result {
             )))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_prefs;
+
+    #[test]
+    fn failed_preferences_write_keeps_the_old_file_and_reports_the_error() {
+        let dir = std::env::temp_dir().join(format!("wordcraft-prefs-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ui.json");
+        std::fs::write(&path, b"old").unwrap();
+        write_prefs(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        // A directory squatting on the temporary name makes the preparation step fail.
+        std::fs::create_dir(dir.join(format!(".ui.json.{}.tmp", std::process::id()))).unwrap();
+        assert!(write_prefs(&path, b"newer").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
