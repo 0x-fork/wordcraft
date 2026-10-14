@@ -689,6 +689,15 @@ fn page_break_char_starts_new_page() {
 }
 
 #[test]
+fn page_numbers_can_restart_at_zero() {
+    // `w:pgNumType w:start="0"`: a cover page numbered 0, so the page after it reads 1.
+    let mut d = Document::from_text("Cover\u{000C}Contents");
+    d.last_section.page_num_start = Some(0);
+    let numbers: Vec<u32> = lay(&d).pages.iter().map(|p| p.number).collect();
+    assert_eq!(numbers, [0, 1]);
+}
+
+#[test]
 fn center_and_right_alignment() {
     let mut d = Document::from_text("abc\nabc\nabc");
     d.format_paragraphs(&Pos::body(1, 0), &Pos::body(1, 0), &|p| p.align = Some(Align::Center)).unwrap();

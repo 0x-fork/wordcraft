@@ -1400,6 +1400,9 @@ struct PageBuilder<'a> {
     /// The previous paragraph ended with a page break (its mark stayed with the break): the next
     /// paragraph, first on the new page, gets no space before (Word).
     after_break_mark: bool,
+    /// The number the next page takes instead of counting on: a section restarting its
+    /// numbering, possibly at 0 (a cover page numbered 0).
+    restart_at: Option<u32>,
     /// Wrap areas of floating objects on this page (see [`wrap_area`]).
     excl: Vec<WrapArea>,
     /// Wrap areas of the floating tables on this page, which others may not overlap.
@@ -1815,7 +1818,7 @@ impl PageBuilder<'_> {
             self.line_no = 0;
         }
         let s = self.sect;
-        self.number = self.number.saturating_add(1);
+        self.number = self.restart_at.take().unwrap_or_else(|| self.number.saturating_add(1));
         let (w, h) = if self.web { (s.page_w, f32::MAX / 4.0) } else { (s.page_w, s.page_h) };
         // A footer taller than the bottom margin pushes the body up (Word: no gap), leaving it at
         // least a little room.
@@ -2045,6 +2048,7 @@ fn layout_pass(
         orig_bottom: 0.0,
         prev: None,
         after_break_mark: false,
+        restart_at: None,
         excl: Vec::new(),
         float_tables: Vec::new(),
         line_no: 0,
@@ -2137,8 +2141,8 @@ fn layout_pass(
                 pb.sect = sect;
                 pb.sect_idx = si;
             }
-            if let Some(n) = restart {
-                pb.number = n.saturating_sub(1);
+            if restart.is_some() {
+                pb.restart_at = restart;
             }
             pb.foot_top = first_foot;
             pb.new_page(block, first_top);
