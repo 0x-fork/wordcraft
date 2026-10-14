@@ -763,13 +763,23 @@ fn lines(
                     if let Ok(i) = pl.shown.binary_search_by_key(&k, |(i, _, _)| *i)
                         && let Some((_, s, r)) = pl.shown.get(i)
                     {
-                        text.push_str(s);
+                        // All Caps field results read as the capitals drawn (#1473). `r` holds
+                        // byte ranges into `s`, so a character whose capital has another UTF-8
+                        // length keeps its own form and every range still lands where it did.
+                        text.extend(s.chars().map(|ch| {
+                            let up = crate::para::caps_char(&st.rc, ch);
+                            if up.len_utf8() == ch.len_utf8() { up } else { ch }
+                        }));
                         shown = Some(r);
                     } else if let Some(p) = para {
                         let t = p.text.get(c.start..c.end).unwrap_or("");
                         // Symbol-font characters (Wingdings…) read as the Unicode symbols drawn.
                         if wordcraft_doc::symbol_fonts::is_symbol_font(&st.rc.font) {
                             text.push_str(&wordcraft_doc::symbol_fonts::map_text(&st.rc.font, t));
+                        } else if st.rc.caps || st.rc.small_caps {
+                            // All Caps and Small Caps read as the capitals drawn (#1473), mapped
+                            // as the shaper maps them, so a glyph never stands for two cases.
+                            text.extend(t.chars().map(|ch| crate::para::caps_char(&st.rc, ch)));
                         } else {
                             text.push_str(t);
                         }

@@ -1024,6 +1024,67 @@ fn internal_links_export_in_linear_time() {
     assert!(ratio < 9.0, "4x the paragraphs and links took {ratio:.1}x as long (quadratic would be ~16x)");
 }
 
+#[test]
+fn all_caps_and_small_caps_text_extracts_as_displayed() {
+    // #1473: All Caps / Small Caps text is drawn with capital glyphs, so it extracts in capitals
+    // (as Word's PDFs do), and later text without caps keeps its own case: a capital glyph
+    // first drawn for a lowercase letter must not make every later capital read as lowercase.
+    let mut d = Document::new();
+    d.styles.upsert(wordcraft_doc::Style {
+        id: "CapsPara".into(),
+        name: "Caps Para".into(),
+        kind: wordcraft_doc::StyleKind::Paragraph,
+        chr: CharProps { caps: Some(true), ..Default::default() },
+        ..Default::default()
+    });
+    let caps = CharProps { caps: Some(true), ..Default::default() };
+    let small = CharProps { small_caps: Some(true), ..Default::default() };
+    d.body = vec![
+        para_block(Paragraph::with_text("Employment Period. Your employment will begin on the date below.", CharProps::default()).styled("CapsPara")),
+        para_block(Paragraph::with_text("Direct caps on the run: Mixed Case Words.", caps.clone())),
+        para_block(Paragraph::with_text("Plain text, no caps: Employment Period.", CharProps::default())),
+        para_block(Paragraph::with_text("Small caps line: Quiet Words.", small)),
+        para_block(Paragraph::with_text("Straße", caps)),
+        para_block(Paragraph::with_text("Plain again: Straße, Quiet Period.", CharProps::default())),
+    ];
+    let text = extract_text(&export(&d, &PdfOptions::default()).unwrap()).concat();
+    let text = squash(&text);
+    for line in [
+        "EMPLOYMENT PERIOD. YOUR EMPLOYMENT WILL BEGIN ON THE DATE BELOW.",
+        "DIRECT CAPS ON THE RUN: MIXED CASE WORDS.",
+        "Plain text, no caps: Employment Period.",
+        "SMALL CAPS LINE: QUIET WORDS.",
+        "Plain again: Straße, Quiet Period.",
+    ] {
+        assert!(text.contains(line), "missing {line:?} in {text:?}");
+    }
+    // An All Caps ß is drawn today as one S glyph, so it reads as that S: the text layer follows
+    // the glyph drawn. Drawing it as "SS", as Word does, is a separate display issue.
+    assert!(text.contains("STRASE"), "{text:?}");
+}
+
+#[test]
+fn caps_list_labels_extract_as_displayed() {
+    // #1473: a lowercase-letter list label in an All Caps paragraph is drawn with capital glyphs;
+    // it reads as those capitals, and a later plain capital A still reads as "A".
+    let mut d = Document::new();
+    d.styles.upsert(wordcraft_doc::Style {
+        id: "CapsPara".into(),
+        name: "Caps Para".into(),
+        kind: wordcraft_doc::StyleKind::Paragraph,
+        chr: CharProps { caps: Some(true), ..Default::default() },
+        ..Default::default()
+    });
+    let list = d.numbering.add_list(ListKind::Numbered);
+    let mut item = Paragraph::with_text("item", CharProps::default()).styled("CapsPara");
+    item.props.numbering = Some(NumRef { num: list, level: 1 });
+    d.body = vec![para_block(item), para_block(Paragraph::with_text("Plain Apple.", CharProps::default()))];
+    let text = squash(&extract_text(&export(&d, &PdfOptions::default()).unwrap()).concat());
+    assert!(text.contains("A."), "the label reads as the capital drawn: {text:?}");
+    assert!(!text.contains("a."), "no lowercase label: {text:?}");
+    assert!(text.contains("Plain Apple."), "a plain capital A keeps its case: {text:?}");
+}
+
 /// The reporter's four paragraphs from #1383 (Hebrew, Arabic and mixed right-to-left paragraphs,
 /// and a Latin one), then right-to-left words with a lam-alef ligature and with vowel marks.
 fn rtl_sample() -> Document {

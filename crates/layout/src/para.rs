@@ -514,6 +514,18 @@ impl SegKey {
     }
 }
 
+/// The capital All Caps and Small Caps draw for `c`: one character in, one out (ß draws as S).
+fn upper_char(c: char) -> char {
+    c.to_uppercase().next().unwrap_or(c)
+}
+
+/// The character drawn for `c` in a run formatted `rc`: All Caps capitalises every letter,
+/// Small Caps the lowercase ones (as the shaper draws them). The PDF text layer uses it so
+/// the text read back is the text shown (#1473).
+pub(crate) fn caps_char(rc: &ResolvedChar, c: char) -> char {
+    if rc.caps || (rc.small_caps && c.is_lowercase()) { upper_char(c) } else { c }
+}
+
 /// Combining marks and joiners (bidi classes NSM, BN: harakat, ZWNJ, ZWJ) belong to the
 /// character before them: same font, same shaping run, so Arabic joining isn't broken.
 fn is_mark(c: char) -> bool {
@@ -817,7 +829,7 @@ impl<'a> Builder<'a> {
                 if d != c {
                     d
                 } else if upper {
-                    c.to_uppercase().next().unwrap_or(c)
+                    upper_char(c)
                 } else {
                     c
                 }
@@ -1467,7 +1479,8 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             for g in b.glyphs.get(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
                 glyphs.push(Glyph { dx: g.dx + x, ..*g });
             }
-            let chars = shown(text.get(c.start..c.end).unwrap_or(""));
+            // A label in an All Caps paragraph reads as the capitals drawn (#1473).
+            let chars: String = shown(text.get(c.start..c.end).unwrap_or("")).chars().map(|ch| caps_char(&rc, ch)).collect();
             match runs.last_mut() {
                 Some(r) if r.style == c.style => {
                     r.glyphs.end = glyphs.len();
