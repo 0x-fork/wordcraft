@@ -1207,6 +1207,18 @@ impl Document {
         }
     }
 
+    /// Repair every paragraph's runs (see [`Paragraph::normalize`]); for models from untrusted
+    /// JSON, whose run lengths may overflow, fall short or split a character.
+    pub fn normalize_runs(&mut self) {
+        let mut stories: Vec<&mut Blocks> = vec![&mut self.body];
+        stories.extend(self.parts.values_mut().map(|p| &mut p.blocks));
+        for blocks in stories {
+            for b in blocks.iter_mut() {
+                edit::each_para_mut(Arc::make_mut(b), 0, &mut Paragraph::normalize);
+            }
+        }
+    }
+
     /// Number of paragraphs in the body (all depths).
     pub fn paragraph_count(&self) -> usize {
         self.para_paths(StoryRef::Body).len()
