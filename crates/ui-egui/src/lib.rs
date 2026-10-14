@@ -107,6 +107,10 @@ pub struct Services {
     pub open_async: Option<Box<dyn Fn(&str)>>,
     /// Web: files (name, bytes) delivered asynchronously (picker, drag and drop).
     pub inbox: Option<Inbox>,
+    /// Web: pictures pasted from the browser's clipboard (the bytes; the name is ignored). Kept
+    /// apart from `inbox` because a paste only lands in the document when the page is the edit
+    /// target (#1349), where a dropped or opened file always lands.
+    pub pasted: Option<Inbox>,
     /// Web: hand bytes to the browser as a download. An error means no download started (the
     /// browser can't tell the page whether the user then kept the file).
     pub download: Option<Box<dyn Fn(&str, &[u8]) -> Result<(), String>>>,
@@ -165,6 +169,14 @@ pub enum DefaultApp {
 
 /// Files delivered asynchronously.
 pub type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
+
+/// Whether a pasted picture belongs in the document: the page has keyboard focus, and no
+/// Backstage or dialog is open (#1349). A focused text field (comment, Find box) means the page
+/// does not have focus, so `canvas_focused` already covers it; egui's own "wants keyboard input"
+/// is true for the focused page itself and can't be used.
+fn paste_target(canvas_focused: bool, backstage: bool, dialog: bool) -> bool {
+    canvas_focused && !backstage && !dialog
+}
 
 /// UI state that persists between runs (and that agents can read and set).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1472,6 +1484,7 @@ impl WordApp {
         self.clear_stale_change_picture();
         let _ = self.poll_file_dialog();
         self.drain_inbox();
+        self.drain_pasted();
         self.watch_fonts(ctx);
         self.autosave_tick(now_ms());
         if self.autosaves() && self.session.dirty {
@@ -1743,6 +1756,21 @@ impl WordApp {
             if r.is_ok() {
                 self.ui.backstage = false;
             }
+        }
+    }
+
+    /// Pictures pasted in the browser: inserted once when the page is the edit target, dropped
+    /// otherwise so the focused field's own paste applies (a text field ignores a picture).
+    fn drain_pasted(&mut self) {
+        let Some(pasted) = self.services.pasted.clone() else { return };
+        let pictures = std::mem::take(&mut *pasted.lock().unwrap_or_else(|e| e.into_inner()));
+        let target = paste_target(self.canvas.focused, self.ui.backstage, self.dialog.is_some() || self.file_dialog_open());
+        for (_, bytes) in pictures {
+            if !target {
+                log::debug!("pasted picture ignored: the document is not the edit target");
+                continue;
+            }
+            let _ = self.insert_or_change_picture(json!({"data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}));
         }
     }
 
@@ -4726,6 +4754,121 @@ mod tests {
 
     fn object_count(a: &mut WordApp) -> usize {
         a.session.run("arrange.selectionPane", &json!({})).unwrap().as_array().map(|x| x.len()).unwrap_or(0)
+    }
+
+    /// A picture pasted in the browser lands only when the page is the edit target (#1349);
+    /// dropped or opened files always land.
+    #[test]
+    fn pasted_picture_inserts_only_when_the_page_is_the_edit_target() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        let push = |a: &mut WordApp, c| {
+            // Collapse after the last picture so an insertion adds one instead of replacing it.
+            a.session.run("select.collapse", &json!({"end": true})).unwrap();
+            q.lock().unwrap().push(("pasted.png".into(), png_bytes(c)));
+        };
+        // The page has focus: inserted once.
+        a.canvas.focused = true;
+        push(&mut a, [200, 30, 30, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        assert!(q.lock().unwrap().is_empty(), "the queue is drained, so no second insertion");
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        // A dialog is open.
+        a.run("ui.dialog", json!({"name": "find"})).unwrap();
+        assert!(a.dialog.is_some());
+        push(&mut a, [1, 2, 3, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        a.dialog = None;
+        // The Backstage is open.
+        a.ui.backstage = true;
+        push(&mut a, [1, 2, 3, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        assert!(q.lock().unwrap().is_empty(), "ignored pictures are dropped, not kept for later");
+        a.ui.backstage = false;
+        // A dropped file still inserts with the page unfocused.
+        a.canvas.focused = false;
+        a.session.run("select.collapse", &json!({"end": true})).unwrap();
+        a.services.inbox = Some(Inbox::default());
+        a.services.inbox.as_ref().unwrap().lock().unwrap().push(("drop.png".into(), png_bytes([5, 5, 5, 255])));
+        a.drain_inbox();
+        assert_eq!(object_count(&mut a), 2);
+    }
+
+    fn paste_harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h
+    }
+
+    /// Through the real frame loop (#1349): a paste onto the focused page inserts once; the
+    /// focused page must not look like a text field to the guard.
+    #[test]
+    fn a_paste_onto_the_focused_page_inserts_one_picture() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        let mut h = paste_harness(a);
+        assert!(h.state().canvas.focused);
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 1);
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 1, "once");
+    }
+
+    /// A real text field with focus (the Find box) takes the input: the picture is dropped.
+    #[test]
+    fn a_paste_with_the_find_dialog_open_is_ignored() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        a.run("ui.dialog", json!({"name": "find"})).unwrap();
+        let mut h = paste_harness(a);
+        h.ctx.memory_mut(|m| m.request_focus(egui::Id::new("find_what")));
+        h.step();
+        h.step();
+        assert!(!h.state().canvas.focused);
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 0);
+        assert!(q.lock().unwrap().is_empty());
+    }
+
+    /// A text field outside any dialog (the Navigation pane's search) with focus takes the input:
+    /// the page is not focused, and the picture is dropped (#1349).
+    #[test]
+    fn a_paste_with_a_pane_text_field_focused_is_ignored() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        a.run("view.navigationPane", json!({"value": true})).unwrap();
+        let mut h = paste_harness(a);
+        // Focus the search box for real (as Ctrl+F does), once the page has settled.
+        h.state_mut().canvas.want_focus = false;
+        h.state_mut().nav_search_focus = true;
+        h.step();
+        h.step();
+        let app = h.state();
+        assert!(app.dialog.is_none() && !app.ui.backstage, "no dialog, no Backstage");
+        assert!(!app.canvas.focused, "the search box has the focus, not the page");
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 0);
+        assert!(q.lock().unwrap().is_empty());
     }
 
     /// A pending Change Picture replaces the selected image instead of inserting (#147).

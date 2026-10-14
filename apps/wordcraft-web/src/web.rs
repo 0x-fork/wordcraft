@@ -48,7 +48,8 @@ pub fn start() {
                     // Fonts the user added on an earlier visit (#582); the app notices them arrive.
                     font_store::load_all(cc.egui_ctx.clone());
                     let inbox: Inbox = Inbox::default();
-                    if let Err(e) = listen_for_pasted_pictures(inbox.clone(), cc.egui_ctx.clone()) {
+                    let pasted: Inbox = Inbox::default();
+                    if let Err(e) = listen_for_pasted_pictures(pasted.clone(), cc.egui_ctx.clone()) {
                         log::error!("pasting pictures is unavailable: {e}");
                     }
                     // The browser's locale picks the new document's paper, the units and the
@@ -59,6 +60,8 @@ pub fn start() {
                     let mut session = Session::new(doc);
                     session.system_region = region;
                     let mut app = WordApp::new(session, services(inbox.clone(), cc.egui_ctx.clone(), dirty, saves.clone()));
+                    // Pasted pictures wait apart from dropped files: the app inserts one only when the page is the edit target (#1349).
+                    app.services.pasted = Some(pasted);
                     app.autosave = false;
                     // No document to show: start on File › Home, as the desktop app does (#766).
                     if !sample {
@@ -157,10 +160,11 @@ const MAX_PASTED_PICTURES: u32 = 20;
 
 /// Pasting a picture (#45): eframe's paste handler only reads text, so a clipboard holding just
 /// pictures (a screenshot, a browser's Copy Image) is read here and the pictures arrive through
-/// the inbox like dropped ones. A clipboard with text is left to eframe.
+/// the app's `pasted` queue, which inserts them only when the page is the edit target (#1349). A clipboard with text is left to eframe.
 fn listen_for_pasted_pictures(inbox: Inbox, ctx: egui::Context) -> Result<(), String> {
     let document = web_sys::window().and_then(|w| w.document()).ok_or("no document")?;
     let on_paste = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::ClipboardEvent)>::new(move |e: web_sys::ClipboardEvent| {
+        // The target is always eframe's hidden text input while the page has focus; the app decides (#1349).
         let Some(data) = e.clipboard_data() else { return };
         if !data.get_data("text").unwrap_or_default().is_empty() {
             return;
@@ -181,7 +185,7 @@ fn listen_for_pasted_pictures(inbox: Inbox, ctx: egui::Context) -> Result<(), St
                 match wasm_bindgen_futures::JsFuture::from(file.array_buffer()).await {
                     Ok(buf) => {
                         let bytes = js_sys::Uint8Array::new(&buf).to_vec();
-                        // The inbox inserts files named like pictures; the engine reads the format from the bytes.
+                        // The engine reads the format from the bytes; the name is ignored.
                         inbox.lock().unwrap_or_else(|e| e.into_inner()).push(("pasted.png".into(), bytes));
                         ctx.request_repaint();
                     }
