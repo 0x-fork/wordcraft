@@ -347,6 +347,20 @@ pub fn check_deletions<'a>(s: &mut Session, story: StoryRef, deletions: impl Int
     Ok(())
 }
 
+/// Before an edit that rewrites the text of `a..b` in place (Change Case, unlinking a field):
+/// refuse when it touches the content of a control that can't be edited. Unlike a deletion,
+/// the control itself stays, so a control locked only against deletion takes the edit.
+pub fn check_edit(s: &mut Session, a: &Pos, b: &Pos) -> Result<(), CmdError> {
+    if a.story != b.story {
+        return Ok(());
+    }
+    let refused = s.doc.control_ranges(a.story).into_iter().any(|r| {
+        let cs = r.content_start();
+        !r.control.lock.can_edit() && (&a.path, a.off) < (&r.end.path, r.end.off) && (&b.path, b.off) > (&cs.path, cs.off)
+    });
+    if refused { Err(locked(s, CANT_EDIT)) } else { Ok(()) }
+}
+
 /// After the user deleted something: a control left empty shows its placeholder again.
 pub fn restore_placeholder(s: &mut Session) -> Result<(), CmdError> {
     let at = s.sel.focus.clone();
