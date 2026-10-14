@@ -97,3 +97,7 @@ sync_github_name = false
 
 [people.albayazid]
 real_name = "Sazid Al Bayazid"
+
+[people.switch87]
+real_name = "Gert Pellin"
+display_name = "Gert Pellin"
