@@ -1515,6 +1515,8 @@
 	Mirror indents	Rientri speculari
 	Overtype	Sovrascrittura
 	Overtype (typing replaces the characters after the caret)	Sovrascrittura (il testo digitato sostituisce i caratteri dopo il cursore)
+	Show alignment guides when moving pictures and shapes	Mostra le guide di allineamento durante lo spostamento di immagini e forme
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Gli oggetti spostati si agganciano ai bordi e al centro della pagina, ai margini e agli altri oggetti. Tieni premuto Alt per spostarli liberamente.
 	Page display	Visualizzazione pagina
 	Paragraph marks	Segni di paragrafo
 	Personalize	Personalizza

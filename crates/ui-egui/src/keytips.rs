@@ -673,6 +673,9 @@ pub fn logic(app: &mut WordApp, ctx: &egui::Context) {
     // On macOS Option+key types accents, so Alt must never arm keytips there.
     const ALT_ARMS: bool = !cfg!(target_os = "macos");
     let events: Vec<egui::Event> = ctx.input(|i| i.events.clone());
+    // Alt pressed or let go while dragging (an object, a selection) is part of the drag (Alt
+    // moves an object freely), not a keytip tap.
+    let dragging = app.canvas.obj_drag.is_some() || ctx.input(|i| i.pointer.any_down());
     let mut other_key = false;
     let mut alt_released = false;
     let mut f10 = false;
@@ -697,6 +700,9 @@ pub fn logic(app: &mut WordApp, ctx: &egui::Context) {
                 app.ui.alt_chord_used = true;
             }
             _ => {}
+        }
+        if dragging && app.ui.alt_pressed {
+            app.ui.alt_chord_used = true;
         }
     }
     // Route letter/navigation keys to the keytips while they are showing.

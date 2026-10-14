@@ -1910,6 +1910,8 @@
 	Outside:	Na zewnątrz:
 	Overtype	Zastępowanie
 	Overtype (typing replaces the characters after the caret)	Zastępowanie (wpisywany tekst zastępuje znaki za kursorem)
+	Show alignment guides when moving pictures and shapes	Pokazuj linie wyrównania podczas przesuwania obrazów i kształtów
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Przesuwane obiekty przyciągają się do krawędzi i środka strony, marginesów i innych obiektów. Przytrzymaj Alt, aby przesuwać swobodnie.
 	Page display	Wyświetlanie strony
 	Pages like 1-3, 5	Strony, np. 1-3, 5
 	Paragraph Character	Znak akapitu

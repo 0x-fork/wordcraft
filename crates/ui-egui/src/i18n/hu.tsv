@@ -1574,6 +1574,8 @@
 	Outside border	Külső szegély
 	Overtype	Felülírás
 	Overtype (typing replaces the characters after the caret)	Felülírás (a gépelés a kurzor utáni karaktereket cseréli)
+	Show alignment guides when moving pictures and shapes	Igazítási segédvonalak megjelenítése képek és alakzatok mozgatásakor
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	A mozgatott objektumok a lap széleihez és közepéhez, a margókhoz és más objektumokhoz illeszkednek. Szabad mozgatáshoz tartsa lenyomva az Alt billentyűt.
 	Page display	Oldalmegjelenítés
 	Paragraph marks	Bekezdésjelek
 	Personalize	Személyre szabás

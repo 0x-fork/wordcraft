@@ -370,6 +370,14 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     flag(app, ui, "Typing replaces selected text", "typingReplacesSelection", pr.typing_replaces_selection);
     flag(app, ui, "Use the Insert key to switch overtype on and off", "insertKeyOvertype", pr.insert_key_overtype);
     flag(app, ui, "Overtype (typing replaces the characters after the caret)", "overtype", pr.overtype);
+    let mut guides = app.ui.alignment_guides;
+    if ui
+        .checkbox(&mut guides, tl!("Show alignment guides when moving pictures and shapes"))
+        .on_hover_text(tl!("Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely."))
+        .changed()
+    {
+        let _ = app.run("ui.alignmentGuides", json!({"value": guides}));
+    }
     ui.add_space(8.0);
     section(ui, "Display");
     egui::Grid::new("options_display").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
@@ -812,6 +820,30 @@ mod tests {
         h.get_by_label("Show the Start screen when WordCraft starts").click();
         h.run_steps(4);
         assert!(h.state().ui.start_screen, "and on again");
+    }
+
+    /// File › Options › Advanced › Editing: the alignment guides checkbox is the
+    /// `ui.alignmentGuides` setting.
+    #[test]
+    fn advanced_alignment_guides_checkbox_turns_snapping_off_and_on() {
+        let mut a = app();
+        a.run("file.options", json!({"pane": "advanced"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let label = "Show alignment guides when moving pictures and shapes";
+        h.get_by_label(label).click();
+        h.run_steps(4);
+        assert!(!h.state().ui.alignment_guides, "the checkbox turns them off");
+        h.get_by_label(label).click();
+        h.run_steps(4);
+        assert!(h.state().ui.alignment_guides, "and on again");
     }
 
     /// File › Options › Advanced › Animation: the checkbox is the `ui.caretAnimation` setting,

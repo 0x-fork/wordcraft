@@ -516,6 +516,8 @@
 	Oval	Ovaal
 	Overtype	Ülekirjutus
 	Overtype (typing replaces the characters after the caret)	Ülekirjutus (kirjutatu asendab kursori järel olevad märgid)
+	Show alignment guides when moving pictures and shapes	Näita piltide ja kujundite teisaldamisel joondusjuhikuid
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Teisaldatavad objektid haakuvad lehe servade ja keskkoha, veeriste ja teiste objektide külge. Vabaks teisaldamiseks hoia all Alt-klahvi.
 	PDF document (*.pdf)	PDF-dokument (*.pdf)
 	Page	Leht
 	Page Background	Lehe taust

@@ -53,6 +53,7 @@ pub mod equation_tab;
 pub mod file_browser;
 pub mod file_dialogs;
 pub mod frame;
+pub mod guides;
 pub mod i18n;
 pub mod icons;
 pub mod ink;
@@ -303,6 +304,9 @@ pub struct UiState {
     pub recent_count: usize,
     /// File › Options › General: show the mini toolbar over a selection.
     pub mini_toolbar: bool,
+    /// File › Options › Advanced › Editing: moving a picture or shape snaps it to alignment
+    /// guides (on by default; Alt moves freely).
+    pub alignment_guides: bool,
     /// File › Options › General: start on File › Home (Blank document, templates, Recent) when
     /// the app opens without a document (#766); on, as in Word. See [`WordApp::start_screen`].
     pub start_screen: bool,
@@ -358,6 +362,7 @@ impl Default for UiState {
             options_pane: "general".into(),
             recent_count: 12,
             mini_toolbar: true,
+            alignment_guides: true,
             start_screen: true,
             print_backgrounds: false,
             update_fields_before_print: false,
@@ -1381,6 +1386,16 @@ impl WordApp {
                 }
                 json!({"caretAnimation": self.ui.caret_animation})
             }
+            "ui.alignmentGuides" => {
+                // File › Options › Advanced › Editing: `value` true or false turns snapping to
+                // alignment guides while moving pictures and shapes on or off; no value reads it.
+                match p.get("value") {
+                    None => {}
+                    Some(Value::Bool(on)) => self.ui.alignment_guides = *on,
+                    Some(_) => return Some(Err("`value` must be true or false".into())),
+                }
+                json!({"alignmentGuides": self.ui.alignment_guides})
+            }
             "ui.startScreen" => {
                 // File › Options › General › Start-up (#766): `value` true or false turns showing
                 // File › Home at start-up on or off; no value reads it.
@@ -2271,6 +2286,25 @@ mod tests {
 
     fn app() -> WordApp {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    /// File › Options › Advanced › Editing: alignment guides are a UI command, on by default and
+    /// kept between runs.
+    #[test]
+    fn alignment_guides_are_a_ui_command_and_survive_a_restart() {
+        let mut a = app();
+        assert_eq!(a.run("ui.alignmentGuides", json!({})).unwrap(), json!({"alignmentGuides": true}), "on by default");
+        assert_eq!(a.run("ui.alignmentGuides", json!({"value": false})).unwrap(), json!({"alignmentGuides": false}));
+        for junk in [json!({"value": "no"}), json!({"value": 0}), json!({"value": null})] {
+            assert!(a.run("ui.alignmentGuides", junk).is_err());
+        }
+        assert!(!a.ui.alignment_guides, "a rejected value keeps the setting");
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert!(!b.ui.alignment_guides);
+        let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
+        assert!(old.alignment_guides, "older settings leave it on");
     }
 
     /// File › Options › Advanced › Animation: the caret's animation is a UI command, kept between

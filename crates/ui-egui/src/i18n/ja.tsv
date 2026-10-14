@@ -133,6 +133,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	設定 › 既定のアプリ を開きます。そこで .docx などの文書の種類ごとに WordCraft を選びます。
 	Overtype	上書き
 	Overtype (typing replaces the characters after the caret)	上書き (入力した文字がカーソルの後ろの文字を置き換えます)
+	Show alignment guides when moving pictures and shapes	画像や図形を移動するときに配置ガイドを表示する
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	移動したオブジェクトは、ページの端と中央、余白、ほかのオブジェクトに吸着します。Alt キーを押しながら移動すると自由に動かせます。
 	Page display	ページの表示
 	Paragraph marks	段落記号
 	Personalize	個人設定

@@ -2422,6 +2422,8 @@ preview	Title	Örnek
 	No words yet. Add to Dictionary on a misspelled word puts it here.	Henüz sözcük yok. Yanlış yazılmış bir sözcükte «Sözlüğe ekle» onu buraya koyar.
 	Overtype	Üzerine yaz
 	Overtype (typing replaces the characters after the caret)	Üzerine yazma (yazılan metin imleçten sonraki karakterlerin yerine geçer)
+	Show alignment guides when moving pictures and shapes	Resimleri ve şekilleri taşırken hizalama kılavuzlarını göster
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Taşınan nesneler sayfanın kenarlarına ve ortasına, kenar boşluklarına ve diğer nesnelere tutunur. Serbestçe taşımak için Alt tuşunu basılı tutun.
 	Page display	Sayfa görünümü
 	Paragraph marks	Paragraf işaretleri
 	Personalize	Kişiselleştir

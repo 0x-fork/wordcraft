@@ -1855,6 +1855,8 @@
 	No words yet. Add to Dictionary on a misspelled word puts it here.	Zatím žádná slova. Sem se ukládají slova přidaná příkazem Přidat do slovníku u chybně napsaného slova.
 	Overtype	Přepisování
 	Overtype (typing replaces the characters after the caret)	Přepisování (psaný text nahrazuje znaky za kurzorem)
+	Show alignment guides when moving pictures and shapes	Při přesouvání obrázků a tvarů zobrazovat zarovnávací vodítka
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Přesouvané objekty se přichytávají k okrajům a středu stránky, k okrajům textu a k dalším objektům. Podržením klávesy Alt je přesunete volně.
 	Page display	Zobrazení stránky
 	Paragraph marks	Značky odstavců
 	Personalize	Přizpůsobení

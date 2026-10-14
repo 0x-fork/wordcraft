@@ -2131,6 +2131,8 @@
 	Mirror indents	Огледални отстъпи
 	Overtype	Заместване
 	Overtype (typing replaces the characters after the caret)	Заместване (въвежданият текст замества знаците след курсора)
+	Show alignment guides when moving pictures and shapes	Показване на водачи за подравняване при преместване на картини и фигури
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Преместените обекти се прилепват към краищата и центъра на страницата, полетата и другите обекти. Задръжте Alt за свободно преместване.
 	Page display	Показване на страницата
 	Paragraph marks	Знаци за абзац
 	Personalize	Персонализиране

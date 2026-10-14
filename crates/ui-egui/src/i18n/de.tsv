@@ -1437,6 +1437,8 @@
 	No words yet. Add to Dictionary on a misspelled word puts it here.	Noch keine Wörter. „Zum Wörterbuch hinzufügen“ bei einem falsch geschriebenen Wort legt es hier ab.
 	Overtype	Überschreiben
 	Overtype (typing replaces the characters after the caret)	Überschreiben (die Eingabe ersetzt die Zeichen nach der Einfügemarke)
+	Show alignment guides when moving pictures and shapes	Ausrichtungslinien beim Verschieben von Bildern und Formen anzeigen
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Verschobene Objekte rasten an den Rändern und der Mitte der Seite, an den Seitenrändern und an anderen Objekten ein. Mit gedrückter Alt-Taste frei verschieben.
 	Page display	Seitenanzeige
 	Paragraph marks	Absatzmarken
 	Personalize	Personalisieren

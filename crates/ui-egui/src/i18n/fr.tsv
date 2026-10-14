@@ -1888,6 +1888,8 @@
 	New word	Nouveau mot
 	No words yet. Add to Dictionary on a misspelled word puts it here.	Aucun mot pour l’instant. Utilisez Ajouter au dictionnaire sur un mot mal orthographié pour l’ajouter ici.
 	Overtype (typing replaces the characters after the caret)	Refrappe (la frappe remplace les caractères situés après le curseur)
+	Show alignment guides when moving pictures and shapes	Afficher les repères d'alignement lors du déplacement des images et des formes
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Les objets déplacés s'alignent sur les bords et le centre de la page, les marges et les autres objets. Maintenez Alt enfoncée pour les déplacer librement.
 	Page display	Affichage de la page
 	Paragraph marks	Marques de paragraphe
 	Personalize	Personnaliser

@@ -126,6 +126,8 @@
 	Outside border	Borde exterior
 	Overtype	Sobrescribir
 	Overtype (typing replaces the characters after the caret)	Sobrescribir (lo que escribes reemplaza los caracteres tras el cursor)
+	Show alignment guides when moving pictures and shapes	Mostrar guías de alineación al mover imágenes y formas
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Los objetos que mueves se ajustan a los bordes y el centro de la página, a los márgenes y a otros objetos. Mantén pulsada Alt para moverlos libremente.
 	Page display	Visualización de página
 	Paragraph marks	Marcas de párrafo
 	Personalize	Personalizar
