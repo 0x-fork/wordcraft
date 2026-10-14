@@ -413,6 +413,56 @@ fn table_style_whole_table_shading_and_margins() {
     assert_eq!(merged.parts.cell_margins, Some([1.0, 14.4, 0.0, 14.4]), "from Base");
 }
 
+fn gallery_ids(styles: &str) -> Vec<String> {
+    let bytes = docx("<w:p/>", &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", styles)]);
+    let d = wordcraft_docx::read(&bytes).unwrap();
+    d.styles.gallery().iter().map(|s| s.id.clone()).collect()
+}
+
+/// LibreOffice writes no `w:qFormat`: the Styles gallery still shows Word's usual quick styles.
+#[test]
+fn styles_without_qformat_get_the_default_gallery() {
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+ <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+ <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/></w:style>
+ <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/></w:style>
+ <w:style w:type="character" w:styleId="Emphasis"><w:name w:val="Emphasis"/></w:style>
+</w:styles>"#
+    );
+    let ids = gallery_ids(&styles);
+    for id in ["Normal", "NoSpacing", "Heading1", "Heading2", "Title", "Subtitle"] {
+        assert!(ids.iter().any(|i| i == id), "{id} in {ids:?}");
+    }
+}
+
+/// A custom style called "Title" is not the built-in one: it stays out of the gallery, and the
+/// built-in Title is not added over its name.
+#[test]
+fn custom_style_named_like_a_quick_builtin_is_not_quick() {
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+ <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+ <w:style w:type="paragraph" w:customStyle="1" w:styleId="MyTitle"><w:name w:val="Title"/></w:style>
+</w:styles>"#
+    );
+    let ids = gallery_ids(&styles);
+    assert!(ids.iter().any(|i| i == "Normal"), "{ids:?}");
+    assert!(!ids.iter().any(|i| i == "MyTitle" || i == "Title"), "{ids:?}");
+}
+
+/// A file that uses `w:qFormat` (Word's own) keeps exactly the gallery it says.
+#[test]
+fn styles_with_qformat_keep_their_gallery() {
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+ <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
+ <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/></w:style>
+</w:styles>"#
+    );
+    assert_eq!(gallery_ids(&styles), vec!["Normal".to_string()]);
+}
+
 /// Word starts every note with a `w:footnoteRef` / `w:endnoteRef` mark: the note's own number.
 /// It reads as a reference to the note itself, so the note text shows its number.
 #[test]

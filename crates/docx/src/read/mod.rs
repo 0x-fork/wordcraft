@@ -845,6 +845,10 @@ impl Reader<'_> {
         if sheet.default_para.numbering.is_some_and(|n| n.num == props::LEVEL_ONLY) {
             sheet.default_para.numbering = None;
         }
+        // A producer that never writes `w:qFormat` (LibreOffice) still gets Word's usual gallery.
+        if !sheet.styles.iter().any(|s| s.quick) {
+            sheet.add_default_gallery();
+        }
         self.doc.styles = sheet;
         Ok(())
     }
