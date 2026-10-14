@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (Word's text watermark written back to DOCX headers, #1290; previously trivial: VML preset shapes drawn, #1377; previously trivial: VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: equations as MathML in HTML export, copy and paste, #816; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (section `w:vAlign` "both" round-trips as Justified, #1320; previously trivial: Word's text watermark written back to DOCX headers, #1290; previously trivial: VML preset shapes drawn, #1377; previously trivial: VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: equations as MathML in HTML export, copy and paste, #816; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -79,6 +79,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Themes, font table, settings, compatibility mode | ✅ | ✅ | `w:allowSpaceOfSameStyleInTable` read and written in schema order; absent/false default off, enabled flag retained in modes 11/12/14/15. Embedded fonts (`w:embedRegular`) not read; attached template (`w:attachedTemplate` and its external relationship) and `w:linkStyles` round-trip (#377). The template path comes from the file, so opening never reads it: styles update from it only on an explicit Update Styles |
 | Custom XML parts, document properties, bibliography sources | 🟡 | 🟡 | Custom properties round-trip; bibliography sources pending (#169) |
 | Section text direction (`w:textDirection` in `w:sectPr`, §17.6.20) | ✅ | ✅ | `tbRl`, `btLr` (and `tbRlV`/`tbLrV`, read as `tbRl`); `lrTbV` and unknown values read as horizontal (#491) |
+| Section vertical alignment (`w:vAlign` in `w:sectPr`, §17.6.23) | ✅ | ✅ | `top`, `center`, `bottom` and `both` (Justified, read as Center before #1320); unknown values read as top, top writes nothing (`crates/docx/tests/section_valign.rs`). ODT/RTF don't carry it |
 | Ruby (`w:ruby`: `w:rubyPr`, `w:rt`, `w:rubyBase`) | ✅ | ✅ | #288; base and ruby text with their run formatting, alignment, sizes, raise, language |
 | Document grid (`w:docGrid`: type, line pitch, `w:charSpace`), paragraph `w:snapToGrid` | ✅ | ✅ | #391; run-level `w:snapToGrid` not read |
 | `w:eastAsianLayout`, `w:fitText` | ❌ | ❌ | East Asian layout |
@@ -194,6 +195,7 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | trivial | Section `w:vAlign="both"` reads as Justified and writes back as `both` (#1320) |
 | 2026-10-13 | trivial | DOCX: the document's watermark is written as a VML text shape in every header, adding a header where pages had none (#1290) |
 | 2026-10-13 | trivial | DOCX: Word's VML text watermark in headers is read as the document's watermark (#1290) |
 | 2026-10-13 | trivial | Rounded rectangles keep their own corner radius: `roundRect` `adj` read, written back and drawn (#1476) |

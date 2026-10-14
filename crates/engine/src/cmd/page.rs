@@ -48,13 +48,10 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"section"?: SectionProps}"#),
         CommandSpec::new("layout.verticalAlign", "Vertical Alignment", "Layout › Page Setup › Layout", |s, v| {
-            let va = match p::str(v, "value") {
-                Some("center") => wordcraft_doc::props::VAlign::Center,
-                Some("bottom") => wordcraft_doc::props::VAlign::Bottom,
-                _ => wordcraft_doc::props::VAlign::Top,
-            };
+            let va = wordcraft_doc::section::PageVAlign::parse(p::str(v, "value").unwrap_or_default());
             with_sect(s, |x| x.valign = va)
-        }),
+        })
+        .params(r#"{"value": "top|center|justify|bottom"} (also both|justified; anything else is top). Justified shares each page's spare room between its paragraphs and tables"#),
         CommandSpec::new("layout.sectionRtl", "Right-to-Left Section", "Layout › Page Setup", |s, v| {
             let on = p::bool(v, "value").unwrap_or(!sect(s).rtl);
             with_sect(s, |x| x.rtl = on)

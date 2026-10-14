@@ -6552,3 +6552,39 @@ fn odt_deleted_mark_inside_an_insertion_survives_reject_all() {
         assert_eq!(text(&s), "One \n two");
     }
 }
+
+/// #1320: `layout.verticalAlign` sets the section's vertical alignment, Justified included
+/// ("justify", or "both"/"justified"); a value it doesn't know is Top, as before. Section JSON
+/// for `layout.pageSetup` keeps its names.
+#[test]
+fn vertical_align_command_sets_justified() {
+    use wordcraft_doc::section::PageVAlign;
+    let mut s = s();
+    let va = |s: &Session| crate::cmd::page::sect(s).valign;
+    for (value, want) in [
+        ("justify", PageVAlign::Justify),
+        ("center", PageVAlign::Center),
+        ("both", PageVAlign::Justify),
+        ("bottom", PageVAlign::Bottom),
+        ("justified", PageVAlign::Justify),
+        ("top", PageVAlign::Top),
+        ("sideways", PageVAlign::Top),
+    ] {
+        run(&mut s, "layout.verticalAlign", json!({"value": value}));
+        assert_eq!(va(&s), want, "{value}");
+    }
+    run(&mut s, "layout.verticalAlign", json!({"value": "justify"}));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(va(&s), PageVAlign::Top, "one Undo step");
+    let spec = s.registry.get("layout.verticalAlign").unwrap();
+    assert!(spec.params.contains("justify"), "documents its values: {}", spec.params);
+    // Section JSON: today's names still read, and Justified is "justify".
+    let mut props = serde_json::to_value(crate::cmd::page::sect(&s)).unwrap();
+    assert_eq!(props["valign"], json!("top"));
+    for (name, want) in [("center", PageVAlign::Center), ("bottom", PageVAlign::Bottom), ("justify", PageVAlign::Justify), ("top", PageVAlign::Top)] {
+        props["valign"] = json!(name);
+        run(&mut s, "layout.pageSetup", json!({"section": props.clone()}));
+        assert_eq!(va(&s), want, "{name}");
+        assert_eq!(serde_json::to_value(crate::cmd::page::sect(&s)).unwrap()["valign"], json!(name));
+    }
+}

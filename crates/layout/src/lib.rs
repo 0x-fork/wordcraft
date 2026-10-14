@@ -1408,6 +1408,13 @@ struct PageBuilder<'a> {
     line_no: u32,
     /// Index of the first body item of the current page (vertical alignment shifts from here).
     page_items_start: usize,
+    /// Where each top-level block after the first starts on the current page: its first item's
+    /// index counted after the items behind the text (justified vertical alignment spreads the
+    /// blocks apart there).
+    block_marks: Vec<usize>,
+    /// The vertical alignment of the section the current page started in: a page finished when
+    /// the next section starts is aligned as its own section asks, not the next one.
+    page_valign: wordcraft_doc::section::PageVAlign,
     /// The document's own footnote separators, laid out for the section's text width.
     seps: NoteSeps,
     /// Per page: how many items were inserted at the front of its list (behind the text), so a
@@ -1742,12 +1749,50 @@ impl PageBuilder<'_> {
             }
         }
     }
-    /// Section vertical alignment: move the page's body down (centre/bottom).
+    /// A top-level block starts here (see `block_marks`).
+    fn mark_block(&mut self) {
+        if let Some(pg) = self.pages.last() {
+            let behind = self.behind.last().copied().unwrap_or(0);
+            self.block_marks.push(pg.items.len().saturating_sub(behind));
+        }
+    }
+    /// Justified vertical alignment: share the room left below the page's text out equally
+    /// between the gaps of its blocks, so the last line sits on the bottom margin (above the
+    /// footnotes). A page with one block, or several columns, stays at the top.
+    fn justify_page(&mut self) {
+        if self.web || self.cols.len() > 1 {
+            return;
+        }
+        let behind = self.behind.last().copied().unwrap_or(0);
+        let first = self.page_items_start;
+        // The room is measured below the last paragraph's space after: Word for Mac 16.113.4 keeps
+        // it inside the justified height (72 pt after leaves the last line 72 pt above the margin).
+        let space = (self.orig_bottom - self.notes_h() - self.y).max(0.0);
+        let Some(pg) = self.pages.last_mut() else { return };
+        let front = pg.items.len().saturating_sub(behind);
+        // Blocks that moved on to the next page whole leave a mark at the end: not a gap here.
+        let mut cuts: Vec<usize> = self.block_marks.iter().copied().filter(|&m| m > first && m < front).collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        if cuts.is_empty() || space <= 0.0 {
+            return;
+        }
+        let gap = space / cuts.len() as f32;
+        for (i, it) in pg.items.iter_mut().enumerate().skip(behind.saturating_add(first)) {
+            let k = cuts.partition_point(|&c| c <= i.saturating_sub(behind));
+            if k > 0 {
+                it.translate(0.0, gap * k as f32);
+            }
+        }
+    }
+    /// Section vertical alignment: move the page's body down (centre/bottom), or spread its
+    /// blocks out (justified).
     fn apply_valign(&mut self) {
-        let k = match self.sect.valign {
-            wordcraft_doc::props::VAlign::Top => return,
-            wordcraft_doc::props::VAlign::Center => 0.5,
-            wordcraft_doc::props::VAlign::Bottom => 1.0,
+        let k = match self.page_valign {
+            wordcraft_doc::section::PageVAlign::Top => return,
+            wordcraft_doc::section::PageVAlign::Justify => return self.justify_page(),
+            wordcraft_doc::section::PageVAlign::Center => 0.5,
+            wordcraft_doc::section::PageVAlign::Bottom => 1.0,
         };
         if self.web {
             return;
@@ -1793,6 +1838,8 @@ impl PageBuilder<'_> {
             }
         }
         self.page_items_start = decor.len();
+        self.block_marks.clear();
+        self.page_valign = s.valign;
         self.pages.push(Page { w, h, section: self.sect_idx, number: self.number, body, first_block, items: decor, ..Default::default() });
         self.behind.push(0);
         self.col = 0;
@@ -1977,7 +2024,7 @@ fn layout_pass(
         web_sect.margin_top = 18.0;
         web_sect.gutter = 0.0;
         web_sect.columns = Default::default();
-        web_sect.valign = wordcraft_doc::props::VAlign::Top;
+        web_sect.valign = wordcraft_doc::section::PageVAlign::Top;
         &web_sect
     } else {
         first_sect
@@ -2002,6 +2049,8 @@ fn layout_pass(
         float_tables: Vec::new(),
         line_no: 0,
         page_items_start: 0,
+        block_marks: Vec::new(),
+        page_valign: wordcraft_doc::section::PageVAlign::Top,
         seps: NoteSeps::default(),
         behind: Vec::new(),
         max_y: 0.0,
@@ -2110,13 +2159,14 @@ fn layout_pass(
         // start of the block that reaches it, with shorter columns (see `balance_columns`).
         let balance = !web
             && pb.cols.len() > 1
-            && sect.valign == wordcraft_doc::props::VAlign::Top
+            && sect.valign == wordcraft_doc::section::PageVAlign::Top
             && sections.get(si + 1).is_some_and(|(_, s)| s.start == SectionStart::Continuous);
         pb.col_break_page = None;
         let mut from = balance.then(|| (block, Snap::take(&mut pb, &ctx)));
         while block <= last {
             let Some(b) = doc.body.get(block) else { break };
             let before = balance.then(|| (pb.pages.len(), Snap::take(&mut pb, &ctx)));
+            pb.mark_block();
             match (&**b, &outline) {
                 (Block::Para(p), Some(o)) => place_outline_para(&mut ctx, &mut pb, p, block, o),
                 (Block::Table(_), Some(o)) if o.hidden.get(block).copied().unwrap_or(false) => {}

@@ -2,7 +2,36 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::props::{Borders, VAlign};
+use crate::props::Borders;
+
+/// How a section's text sits on its pages, top to bottom (`w:vAlign`, ECMA-376 §17.6.23,
+/// ST_VerticalJc). Table cells and text boxes use [`crate::props::VAlign`], which has no
+/// Justified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PageVAlign {
+    #[default]
+    Top,
+    Center,
+    /// Justified (`both`): the room left on each page is shared out equally between the page's
+    /// paragraphs and tables, so the text runs from the top margin to the bottom one.
+    #[serde(alias = "both", alias = "justified")]
+    Justify,
+    Bottom,
+}
+
+impl PageVAlign {
+    /// From a command or file value: `top|center|justify|bottom` (also `both`, `justified`,
+    /// `middle`); anything else is Top.
+    pub fn parse(v: &str) -> PageVAlign {
+        match v {
+            "center" | "middle" => PageVAlign::Center,
+            "justify" | "justified" | "both" => PageVAlign::Justify,
+            "bottom" => PageVAlign::Bottom,
+            _ => PageVAlign::Top,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -677,7 +706,7 @@ pub struct SectionProps {
     pub page_num_start: Option<u32>,
     pub page_num_format: NumFormat,
     pub line_numbers: Option<LineNumbering>,
-    pub valign: VAlign,
+    pub valign: PageVAlign,
     pub page_borders: Option<Borders>,
     /// Text direction / bidi section.
     pub rtl: bool,
@@ -719,7 +748,7 @@ impl Default for SectionProps {
             page_num_start: None,
             page_num_format: NumFormat::Decimal,
             line_numbers: None,
-            valign: VAlign::Top,
+            valign: PageVAlign::Top,
             page_borders: None,
             rtl: false,
             text_direction: crate::props::TextDirection::Horizontal,

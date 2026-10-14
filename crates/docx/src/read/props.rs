@@ -9,7 +9,7 @@ use wordcraft_doc::props::{
 };
 use wordcraft_doc::section::{
     Columns, DocGrid, DocGridType, LineNumberRestart, LineNumbering, MAX_CHAR_SPACE, MAX_GRID_PITCH, NotePos, NoteProps, NoteRestart, NumFormat,
-    SectionProps, SectionStart,
+    PageVAlign, SectionProps, SectionStart,
 };
 
 use super::drawing_color::adjust_lum;
@@ -668,9 +668,10 @@ pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
             }
             "w:vAlign" => {
                 s.valign = match k.attr("w:val") {
-                    Some("center") | Some("both") => VAlign::Center,
-                    Some("bottom") => VAlign::Bottom,
-                    _ => VAlign::Top,
+                    Some("center") => PageVAlign::Center,
+                    Some("both") => PageVAlign::Justify,
+                    Some("bottom") => PageVAlign::Bottom,
+                    _ => PageVAlign::Top,
                 }
             }
             "w:pgBorders" => s.page_borders = Some(borders(k)),
