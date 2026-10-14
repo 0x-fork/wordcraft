@@ -216,6 +216,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         let u = Rect::from_center_size(pos2(r.center().x, r.max.y - 2.0), vec2(w - 16.0, 3.0));
                         ui.painter().rect_filled(u, 2.0, t.accent);
                     }
+                    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, shown));
                     if resp.clicked() {
                         let _ = app.run("ui.tab", json!({"tab": tab}));
                     }

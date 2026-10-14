@@ -1563,6 +1563,7 @@ impl WordApp {
         read_aloud::show(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
         keys::global_shortcuts(self, &ctx);
+        self.refocus_after_chrome_click(&ctx);
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
@@ -1578,6 +1579,32 @@ impl WordApp {
         self.frame_ms = now_ms() - t0;
         // Typing and formatting land here, after `logic` has reported.
         self.report_dirty();
+    }
+
+    /// A click on the window's chrome (ribbon tabs and empty ribbon space, galleries, check
+    /// boxes, the status bar, panes) hands keyboard focus back to the document, as in Word, so the
+    /// caret keeps blinking and typing continues where it was (#1093). egui drops the page's focus
+    /// on any click elsewhere; only a click that left nothing focused counts, so a text field
+    /// (font size, zoom, command search) keeps the focus it took, and clicks on a dialog, menu or
+    /// popup, or while one is open, leave focus alone. Clicks on the page are the canvas's own.
+    fn refocus_after_chrome_click(&mut self, ctx: &egui::Context) {
+        if self.ui.backstage || self.dialog.is_some() || self.colors.is_some() {
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.file_browser.open.is_some() {
+            return;
+        }
+        let Some(pos) = ctx.input(|i| if i.pointer.any_click() { i.pointer.interact_pos() } else { None }) else { return };
+        // The page handles its own clicks (comment balloons there take the keyboard themselves).
+        if self.canvas.balloon.is_some() || self.canvas.viewport.is_some_and(|v| v.contains(pos)) {
+            return;
+        }
+        let on_chrome = ctx.layer_id_at(pos).is_none_or(|l| l.order == egui::Order::Background);
+        if on_chrome && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx) {
+            self.canvas.want_focus = true;
+            ctx.request_repaint();
+        }
     }
 
     /// Files that arrived asynchronously (web picker, drops): documents open, pictures insert,
@@ -3345,6 +3372,111 @@ mod tests {
         h.event(egui::Event::Text(" bold".into()));
         h.step();
         assert!(body_text(h.state()).ends_with(" bold"), "Bold: typing continues in the document");
+    }
+
+    /// Types `text` after a click on `what` and checks it reached the document (#1093).
+    fn type_after_click(h: &mut egui_kittest::Harness<'_, WordApp>, what: &str, text: &str) {
+        h.step();
+        h.event(egui::Event::Text(text.into()));
+        h.step();
+        assert!(h.state().canvas.focused, "{what}: the page keeps keyboard focus");
+        assert!(body_text(h.state()).ends_with(text), "{what}: typing continues in the document");
+    }
+
+    /// #1093: clicks on ribbon and status-bar chrome that isn't a command button (gallery tiles,
+    /// tab names, empty ribbon space, View check boxes, the status bar's view buttons and
+    /// language menu) used to take keyboard focus from the page: the caret vanished and typing
+    /// went nowhere until the page was clicked again.
+    #[test]
+    fn clicks_on_ribbon_and_status_bar_chrome_keep_typing_in_the_document() {
+        use egui::accesskit::Role;
+
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            typed(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the page starts with keyboard focus");
+
+        // A Styles gallery tile.
+        h.get_by_role_and_label(Role::Button, "Heading 1").click();
+        type_after_click(&mut h, "Heading 1 tile", " gallery");
+        let para = h.state().session.doc.para_at(&h.state().session.sel.focus).expect("caret paragraph");
+        assert_eq!(para.props.style.as_deref(), Some("Heading1"), "the tile applied its style");
+
+        // A ribbon tab name, then a View tab check box.
+        h.get_by_role_and_label(Role::Button, "View").click();
+        type_after_click(&mut h, "View tab", " tab");
+        assert_eq!(h.state().ui.tab, "View");
+        let ruler = h.state().session.view.ruler;
+        h.get_by_role_and_label(Role::CheckBox, "Ruler").click();
+        type_after_click(&mut h, "Ruler check box", " ruler");
+        assert_ne!(h.state().session.view.ruler, ruler, "the check box toggled the ruler");
+
+        // Empty space at the right end of the ribbon, under the tab strip.
+        let tab = h.get_by_role_and_label(Role::Button, "View").rect();
+        let blank = egui::pos2(1425.0, tab.max.y + 25.0);
+        for pressed in [true, false] {
+            h.hover_at(blank);
+            h.event(egui::Event::PointerButton { pos: blank, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+        }
+        type_after_click(&mut h, "empty ribbon space", " blank");
+
+        // The status bar's view buttons.
+        h.get_by_role_and_label(Role::Button, "Web Layout").click();
+        type_after_click(&mut h, "Web Layout", " web");
+        assert_eq!(h.state().session.view.mode, wordcraft_layout::ViewMode::Web);
+        h.get_by_role_and_label(Role::Button, "Print Layout").click();
+        type_after_click(&mut h, "Print Layout", " print");
+        assert_eq!(h.state().session.view.mode, wordcraft_layout::ViewMode::Print);
+
+        // The language item opens its menu; a click elsewhere on the status bar cancels it.
+        let lang_label = crate::ribbon::caret_language(h.state());
+        let lang = h.get_by_label(&lang_label).rect();
+        h.get_by_label(&lang_label).click();
+        h.step();
+        h.step();
+        assert!(egui::Popup::is_any_open(&h.ctx), "the language menu opened");
+        let elsewhere = egui::pos2(lang.max.x + 40.0, lang.center().y);
+        for pressed in [true, false] {
+            h.hover_at(elsewhere);
+            h.event(egui::Event::PointerButton { pos: elsewhere, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+        }
+        h.step();
+        assert!(!egui::Popup::is_any_open(&h.ctx), "the click closed the language menu");
+        type_after_click(&mut h, "language menu cancelled", " lang");
+
+        // Back on Home, a text field still takes the focus: the font size box.
+        h.get_by_role_and_label(Role::Button, "Home").click();
+        type_after_click(&mut h, "Home tab", " home");
+        let before = body_text(h.state());
+        let size_box = h
+            .get_all_by_role(Role::TextInput)
+            .find(|n| n.value().is_some_and(|v| v.trim().parse::<f64>().is_ok()))
+            .expect("the font size box")
+            .rect();
+        for pressed in [true, false] {
+            h.hover_at(size_box.center());
+            h.event(egui::Event::PointerButton {
+                pos: size_box.center(),
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.step();
+        h.step();
+        assert!(!h.state().canvas.focused, "the font size box took keyboard focus");
+        h.event(egui::Event::Text("4".into()));
+        h.step();
+        assert!(!h.state().canvas.focused, "the font size box keeps focus while edited");
+        assert_eq!(body_text(h.state()), before, "typing went into the font size box, not the page");
     }
 
     /// #330: Word's shortcuts work from the keyboard — Ctrl+Alt+1 (⌘⌥1) applies Heading 1, and
