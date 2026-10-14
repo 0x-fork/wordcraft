@@ -195,6 +195,21 @@ fn numbered_list_after_bullets_keeps_its_kind() {
 }
 
 #[test]
+fn markdown_list_items_that_start_like_blocks_keep_their_text() {
+    for text in ["---", "--", "1. Intro", "# Agenda", "ordinary item"] {
+        let mut d = Document::new();
+        let bul = d.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+        let mut p = Paragraph::with_text(text, CharProps::default()).styled("ListParagraph");
+        p.props.numbering = Some(wordcraft_doc::props::NumRef { num: bul, level: 0 });
+        d.body = vec![para_block(p)];
+        let bytes = export("md", &d).unwrap().unwrap();
+        let blocks = flat(&import("md", &bytes).unwrap().unwrap());
+        let [FBlock::Para(p)] = blocks.as_slice() else { panic!("{text}: {}", String::from_utf8_lossy(&bytes)) };
+        assert_eq!((p.text().as_str(), p.kind, p.list), (text, Kind::Normal, Some(model::ListInfo { ordered: false, level: 0 })));
+    }
+}
+
+#[test]
 fn markdown_round_trip() {
     check_round_trip("md", true);
 }
