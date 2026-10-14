@@ -323,9 +323,12 @@ fn resolve_para(
         return Ok(());
     }
     // An inserted paragraph mark that is rejected, or a deleted one that is accepted, goes away:
-    // the next paragraph joins this one (the split is undone). The mark at the end of a story
-    // or cell can't go, so it just stops being a revision.
-    if ((del.is_some() && accept) || (ins.is_some() && !accept)) && super::join_next_para(s, story, path)? {
+    // the next paragraph joins this one (the split is undone). A paragraph left empty goes away
+    // whole, so the next one keeps its own style and numbering, as in Word. The mark at the end
+    // of a story or cell can't go, so it just stops being a revision.
+    if ((del.is_some() && accept) || (ins.is_some() && !accept))
+        && (super::remove_empty_para(s, story, path)? || super::join_next_para(s, story, path)?)
+    {
         return Ok(());
     }
     let para = s.doc.para_mut(story, path)?;
