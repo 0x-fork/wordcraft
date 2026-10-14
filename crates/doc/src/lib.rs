@@ -283,10 +283,11 @@ pub struct TextBody {
     /// story; its own blocks are unused. See [`Document::text_box_chains`].
     pub next: Option<u32>,
     /// Internal margins (left, top, right, bottom), EMU, when the file gives its own
-    /// (`wps:bodyPr` `lIns`… ECMA-376 Part 1 §21.1.2.1.1); `None` is Word's defaults.
+    /// (`wps:bodyPr` `lIns`… ECMA-376 Part 1 §21.1.2.1.1, or VML `v:textbox` `inset`);
+    /// `None` is Word's defaults.
     pub inset: Option<[u32; 4]>,
-    /// Resize shape to fit text (`a:spAutoFit`): Word grows the box to its text, so none of
-    /// the text is cut.
+    /// Resize shape to fit text (`a:spAutoFit`, VML `mso-fit-shape-to-text`): Word grows the
+    /// box to its text, so none of the text is cut.
     pub auto_fit: bool,
 }
 

@@ -1342,6 +1342,56 @@ fn text_wraps_around_square_float() {
 }
 
 #[test]
+fn hidden_drawings_are_neither_drawn_nor_take_room() {
+    // A hidden floating shape (VML `visibility:hidden`, `wp:docPr/@hidden`): no wrap area, nothing
+    // drawn, as in Word for Windows. A hidden inline one takes no room in its line.
+    let mut d = Document::from_text(&"Words flow around the picture here. ".repeat(30));
+    let float = wordcraft_doc::para::Float {
+        wrap: wordcraft_doc::para::Wrap::Square,
+        h_rel: wordcraft_doc::para::Anchor::Column,
+        v_rel: wordcraft_doc::para::Anchor::Paragraph,
+        hidden: true,
+        ..Default::default()
+    };
+    let inline = wordcraft_doc::para::Float { hidden: true, ..Default::default() };
+    d.insert_object(&Pos::body(0, 0), picture(200.0, 200.0, inline), &Default::default()).unwrap();
+    d.insert_object(&Pos::body(0, 0), picture(144.0, 100.0, float), &Default::default()).unwrap();
+    let l = lay(&d);
+    let Placed::Lines { para, .. } = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })).unwrap() else { panic!() };
+    let first = &para.lines[0];
+    assert!(first.left < 1.0, "the first line uses the full width: {}", first.left);
+    assert!(first.baseline - first.top < 20.0, "the hidden inline shape doesn't raise the line: {first:?}");
+    assert!(!l.pages[0].items.iter().any(|i| matches!(i, Placed::Shape { .. } | Placed::Object { .. })));
+    let draws = flat(display::page_display(&d, &l.pages[0], &Default::default()));
+    assert!(!draws.iter().any(|x| matches!(x, display::Draw::Shape { .. })), "nothing drawn");
+    // Showing hidden text doesn't show hidden drawings.
+    let shown = layout(&d, &mut LayoutCache::new(), &LayoutOptions { show_hidden: true, ..Default::default() });
+    let Placed::Lines { para, .. } = shown.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })).unwrap() else { panic!() };
+    assert!(para.lines[0].left < 1.0 && !shown.pages[0].items.iter().any(|i| matches!(i, Placed::Shape { .. } | Placed::Object { .. })));
+
+    // A group draws its members but a hidden one.
+    let mut d = Document::from_text("");
+    let member = |hidden: bool, x: f32| wordcraft_doc::para::GroupChild {
+        x,
+        y: 0.0,
+        obj: picture(50.0, 50.0, wordcraft_doc::para::Float { hidden, ..Default::default() }),
+    };
+    let group = InlineObject::Group {
+        w: 100.0,
+        h: 50.0,
+        float: Default::default(),
+        ch_w: 100.0,
+        ch_h: 50.0,
+        children: vec![member(true, 0.0), member(false, 50.0)],
+        canvas: None,
+    };
+    d.insert_object(&Pos::body(0, 0), group, &Default::default()).unwrap();
+    let l = lay(&d);
+    let draws = flat(display::page_display(&d, &l.pages[0], &Default::default()));
+    assert_eq!(draws.iter().filter(|x| matches!(x, display::Draw::Shape { .. })).count(), 1, "{draws:?}");
+}
+
+#[test]
 fn deleted_float_leaves_no_wrap_area_without_markup() {
     // A square-wrapped shape anchored at the start of the paragraph, its anchor track-deleted.
     let text = "Words flow around the picture here. ".repeat(30);

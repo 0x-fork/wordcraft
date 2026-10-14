@@ -677,3 +677,16 @@ fn exported_links_keep_only_safe_targets() {
         assert!(!md.contains(&format!("[{text}](")), "md: {md}");
     }
 }
+
+#[test]
+fn hidden_drawings_are_left_out_of_exports() {
+    let mut d = wordcraft_doc::Document::from_text("x");
+    let key = d.add_media(vec![0x89, b'P', b'N', b'G'], "png");
+    for hidden in [false, true] {
+        let float = wordcraft_doc::para::Float { hidden, ..Default::default() };
+        let image = wordcraft_doc::InlineObject::Image { media: key.clone(), w: 10.0, h: 10.0, alt: "Logo".into(), float, crop: [0.0; 4], ole: None };
+        d.insert_object(&wordcraft_doc::Pos::body(0, 0), image, &Default::default()).unwrap();
+    }
+    // Two pictures, one hidden: one comes out.
+    assert_eq!(crate::html::export(&d).matches("<img").count(), 1);
+}

@@ -1476,6 +1476,9 @@ fn object_draws(o: &InlineObject, rect: Rect, outer: Spin, alpha: f32, opts: &Di
         InlineObject::Group { .. } => {
             let mut members = Vec::new();
             for ([x, y, w, h], c) in o.group_rects(rect.x, rect.y, rect.w, rect.h) {
+                if c.frame().is_some_and(|(_, _, f)| f.hidden) {
+                    continue;
+                }
                 object_draws(c, Rect::new(x, y, w, h), own.within(outer), alpha, opts, &mut members);
             }
             match o.canvas_style() {

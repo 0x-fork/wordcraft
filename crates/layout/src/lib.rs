@@ -734,12 +734,13 @@ impl Ctx<'_> {
 }
 
 /// Which of `p`'s objects (by index) the layout leaves out ([`para::left_out`]): anchored in hidden
-/// text unless `show_hidden`, or in a tracked deletion with `hide_deleted`. `table_chr` is the
+/// text unless `show_hidden`, in a tracked deletion with `hide_deleted`, or a hidden drawing
+/// (`Float::hidden`, whatever is shown). `table_chr` is the
 /// cell's table-style character formatting ([`para::CellText::chr`]), resolved as the paragraph is
 /// laid out with (`StyleSheet::resolve_char_in`).
 fn left_out_objects(doc: &Document, p: &Paragraph, table_chr: Option<&CharProps>, show_hidden: bool, hide_deleted: bool) -> impl Fn(usize) -> bool {
     let mut left = Vec::new();
-    // Nothing can be left out with hidden text shown and markup on.
+    // No text left out with hidden text shown and markup on (hidden drawings still are, below).
     if (hide_deleted || !show_hidden) && !p.objects.is_empty() {
         let style = p.props.style.as_deref();
         let is_left = |c: &CharProps| {
@@ -766,7 +767,8 @@ fn left_out_objects(doc: &Document, p: &Paragraph, table_chr: Option<&CharProps>
             left.push(l);
         }
     }
-    move |k| left.get(k).copied().unwrap_or(false)
+    // A hidden drawing is left out whatever is shown (Word shows it in no view).
+    move |k| left.get(k).copied().unwrap_or(false) || p.objects.get(k).and_then(InlineObject::frame).is_some_and(|(_, _, f)| f.hidden)
 }
 
 /// Footnote and endnote numbers (each kind counted separately), in document order, as each
@@ -785,15 +787,16 @@ fn note_info(doc: &Document, hide_deleted: bool, pages: &HashMap<u32, usize>) ->
     let mut order = [0u32; 2];
     let mut si = 0usize;
     // Reading order, text boxes included where they are. A hidden reference mark still takes
-    // its number, as in Word; a deleted one (or one in a deleted text box) does not.
+    // its number, as in Word; a deleted one (or one in a deleted or hidden text box) does not,
+    // and `para_notes` doesn't place its note either.
     let mut cur: Option<(usize, Vec<bool>)> = None;
     doc.objects_in_reading_order_by_block(&mut |block, p, k| {
         let key = p as *const Paragraph as usize;
         if cur.as_ref().is_none_or(|(at, _)| *at != key) {
-            let deleted = left_out_objects(doc, p, None, true, hide_deleted);
-            cur = Some((key, (0..p.objects.len()).map(deleted).collect()));
+            let gone = left_out_objects(doc, p, None, true, hide_deleted);
+            cur = Some((key, (0..p.objects.len()).map(gone).collect()));
         }
-        if cur.as_ref().is_some_and(|(_, deleted)| deleted.get(k).copied().unwrap_or(false)) {
+        if cur.as_ref().is_some_and(|(_, gone)| gone.get(k).copied().unwrap_or(false)) {
             return false;
         }
         if let Some(InlineObject::NoteRef { kind, id, .. }) = p.objects.get(k) {
@@ -2504,7 +2507,12 @@ fn carried(rect: Rect, spin: Spin, centre: Point) -> Rect {
 }
 
 fn group_members(o: &InlineObject, rect: Rect) -> Vec<(Rect, &InlineObject)> {
-    o.group_rects(rect.x, rect.y, rect.w, rect.h).into_iter().map(|([x, y, w, h], c)| (Rect::new(x, y, w, h), c)).collect()
+    // Hidden members aren't placed (nor their text boxes laid out).
+    o.group_rects(rect.x, rect.y, rect.w, rect.h)
+        .into_iter()
+        .filter(|(_, c)| !c.frame().is_some_and(|(_, _, f)| f.hidden))
+        .map(|([x, y, w, h], c)| (Rect::new(x, y, w, h), c))
+        .collect()
 }
 
 /// Position the floating objects anchored in `p` for a paragraph whose text starts at `y0` in
@@ -2651,7 +2659,7 @@ fn para_notes(doc: &Document, p: &Paragraph, pl: &ParaLayout) -> Vec<(usize, u32
     if p.objects.iter().any(|o| !o.text_boxes().is_empty()) {
         for (ci, c) in pl.clusters.iter().enumerate() {
             if let para::ClKind::Object(oi) = c.kind
-                && let Some(o) = p.objects.get(oi)
+                && let Some(o) = p.objects.get(oi).filter(|o| !o.frame().is_some_and(|(_, _, f)| f.hidden))
             {
                 for id in o.text_boxes() {
                     notes.extend(doc.notes_in_text_box(id).into_iter().map(|n| (ci, n)));

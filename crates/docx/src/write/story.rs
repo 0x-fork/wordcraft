@@ -891,7 +891,7 @@ impl Writer<'_> {
         self.used_media.insert(media.clone());
         w.open("pic:pic", &[]);
         w.open("pic:nvPicPr", &[]);
-        nv_props(w, "pic:cNvPr", "0", file, alt, &float.alt);
+        nv_props(w, "pic:cNvPr", "0", file, alt, &float.alt, float.hidden);
         w.open("pic:cNvPicPr", &[]);
         w.empty("a:picLocks", &[("noChangeAspect", "1"), ("noChangeArrowheads", "1")]);
         w.close("pic:cNvPicPr");
@@ -923,7 +923,7 @@ impl Writer<'_> {
         w.open("wps:wsp", &[]);
         if let Some(id) = id {
             let name = shape_name(*kind, freeform.as_deref(), id);
-            nv_props(w, "wps:cNvPr", id, &name, &float.alt.text, &float.alt);
+            nv_props(w, "wps:cNvPr", id, &name, &float.alt.text, &float.alt, float.hidden);
         }
         if kind.is_connector() {
             // A connector's glued ends (ECMA-376 §20.1.2.2.8 `cNvCxnSpPr`).
@@ -1139,7 +1139,7 @@ impl Writer<'_> {
             Wrap::TopAndBottom => w.empty("wp:wrapTopAndBottom", &[]),
             Wrap::BehindText | Wrap::InFrontOfText => w.empty("wp:wrapNone", &[]),
         }
-        nv_props(w, "wp:docPr", docpr, name, alt, &float.alt);
+        nv_props(w, "wp:docPr", docpr, name, alt, &float.alt, float.hidden);
     }
 
     fn table(&mut self, w: &mut W, t: &Table, rels: &mut PartRels, depth: usize) {
@@ -1542,13 +1542,16 @@ fn toc_span(bl: &Blocks) -> Option<(usize, usize)> {
 /// `CT_NonVisualDrawingProps`) with its alt text `descr`, its title, and the decorative mark as
 /// the `adec:decorative` extension ([MS-ODRAWXML]). A description that is only the title (read
 /// from a file with no description) is not written twice.
-pub(super) fn nv_props(w: &mut W, tag: &str, id: &str, name: &str, descr: &str, alt: &AltText) {
+pub(super) fn nv_props(w: &mut W, tag: &str, id: &str, name: &str, descr: &str, alt: &AltText, hidden: bool) {
     let mut attrs = vec![("id", id), ("name", name)];
     if descr != alt.title || descr.is_empty() {
         attrs.push(("descr", descr));
     }
     if !alt.title.is_empty() {
         attrs.push(("title", alt.title.as_str()));
+    }
+    if hidden {
+        attrs.push(("hidden", "1"));
     }
     if !alt.decorative {
         w.empty(tag, &attrs);

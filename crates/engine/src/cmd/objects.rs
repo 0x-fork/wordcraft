@@ -1342,7 +1342,8 @@ fn objects_list(s: &mut Session, _: &Value) -> CmdResult {
                     InlineObject::Group { .. } => ("group", format!("Group {}", i + 1)),
                     _ => ("object", format!("Object {}", i + 1)),
                 };
-                json!({"index": i, "kind": kind, "name": name, "pos": super::pos_json(&pos), "size": obj_size(&o)})
+                let hidden = o.frame().is_some_and(|(_, _, f)| f.hidden);
+                json!({"index": i, "kind": kind, "name": name, "pos": super::pos_json(&pos), "size": obj_size(&o), "hidden": hidden})
             })
             .collect(),
     ))
