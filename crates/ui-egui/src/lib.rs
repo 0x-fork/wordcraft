@@ -846,6 +846,7 @@ impl WordApp {
             if matches!(self.dialog, Some(dialogs::Dialog::SaveChanges { .. })) {
                 self.dialog = None;
             }
+            crate::table_pen::stop(self);
         }
         // An explicit save to the document's own file lets AutoSave keep writing there.
         if let Ok(v) = &r
@@ -1129,6 +1130,11 @@ impl WordApp {
             let s = std::mem::take(&mut self.session.status);
             let s = tl!(&s).to_string();
             self.status(s);
+        }
+        if matches!(id, "table.deleteTable")
+            || (self.canvas.table_tool == Some(crate::table_pen::TableTool::Erase) && self.session.sel.focus.path.cell().is_none())
+        {
+            crate::table_pen::stop(self);
         }
     }
 
