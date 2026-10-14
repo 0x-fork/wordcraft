@@ -1700,6 +1700,36 @@ fn native_ink_survives_unrelated_edit_and_two_saves() {
 }
 
 #[test]
+fn direct_native_ink_content_part_survives_unrelated_edit_and_two_saves() {
+    let body = r#"<w:p><w:r><w:t>Original</w:t></w:r><w:r><w:contentPart r:id="rInk"/></w:r></w:p>"#;
+    let mut d = wordcraft_docx::read(&docx(
+        body,
+        &[("rInk", "customXml", "ink/ink1.xml")],
+        &[("[Content_Types].xml", INK_TYPES), ("word/ink/ink1.xml", INK_XML)],
+    ))
+    .unwrap();
+    assert_eq!(graphics(&d).len(), 1, "direct native ink must remain a model object");
+    let p = std::sync::Arc::make_mut(&mut d.body[0]);
+    let Block::Para(p) = p else { panic!() };
+    p.delete(0, 8).unwrap();
+    p.insert_text(0, "Edited", &Default::default()).unwrap();
+    for _ in 0..2 {
+        let out = wordcraft_docx::write(&d).unwrap();
+        let files = unzip(&out);
+        let body = text(&files, "word/document.xml");
+        assert!(body.contains("<w:contentPart"), "direct content part must stay direct: {body}");
+        let [id] = attr_values(&body, "w:contentPart", "r:id").try_into().unwrap();
+        let (kind, target) = rel(&text(&files, "word/_rels/document.xml.rels"), &id);
+        assert!(kind.ends_with("/customXml"));
+        let part = part_at("word", &target);
+        assert_eq!(text(&files, &part), INK_XML);
+        assert!(text(&files, "[Content_Types].xml").contains(&format!(r#"PartName="/{part}" ContentType="application/inkml+xml""#)));
+        d = wordcraft_docx::read(&out).unwrap();
+        assert_eq!(graphics(&d).len(), 1);
+    }
+}
+
+#[test]
 fn native_ink_keeps_alternate_content_and_preview_with_renamed_prefixes() {
     for alias in [false, true] {
         let mut d = wordcraft_docx::read(&ink_docx(true, alias)).unwrap();

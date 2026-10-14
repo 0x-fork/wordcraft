@@ -639,6 +639,11 @@ impl Reader<'_> {
                     self.emit_obj(sc, pb, o, props);
                 }
             }
+            "w:contentPart" => {
+                if let Some(o) = self.read_ink_content_part(k, rels) {
+                    self.emit_obj(sc, pb, o, props);
+                }
+            }
             "w:footnoteReference" | "w:endnoteReference" => {
                 let foot = k.name == "w:footnoteReference";
                 let fid = k.attr("w:id").and_then(int).unwrap_or(i64::MIN);
@@ -996,6 +1001,17 @@ impl Reader<'_> {
             }
         }
         Some(object)
+    }
+
+    fn read_ink_content_part(&mut self, content: &El, rels: &Rels) -> Option<InlineObject> {
+        let part = super::part_of(rels, content.attr("r:id")?, INK_REL)?;
+        let pkg = self.pkg;
+        if self.content_types.get_or_insert_with(|| ContentTypes::read(pkg)).of(&part) != Some("application/inkml+xml") {
+            return None;
+        }
+        let source = self.keep_embedded(content, rels, &[])?;
+        let graphic = Arc::new(Graphic { kind: GraphicKind::Ink, source: Some(source), ..Default::default() });
+        Some(InlineObject::Graphic { w: 0.0, h: 0.0, alt: String::new(), float: Float::default(), graphic })
     }
 
     /// The chart or SmartArt diagram in an `a:graphicData`, as items in points from its top-left

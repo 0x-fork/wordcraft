@@ -535,7 +535,8 @@ impl Writer<'_> {
                     (None, None, None) => None,
                 };
                 let Some(mut root) = root else { return };
-                if ink {
+                let direct_ink = ink && root.name == "w:contentPart";
+                if ink && !direct_ink {
                     Self::ink_transform(&mut root, (graphic.w, graphic.h), (*gw, *gh), float, 0);
                 }
                 let alternate = (ink && root.name == "mc:AlternateContent").then_some(&root);
@@ -547,26 +548,30 @@ impl Writer<'_> {
                 self.rev_open(w, props);
                 w.open("w:r", &[]);
                 self.rpr(w, props);
-                if fallback.is_some() {
-                    w.open("mc:AlternateContent", &[]);
-                    w.open("mc:Choice", &[("Requires", "wpi")]);
-                }
-                w.open("w:drawing", &[]);
-                let docpr = self.next_docpr();
-                let name = match graphic.kind {
-                    wordcraft_doc::graphic::GraphicKind::Chart => format!("Chart {docpr}"),
-                    wordcraft_doc::graphic::GraphicKind::Diagram => format!("Diagram {docpr}"),
-                    wordcraft_doc::graphic::GraphicKind::Ink => format!("Ink {docpr}"),
-                };
-                self.drawing_open(w, float, *gw, *gh, &docpr, &name, alt);
-                w.empty("wp:cNvGraphicFramePr", &[]);
-                w.raw(&native.unwrap_or(&root).to_xml());
-                w.close(if float.wrap == Wrap::Inline { "wp:inline" } else { "wp:anchor" });
-                w.close("w:drawing");
-                if let Some(fallback) = fallback {
-                    w.close("mc:Choice");
-                    w.raw(&fallback.to_xml());
-                    w.close("mc:AlternateContent");
+                if direct_ink {
+                    w.raw(&root.to_xml());
+                } else {
+                    if fallback.is_some() {
+                        w.open("mc:AlternateContent", &[]);
+                        w.open("mc:Choice", &[("Requires", "wpi")]);
+                    }
+                    w.open("w:drawing", &[]);
+                    let docpr = self.next_docpr();
+                    let name = match graphic.kind {
+                        wordcraft_doc::graphic::GraphicKind::Chart => format!("Chart {docpr}"),
+                        wordcraft_doc::graphic::GraphicKind::Diagram => format!("Diagram {docpr}"),
+                        wordcraft_doc::graphic::GraphicKind::Ink => format!("Ink {docpr}"),
+                    };
+                    self.drawing_open(w, float, *gw, *gh, &docpr, &name, alt);
+                    w.empty("wp:cNvGraphicFramePr", &[]);
+                    w.raw(&native.unwrap_or(&root).to_xml());
+                    w.close(if float.wrap == Wrap::Inline { "wp:inline" } else { "wp:anchor" });
+                    w.close("w:drawing");
+                    if let Some(fallback) = fallback {
+                        w.close("mc:Choice");
+                        w.raw(&fallback.to_xml());
+                        w.close("mc:AlternateContent");
+                    }
                 }
                 w.close("w:r");
                 self.rev_close(w, props);
