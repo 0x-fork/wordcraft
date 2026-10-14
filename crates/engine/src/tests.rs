@@ -1415,6 +1415,40 @@ fn cell_size_boxes_set_row_height_and_column_width() {
     assert_eq!(s.doc.body.iter().find_map(|b| b.as_table()).unwrap(), &t0);
 }
 
+/// The Height and Width boxes act on every row and column the selection covers (#1242), not only
+/// on the caret's: the whole table, a row, a column, and the caret alone.
+#[test]
+fn cell_size_boxes_apply_to_the_whole_selection() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 3, "cols": 3}));
+    run(&mut s, "table.autofit", json!({"mode": "window"}));
+    let table = |s: &Session| s.doc.body.iter().find_map(|b| b.as_table()).unwrap().clone();
+    let heights = |s: &Session| table(s).rows.iter().map(|r| r.props.height).collect::<Vec<_>>();
+    let widths = |s: &Session| table(s).grid;
+    let before = widths(&s);
+    // The caret alone changes its own row and column.
+    run(&mut s, "table.rowHeight", json!({"height": 20.0}));
+    run(&mut s, "table.columnWidth", json!({"width": 80.0}));
+    assert_eq!(heights(&s), vec![Some(20.0), None, None]);
+    assert_eq!(widths(&s)[0], 80.0);
+    assert_eq!(&widths(&s)[1..], &before[1..]);
+    // A selected column: just that column.
+    run(&mut s, "table.selectColumn", json!({}));
+    run(&mut s, "table.columnWidth", json!({"width": 70.0}));
+    assert_eq!(widths(&s)[0], 70.0);
+    assert_eq!(&widths(&s)[1..], &before[1..]);
+    // The whole table: every row and every column, one Undo per edit.
+    let mid = (heights(&s), widths(&s));
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "table.rowHeight", json!({"height": 40.0}));
+    assert_eq!(heights(&s), vec![Some(40.0); 3]);
+    run(&mut s, "table.columnWidth", json!({"width": 90.0}));
+    assert_eq!(widths(&s), vec![90.0; 3]);
+    assert!(table(&s).rows.iter().all(|r| r.cells.iter().all(|c| c.props.width == Some(90.0))), "cell widths follow the grid");
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!((heights(&s), widths(&s)), mid);
+}
 /// Table Properties (#44): table, row, column and cell settings land as one undo step, and
 /// without settings the command reports the current ones (the dialog's source).
 #[test]

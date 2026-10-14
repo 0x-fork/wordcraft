@@ -195,6 +195,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | Draw: Ink to Shape recognises arrows. A line and a V-shaped head drawn in one stroke (shaft first or head first, any direction) becomes a straight arrow connector with the head at the tip, in the stroke's colour and width; a lone V, a line with one barb and scribbles stay as they are. Our own recogniser: Word for Mac has no Ink to Shape to compare. Two-stroke arrows and arrows with a closed triangle head not yet. |
 | 2026-10-12 | A DOCX hyperlink whose relationship has an empty target (as LibreOffice writes) is no link (#1005): no "Ctrl+Click to follow link" tooltip over the text, which keeps its Hyperlink style |
 | 2026-10-12 | Table eraser beside vertically merged cells (#1039): the border between two cells merged down the same rows merges them into one cell that stays merged down those rows; a border whose two sides can't make one rectangle is hidden on both sides along the whole edge instead of refused |
+| 2026-10-13 | Table Layout › Cell Size: the Height and Width boxes apply to every row and column the selection covers (a selected table changed only its last row and column), and to the caret's row and column without a selection (#1242) |
 | 2026-10-12 | RTF import now uses the RTF spec's defaults where a file names none (#902): no space before or after paragraphs, single line spacing, and the `\deff` default font, instead of WordCraft's Normal style; RTF files that relied on the old defaults open tighter, like in Word |
 | 2026-10-12 | `--help` and `-h` print the usage and exit (#968): `wordcraft --help` lists the app's options without opening a window (it used to try to open a file named `--help`), and `wordcraft-cli <command> --help` works for every command instead of failing with `unknown option --help` |
 | 2026-10-11 | Right-clicking a table cell offers the table's commands, and as in Word they follow the selection: with the caret in a cell Insert, Delete Cells, Split Cells, Text Direction and Table Properties…; with several cells Merge Cells instead of Split; with whole columns or rows Delete Columns or Rows, Merge Cells and Distribute Rows and Columns; with the whole table Delete Table, Distribute, AutoFit and Insert Caption…. A right-click beside selected cells moves the caret there instead of keeping them |
@@ -393,6 +394,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | trivial | Progress log: web picture paste respects the edit target (#1349) |
 | 2026-10-14 | trivial | Progress log: table deletes, Change Case and Unlink Fields respect Track Changes and locked content controls (#1329) |
 | 2026-10-14 | trivial | Progress log: Ink to Shape recognises single-stroke arrows |
+| 2026-10-13 | trivial | Progress log: cell size boxes act on the whole selection (#1242) |
 | 2026-10-12 | trivial | Progress log: Accept All and Reject All keep the right paragraph marks (#864) |
 | 2026-10-12 | trivial | Progress log: `--help` for the app and every CLI subcommand (#968) |
 | 2026-10-12 | trivial | Progress log: Down and Up no longer skip a table (#1007) |
