@@ -854,6 +854,29 @@ fn shift_f5_goes_back_through_the_last_edits() {
 }
 
 #[test]
+fn shift_right_at_the_end_of_a_cell_selects_the_cell_first() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let (table, _, _) = s.sel.focus.path.cell().unwrap();
+    typ(&mut s, "ab");
+    run(&mut s, "caret.left", json!({}));
+    let shift_right = |s: &mut Session| {
+        run(s, "caret.right", json!({"extend": true}));
+        s.cell_range().map(|r| (r.rows, r.cols))
+    };
+    assert_eq!(shift_right(&mut s), None, "the letter first");
+    assert_eq!((s.sel.anchor.off, s.sel.focus.off), (1, 2));
+    assert_eq!(shift_right(&mut s), Some(((0, 0), (0, 0))), "then the cell alone");
+    assert_eq!(shift_right(&mut s), Some(((0, 0), (0, 1))), "then the next cell with it");
+    // In an empty cell the first press takes it.
+    let mut empty = table.0.clone();
+    empty.extend([1, 0, 0]);
+    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path(empty), off: 0 };
+    run(&mut s, "caret.set", json!({"pos": pos}));
+    assert_eq!(shift_right(&mut s), Some(((1, 1), (0, 0))));
+}
+
+#[test]
 fn two_initial_capitals_are_corrected() {
     let s = typed("the WOrd and THe end, not IDs or CDs. TV is fine ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "The Word and The end, not IDs or CDs. TV is fine ");

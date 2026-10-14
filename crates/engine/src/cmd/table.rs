@@ -970,6 +970,37 @@ pub(crate) fn extend_selection(s: &mut Session, to: Pos) {
     s.goal_x = goal_x;
 }
 
+/// Shift+Right (Shift+Left in right-to-left text) out of the cell the selection is in takes that
+/// cell whole first, as Word does (its end-of-cell mark); the next press goes on into the next
+/// cell. `ends` is where the selection ran before the step, `to` where the step went, `cells` the
+/// whole cells selected before it. Whether it took the cell.
+pub(crate) fn select_cell_first(s: &mut Session, ends: &Selection, to: &Pos, cells: Option<&crate::CellRange>) -> bool {
+    let (a, f) = (&ends.anchor, &ends.focus);
+    if a.story != f.story || to.story != f.story || to <= f {
+        return false;
+    }
+    // The innermost cell both ends are in.
+    let mut cell = None;
+    let mut i = 0;
+    while let (Some(x), Some(y)) = (cell_at(&a.path.0, i), cell_at(&f.path.0, i)) {
+        if x != y {
+            break;
+        }
+        cell = Some(x);
+        i += 3;
+    }
+    let Some((tp, r, c)) = cell else { return false };
+    // Still in the cell, or that cell alone is already selected: nothing to take first.
+    if f.path.0.get(..tp.0.len() + 2).is_some_and(|prefix| to.path.0.starts_with(prefix)) {
+        return false;
+    }
+    let Some(cols) = s.doc.table(f.story, &tp).map(|t| grid_cols(t, r, c)) else { return false };
+    if cells.is_some_and(|cr| cr.story == f.story && cr.table == tp && cr.rows == (r, r) && cr.cols == cols) {
+        return false;
+    }
+    select_range(s, f.story, &tp, (r, r), cols).is_ok()
+}
+
 /// Widen the selection between `ends` (already `s.sel`) by Word's table rule (see
 /// `extend_selection`).
 fn widen(s: &mut Session, ends: &Selection) {
@@ -1027,7 +1058,7 @@ fn cell_at(p: &[u32], i: usize) -> Option<(Path, usize, usize)> {
 }
 
 /// Where row `r` of table `tp` starts and ends: its first cell's start and its last cell's end.
-fn row_ends(doc: &Document, story: StoryRef, tp: &Path, r: usize) -> Option<(Pos, Pos)> {
+pub(crate) fn row_ends(doc: &Document, story: StoryRef, tp: &Path, r: usize) -> Option<(Pos, Pos)> {
     let mut row = tp.0.clone();
     row.push(u32::try_from(r).ok()?);
     let mut paths = doc.para_paths(story).into_iter().filter(|q| q.0.starts_with(&row));

@@ -1080,17 +1080,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         // Selection (a selected object shows its frame instead): whole table cells shade the
-        // cells (an empty one too), a column selection each row's piece.
+        // cells (an empty one too), a column selection each row's piece, text running into or
+        // across a table the whole cells of the rows it takes.
         let selected: Vec<_> = if crate::objects::selected(app).is_some() {
             Vec::new()
         } else if let Some(range) = app.session.cell_range() {
             wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
         } else if !app.session.sel.is_collapsed() {
-            let pieces: Vec<(Pos, Pos)> = match app.session.column_segments() {
-                Some(segs) => segs.to_vec(),
-                None => vec![app.session.sel.ordered()],
-            };
-            pieces.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect()
+            match app.session.column_segments() {
+                Some(segs) => segs.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect(),
+                None => {
+                    let (a, b) = app.session.sel.ordered();
+                    wordcraft_engine::cmd::table_mouse::selection_rects(&layout, &app.session.doc, &a, &b, app.session.page_hint)
+                }
+            }
         } else {
             Vec::new()
         };
