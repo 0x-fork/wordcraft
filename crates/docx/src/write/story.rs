@@ -2,7 +2,7 @@
 
 use wordcraft_doc::effects::ShapeEffects;
 use wordcraft_doc::para::{AltText, Anchor, Float, NoteKind, ShapeKind, Wrap};
-use wordcraft_doc::props::{CharProps, PropChange, Rgb};
+use wordcraft_doc::props::{CharProps, PropChange, Rgb, TextColor};
 use wordcraft_doc::section::{LineNumberRestart, NoteProps, SectionProps, SectionStart};
 use wordcraft_doc::table::Table;
 use wordcraft_doc::{Block, Blocks, InlineObject, Paragraph, RevisionKind};
@@ -472,9 +472,13 @@ impl Writer<'_> {
             }
             InlineObject::Equation { linear, display, math } => {
                 // Automatic equation numbers become text: Word numbers nothing by itself.
+                let color = match props.color {
+                    Some(TextColor::Rgb(c)) => Some(c),
+                    _ => None,
+                };
                 match super::math::resolve_numbers(math, *display, &mut self.eq_number) {
-                    Some(m) => super::math::write_equation(w, linear, *display, &m),
-                    None => super::math::write_equation(w, linear, *display, math),
+                    Some(m) => super::math::write_equation(w, linear, *display, &m, color),
+                    None => super::math::write_equation(w, linear, *display, math, color),
                 }
             }
             InlineObject::Field { instr, result, locked, .. } => self.field(w, instr, result, *locked, props),
