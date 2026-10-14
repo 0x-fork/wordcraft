@@ -4807,6 +4807,11 @@ fn polish_proofing_through_the_review_commands() {
 /// Review › Language and proofing commands work in Turkish end to end.
 #[test]
 fn turkish_proofing_through_the_review_commands() {
+    // Spelling and suggestions come from the installed Turkish Hunspell dictionary; machines
+    // without one (CI, most desktops) have nothing to check here.
+    if !crate::proof::tr::has_dictionary() {
+        return;
+    }
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "Bana bazen gelenler oldu ise de. Sana olacaklardan sonra sorna"}));
     run(&mut s, "select.all", json!({}));
