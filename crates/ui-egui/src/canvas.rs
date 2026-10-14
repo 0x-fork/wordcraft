@@ -2978,6 +2978,66 @@ mod tests {
         assert_eq!((s, e), (Pos::body(0, 0), Pos::body(0, 6)));
     }
 
+    /// #1014: Ctrl+drag on a shape leaves it and drops a copy; a plain drag moves it.
+    #[test]
+    fn ctrl_drag_copies_an_object() {
+        use egui::{Event, Modifiers, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Some text"})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        a.run("insert.shape", json!({"kind": "rectangle"})).unwrap();
+        a.run("arrange.bounds", json!({"width": 100, "height": 60, "page": 0, "x": 200, "y": 300})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let objects = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            let doc = &h.state().session.doc;
+            doc.para(wordcraft_doc::StoryRef::Body, &wordcraft_doc::Path::top(0)).map_or(0, |p| p.objects.len())
+        };
+        let xs = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            let mut v: Vec<i32> = Vec::new();
+            for x in (0..600).step_by(50) {
+                if h.state_mut().session.layout().find_object(0, |o| (o.rect.x - x as f32).abs() < 0.5).is_some() {
+                    v.push(x);
+                }
+            }
+            v
+        };
+        let drag = |h: &mut egui_kittest::Harness<'_, WordApp>, mods: Modifiers| {
+            let from = page_to_screen(h.state_mut(), 0, 250.0, 330.0).expect("on screen");
+            let to = page_to_screen(h.state_mut(), 0, 400.0, 330.0).expect("on screen");
+            h.event(Event::ModifiersChanged(mods));
+            h.event(Event::PointerMoved(from));
+            h.event(Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: mods });
+            h.step();
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+                h.step();
+            }
+            h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: mods });
+            for _ in 0..3 {
+                h.step();
+            }
+            h.event(Event::ModifiersChanged(Modifiers::NONE));
+            h.step();
+        };
+        assert_eq!((objects(&mut h), xs(&mut h)), (1, vec![200]));
+        drag(&mut h, Modifiers::COMMAND);
+        assert_eq!((objects(&mut h), xs(&mut h)), (2, vec![200, 350]), "the original stays, a copy lands 150pt right");
+        // Without Ctrl the object under the pointer (the original) is moved, not copied again:
+        // it lands on the copy.
+        drag(&mut h, Modifiers::NONE);
+        assert_eq!((objects(&mut h), xs(&mut h)), (2, vec![350]));
+    }
+
     /// #856: the left margin beside body text is Word's selection bar. A click selects the line,
     /// a double-click the paragraph, a triple-click (or Ctrl/⌘+click) the document; dragging
     /// selects whole lines and Shift+click extends by lines.

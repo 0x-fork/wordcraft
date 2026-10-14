@@ -2094,6 +2094,7 @@
 	Start-up	Inicialização
 	Show the Start screen when WordCraft starts	Mostrar a tela inicial ao abrir o WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Ativado: o WordCraft abre em Arquivo › Início, com um documento em branco, os modelos e seus documentos recentes. Desativado: abre um documento em branco.
+	Copy to	Copiar para
 
 # Document naming and account controls.
 	Rename Document	Renomear documento

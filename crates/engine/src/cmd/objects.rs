@@ -334,6 +334,9 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("arrange.bounds", "Move or Resize", "Layout › Arrange", bounds)
             .params(r#"{"width"?: pt, "height"?: pt, "x"?: pt, "y"?: pt, "page"?: n}  (x/y: the top-left on page `page` (0-based, default its page); moving an inline object floats it)"#)
             .when(has_movable),
+        CommandSpec::new("arrange.copyTo", "Copy to", "Layout › Arrange", copy_to)
+            .params(r#"{"x": pt, "y": pt, "page"?: n}  (Ctrl+drag: a copy of the selected object lands with its top-left there and is selected; the original and the clipboard stay as they were)"#)
+            .when(has_movable),
         CommandSpec::new("arrange.nudge", "Nudge", "Layout › Arrange", |s, v| {
             let d = |k| p::f32(v, k).unwrap_or(0.0).clamp(-MAX_OFFSET, MAX_OFFSET);
             let (dx, dy) = (d("dx"), d("dy"));
@@ -697,6 +700,24 @@ fn bounds(s: &mut Session, v: &Value) -> CmdResult {
     s.sel = Selection { anchor: pos.clone(), focus: Pos { off: pos.off + wordcraft_doc::para::OBJ.len_utf8(), ..pos.clone() } };
     let o = s.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)).cloned();
     Ok(json!({"object": serde_json::to_value(o).unwrap_or(Value::Null), "pos": super::pos_json(&pos)}))
+}
+
+/// Ctrl+drag: copy the selected object (a text box gets its own story) and move the copy to
+/// (x, y), leaving the original in place and the clipboard alone. The copy is selected.
+fn copy_to(s: &mut Session, v: &Value) -> CmdResult {
+    let (pos, _) = selected(s).ok_or_else(|| CmdError::Disabled("no picture or shape selected".into()))?;
+    if p::f32(v, "x").is_none() || p::f32(v, "y").is_none() {
+        return Err(CmdError::Params("`x` and `y` are required".into()));
+    }
+    let len = wordcraft_doc::para::OBJ.len_utf8();
+    let end = Pos { off: pos.off + len, ..pos.clone() };
+    let frag = s.doc.copy_range(&pos, &end);
+    s.sel = Selection::caret(end.clone());
+    super::paste::insert(s, frag)?;
+    s.touch(); // lay out the copy before moving it
+    // The copy sits right after the original; select it and move it like a drag would.
+    s.sel = Selection { anchor: end.clone(), focus: Pos { off: end.off + len, ..end } };
+    bounds(s, v)
 }
 
 /// Put the object at `pos` with its top-left at (x, y) on `page` (default: where it is), as a
@@ -1467,6 +1488,30 @@ mod tests {
         assert_eq!(s.doc.plain_text(StoryRef::Body).replace(wordcraft_doc::para::OBJ, ""), "Some text  more text");
         s.run("edit.undo", &json!({})).unwrap();
         assert_eq!((object_area(&mut s).rect.x, object_area(&mut s).rect.y), (250.0, 300.0), "{insert}");
+    }
+
+    /// Ctrl+drag: a copy lands where dropped and is selected; the original stays, the clipboard
+    /// is untouched, and it is one undo step.
+    #[test]
+    fn copy_to_drops_a_copy_and_leaves_the_original() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("text.insert", &json!({"text": "Some text "})).unwrap();
+        s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
+        s.run("arrange.bounds", &json!({"width": 100, "height": 60, "page": 0, "x": 100, "y": 200})).unwrap();
+        s.clipboard_text = "keep".into();
+        let count = |s: &Session| s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().objects.len();
+        assert_eq!(count(&s), 1);
+        s.run("arrange.copyTo", &json!({"page": 0, "x": 300, "y": 200})).unwrap();
+        assert_eq!(count(&s), 2);
+        assert_eq!(s.clipboard_text, "keep");
+        let (_, sel) = selected(&s).unwrap();
+        assert!(matches!(sel, InlineObject::Shape { .. }));
+        let at = s.layout().find_object(0, |o| (o.rect.x - 300.0).abs() < 0.5).expect("the copy is at the drop point");
+        assert_eq!(at.pos(), selected(&s).unwrap().0);
+        assert!(s.layout().find_object(0, |o| (o.rect.x - 100.0).abs() < 0.5).is_some(), "the original stays");
+        assert!(s.run("arrange.copyTo", &json!({"page": 0})).is_err());
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(count(&s), 1);
     }
 
     #[test]
