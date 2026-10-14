@@ -439,7 +439,7 @@ impl Reader<'_> {
             "w:r" => self.read_run(sc, pb, k, rels, ctx, depth),
             "w:hyperlink" => {
                 let mut c = ctx.clone();
-                let url = k.attr("r:id").and_then(|id| rels.by_id(id)).map(|r| r.target.clone());
+                let url = k.attr("r:id").and_then(|id| rels.by_id(id)).map(|r| r.target.trim().to_string()).filter(|u| !u.is_empty());
                 let anchor = k.attr("w:anchor").filter(|a| !a.is_empty());
                 c.link = match (url, anchor) {
                     (Some(u), Some(a)) => Some(format!("{u}#{a}")),

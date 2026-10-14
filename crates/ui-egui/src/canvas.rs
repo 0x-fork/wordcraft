@@ -2729,7 +2729,7 @@ fn link_under(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32, po
     let at = wordcraft_geom::Point::new(x, y);
     // The caret falls between characters: the one under the point is on either side of it.
     [(pos.off, para.next_boundary(pos.off)), (para.prev_boundary(pos.off), pos.off)].into_iter().filter(|(a, b)| a < b).find_map(|(a, b)| {
-        let link = para.props_of_char(a).link.clone()?;
+        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty())?;
         let (from, to) = (Pos { off: a, ..pos.clone() }, Pos { off: b, ..pos.clone() });
         layout.selection_rects(doc, &from, &to, page).into_iter().any(|(pi, r)| pi == page && r.contains(at)).then_some(link)
     })

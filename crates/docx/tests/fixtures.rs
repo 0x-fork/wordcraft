@@ -2133,3 +2133,42 @@ fn text_frames_read_and_round_trip() {
     assert_eq!(q[1].props.frame, p[1].props.frame);
     assert!(q.iter().any(|x| x.props.drop_cap == Some(2) && x.props.frame.is_none()));
 }
+
+#[test]
+fn hyperlink_with_empty_target_is_no_link() {
+    // LibreOffice writes `Target=""` for the Hyperlink character style without an address (#1005).
+    let body = r#"<w:p><w:hyperlink r:id="rId2"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>plain</w:t></w:r></w:hyperlink><w:hyperlink r:id="rId3"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>mail</w:t></w:r></w:hyperlink><w:hyperlink w:anchor="top"><w:r><w:t>jump</w:t></w:r></w:hyperlink></w:p>"#;
+    let bytes = docx(body, &[("rId2", "hyperlink", "https://x"), ("rId3", "hyperlink", "mailto:a@example.com")], &[]);
+    // Blank the first target and mark the mailto one external (the helper only does that for http).
+    let bytes = {
+        let mut zr = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut entries = Vec::new();
+        for i in 0..zr.len() {
+            let mut f = zr.by_index(i).unwrap();
+            let mut buf = Vec::new();
+            std::io::Read::read_to_end(&mut f, &mut buf).unwrap();
+            if f.name() == "word/_rels/document.xml.rels" {
+                buf = String::from_utf8(buf)
+                    .unwrap()
+                    .replace("Target=\"https://x\"", "Target=\"\"")
+                    .replace("a@example.com\"", "a@example.com\" TargetMode=\"External\"")
+                    .into_bytes();
+            }
+            entries.push((f.name().to_string(), buf));
+        }
+        let refs: Vec<(&str, &[u8])> = entries.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+        zip(&refs)
+    };
+    let doc = wordcraft_docx::read(&bytes).unwrap();
+    let p = doc.body.iter().find_map(|b| b.as_para()).unwrap();
+    assert_eq!(p.plain_text(), "plainmailjump");
+    assert_eq!(p.props_of_char(0).link, None);
+    assert_eq!(p.props_of_char(0).style.as_deref(), Some("Hyperlink"));
+    assert_eq!(p.props_of_char(5).link.as_deref(), Some("mailto:a@example.com"));
+    assert_eq!(p.props_of_char(9).link.as_deref(), Some("#top"));
+    // Round trip keeps exactly the real links.
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&doc).unwrap()).unwrap();
+    let p = back.body.iter().find_map(|b| b.as_para()).unwrap();
+    assert_eq!(p.props_of_char(0).link, None);
+    assert_eq!(p.props_of_char(5).link.as_deref(), Some("mailto:a@example.com"));
+}
