@@ -4971,6 +4971,65 @@ mod tests {
         assert!(!body_text(&a).contains(UNSAVED));
     }
 
+    /// Send `engine.execute` the way the control channel does and return the reply (#1268).
+    fn control_execute(a: &mut WordApp, params: Value) -> Value {
+        let ctx = egui::Context::default();
+        let (req, _reply) = ControlRequest::new("engine.execute", params);
+        match control::handle(a, &ctx, &req) {
+            control::Outcome::Done(v) => v,
+            _ => json!({"ok": false, "error": "not a reply"}),
+        }
+    }
+
+    /// A programmatic `file.close` on unsaved work doesn't quit and lose it (#1268).
+    #[test]
+    fn programmatic_close_keeps_unsaved_work() {
+        let mut a = typed();
+        let r = control_execute(&mut a, json!({"command": "file.close"}));
+        assert_eq!(r["ok"], json!(false), "{r}");
+        let e = r["error"].as_str().unwrap_or("");
+        assert!(e.contains("unsaved") && e.contains("force"), "{e}");
+        assert!(!a.quit_requested);
+        assert!(body_text(&a).contains(UNSAVED));
+
+        let r = control_execute(&mut a, json!({"command": "file.close", "params": {"force": true}}));
+        assert_eq!(r["ok"], json!(true), "{r}");
+        assert!(a.quit_requested);
+
+        let mut clean = app();
+        let r = control_execute(&mut clean, json!({"command": "file.close"}));
+        assert_eq!(r["ok"], json!(true), "{r}");
+        assert!(clean.quit_requested);
+    }
+
+    /// Every way to name `file.close` over the control channel is guarded (#1268).
+    #[test]
+    fn programmatic_close_guard_covers_every_form() {
+        let ctx = egui::Context::default();
+        let send = |a: &mut WordApp, method: &str, params: Value| match control::handle(a, &ctx, &ControlRequest::new(method, params).0) {
+            control::Outcome::Done(v) => v,
+            _ => json!({"ok": false, "error": "not a reply"}),
+        };
+        let refused = [
+            ("file.close", json!({})),
+            ("command", json!({"id": "file.close"})),
+            ("command", json!({"command": "file.close", "params": {"force": "yes"}})),
+            ("file.close", json!({"force": "yes"})),
+            ("file.close", json!({"force": 1})),
+        ];
+        for (method, params) in refused {
+            let mut a = typed();
+            let r = send(&mut a, method, params.clone());
+            assert_eq!(r["ok"], json!(false), "{method} {params}: {r}");
+            assert!(!a.quit_requested, "{method} {params}");
+            assert!(body_text(&a).contains(UNSAVED));
+        }
+        let mut a = typed();
+        let r = send(&mut a, "file.close", json!({"force": true}));
+        assert_eq!(r["ok"], json!(true), "{r}");
+        assert!(a.quit_requested);
+    }
+
     const MAILINGS: [&str; 3] = ["mailings.envelopes", "mailings.labels", "mailings.finish"];
 
     /// What the user gave: Envelopes and Labels without anything open their dialogs (#407).

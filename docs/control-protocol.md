@@ -75,6 +75,15 @@ in [MCP server](mcp.md#character-and-paragraph-properties).
 
 Positions are `{"story": "body" | {"part": n}, "path": [block, row, cell, block, …], "off": byteOffset}`.
 
+### Closing the document
+
+`engine.execute` with `file.close` never shows the Save / Don't Save / Cancel prompt. On a
+document with unsaved changes it replies with an error (the app keeps running and the edits
+stay); save first (`file.save`), or pass `{"force": true}` to discard the changes and close.
+The bare form `{"method": "file.close", "force": true}` (a method name that is a command id) is
+guarded the same way, and only a boolean `true` counts as `force`. A document without unsaved
+changes closes at once (#1268).
+
 ### Native printing
 
 `engine.execute` can call `ui.printSettings` with `{}` to inspect the printer list, selected
