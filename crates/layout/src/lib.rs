@@ -1009,11 +1009,18 @@ fn layout_box(
                     continue;
                 }
                 let ctxl = pl.rp.contextual_spacing;
-                let same = prev_style.as_ref().is_some_and(|(s, c)| *s == pl.rp.style && (*c || ctxl));
-                let mut before = if same && ctxl { 0.0 } else { pl.rp.space_before };
-                if same && ctxl {
-                    y -= prev_after;
-                    prev_after = 0.0;
+                let mut before = pl.rp.space_before;
+                if let Some((style, previous_contextual)) = &prev_style
+                    && *style == pl.rp.style
+                {
+                    if *previous_contextual {
+                        y -= prev_after;
+                        before = (before - prev_after).max(0.0);
+                        prev_after = 0.0;
+                    }
+                    if ctxl {
+                        before = 0.0;
+                    }
                 }
                 // Automatic spacing: none between two list items (as in an HTML list).
                 if i > 0 && prev_listed && listed {
@@ -2877,6 +2884,8 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     if broke_before {
         pb.new_page(block, body_top);
     }
+    // Same-style contextual spacing removes this paragraph's before-space, or subtracts the
+    // previous paragraph's after-space from the merged gap (ISO/IEC 29500-1 §17.3.1.9).
     let mut before = pl.rp.space_before;
     let prev_para = pb.prev.clone();
     // At the top of a page, measured in Word for Windows: no space before after a paragraph that
@@ -2896,10 +2905,11 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     if let Some((style, ctxl, mut after, after_auto, listed)) = pb.prev.take()
         && !pb.at_top()
     {
-        // Contextual spacing: no space between paragraphs of the same style when either asks for it.
+        // Contextual spacing suppresses each paragraph's own side of the gap.
         if style == pl.rp.style {
             if ctxl {
                 pb.y -= after;
+                before = (before - after).max(0.0);
                 after = 0.0;
             }
             if pl.rp.contextual_spacing {
