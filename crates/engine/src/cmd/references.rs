@@ -225,6 +225,13 @@ struct TocEntry {
     lead: usize,
 }
 
+/// The headings of the body, in document order, as (body block, level 1–9, text, leading page
+/// breaks): what Insert › Link › Place in This Document lists.
+pub(crate) fn headings(s: &Session) -> Vec<(usize, u8, String, usize)> {
+    let f = FieldCode::parse("TOC \\o \"1-9\" \\u");
+    toc_entries(s, &f).into_iter().map(|e| (e.path.last(), e.level.saturating_add(1), e.text, e.lead)).collect()
+}
+
 /// The heading level (1–9) of a built-in heading style.
 fn heading_style_level(p: &Paragraph) -> Option<u8> {
     p.props.style.as_deref()?.strip_prefix("Heading")?.trim().parse::<u8>().ok().filter(|l| (1..=9).contains(l))
@@ -430,7 +437,7 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
 
 /// A hidden `_Toc` bookmark around the heading at body block `i` (after its leading page breaks),
 /// reusing one already there; its name.
-fn toc_bookmark(s: &mut Session, i: usize, lead: usize) -> Result<String, CmdError> {
+pub(crate) fn toc_bookmark(s: &mut Session, i: usize, lead: usize) -> Result<String, CmdError> {
     const MARK: usize = wordcraft_doc::para::OBJ.len_utf8();
     let para = s.doc.para(StoryRef::Body, &Path::top(i)).ok_or_else(|| CmdError::Failed("heading is gone".into()))?;
     if let Some(InlineObject::BookmarkStart { name }) = para.object_at(lead)

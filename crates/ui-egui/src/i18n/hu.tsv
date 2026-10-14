@@ -2577,3 +2577,8 @@
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Tükrözött margók
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Létező fájl vagy weblap
+	Link to:	Hivatkozás helye:
+	Place in This Document	Dokumentumon belüli hely

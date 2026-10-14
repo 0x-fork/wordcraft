@@ -266,6 +266,12 @@ pub enum Dialog {
     Link {
         url: String,
         text: String,
+        /// "Place in This Document" instead of "Existing File or Web Page".
+        place: bool,
+        /// The document's places (`link.targets`), read when that tab is first shown.
+        targets: Option<Value>,
+        /// The chosen place: the `insert.link` parameters, and the name it shows.
+        pick: Option<(Value, String)>,
     },
     Bookmark {
         name: String,
@@ -1183,7 +1189,7 @@ impl Dialog {
                     rtl: sp.rtl,
                 }
             }
-            "link" => Dialog::Link { url: "https://".into(), text: app.session.selected_text() },
+            "link" => Dialog::Link { url: "https://".into(), text: app.session.selected_text(), place: false, targets: None, pick: None },
             "bookmark" => Dialog::Bookmark { name: bookmark_at_caret(&app.session), by_location: false, hidden: false, deleted: false },
             "wordCount" => Dialog::WordCount { stats: app.session.run("review.wordCount", &json!({})).unwrap_or_default() },
             "zoom" => Dialog::Zoom { percent: (app.session.view.zoom * 100.0).round() },
@@ -2200,18 +2206,84 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::Link { url, text } => {
+        Dialog::Link { url, text, place, targets, pick } => {
+            // Word's "Link to:" choices; the places are read once, when that tab is first shown.
+            ui.horizontal(|ui| {
+                ui.label(tl!("Link to:"));
+                ui.selectable_value(place, false, tl!("Existing File or Web Page"));
+                if ui.selectable_value(place, true, tl!("Place in This Document")).clicked() && targets.is_none() {
+                    *targets = app.run("link.targets", json!({})).ok();
+                }
+            });
+            ui.add_space(4.0);
             egui::Grid::new("lnk").num_columns(2).show(ui, |ui| {
                 ui.label(tl!("Text to display:"));
                 ui.text_edit_singleline(text);
                 ui.end_row();
-                ui.label(tl!("Address:"));
-                ui.text_edit_singleline(url);
-                ui.end_row();
+                if !*place {
+                    ui.label(tl!("Address:"));
+                    ui.text_edit_singleline(url);
+                    ui.end_row();
+                }
             });
+            if *place {
+                ui.add_space(4.0);
+                ui.label(tl!("Select a place in this document:"));
+                let mut chosen: Option<(Value, String)> = None;
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(220.0).min_scrolled_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
+                        let is = |pick: &Option<(Value, String)>, key: &str, val: &Value| pick.as_ref().is_some_and(|(v, _)| v.get(key) == Some(val));
+                        let top = tl!("Top of the Document").to_string();
+                        if ui.selectable_label(is(pick, "top", &json!(true)), &top).clicked() {
+                            chosen = Some((json!({"top": true}), top));
+                        }
+                        let headings = targets.as_ref().and_then(|t| t.get("headings")).and_then(Value::as_array).cloned().unwrap_or_default();
+                        if !headings.is_empty() {
+                            ui.label(egui::RichText::new(tl!("Headings")).font(semibold(12.5)));
+                        }
+                        for h in &headings {
+                            let (block, level) = (h.get("block").cloned().unwrap_or_default(), h.get("level").and_then(Value::as_u64).unwrap_or(1));
+                            let name = h.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+                            ui.horizontal(|ui| {
+                                ui.add_space(14.0 * level.saturating_sub(1).min(8) as f32 + 8.0);
+                                if ui.selectable_label(is(pick, "heading", &block), &name).clicked() {
+                                    chosen = Some((json!({"heading": block}), name));
+                                }
+                            });
+                        }
+                        let marks = targets.as_ref().and_then(|t| t.get("bookmarks")).and_then(Value::as_array).cloned().unwrap_or_default();
+                        if !marks.is_empty() {
+                            ui.label(egui::RichText::new(tl!("Bookmarks")).font(semibold(12.5)));
+                        }
+                        for m in marks.iter().filter_map(Value::as_str) {
+                            ui.horizontal(|ui| {
+                                ui.add_space(8.0);
+                                if ui.selectable_label(is(pick, "bookmark", &json!(m)), m).clicked() {
+                                    chosen = Some((json!({"bookmark": m}), m.to_string()));
+                                }
+                            });
+                        }
+                    });
+                });
+                if let Some(c) = chosen {
+                    // The text shown follows the choice until it is typed over (as in Word).
+                    if text.is_empty() || pick.as_ref().is_some_and(|(_, old)| old == text) {
+                        *text = c.1.clone();
+                    }
+                    *pick = Some(c);
+                }
+            }
             let (ok, cancel) = buttons(ui, tl!("OK"));
             if ok {
-                let _ = app.run("insert.link", json!({"url": url, "text": text}));
+                if *place {
+                    let Some((mut params, _)) = pick.clone() else { return false };
+                    if !text.is_empty() {
+                        params["text"] = json!(text);
+                    }
+                    let _ = app.run("insert.link", params);
+                } else {
+                    let _ = app.run("insert.link", json!({"url": url, "text": text}));
+                }
             }
             ok || cancel
         }

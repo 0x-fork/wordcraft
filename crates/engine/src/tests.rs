@@ -5710,6 +5710,67 @@ fn insert_picture_takes_a_windows_metafile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Insert › Link › Place in This Document (#1234): a link to a bookmark, a heading or the top of
+/// the document, the list of those places, and following the link.
+#[test]
+fn links_to_places_in_this_document() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Intro"}));
+    run(&mut s, "para.style", json!({"style": "Heading1"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "para.style", json!({"style": "Normal"}));
+    run(&mut s, "text.insert", json!({"text": "Body text here"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "Details"}));
+    run(&mut s, "para.style", json!({"style": "Heading2"}));
+    run(&mut s, "select.text", json!({"text": "Body"}));
+    run(&mut s, "insert.bookmark", json!({"name": "Mark1"}));
+    let links = |s: &Session| -> Vec<(String, String)> {
+        s.doc
+            .body
+            .iter()
+            .filter_map(|b| b.as_para())
+            .flat_map(|p| p.run_ranges().filter_map(|(r, c)| Some((c.link.clone()?, p.text.get(r)?.to_string()))).collect::<Vec<_>>())
+            .collect()
+    };
+    // The places: the top, both headings with their levels, and the one visible bookmark.
+    let t = run(&mut s, "link.targets", json!({}));
+    assert_eq!(t["top"], true);
+    let heads: Vec<(u64, String)> =
+        t["headings"].as_array().unwrap().iter().map(|h| (h["level"].as_u64().unwrap(), h["text"].as_str().unwrap().to_string())).collect();
+    assert_eq!(heads, vec![(1, "Intro".to_string()), (2, "Details".to_string())]);
+    assert_eq!(t["bookmarks"], json!(["Mark1"]));
+    // A bookmark link on the selection.
+    run(&mut s, "select.text", json!({"text": "here"}));
+    run(&mut s, "insert.link", json!({"bookmark": "Mark1"}));
+    assert_eq!(links(&s), vec![("#Mark1".to_string(), "here".to_string())]);
+    // A heading link at a caret inserts the heading's text; it reuses the heading's hidden bookmark.
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "insert.link", json!({"heading": t["headings"][1]["block"]}));
+    let l = links(&s);
+    assert_eq!(l.len(), 2, "{l:?}");
+    let (hidden, shown) = l.iter().find(|(a, _)| a.starts_with("#_Toc")).cloned().unwrap();
+    assert_eq!(shown, "Details", "{l:?}");
+    let t2 = run(&mut s, "link.targets", json!({}));
+    assert_eq!(t2["bookmarks"], json!(["Mark1"]), "the hidden bookmark is not listed");
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "insert.link", json!({"heading": t["headings"][1]["block"], "text": "again"}));
+    assert!(links(&s).iter().all(|(a, _)| a == "#Mark1" || *a == hidden), "one bookmark for the heading: {:?}", links(&s));
+    // The top of the document, and following the links.
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "insert.link", json!({"top": true}));
+    assert!(links(&s).iter().any(|(a, t)| a == "#_top" && t == "Top of the Document"), "{:?}", links(&s));
+    run(&mut s, "edit.goto", json!({"bookmark": "Mark1"}));
+    assert_ne!(s.sel.focus, Pos::body(0, 0));
+    run(&mut s, "edit.goto", json!({"bookmark": "_top"}));
+    assert_eq!(s.sel.focus, Pos::body(0, 0));
+    // Refusals change nothing.
+    let rev = s.rev();
+    assert!(s.run("insert.link", &json!({"bookmark": "Nope"})).is_err());
+    assert!(s.run("insert.link", &json!({"heading": 1})).is_err(), "a body paragraph is not a heading");
+    assert_eq!(s.rev(), rev);
+}
+
 /// A DOCX built in code: a tracked deletion inside a field result, as Word writes when a
 /// formula field's result is edited (#1037). The first field's result is split across the field
 /// end; the second has its whole result deleted.

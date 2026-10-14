@@ -2569,3 +2569,8 @@
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Огледални полета
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Съществуващ файл или уеб страница
+	Link to:	Връзка към:
+	Place in This Document	Място в този документ

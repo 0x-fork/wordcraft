@@ -2590,3 +2590,8 @@ preview	Title	Esempio
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Margini speculari
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	File o pagina Web esistente
+	Link to:	Collega a:
+	Place in This Document	Posizione nel documento

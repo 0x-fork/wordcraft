@@ -2192,3 +2192,8 @@
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Preslikane margine
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Postojeća datoteka ili veb stranica
+	Link to:	Veza ka:
+	Place in This Document	Mesto u ovom dokumentu

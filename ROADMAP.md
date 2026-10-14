@@ -139,6 +139,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-13 | A picture (or shape) set to Behind Text can be dragged over the text it overlaps, whether or not it was selected first, in the body and in a header/footer. The press becomes an object drag only after the pointer moves, so an ordinary click still places the text caret in the overlapping text. The UI regression tests cover In Front of Text too |
 | 2026-10-13 | Saving to DOCX keeps the watermark: it is written as Word's own text-watermark shape in every header, and a document without headers gains one to hold it (#1290) |
 | 2026-10-13 | DOCX files with Word's text watermark (Design › Watermark, a VML text shape in the headers) show it on every page on screen and in the PDF (#1290) |
+| 2026-10-13 | Insert › Link has Word's Place in This Document: a link to a bookmark, a heading (through a hidden _Toc bookmark) or the top of the document, from the dialog's Link to: choice or `insert.link` with `bookmark`, `heading` or `top`; `link.targets` lists the places and Go To follows `_top` (#1234) |
 | 2026-10-13 | Cut copies to the system clipboard however it is run (#1265): the ribbon, the context menu and the native menu cut deleted the words without copying them (only the Cmd+X event wrote the clipboard, so Paste re-inserted the previous copy); Copy/Cut publication is centralised in one sink and every entry point is tested |
 | 2026-10-13 | Insert › Bookmark deletes bookmarks (#1236): the dialog is laid out as Word's, with Add, Delete and Go To beside the list, Sort by Name or Location and Hidden bookmarks; it opens on the bookmark around the caret, Delete and Go To keep it open, and Go To selects the bookmark's text. `insert.deleteBookmark {name}` removes both ends of a bookmark, also one across paragraphs (adding a bookmark under a name in use left such a one's end behind) |
 | 2026-10-12 | Password-protected Word 97-2003 `.doc` files open after a password prompt (XOR obfuscation, RC4, RC4 CryptoAPI; wrong passwords are rejected by the stored verifier, #1079); written from the public specs and tested on synthetic files only, AES-encrypted `.doc` files are still refused |
@@ -357,6 +358,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-13 | trivial | Behind Text pictures and shapes drag over overlapping text in the body and headers, selected or not, while ordinary clicks keep editing text; In Front of Text drag covered too |
 | 2026-10-13 | trivial | Progress log: the watermark written to DOCX (#1290) |
 | 2026-10-13 | trivial | Progress log: Word's text watermark read from DOCX (#1290) |
+| 2026-10-13 | trivial | Progress log: Insert Hyperlink › Place in This Document (#1234) |
 | 2026-10-13 | trivial | Progress log: Insert › Bookmark deletes and goes to bookmarks (#1236) |
 | 2026-10-12 | trivial | Progress log: an option to show only the selected text's comment (#1055) |
 | 2026-10-12 | trivial | Progress log: clicking in a comment's text moves its caret (#1013) |

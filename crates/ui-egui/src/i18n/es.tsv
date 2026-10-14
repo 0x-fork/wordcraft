@@ -2548,3 +2548,8 @@ preview	Title	Título
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Márgenes simétricos
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Archivo o página web existente
+	Link to:	Vincular a:
+	Place in This Document	Lugar de este documento

@@ -2183,3 +2183,8 @@
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	左右對稱邊界
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	現有的檔案或網頁
+	Link to:	連結至:
+	Place in This Document	這份文件中的位置
