@@ -225,6 +225,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     resp.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // No document open (#1129): nothing to share, edit or comment on.
+                    if !app.has_document() {
+                        ui.disable();
+                    }
                     // Share, Editing mode, Comments.
                     let share = tl!("Share");
                     let share_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(share.to_string(), medium(12.0), t.text).size().x);
@@ -273,6 +277,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         .show(ui, |ui| {
             // Right-click on the ribbon (outside a button): Customize Ribbon. Registered first, so
             // the buttons drawn over it keep their own clicks.
+            // No document open (#1129): every command is greyed out but Help's.
+            if !app.has_document() && app.ui.tab != "Help" {
+                ui.disable();
+            }
             let bg = ui.interact(ui.max_rect(), ui.id().with("ribbon_background"), Sense::click());
             bg.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
             let entry = user_tabs.iter().find(|e| e.name == app.ui.tab);

@@ -105,6 +105,9 @@ fn click_events(app: &mut WordApp, pos: egui::Pos2, button: egui::PointerButton,
     }
 }
 
+/// The reply to a request that needs a document while none is open (#1129).
+const NO_DOCUMENT: &str = "no document is open; create one (file.new) or open one (file.open) first";
+
 pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
     let p = &req.params;
     let s = |k: &str| p.get(k).and_then(Value::as_str);
@@ -134,6 +137,8 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
             }
             ok(Value::Array(commands))
         }
+        // The Start screen's empty window has no document to inspect or render (#1129).
+        "document.inspect" | "ui.render" if !app.has_document() => err(NO_DOCUMENT),
         "document.inspect" => match app.session.run("document.inspect", p) {
             Ok(v) => ok(v),
             Err(e) => err(e),

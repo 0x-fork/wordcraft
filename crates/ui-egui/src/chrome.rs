@@ -32,7 +32,7 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
     match id {
         "edit.undo" => app.session.can_undo(),
         "edit.redo" => app.session.can_redo(),
-        "file.save" => true,
+        "file.save" => app.has_document(),
         _ => crate::widgets::enabled(app, id),
     }
 }
@@ -315,17 +315,22 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 });
             });
             // Centred title.
-            let title = format!(
-                "{} — {}",
-                app.title_stem(),
-                if app.session.dirty {
-                    tl!("Edited")
-                } else if app.session.path.is_some() {
-                    tl!("Saved")
-                } else {
-                    tl!("Not saved")
-                }
-            );
+            let title = if !app.has_document() {
+                // No document open (#1129): the app's name alone.
+                "WordCraft".to_string()
+            } else {
+                format!(
+                    "{} — {}",
+                    app.title_stem(),
+                    if app.session.dirty {
+                        tl!("Edited")
+                    } else if app.session.path.is_some() {
+                        tl!("Saved")
+                    } else {
+                        tl!("Not saved")
+                    }
+                )
+            };
             let font = TypeRung::Chrome.semibold();
             let track = TypeRung::Chrome.tracking();
             let w = text_width(ui.painter(), &title, &font, track, t.text);
@@ -355,6 +360,10 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 .stroke(Stroke::new(1.0, t.border)),
         )
         .show(ui, |ui| {
+            // No document open (#1129): an empty status bar.
+            if !app.has_document() {
+                return;
+            }
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing = vec2(14.0, 0.0);
                 let l = app.session.layout();

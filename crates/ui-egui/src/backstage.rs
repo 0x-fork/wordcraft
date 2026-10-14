@@ -21,6 +21,11 @@ const PAGES: [(&str, &str); 10] = [
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    // No document open (#1129): only the pages that open or create one, and Options.
+    let has_document = app.has_document();
+    if !has_document && !works_without_document(&app.ui.backstage_page) {
+        app.ui.backstage_page = "home".into();
+    }
     let mac = app.integrated_titlebar;
     egui::Panel::left("backstage_nav")
         .exact_size(200.0)
@@ -59,12 +64,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
             ui.add_space(if mac { 12.0 } else { 6.0 });
             for (id, label) in PAGES {
-                let (r, resp) = ui.allocate_exact_size(vec2(200.0, 38.0), Sense::click());
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!(label)));
+                // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
+                let on = has_document || works_without_document(id);
+                let (r, resp) = ui.add_enabled_ui(on, |ui| ui.allocate_exact_size(vec2(200.0, 38.0), Sense::click())).inner;
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
                 let active = app.ui.backstage_page == id;
                 if active {
                     ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
-                } else if resp.hovered() {
+                } else if on && resp.hovered() {
                     ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
                 }
                 ui.painter().text(
@@ -72,7 +79,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     Align2::LEFT_CENTER,
                     tl!(label),
                     if active { semibold(14.0) } else { medium(14.0) },
-                    egui::Color32::WHITE,
+                    if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) },
                 );
                 if resp.clicked() {
                     match id {
@@ -135,6 +142,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// The Backstage pages that work while no document is open (#1129).
+fn works_without_document(page: &str) -> bool {
+    matches!(page, "home" | "new" | "open" | "options")
+}
+
 fn heading(ui: &mut Ui, s: &str) {
     ui.label(egui::RichText::new(tl!(s)).font(semibold(26.0)));
     ui.add_space(16.0);
@@ -176,8 +188,9 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         if let Some(h) = tex {
             ui.painter().image(h.id(), r.shrink(1.0), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
-        ui.label(egui::RichText::new(tl!(label)).font(regular(12.5)));
-        if resp.clicked() {
+        // The caption opens the template too, as in Word.
+        let caption = ui.add(egui::Label::new(egui::RichText::new(tl!(label)).font(regular(12.5))).sense(Sense::click()));
+        if resp.clicked() || caption.clicked() {
             let _ = app.run("file.new", json!({"template": template}));
             app.ui.backstage = false;
             app.canvas.want_focus = true;
