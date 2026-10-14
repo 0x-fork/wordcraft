@@ -304,3 +304,30 @@ proptest! {
         let _ = read(&struct_doc(&spec));
     }
 }
+
+// A 1×1 24-bit DIB, including its padded four-byte row.
+fn one_pixel_dib() -> Vec<u8> {
+    let mut dib = [40u32, 1, 1].iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>();
+    dib.extend_from_slice(&1u16.to_le_bytes());
+    dib.extend_from_slice(&24u16.to_le_bytes());
+    dib.extend_from_slice(&[0u8; 24]);
+    dib.extend_from_slice(&[30, 60, 90, 0]);
+    dib
+}
+
+#[test]
+fn dib_conversion_caps_header_and_encoded_bytes() {
+    let dib = one_pixel_dib();
+    let record = rec(0, 0x7A8, officeart::rt::BLIP_DIB, &[[0u8; 16].as_slice(), &[0xFF], &dib].concat());
+    let (record, _) = officeart::record(&record).unwrap();
+    let bmp_size = 14 + dib.len();
+    assert!(officeart::blip(&record, bmp_size - 1).is_none(), "the BMP header also needs room");
+    let fallback = officeart::blip(&record, bmp_size).expect("the BMP fallback fits exactly");
+    assert_eq!((fallback.ext, fallback.placeholder, fallback.bytes.len()), ("bmp", true, bmp_size));
+    let img = image::load_from_memory(&fallback.bytes).unwrap().to_rgb8();
+    assert_eq!((img.width(), img.height(), img.get_pixel(0, 0).0), (1, 1, [90, 60, 30]));
+    let normal = officeart::blip(&record, 512).expect("normal conversion fits");
+    assert_eq!((normal.ext, normal.placeholder), ("png", false));
+    assert!(normal.bytes.len() > bmp_size && normal.bytes.len() <= 512);
+    assert_eq!(image::load_from_memory(&normal.bytes).unwrap().width(), 1);
+}
