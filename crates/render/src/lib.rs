@@ -940,6 +940,27 @@ pub fn render_area(doc: &Document, page: &Page, x: f32, y: f32, w: f32, h: f32, 
     render_region(doc, page, pw, ph, view, opts)
 }
 
+/// Draw `items` (page points) alone, on nothing, over the page area (`x`, `y`, `w`×`h` points)
+/// at `scale` px/pt: no paper, no watermark. A dragged object's preview.
+pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f32, scale: f32, opts: &RenderOptions) -> Rendered {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let w16 = ((w * scale).ceil() as u32).clamp(1, MAX_SIDE) as u16;
+    let h16 = ((h * scale).ceil() as u32).clamp(1, MAX_SIDE) as u16;
+    let view = Affine::scale(scale as f64) * Affine::translate((-x as f64, -y as f64));
+    let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: 0, ..Default::default() });
+    let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
+    for it in items {
+        draw(&mut ctx, doc, it, view, &visible, opts);
+    }
+    ctx.flush();
+    let mut pixels = vec![0u8; w16 as usize * h16 as usize * 4];
+    let mut res = Resources::new();
+    if let Some(pm) = vello_cpu::PixmapMut::new(w16, h16, &mut pixels) {
+        ctx.render(pm, &mut res);
+    }
+    Rendered { width: w16 as u32, height: h16 as u32, pixels }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

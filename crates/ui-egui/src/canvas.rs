@@ -138,11 +138,6 @@ pub struct CanvasState {
 }
 
 impl CanvasState {
-    /// The cached rendering of a page.
-    pub(crate) fn page_texture(&self, page: usize) -> Option<&TextureHandle> {
-        self.textures.get(&page).map(|(_, t)| t)
-    }
-
     /// How many pages have a cached rendering.
     #[cfg(test)]
     pub(crate) fn texture_count(&self) -> usize {
