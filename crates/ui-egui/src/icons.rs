@@ -264,7 +264,9 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             pen.line(&[(14.5, 7.0), (16.0, 8.5), (17.5, 7.0)]);
         }
         "select" => {
-            pen.fill(&[(5.0, 3.0), (5.0, 16.0), (8.0, 13.0), (10.5, 18.0), (12.5, 17.0), (10.0, 12.0), (14.0, 12.0)], c);
+            // Overlapping convex pieces keep the concave arrow intact without antialiasing seams.
+            pen.fill(&[(5.0, 3.0), (5.0, 16.0), (14.0, 12.0)], c);
+            pen.fill(&[(8.0, 13.0), (10.5, 18.0), (12.5, 17.0), (10.0, 12.0)], c);
         }
         "dictate" => {
             pen.rect(7.5, 2.5, 12.5, 12.0, c);
