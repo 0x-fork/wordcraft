@@ -4,6 +4,7 @@
 //! - `engine.execute {command, params}`: run any command (engine or `ui.*`)
 //! - `engine.commands {search?}`: engine and app print commands with enablement and parameters
 //! - `document.inspect`: document structure; `ui.inspect`: UI state, canvas geometry, perf
+//! - `ui.wheel {x, y, dx?, dy, unit?, phase?}`: a mouse-wheel / trackpad scroll at a window point.
 //! - `ui.click {x, y, button?, count?, shift?, cmd?}`, `ui.move {x, y}`, `ui.drag {x, y, toX, toY}`:
 //!   real pointer input in screen points (reaches every widget)
 //! - `ui.clickText {page, x, y}`: click at a page position (points from the page's top-left)
@@ -202,6 +203,25 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
             let m = mods(p);
             app.synthetic.push(egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: m });
             app.synthetic.push(egui::Event::Key { key: k, physical_key: None, pressed: false, repeat: false, modifiers: m });
+            ok(json!({"queued": true}))
+        }
+        "ui.wheel" => {
+            // Mouse-wheel or trackpad scroll at (x, y): `dy` points (positive scrolls up), or
+            // lines with `"unit": "line"`; `phase` "start"/"move"/"end" for a trackpad gesture.
+            let (Some(x), Some(y)) = (f("x"), f("y")) else { return err("missing x/y") };
+            let unit = match s("unit") {
+                Some("line") => egui::MouseWheelUnit::Line,
+                Some("page") => egui::MouseWheelUnit::Page,
+                _ => egui::MouseWheelUnit::Point,
+            };
+            let phase = match s("phase") {
+                Some("start") => egui::TouchPhase::Start,
+                Some("end") => egui::TouchPhase::End,
+                _ => egui::TouchPhase::Move,
+            };
+            let delta = egui::vec2(f("dx").unwrap_or(0.0), f("dy").unwrap_or(0.0));
+            app.synthetic.push(egui::Event::PointerMoved(egui::pos2(x, y)));
+            app.synthetic.push(egui::Event::MouseWheel { unit, delta, phase, modifiers: mods(p) });
             ok(json!({"queued": true}))
         }
         "ui.text" => {
