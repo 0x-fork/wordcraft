@@ -42,6 +42,7 @@ USAGE:
                                               running): addEditCitation, addEditBibliography,
                                               addNote, refresh, removeCodes, setDocPrefs
                                               (--cmd runs first, e.g. --cmd caret.docEnd)
+  wordcraft-cli [<command>] -h | --help       this help
   wordcraft-cli --version
 
 Paper: documents created here, and HTML, Markdown and text files (which give no page size), use
@@ -49,6 +50,13 @@ the system region's paper (A4, or Letter in the US and other Letter regions), re
 LC_ALL / LC_PAPER / LANG or the platform. Set WORDCRAFT_REGION=en-US (or another tag) for the
 same output on every machine.
 ";
+
+/// The subcommands, in `USAGE` order; `--help` or `-h` after any of them prints `USAGE` (#968).
+const SUBCOMMANDS: &[&str] = &["convert", "info", "text", "inspect", "render", "run", "commands", "parity", "mcp", "zotero"];
+
+fn wants_help(cmd: &str, rest: &[String]) -> bool {
+    SUBCOMMANDS.contains(&cmd) && rest.iter().any(|a| a == "--help" || a == "-h")
+}
 
 fn open(path: &str) -> Result<Session, String> {
     // A file that gives no page size (HTML, Markdown, plain text) opens on the system region's
@@ -205,6 +213,10 @@ fn write_stdout(write: impl FnOnce(&mut std::io::StdoutLock<'static>) -> std::io
 fn run(args: &[String]) -> Result<(), Failure> {
     let cmd = args.first().map(String::as_str).unwrap_or("");
     let rest: Vec<String> = args.iter().skip(1).cloned().collect();
+    // Before options are checked or files and folders opened.
+    if wants_help(cmd, &rest) {
+        return write_stdout(|o| write!(o, "{USAGE}"));
+    }
     let pos = |i: usize| rest.iter().filter(|a| !a.starts_with("--")).nth(i).cloned().ok_or_else(|| format!("missing argument\n\n{USAGE}"));
     match cmd {
         "convert" => {
@@ -500,6 +512,26 @@ mod tests {
         assert_eq!(run(&args(&["info", "missing.docx", "--passwrod", "x"])), Err("info: unknown option --passwrod".into()));
         assert_eq!(run(&args(&["render", "missing.docx", "out.png", "--sclae", "2"])), Err("render: unknown option --sclae".into()));
         assert_eq!(run(&args(&["zotero", "refresh", "missing.docx", "--prot", "1"])), Err("zotero: unknown option --prot".into()));
+    }
+
+    #[test]
+    fn help_or_h_after_a_subcommand_asks_for_the_usage() {
+        for cmd in SUBCOMMANDS {
+            assert!(wants_help(cmd, &args(&["in.docx", "--help"])), "{cmd}");
+            assert!(wants_help(cmd, &args(&["-h"])), "{cmd}");
+            assert!(!wants_help(cmd, &args(&["in.docx", "--hepl"])), "{cmd}");
+        }
+        assert!(!wants_help("frobnicate", &args(&["--help"])));
+    }
+
+    #[test]
+    fn usage_lists_exactly_the_subcommands() {
+        let listed: Vec<&str> = USAGE
+            .lines()
+            .filter_map(|line| line.strip_prefix("  wordcraft-cli ")?.split_whitespace().next())
+            .filter(|word| !word.starts_with(['-', '[']))
+            .collect();
+        assert_eq!(listed, SUBCOMMANDS);
     }
 
     #[test]

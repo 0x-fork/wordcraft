@@ -1,6 +1,6 @@
 //! WordCraft desktop app.
 //!
-//! Usage: `wordcraft [--control <port>] [--sample] [files…]`
+//! Usage: `wordcraft [--control <port>] [--sample] [files…]`; `--help` prints `USAGE`.
 //!
 //! `--control <port>` (or `WORDCRAFT_CONTROL_PORT`) starts a localhost JSON-lines control server:
 //! `{"id":1,"key":"…","method":"engine.execute","params":{"command":"text.insert","params":{"text":"Hi"}}}`.
@@ -230,6 +230,20 @@ fn app_icon() -> Option<egui::IconData> {
     eframe::icon_data::from_png_bytes(png).map_err(|e| log::warn!("app icon: {e}")).ok()
 }
 
+const USAGE: &str = "\
+wordcraft — the WordCraft desktop app
+
+USAGE:
+  wordcraft [--sample] [--control PORT] [FILE…]
+
+OPTIONS:
+  --sample            open the sample document
+  --control PORT      start the localhost control server on PORT, for agents and scripts
+                      (or set WORDCRAFT_CONTROL_PORT); see docs/control-protocol.md
+  --version           print the version
+  -h, --help          print this help
+";
+
 /// The commit the build came from (short), or `dev`.
 fn build_sha() -> &'static str {
     option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or("dev")
@@ -249,6 +263,11 @@ fn main() -> eframe::Result {
             "--sample" => sample = true,
             "--version" => {
                 println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
+                return Ok(());
+            }
+            // Before the window opens (#968). Unlike `print!`, a closed stdout can't panic.
+            "--help" | "-h" => {
+                let _ = std::io::Write::write_all(&mut std::io::stdout(), USAGE.as_bytes());
                 return Ok(());
             }
             _ => files.push(a),
