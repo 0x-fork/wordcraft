@@ -235,7 +235,7 @@ mod tests {
         // The nearest shape, as `preset_kind` gives it: left arrow, right triangle, four-point
         // star, rounded callout, elbow connector, a bevel (its box).
         assert_eq!(vml_preset_kind(66), Some(ShapeKind::Arrow));
-        assert_eq!(vml_preset_kind(6), Some(ShapeKind::Triangle));
+        assert_eq!(vml_preset_kind(6), Some(ShapeKind::RightTriangle));
         assert_eq!(vml_preset_kind(187), Some(ShapeKind::Star));
         assert_eq!(vml_preset_kind(62), Some(ShapeKind::RoundedRectangle));
         assert_eq!(vml_preset_kind(34), Some(ShapeKind::ElbowConnector));
