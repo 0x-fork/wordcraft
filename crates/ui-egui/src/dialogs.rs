@@ -2717,8 +2717,10 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let buttons = buttons.inner;
             // The keyboard alone answers, as in Word (#861): Save has focus when the prompt opens,
             // so Enter saves, and the arrow keys (egui's focus navigation) or Tab move between the
-            // buttons, shown as Save, Don't Save, Cancel.
-            if ui.memory(|m| m.focused().is_none())
+            // buttons, shown as Save, Don't Save, Cancel. The focus is taken from whatever held it,
+            // not only from nothing: the page keeps it while typing and claims Tab and the arrows
+            // (#1597).
+            if !buttons.iter().any(|(b, _)| b.has_focus())
                 && let Some((save, _)) = buttons.get(2)
             {
                 save.request_focus();

@@ -4167,6 +4167,53 @@ mod tests {
         }
     }
 
+    /// #1597: the prompt takes the keyboard from the page. The canvas, focused while typing, keeps
+    /// Tab and the arrows for itself; Save still has focus when the prompt opens over it, and the
+    /// arrows move between the prompt's buttons instead of the caret.
+    #[test]
+    fn save_prompt_takes_focus_from_the_page() {
+        use egui_kittest::kittest::Queryable;
+        let dir = scratch("prompt-over-page");
+        let path = docx_on_disk(&dir, "Draft");
+        let before = std::fs::read(&path).unwrap();
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        a.canvas.want_focus = true;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the page has keyboard focus");
+        h.state_mut().run("file.close", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(prompt(h.state()), Some("saveChanges"));
+        let focused = |h: &egui_kittest::Harness<WordApp>, label: &str| h.query_all_by_label(label).any(|n| n.is_focused());
+        assert!(focused(&h, "Save"), "Save has focus when the prompt opens");
+        let caret = h.state().session.sel.focus.clone();
+        h.key_press(egui::Key::ArrowRight);
+        h.step();
+        assert!(focused(&h, "Don't Save"), "the arrow moved to Don't Save");
+        assert_eq!(h.state().session.sel.focus, caret, "the caret stayed where it was");
+        h.key_press(egui::Key::Enter);
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(prompt(h.state()), None, "answered");
+        assert!(h.state().quit_requested, "Don't Save closes");
+        assert_eq!(std::fs::read(&path).unwrap(), before, "nothing was saved");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `ui.print` hands the document's PDF to the host's print hook, and is an error (with
     /// nothing printed) when the host has none.
     #[test]
