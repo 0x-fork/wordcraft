@@ -461,7 +461,7 @@ struct Key {
     rev: u64,
     width: u32,
     label: Option<String>,
-    page: Option<(u32, u32, u32, u32)>,
+    page: Option<(u32, u32, u32, u32, u64)>,
     /// The pages a split paragraph's fields are on after its first (`FieldCtx::page_from`).
     page_from: u64,
     table: u64,
@@ -537,7 +537,7 @@ fn hyphenation_key(doc: &Document) -> (bool, u32, bool, u32) {
 fn has_page_fields(p: &Paragraph) -> bool {
     p.objects.iter().any(|o| match o {
         InlineObject::Field { instr, .. } => {
-            matches!(fields::field_name(instr).as_str(), "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "SECTION")
+            matches!(fields::field_name(instr).as_str(), "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "SECTION" | "PAGEREF")
         }
         _ => false,
     })
@@ -2064,6 +2064,13 @@ fn layout_pass(
     }
     if !reflow {
         ctx.track_totals = false;
+        // Page references in headers and footers are filled in after pagination, like their page
+        // totals: they don't make the body lay out again.
+        if headers_footers_refer_to_pages(doc) {
+            let marks = bookmark_pages(doc, &pages, &sections);
+            ctx.fields.bookmarks_key = marks_key(&marks);
+            ctx.fields.bookmark_pages = Arc::new(marks);
+        }
         headers_footers(&mut ctx, &mut pages, &sections);
         if doc.settings.mirror_margins {
             mirror_even_pages(&mut pages, &sections);
@@ -3438,6 +3445,82 @@ fn linked(sections: &[(usize, &SectionProps)], si: usize, get: fn(&SectionProps)
         set.even = set.even.or(o.even);
     }
     set
+}
+
+/// Whether a header, a footer or a text box shows a `PAGEREF` field, which they resolve from the
+/// paginated body (see [`bookmark_pages`]).
+fn headers_footers_refer_to_pages(doc: &Document) -> bool {
+    use wordcraft_doc::PartKind;
+    doc.parts.iter().filter(|(_, part)| matches!(part.kind, PartKind::Header | PartKind::Footer | PartKind::TextBox)).any(|(id, _)| {
+        let story = StoryRef::Part(*id);
+        doc.para_paths(story)
+            .iter()
+            .filter_map(|path| doc.para(story, path))
+            .any(|p| p.objects.iter().any(|o| matches!(o, InlineObject::Field { instr, .. } if fields::field_name(instr) == "PAGEREF")))
+    })
+}
+
+/// Where each bookmark in the body starts: the number and number format of the page it is placed
+/// on (with two of the same name, the first in the document).
+fn bookmark_pages(doc: &Document, pages: &[Page], sections: &[(usize, &SectionProps)]) -> fields::BookmarkPages {
+    // Each paragraph's bookmarks: name, offset, and its line in the paragraph layout last looked
+    // up (the pieces of a paragraph usually share one).
+    let mut wanted: HashMap<Path, Vec<(String, usize, Option<(usize, usize)>)>> = HashMap::new();
+    let mut seen = HashSet::new();
+    for path in doc.para_paths(StoryRef::Body) {
+        let Some(p) = doc.para(StoryRef::Body, &path) else { continue };
+        if !p.objects.iter().any(|o| matches!(o, InlineObject::BookmarkStart { .. })) {
+            continue;
+        }
+        for (off, o) in p.object_offsets().into_iter().zip(&p.objects) {
+            if let InlineObject::BookmarkStart { name } = o
+                && seen.insert(name.as_str())
+            {
+                wanted.entry(path.clone()).or_default().push((name.clone(), off, None));
+            }
+        }
+    }
+    let mut out = fields::BookmarkPages::new();
+    for page in pages {
+        if wanted.is_empty() {
+            break;
+        }
+        let format = sections.get(page.section).map(|(_, s)| s.page_num_format).unwrap_or_default();
+        for it in &page.items {
+            let Placed::Lines { story: StoryRef::Body, path, para, l0, l1, .. } = it else { continue };
+            let Some(marks) = wanted.get_mut(path) else { continue };
+            let layout = Arc::as_ptr(para) as usize;
+            marks.retain_mut(|(name, off, line)| {
+                let li = match *line {
+                    Some((k, li)) if k == layout => li,
+                    _ => {
+                        let li = para.line_of(*off);
+                        *line = Some((layout, li));
+                        li
+                    }
+                };
+                if !(*l0..*l1).contains(&li) {
+                    return true;
+                }
+                out.insert(std::mem::take(name), (page.number, format));
+                false
+            });
+            if marks.is_empty() {
+                wanted.remove(path);
+            }
+        }
+    }
+    out
+}
+
+/// A key for caches standing for `marks` (0 for none).
+fn marks_key(marks: &fields::BookmarkPages) -> u64 {
+    if marks.is_empty() {
+        return 0;
+    }
+    let mut v: Vec<_> = marks.iter().collect();
+    v.sort_by(|a, b| a.0.cmp(b.0));
+    hash_of(&v)
 }
 
 fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &SectionProps)]) {
