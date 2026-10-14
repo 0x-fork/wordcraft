@@ -2767,6 +2767,50 @@ fn deleted_text_box_takes_its_text_with_it_until_undo() {
 }
 
 #[test]
+fn text_box_in_a_table_nested_seventeen_deep_survives_an_edit_and_a_save() {
+    // #1339: opened from a .docx, a box shown only from a table nested deeper than 16 was taken
+    // for unshown, so the next unrelated edit pruned its story and saving dropped its text.
+    use wordcraft_doc::{Block, Document, InlineObject, Paragraph, PartKind, Path, Table, para_block};
+    let mut d = Document::from_text("Intro");
+    let id = d.add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text("Deep box", Default::default()))]);
+    let shape = InlineObject::Shape {
+        kind: wordcraft_doc::para::ShapeKind::TextBox,
+        w: 72.0,
+        h: 36.0,
+        fill: None,
+        stroke: None,
+        stroke_width: 0.75,
+        float: Default::default(),
+        story: Some(id),
+        freeform: None,
+        effects: Default::default(),
+        extra: Default::default(),
+    };
+    let mut p = Paragraph::with_text("Cell", Default::default());
+    p.insert_object(0, shape, &Default::default()).unwrap();
+    d.body.extend((0..17).fold(vec![para_block(p)], |inner, _| {
+        let mut t = Table::new(1, 1, 300.0);
+        t.rows[0].cells[0].blocks = inner;
+        vec![std::sync::Arc::new(Block::Table(t))]
+    }));
+    // The innermost cell's paragraph: the table after "Intro", then row, cell and block 0 down.
+    let path = Path([vec![1], vec![0; 17 * 3]].concat());
+    let deep_box = |doc: &Document| {
+        let id = doc.para(StoryRef::Body, &path)?.objects.iter().find_map(InlineObject::text_box)?;
+        doc.parts.get(&id).filter(|p| p.kind == PartKind::TextBox).map(|_| doc.plain_text(StoryRef::Part(id)))
+    };
+    let mut s = Session::new(wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap());
+    assert_eq!(deep_box(&s.doc).as_deref(), Some("Deep box"), "opened");
+    let unshown = s.doc.add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text("Shown nowhere", Default::default()))]);
+    run(&mut s, "text.insert", json!({"text": "Edited. "}));
+    assert_eq!(deep_box(&s.doc).as_deref(), Some("Deep box"), "kept through the edit");
+    assert!(!s.doc.parts.contains_key(&unshown), "a box shown nowhere still goes");
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    assert_eq!(deep_box(&back).as_deref(), Some("Deep box"), "saved");
+    assert!(back.plain_text(StoryRef::Body).starts_with("Edited. Intro"));
+}
+
+#[test]
 fn word_count_with_an_object_selected_counts_the_document() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "one two "}));

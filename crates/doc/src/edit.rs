@@ -63,37 +63,46 @@ const MAX_BOX_DEPTH: usize = 8;
 /// Most text box stories one paste may create (hostile documents can fan out).
 const MAX_PASTED_BOXES: usize = 4096;
 
-/// Call `f` on every paragraph of a block (tables descended, depth-limited).
-pub(crate) fn each_para<'a>(b: &'a Block, depth: usize, f: &mut dyn FnMut(&'a Paragraph)) {
-    match b {
-        Block::Para(p) => f(p),
-        Block::Table(t) if depth < 16 => {
-            for cell in t.rows.iter().flat_map(|r| r.cells.iter()) {
-                for cb in &cell.blocks {
-                    each_para(cb, depth + 1, f);
-                }
+/// Call `f` on every paragraph of a block, in document order, however deep its tables nest. The
+/// walk keeps its own stack instead of recursing, so it is complete: a text box it doesn't reach
+/// is shown nowhere, which pruning relies on (#1339). `_depth` is unused (callers keep passing it).
+pub(crate) fn each_para<'a>(b: &'a Block, _depth: usize, f: &mut dyn FnMut(&'a Paragraph)) {
+    // Most blocks are paragraphs, which need no stack.
+    if let Block::Para(p) = b {
+        return f(p);
+    }
+    let mut todo = vec![b];
+    while let Some(b) = todo.pop() {
+        match b {
+            Block::Para(p) => f(p),
+            Block::Table(t) => {
+                // Last first, so they come off the stack in document order.
+                let cells = t.rows.iter().rev().flat_map(|r| r.cells.iter().rev());
+                todo.extend(cells.flat_map(|c| c.blocks.iter().rev()).map(|cb| &**cb));
             }
         }
-        Block::Table(_) => {}
     }
 }
 
-pub(crate) fn each_para_mut(b: &mut Block, depth: usize, f: &mut dyn FnMut(&mut Paragraph)) {
-    match b {
-        Block::Para(p) => f(p),
-        Block::Table(t) if depth < 16 => {
-            for cell in t.rows.iter_mut().flat_map(|r| r.cells.iter_mut()) {
-                for cb in &mut cell.blocks {
-                    each_para_mut(Arc::make_mut(cb), depth + 1, f);
-                }
+/// [`each_para`], changing the paragraphs.
+pub(crate) fn each_para_mut(b: &mut Block, _depth: usize, f: &mut dyn FnMut(&mut Paragraph)) {
+    if let Block::Para(p) = b {
+        return f(p);
+    }
+    let mut todo = vec![b];
+    while let Some(b) = todo.pop() {
+        match b {
+            Block::Para(p) => f(p),
+            Block::Table(t) => {
+                let cells = t.rows.iter_mut().rev().flat_map(|r| r.cells.iter_mut().rev());
+                todo.extend(cells.flat_map(|c| c.blocks.iter_mut().rev()).map(Arc::make_mut));
             }
         }
-        Block::Table(_) => {}
     }
 }
 
 /// Whether a paragraph anywhere in `b` (also inside tables) uses paragraph or character style
-/// `id` (depth-limited like `each_para`). Table styles are the engine's `table.deleteStyle`'s job.
+/// `id` (tables to 16 levels deep). Table styles are the engine's `table.deleteStyle`'s job.
 fn uses_style(b: &Block, id: &str, depth: usize) -> bool {
     let is = |s: &Option<String>| s.as_deref() == Some(id);
     match b {

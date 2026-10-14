@@ -281,6 +281,84 @@ fn prune_text_boxes_drops_only_unshown_ones() {
     assert_eq!(d.prune_text_boxes(), 0);
 }
 
+/// `blocks` in the only cell of `levels` tables, each nested in the next.
+fn nested_tables(levels: usize, blocks: Blocks) -> Blocks {
+    (0..levels).fold(blocks, |inner, _| {
+        let mut t = Table::new(1, 1, 100.0);
+        t.rows[0].cells[0].blocks = inner;
+        vec![Arc::new(Block::Table(t))]
+    })
+}
+
+/// A paragraph showing text box story `story` (drawing id `id`).
+fn box_para(story: u32, id: u32) -> Blocks {
+    let shape = InlineObject::Shape {
+        kind: para::ShapeKind::TextBox,
+        w: 50.0,
+        h: 20.0,
+        fill: None,
+        stroke: None,
+        stroke_width: 0.0,
+        float: Default::default(),
+        story: Some(story),
+        freeform: None,
+        effects: Default::default(),
+        extra: connector::ShapeExtra { id, ..Default::default() },
+    };
+    let mut p = Paragraph::with_text("cell", CharProps::default());
+    p.insert_object(0, shape, &CharProps::default()).unwrap();
+    vec![para_block(p)]
+}
+
+#[test]
+fn text_boxes_shown_from_deeply_nested_tables_are_kept() {
+    // #1339: the paragraph walk stopped 16 tables down, so a box shown only from deeper was taken
+    // for unshown and the next edit pruned its story.
+    let para_of = |t: &str| vec![para_block(Paragraph::with_text(t, CharProps::default()))];
+    let mut d = Document::from_text("body");
+    let at_17 = d.add_part(PartKind::TextBox, para_of("17 tables down"));
+    let at_40 = d.add_part(PartKind::TextBox, para_of("40 tables down"));
+    let inner = d.add_part(PartKind::TextBox, para_of("deep in a box"));
+    let outer = d.add_part(PartKind::TextBox, nested_tables(18, box_para(inner, 0)));
+    let in_header = d.add_part(PartKind::TextBox, para_of("deep in a header"));
+    let hdr = d.add_part(PartKind::Header, nested_tables(20, box_para(in_header, 0)));
+    let unshown = d.add_part(PartKind::TextBox, para_of("shown nowhere"));
+    d.body.extend(nested_tables(17, box_para(at_17, 0)));
+    d.body.extend(nested_tables(40, box_para(at_40, 7)));
+    d.body.extend(box_para(outer, 0));
+    assert_eq!(d.prune_text_boxes(), 1);
+    assert!(!d.parts.contains_key(&unshown));
+    let kept: Vec<u32> = d.parts.keys().copied().collect();
+    assert_eq!(kept, vec![at_17, at_40, inner, outer, in_header, hdr]);
+    assert_eq!(d.prune_text_boxes(), 0);
+    // Counted in reading order, the nested box after its own; new drawing ids above the deep one.
+    let part = StoryRef::Part;
+    assert_eq!(d.counted_stories(), vec![StoryRef::Body, part(at_17), part(at_40), part(outer), part(inner)]);
+    assert_eq!(d.next_shape_id(), 8);
+}
+
+#[test]
+fn a_deeply_nested_table_is_copied_with_its_text_boxes() {
+    // A copy takes the box 17 tables down along, so pasting it into another document shows its
+    // text, not the other document's box that happens to have the same id.
+    let para_of = |t: &str| vec![para_block(Paragraph::with_text(t, CharProps::default()))];
+    let mut d = Document::from_text("body");
+    let deep = d.add_part(PartKind::TextBox, para_of("deep box"));
+    d.body.extend(nested_tables(17, box_para(deep, 0)));
+    let frag = d.body_fragment();
+    assert_eq!(frag.parts.keys().copied().collect::<Vec<_>>(), vec![deep]);
+    let mut e = Document::new();
+    let own = e.add_part(PartKind::TextBox, para_of("its own box"));
+    assert_eq!(own, deep, "the same id in both documents");
+    e.body = box_para(own, 0);
+    let end = e.end_of(StoryRef::Body);
+    e.insert_fragment(&end, &frag).unwrap();
+    let mut shown = Vec::new();
+    e.objects_in_reading_order(&mut |o| shown.extend(o.text_box()));
+    let texts: Vec<String> = shown.iter().map(|id| e.plain_text(StoryRef::Part(*id))).collect();
+    assert_eq!(texts, vec!["its own box", "deep box"]);
+}
+
 #[test]
 fn notes_in_text_box_follow_nested_boxes_once() {
     let shape = |story| InlineObject::Shape {
