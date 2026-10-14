@@ -35,3 +35,4 @@ js-sys = "0.3"
 [dev-dependencies]
 encoding_rs = { workspace = true }
 zip = { workspace = true }
+cfb = { workspace = true }
