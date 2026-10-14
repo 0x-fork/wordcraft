@@ -11,6 +11,9 @@ use wordcraft_geom::Rect;
 use crate::para::{CellText, ClKind, ParaLayout};
 use crate::{BoxContext, BoxLayout, Ctx, Placed, layout_box};
 
+/// Largest preferred table width, as a share of the text column, that a file can ask for.
+const MAX_WIDTH_SHARE: f32 = 10.0;
+
 pub struct RowLayout {
     pub height: f32,
     /// Items relative to the table's top-left (x) and the row's top (y).
@@ -341,7 +344,8 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
     };
     let mut total: f32 = grid.iter().sum();
     let target = match (t.props.width_pct, t.props.width) {
-        (Some(p), _) if p > 0.0 => Some(avail * (p / 100.0).min(1.0)),
+        // Word keeps a percentage past 100%; the cap only bounds hostile input.
+        (Some(p), _) if p > 0.0 => Some(avail * (p / 100.0).min(MAX_WIDTH_SHARE)),
         (_, Some(w)) if w > 0.0 => Some(w),
         _ => None,
     };
