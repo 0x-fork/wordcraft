@@ -327,6 +327,13 @@ fn toc_range(s: &Session) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
+/// The caret is in the table of contents (its heading or an entry), where Word's context menu
+/// offers Update Field for the whole table.
+pub fn caret_in_toc(s: &Session) -> bool {
+    let at = &s.sel.focus;
+    at.story == StoryRef::Body && at.path.depth() == 0 && toc_range(s).is_some_and(|(start, end)| (start..=end).contains(&at.path.last()))
+}
+
 /// A TOC imported as a range field (`FieldStart`…`FieldEnd`: one without a TOC heading, or with
 /// content around it the engine's TOC can't reproduce) becomes the engine's TOC before an update,
 /// so Update Table refreshes it rather than adding a second one: an empty `TOC` field where the
