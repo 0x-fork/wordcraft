@@ -6,6 +6,8 @@
 //! `dialogs_keyboard`, Customize Ribbon in `dialogs_ribbon`). Every dialog ends by running a
 //! command (or shows one's result), so agents get the same result without the dialog.
 
+use std::collections::BTreeSet;
+
 use egui::{Sense, Ui, vec2};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -185,12 +187,9 @@ pub enum Dialog {
         first: f32,
         before: f32,
         after: f32,
-        /// Line spacing as a multiple; Exactly and At Least show as 1.0.
+        /// Line spacing as a multiple; Exactly and At Least show as 1.0, and OK keeps them
+        /// unless this changes (#467).
         line: f32,
-        /// `line` when the dialog opened: OK keeps the paragraph's spacing, whatever its rule,
-        /// unless this changed (#467).
-        #[serde(skip)]
-        line_was: f32,
         keep_next: bool,
         keep_lines: bool,
         page_break: bool,
@@ -201,15 +200,17 @@ pub enum Dialog {
         /// hanging punctuation, compress punctuation at line start, space between Asian and
         /// Latin text, space between Asian text and numbers.
         asian: [bool; 6],
-        /// `asian` when the dialog opened: OK sets only the flags that changed.
-        #[serde(skip)]
-        asian_was: [bool; 6],
         /// Mirror indents, don't add space between paragraphs of the same style, suppress line
         /// numbers, don't hyphenate (#512).
         opts: [bool; 4],
-        /// `opts` when the dialog opened: OK sets only the ones that changed.
+        /// The fields every selected paragraph shares, as `para_fields` names them, from when
+        /// the dialog opened: OK sends only the fields that differ from these, so an untouched
+        /// tab adds no direct formatting (#1346).
         #[serde(skip)]
-        opts_was: [bool; 4],
+        start: serde_json::Map<String, Value>,
+        /// The fields the selected paragraphs differ in that the user hasn't set: they show
+        /// blank, and OK leaves each paragraph's own value (#1346).
+        mixed: BTreeSet<String>,
     },
     /// Tabs (#320).
     Tabs {
@@ -1094,33 +1095,28 @@ impl Dialog {
                 d
             }
             "paragraph" | "asianTypography" => {
-                let rp = app.session.doc.para_at(&app.session.sel.focus).map(|p| app.session.doc.styles.resolve_para(&p.props));
-                let rp = rp?;
-                let line = match rp.line_spacing {
-                    wordcraft_doc::props::LineSpacing::Multiple(m) => m,
-                    _ => 1.0,
-                };
-                let (vl, vr) = rp.visual_indents();
-                Dialog::Paragraph {
-                    rtl: rp.bidi,
-                    align: format!("{:?}", rp.align.visual(rp.bidi)).to_lowercase(),
-                    left: vl / crate::options::unit().pt_per_unit(),
-                    right: vr / crate::options::unit().pt_per_unit(),
-                    first: rp.indent_first / crate::options::unit().pt_per_unit(),
-                    before: rp.space_before,
-                    after: rp.space_after,
-                    line,
-                    line_was: line,
-                    keep_next: rp.keep_next,
-                    keep_lines: rp.keep_lines,
-                    page_break: rp.page_break_before,
-                    widow: rp.widow_control,
-                    tab: if name == "asianTypography" { 2 } else { 0 },
-                    asian: [rp.kinsoku, rp.word_wrap, rp.overflow_punct, rp.top_line_punct, rp.auto_space_de, rp.auto_space_dn],
-                    asian_was: [rp.kinsoku, rp.word_wrap, rp.overflow_punct, rp.top_line_punct, rp.auto_space_de, rp.auto_space_dn],
-                    opts: [rp.mirror_indents, rp.contextual_spacing, rp.suppress_line_numbers, rp.suppress_hyphens],
-                    opts_was: [rp.mirror_indents, rp.contextual_spacing, rp.suppress_line_numbers, rp.suppress_hyphens],
+                let tab = if name == "asianTypography" { 2 } else { 0 };
+                let s = &app.session;
+                let story = s.sel.focus.story;
+                let of = |props: &wordcraft_doc::props::ParaProps| paragraph_dialog(&s.doc.styles.resolve_para(props), tab);
+                // Every selected paragraph as the dialog would show it: what they all share is
+                // shown, and what OK compares with; the rest shows blank (#1346).
+                let mut each = wordcraft_engine::cmd::selected_paths(s).into_iter().filter_map(|path| s.doc.para(story, &path)).map(|p| of(&p.props));
+                let mut d = each.next().or_else(|| s.doc.para_at(&s.sel.focus).map(|p| of(&p.props)))?;
+                let fields = para_fields(&d);
+                let mut shared = fields.clone();
+                for other in each {
+                    if shared.is_empty() {
+                        break;
+                    }
+                    let other = para_fields(&other);
+                    shared.retain(|k, v| other.get(k) == Some(&*v));
                 }
+                if let Dialog::Paragraph { start, mixed, .. } = &mut d {
+                    *mixed = fields.into_iter().map(|(k, _)| k).filter(|k| !shared.contains_key(k)).collect();
+                    *start = shared;
+                }
+                d
             }
             "tabs" => Dialog::Tabs { form: Box::new(crate::dialogs_para::TabsForm::read(app)?) },
             "borders" | "pageBorders" | "shading" => {
@@ -1823,16 +1819,15 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             before,
             after,
             line,
-            line_was,
             keep_next,
             keep_lines,
             page_break,
             widow,
             tab,
             asian,
-            asian_was,
             opts,
-            opts_was,
+            mixed,
+            ..
         } => {
             ui.horizontal(|ui| {
                 for (k, name) in ["Indents and Spacing", "Line and Page Breaks", "Asian Typography"].into_iter().enumerate() {
@@ -1847,16 +1842,28 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     ui.label(egui::RichText::new(tl!("General")).font(semibold(12.5)));
                     ui.horizontal(|ui| {
                         ui.label(tl!("Direction:"));
-                        ui.radio_value(rtl, true, tl!("Right-to-left"));
-                        ui.radio_value(rtl, false, tl!("Left-to-right"));
+                        // Neither while the selected paragraphs differ.
+                        let blank = mixed.contains("bidi");
+                        for (value, text) in [(true, tl!("Right-to-left")), (false, tl!("Left-to-right"))] {
+                            if ui.radio(!blank && *rtl == value, text).clicked() {
+                                *rtl = value;
+                                mixed.remove("bidi");
+                            }
+                        }
                     });
                     const ALIGNS: [(&str, &str); 4] = [("left", "Left"), ("center", "Center"), ("right", "Right"), ("justify", "Justify")];
                     ui.horizontal(|ui| {
                         ui.label(tl!("Alignment:"));
-                        let shown = ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l));
+                        let shown = if mixed.contains("align") {
+                            ""
+                        } else {
+                            ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l))
+                        };
                         egui::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
                             for (v, l) in ALIGNS {
-                                ui.selectable_value(align, v.to_string(), tl!(l));
+                                if ui.selectable_value(align, v.to_string(), tl!(l)).clicked() {
+                                    mixed.remove("align");
+                                }
                             }
                         });
                     });
@@ -1865,87 +1872,58 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
                     egui::Grid::new("ind").num_columns(4).show(ui, |ui| {
                         ui.label(tl!(l_label));
-                        ui.add(
-                            egui::DragValue::new(left)
-                                .speed(3.6 / crate::options::unit().pt_per_unit())
-                                .measure(crate::options::unit())
-                                .max_decimals(2),
-                        );
+                        para_number(ui, left, ParaNumber::Length, "left", mixed);
                         ui.label(tl!(r_label));
-                        ui.add(
-                            egui::DragValue::new(right)
-                                .speed(3.6 / crate::options::unit().pt_per_unit())
-                                .measure(crate::options::unit())
-                                .max_decimals(2),
-                        );
+                        para_number(ui, right, ParaNumber::Length, "right", mixed);
                         ui.end_row();
                         ui.label(tl!("First line:"));
-                        ui.add(
-                            egui::DragValue::new(first)
-                                .speed(3.6 / crate::options::unit().pt_per_unit())
-                                .measure(crate::options::unit())
-                                .max_decimals(2),
-                        );
+                        para_number(ui, first, ParaNumber::Length, "indentFirst", mixed);
                         ui.end_row();
                     });
-                    ui.checkbox(&mut opts[0], tl!("Mirror indents"));
+                    para_check(ui, &mut opts[0], tl!("Mirror indents"), "mirrorIndents", mixed);
                     ui.label(egui::RichText::new(tl!("Spacing")).font(semibold(12.5)));
                     egui::Grid::new("sp").num_columns(4).show(ui, |ui| {
                         ui.label(tl!("Before:"));
-                        ui.add(egui::DragValue::new(before).speed(1.0).range(0.0..=1584.0).suffix(format!(" {}", tl!("pt"))));
+                        para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed);
                         ui.label(tl!("Line spacing:"));
-                        ui.add(egui::DragValue::new(line).speed(0.05).range(0.5..=5.0));
+                        para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed);
                         ui.end_row();
                         ui.label(tl!("After:"));
-                        ui.add(egui::DragValue::new(after).speed(1.0).range(0.0..=1584.0).suffix(format!(" {}", tl!("pt"))));
+                        para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed);
                         ui.end_row();
                     });
-                    ui.checkbox(&mut opts[1], tl!("Don't add space between paragraphs of the same style"));
+                    para_check(ui, &mut opts[1], tl!("Don't add space between paragraphs of the same style"), "contextualSpacing", mixed);
                 }
                 1 => {
                     ui.label(egui::RichText::new(tl!("Line and Page Breaks")).font(semibold(12.5)));
-                    ui.checkbox(widow, tl!("Widow/Orphan control"));
-                    ui.checkbox(keep_next, tl!("Keep with next"));
-                    ui.checkbox(keep_lines, tl!("Keep lines together"));
-                    ui.checkbox(page_break, tl!("Page break before"));
+                    para_check(ui, widow, tl!("Widow/Orphan control"), "widowControl", mixed);
+                    para_check(ui, keep_next, tl!("Keep with next"), "keepNext", mixed);
+                    para_check(ui, keep_lines, tl!("Keep lines together"), "keepLines", mixed);
+                    para_check(ui, page_break, tl!("Page break before"), "pageBreakBefore", mixed);
                     ui.label(egui::RichText::new(tl!("Formatting exceptions")).font(semibold(12.5)));
-                    ui.checkbox(&mut opts[2], tl!("Suppress line numbers"));
-                    ui.checkbox(&mut opts[3], tl!("Don't hyphenate"));
+                    para_check(ui, &mut opts[2], tl!("Suppress line numbers"), "suppressLineNumbers", mixed);
+                    para_check(ui, &mut opts[3], tl!("Don't hyphenate"), "suppressHyphens", mixed);
                 }
                 _ => {
                     let [kinsoku, word_wrap, overflow, top_line, de, dn] = asian;
                     ui.label(egui::RichText::new(tl!("Line breaking")).font(semibold(12.5)));
-                    ui.checkbox(kinsoku, tl!("Apply Asian line-breaking rules (kinsoku)"));
+                    para_check(ui, kinsoku, tl!("Apply Asian line-breaking rules (kinsoku)"), "kinsoku", mixed);
                     // The model's flag is "wrap whole words"; the box offers the opposite.
                     let mut mid_word = !*word_wrap;
-                    if ui.checkbox(&mut mid_word, tl!("Allow Latin text to wrap in the middle of a word")).changed() {
-                        *word_wrap = !mid_word;
-                    }
-                    ui.checkbox(overflow, tl!("Allow hanging punctuation"));
+                    para_check(ui, &mut mid_word, tl!("Allow Latin text to wrap in the middle of a word"), "wordWrap", mixed);
+                    *word_wrap = !mid_word;
+                    para_check(ui, overflow, tl!("Allow hanging punctuation"), "overflowPunct", mixed);
                     ui.label(egui::RichText::new(tl!("Character Spacing")).font(semibold(12.5)));
-                    ui.checkbox(top_line, tl!("Compress punctuation at the start of a line"));
-                    ui.checkbox(de, tl!("Add space between Asian and Latin text"));
-                    ui.checkbox(dn, tl!("Add space between Asian text and numbers"));
+                    para_check(ui, top_line, tl!("Compress punctuation at the start of a line"), "topLinePunct", mixed);
+                    para_check(ui, de, tl!("Add space between Asian and Latin text"), "autoSpaceDE", mixed);
+                    para_check(ui, dn, tl!("Add space between Asian text and numbers"), "autoSpaceDN", mixed);
                 }
             }
             ui.add_space(6.0);
             let tabs = ui.button(tl!("Tabs…")).clicked();
             let (ok, cancel) = buttons(ui, tl!("OK"));
             if ok || tabs {
-                apply_paragraph(
-                    app,
-                    *rtl,
-                    align,
-                    *left,
-                    *right,
-                    *first,
-                    *before,
-                    *after,
-                    (*line, *line_was),
-                    [*keep_next, *keep_lines, *page_break, *widow],
-                    (*opts, *opts_was),
-                );
-                apply_asian(app, *asian, *asian_was);
+                apply_paragraph(app, d);
             }
             // Tabs… keeps what was set here and moves on to the Tabs dialog.
             if tabs {
@@ -3306,62 +3284,123 @@ fn table_properties(ui: &mut Ui, f: &mut TableForm) {
     });
 }
 
-/// The Paragraph dialog's OK. `align`, `left` and `right` are as seen on the page; `flags` are
-/// keep with next, keep lines together, page break before, widow/orphan control; `opts` (now,
-/// when opened) are mirror indents, contextual spacing, suppress line numbers and don't
-/// hyphenate, of which only the changed ones are set.
-#[allow(clippy::too_many_arguments)]
-fn apply_paragraph(
-    app: &mut WordApp,
-    rtl: bool,
-    align: &str,
-    left: f32,
-    right: f32,
-    first: f32,
-    before: f32,
-    after: f32,
-    line: (f32, f32),
-    flags: [bool; 4],
-    opts: ([bool; 4], [bool; 4]),
-) {
-    let [keep_next, keep_lines, page_break, widow] = flags;
-    let (line, line_was) = line;
-    // Direction first: the alignment and indents are as seen on the page, and their logical
-    // values depend on it.
-    let _ = app.run(if rtl { "para.rtl" } else { "para.ltr" }, json!({}));
-    let _ = app.run("para.align", json!({"value": align}));
-    let (start, end) = if rtl { (right, left) } else { (left, right) };
-    let mut props = json!({
-        "indentLeft": start * crate::options::unit().pt_per_unit(), "indentRight": end * crate::options::unit().pt_per_unit(), "indentFirst": first * crate::options::unit().pt_per_unit(),
-        "spaceBefore": before, "spaceAfter": after,
-        "keepNext": keep_next, "keepLines": keep_lines, "pageBreakBefore": page_break, "widowControl": widow,
-    });
-    // The dialog edits only multiples: an untouched value keeps Exactly and At Least.
-    if line != line_was
-        && let Some(m) = props.as_object_mut()
-    {
-        m.insert("lineSpacing".into(), json!({"rule": "multiple", "value": line}));
+/// The Paragraph dialog as one paragraph's formatting fills it, on page `tab`.
+fn paragraph_dialog(rp: &wordcraft_doc::resolve::ResolvedPara, tab: u8) -> Dialog {
+    let line = match rp.line_spacing {
+        wordcraft_doc::props::LineSpacing::Multiple(m) => m,
+        _ => 1.0,
+    };
+    let (vl, vr) = rp.visual_indents();
+    let unit = crate::options::unit().pt_per_unit();
+    Dialog::Paragraph {
+        rtl: rp.bidi,
+        align: format!("{:?}", rp.align.visual(rp.bidi)).to_lowercase(),
+        left: vl / unit,
+        right: vr / unit,
+        first: rp.indent_first / unit,
+        before: rp.space_before,
+        after: rp.space_after,
+        line,
+        keep_next: rp.keep_next,
+        keep_lines: rp.keep_lines,
+        page_break: rp.page_break_before,
+        widow: rp.widow_control,
+        tab,
+        asian: [rp.kinsoku, rp.word_wrap, rp.overflow_punct, rp.top_line_punct, rp.auto_space_de, rp.auto_space_dn],
+        opts: [rp.mirror_indents, rp.contextual_spacing, rp.suppress_line_numbers, rp.suppress_hyphens],
+        start: serde_json::Map::new(),
+        mixed: BTreeSet::new(),
     }
-    let (now, was) = opts;
-    for (key, (on, was)) in ["mirrorIndents", "contextualSpacing", "suppressLineNumbers", "suppressHyphens"].into_iter().zip(now.into_iter().zip(was))
-    {
-        if on != was
-            && let Some(m) = props.as_object_mut()
-        {
-            m.insert(key.into(), json!(on));
-        }
-    }
-    let _ = app.run("para.set", json!({ "props": props }));
 }
 
-/// The Paragraph dialog's Asian Typography: sets the flags that changed since it opened, so an
-/// untouched tab adds no direct formatting.
-fn apply_asian(app: &mut WordApp, asian: [bool; 6], was: [bool; 6]) {
-    let keys = ["kinsoku", "wordWrap", "overflowPunct", "topLinePunct", "autoSpaceDE", "autoSpaceDN"];
-    let changed: serde_json::Map<String, Value> =
-        keys.iter().zip(asian.iter().zip(was)).filter(|(_, (now, was))| **now != *was).map(|(k, (now, _))| (k.to_string(), json!(now))).collect();
-    if !changed.is_empty() {
-        let _ = app.run("para.asianTypography", Value::Object(changed));
+/// The Paragraph dialog's fields as `para.set` takes them: `align`, `left` and `right` as seen
+/// on the page (its `onPage`), the rest as paragraph properties, line spacing as a multiple.
+fn para_fields(d: &Dialog) -> serde_json::Map<String, Value> {
+    let Dialog::Paragraph { rtl, align, left, right, first, before, after, line, keep_next, keep_lines, page_break, widow, asian, opts, .. } = d
+    else {
+        return serde_json::Map::new();
+    };
+    let unit = crate::options::unit().pt_per_unit();
+    let [kinsoku, word_wrap, overflow, top_line, de, dn] = asian;
+    let [mirror, contextual, no_numbers, no_hyphens] = opts;
+    let fields = json!({
+        "bidi": rtl, "align": align, "left": left * unit, "right": right * unit, "indentFirst": first * unit,
+        "spaceBefore": before, "spaceAfter": after, "lineSpacing": {"rule": "multiple", "value": line},
+        "keepNext": keep_next, "keepLines": keep_lines, "pageBreakBefore": page_break, "widowControl": widow,
+        "mirrorIndents": mirror, "contextualSpacing": contextual, "suppressLineNumbers": no_numbers, "suppressHyphens": no_hyphens,
+        "kinsoku": kinsoku, "wordWrap": word_wrap, "overflowPunct": overflow, "topLinePunct": top_line, "autoSpaceDE": de, "autoSpaceDN": dn,
+    });
+    match fields {
+        Value::Object(m) => m,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// The Paragraph dialog's number boxes: a length in the measurement unit (indents), points
+/// (spacing) or lines (line spacing).
+#[derive(Clone, Copy)]
+enum ParaNumber {
+    Length,
+    Points,
+    Lines,
+}
+
+/// A Paragraph dialog number box for the field `key`. While the selected paragraphs differ in
+/// it, it shows nothing, not even the unit, until a value is typed or dragged in.
+fn para_number(ui: &mut Ui, value: &mut f32, kind: ParaNumber, key: &str, mixed: &mut BTreeSet<String>) {
+    let unit = crate::options::unit();
+    let blank = mixed.contains(key);
+    // A value from the document outside the range (line spacing 6) stays until edited.
+    let field = match kind {
+        ParaNumber::Length => egui::DragValue::new(value).speed(3.6 / unit.pt_per_unit()).max_decimals(2),
+        ParaNumber::Points => egui::DragValue::new(value).speed(1.0).range(0.0..=1584.0).clamp_existing_to_range(false),
+        ParaNumber::Lines => egui::DragValue::new(value).speed(0.05).range(0.5..=5.0).clamp_existing_to_range(false),
+    };
+    let field = match kind {
+        ParaNumber::Length if blank => field.measure_blank(unit),
+        ParaNumber::Length => field.measure(unit),
+        _ if blank => field.custom_formatter(|_, _| String::new()),
+        ParaNumber::Points => field.suffix(format!(" {}", tl!("pt"))),
+        ParaNumber::Lines => field,
+    };
+    if ui.add(field).changed() {
+        mixed.remove(key);
+    }
+}
+
+/// A Paragraph dialog check box for the field `key`. While the selected paragraphs differ in
+/// it, it shows as neither on nor off, and a click turns it on for all of them.
+fn para_check(ui: &mut Ui, on: &mut bool, text: &str, key: &str, mixed: &mut BTreeSet<String>) {
+    if !mixed.contains(key) {
+        ui.checkbox(on, text);
+    } else if ui.add(egui::Checkbox::new(&mut false, text).indeterminate(true)).clicked() {
+        *on = true;
+        mixed.remove(key);
+    }
+}
+
+/// The Paragraph dialog's OK, as one `para.set` and so one undo step (#1346): the fields that
+/// differ from what every selected paragraph had when it opened, not the blank ones, which
+/// stay as each paragraph has them. The alignment and indents are as seen on the page, so a
+/// new direction keeps them where the dialog shows them.
+fn apply_paragraph(app: &mut WordApp, d: &Dialog) {
+    let Dialog::Paragraph { start, mixed, .. } = d else { return };
+    let fields = para_fields(d);
+    let turned = !mixed.contains("bidi") && fields.get("bidi") != start.get("bidi");
+    let (mut props, mut page) = (serde_json::Map::new(), serde_json::Map::new());
+    for (k, v) in fields {
+        let on_page = matches!(k.as_str(), "align" | "left" | "right");
+        if mixed.contains(&k) || (start.get(&k) == Some(&v) && !(turned && on_page)) {
+            continue;
+        }
+        if on_page {
+            page.insert(k, v);
+        } else {
+            props.insert(k, v);
+        }
+    }
+    if !props.is_empty() || !page.is_empty() {
+        let _ = app.run("para.set", json!({"props": props, "onPage": page}));
     }
 }
 
@@ -4028,46 +4067,114 @@ mod tests {
 
     /// Open the Paragraph dialog and press OK without changing anything.
     fn ok_unchanged(app: &mut WordApp) {
-        ok_with(app, |_| {});
+        ok_edit(app, |_| {});
     }
 
     /// Open the Paragraph dialog, change its options (`opts`) with `edit` and press OK.
     fn ok_with(app: &mut WordApp, edit: impl FnOnce(&mut [bool; 4])) {
-        let Some(Dialog::Paragraph {
-            rtl,
-            align,
-            left,
-            right,
-            first,
-            before,
-            after,
-            line,
-            line_was,
-            keep_next,
-            keep_lines,
-            page_break,
-            widow,
-            mut opts,
-            ..
-        }) = Dialog::open("paragraph", app)
-        else {
-            panic!("no paragraph dialog")
-        };
-        let was = opts;
-        edit(&mut opts);
-        apply_paragraph(
+        ok_edit(app, |d| {
+            if let Dialog::Paragraph { opts, .. } = d {
+                edit(opts);
+            }
+        });
+    }
+
+    /// Open the Paragraph dialog, change it with `edit` and press OK.
+    fn ok_edit(app: &mut WordApp, edit: impl FnOnce(&mut Dialog)) {
+        let Some(mut d) = Dialog::open("paragraph", app) else { panic!("no paragraph dialog") };
+        edit(&mut d);
+        apply_paragraph(app, &d);
+    }
+
+    /// The `i`th paragraph's own formatting.
+    fn para_props(app: &WordApp, i: usize) -> wordcraft_doc::props::ParaProps {
+        app.session.doc.para(wordcraft_doc::StoryRef::Body, &wordcraft_doc::Path::top(i)).map(|p| p.props.clone()).unwrap_or_default()
+    }
+
+    /// Three paragraphs, the first centred, indented, 30 pt after, kept with the next and with a
+    /// line spacing of 6 (more than the dialog's box goes up to), all of them selected.
+    fn mixed_selection() -> WordApp {
+        let mut app = app_with("One\nTwo\nThree");
+        let _ = app.run("caret.docStart", json!({}));
+        let props = json!({"align": "center", "indentLeft": 36, "spaceAfter": 30, "keepNext": true, "lineSpacing": {"rule": "multiple", "value": 6}});
+        let _ = app.run("para.set", json!({ "props": props }));
+        let _ = app.run("select.all", json!({}));
+        app
+    }
+
+    #[test]
+    fn paragraph_dialog_leaves_what_the_selected_paragraphs_differ_in() {
+        // #1346: OK gave every selected paragraph the caret paragraph's formatting, as three
+        // undo steps.
+        let mut app = mixed_selection();
+        let was: Vec<_> = (0..3).map(|i| para_props(&app, i)).collect();
+        let Some(Dialog::Paragraph { mixed, .. }) = Dialog::open("paragraph", &mut app) else { panic!() };
+        let differ = ["align", "keepNext", "left", "lineSpacing", "spaceAfter"].map(String::from);
+        assert_eq!(mixed, BTreeSet::from(differ), "the fields the paragraphs differ in show blank");
+        let depth = app.session.undo_depth();
+        ok_unchanged(&mut app);
+        assert_eq!((0..3).map(|i| para_props(&app, i)).collect::<Vec<_>>(), was, "an unchanged OK changes nothing");
+        assert_eq!(app.session.undo_depth(), depth, "nor adds an undo step");
+        // One field changed: just that one, in every paragraph, as one undo step.
+        ok_edit(&mut app, |d| {
+            if let Dialog::Paragraph { before, .. } = d {
+                *before = 6.0;
+            }
+        });
+        assert_eq!(app.session.undo_depth(), depth + 1, "one undo step");
+        for (i, was) in was.iter().enumerate() {
+            assert_eq!(para_props(&app, i), wordcraft_doc::props::ParaProps { space_before: Some(6.0), ..was.clone() }, "paragraph {i}");
+        }
+        let _ = app.run("edit.undo", json!({}));
+        assert_eq!((0..3).map(|i| para_props(&app, i)).collect::<Vec<_>>(), was, "undo takes all of it back");
+    }
+
+    /// #1346: a check box the selected paragraphs differ in shows as neither on nor off; a click
+    /// and OK turn it on in all of them, and the other fields they differ in stay as they were.
+    #[test]
+    fn paragraph_dialog_sets_a_mixed_check_box_for_all() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let mut app = mixed_selection();
+        app.dialog = Dialog::open("paragraph", &mut app);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
             app,
-            rtl,
-            &align,
-            left,
-            right,
-            first,
-            before,
-            after,
-            (line, line_was),
-            [keep_next, keep_lines, page_break, widow],
-            (opts, was),
         );
+        for _ in 0..4 {
+            h.step();
+        }
+        // The line spacing box doesn't pull 6 into its range: still blank, still left alone.
+        let Some(Dialog::Paragraph { mixed, .. }) = &h.state().dialog else { panic!("no paragraph dialog") };
+        assert!(mixed.contains("lineSpacing"), "{mixed:?}");
+        if let Some(Dialog::Paragraph { tab, .. }) = &mut h.state_mut().dialog {
+            *tab = 1;
+        }
+        for _ in 0..4 {
+            h.step();
+        }
+        // Screen readers hear it as mixed.
+        let toggled = |label: &str| format!("{:?}", h.get_by_label(label).accesskit_node().toggled());
+        assert_eq!(toggled("Keep with next"), "Some(Mixed)", "neither on nor off");
+        assert_eq!(toggled("Keep lines together"), "Some(False)", "shared");
+        h.get_by_label("Keep with next").click();
+        for _ in 0..2 {
+            h.step();
+        }
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "OK").click();
+        for _ in 0..2 {
+            h.step();
+        }
+        let app = h.state();
+        assert!(app.dialog.is_none(), "OK closes the dialog");
+        let p: Vec<_> = (0..3).map(|i| para_props(app, i)).collect();
+        assert_eq!(p.iter().map(|p| p.keep_next).collect::<Vec<_>>(), [Some(true); 3]);
+        assert_eq!(p.iter().map(|p| p.align).collect::<Vec<_>>(), [Some(Align::Center), None, None], "alignment untouched");
+        assert_eq!(p.iter().map(|p| p.space_after).collect::<Vec<_>>(), [Some(30.0), None, None], "spacing untouched");
+        assert_eq!(p[0].line_spacing, Some(wordcraft_doc::props::LineSpacing::Multiple(6.0)), "line spacing untouched");
     }
 
     #[test]
@@ -4125,48 +4232,22 @@ mod tests {
             let _ = app.run("para.lineSpacing", cmd.clone());
             ok_unchanged(&mut app);
             assert_eq!(props(&app).line_spacing, Some(rule), "unchanged OK, {cmd}");
-            let Some(Dialog::Paragraph { rtl, align, left, right, first, before, after, line, line_was, keep_lines, page_break, widow, .. }) =
-                Dialog::open("paragraph", &mut app)
-            else {
-                panic!("no paragraph dialog")
-            };
-            apply_paragraph(
-                &mut app,
-                rtl,
-                &align,
-                left,
-                right,
-                first,
-                before,
-                after,
-                (line, line_was),
-                [true, keep_lines, page_break, widow],
-                ([false; 4], [false; 4]),
-            );
+            ok_edit(&mut app, |d| {
+                if let Dialog::Paragraph { keep_next, .. } = d {
+                    *keep_next = true;
+                }
+            });
             let p = props(&app);
             assert_eq!((p.line_spacing, p.keep_next), (Some(rule), Some(true)), "Keep with next, {cmd}");
         }
         // A changed value still sets a multiple.
         let mut app = app_with("Example");
         let _ = app.run("para.lineSpacing", json!({"exactly": 24}));
-        let Some(Dialog::Paragraph { rtl, align, left, right, first, before, after, line_was, keep_next, keep_lines, page_break, widow, .. }) =
-            Dialog::open("paragraph", &mut app)
-        else {
-            panic!("no paragraph dialog")
-        };
-        apply_paragraph(
-            &mut app,
-            rtl,
-            &align,
-            left,
-            right,
-            first,
-            before,
-            after,
-            (1.5, line_was),
-            [keep_next, keep_lines, page_break, widow],
-            ([false; 4], [false; 4]),
-        );
+        ok_edit(&mut app, |d| {
+            if let Dialog::Paragraph { line, .. } = d {
+                *line = 1.5;
+            }
+        });
         assert_eq!(props(&app).line_spacing, Some(LineSpacing::Multiple(1.5)));
     }
 
@@ -4202,30 +4283,26 @@ mod tests {
     #[test]
     fn paragraph_dialog_changes_direction() {
         let mut app = app_with("Hello");
-        let Some(Dialog::Paragraph { align, left, right, first, before, after, line, line_was, keep_next, keep_lines, page_break, widow, .. }) =
-            Dialog::open("paragraph", &mut app)
-        else {
-            panic!()
-        };
         // Right to left, aligned right on the page, 1" from the right edge.
-        apply_paragraph(
-            &mut app,
-            true,
-            "right",
-            left,
-            right + 1.0,
-            first,
-            before,
-            after,
-            (line, line_was),
-            [keep_next, keep_lines, page_break, widow],
-            ([false; 4], [false; 4]),
-        );
-        let _ = align;
+        ok_edit(&mut app, |d| {
+            if let Dialog::Paragraph { rtl, align, right, .. } = d {
+                *rtl = true;
+                *align = "right".into();
+                *right += 1.0;
+            }
+        });
         let p = props(&app);
         assert_eq!(p.bidi, Some(true));
         assert_eq!(p.align, Some(Align::Left), "right on the page is the start edge");
         assert_eq!(p.indent_left, Some(72.0), "the right indent is the start indent");
+        // A new direction alone keeps the alignment and indents where the dialog shows them.
+        ok_edit(&mut app, |d| {
+            if let Dialog::Paragraph { rtl, .. } = d {
+                *rtl = false;
+            }
+        });
+        let p = props(&app);
+        assert_eq!((p.bidi, p.align, p.indent_left, p.indent_right), (Some(false), Some(Align::Right), Some(0.0), Some(72.0)));
     }
 
     /// Switching the Paragraph dialog's tabs re-centred it, so the tab strip jumped up and down

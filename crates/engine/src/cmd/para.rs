@@ -183,11 +183,9 @@ pub fn specs() -> Vec<CommandSpec> {
             let l = p::u64(v, "level").map(|x| x.min(9) as u8);
             fmt(s, &|p| p.outline_level = l)
         }),
-        CommandSpec::new("para.set", "Set Paragraph Formatting", "Home › Paragraph › Paragraph", |s, v| {
-            let props: ParaProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
-            fmt(s, &|p| p.overlay(&props))
-        })
-        .params(r#"{"props": ParaProps}"#),
+        CommandSpec::new("para.set", "Set Paragraph Formatting", "Home › Paragraph › Paragraph", set_props).params(
+            r#"{"props": ParaProps, "onPage"?: {"align"?: "left|center|right|justify|distribute", "left"?: pt, "right"?: pt} (alignment and indents as seen on the page: each paragraph's own direction, after `props`, says which edge is its start)}"#,
+        ),
         CommandSpec::new("para.dialog", "Paragraph Settings", "Home › Paragraph", |s, _| {
             s.ui_requests.push(json!({"open": "paragraph"}));
             sel_result(s)
@@ -336,6 +334,44 @@ fn asian_typography(s: &mut Session, v: &Value) -> CmdResult {
         );
     }
     Ok(out)
+}
+
+/// Set Paragraph Formatting, the Paragraph dialog's OK as one undo step (#1346): `props` on
+/// every selected paragraph, then `onPage`'s alignment and indents as seen on the page, each
+/// paragraph's own direction (once `props` is applied) saying which edge is its start.
+fn set_props(s: &mut Session, v: &Value) -> CmdResult {
+    let props: ParaProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
+    let page = v.get("onPage").cloned().unwrap_or(Value::Null);
+    let align = match p::str(&page, "align") {
+        None => None,
+        Some("left") => Some(Align::Left),
+        Some("center") => Some(Align::Center),
+        Some("right") => Some(Align::Right),
+        Some("justify" | "both") => Some(Align::Justify),
+        Some("distribute") => Some(Align::Distribute),
+        Some(x) => return Err(CmdError::Params(format!("unknown alignment `{x}`"))),
+    };
+    let indent = |k: &str| p::f32(&page, k).map(|x| x.clamp(-1584.0, 1584.0));
+    let (left, right) = (indent("left"), indent("right"));
+    let story = s.sel.focus.story;
+    for path in super::selected_paths(s) {
+        let Some(para) = s.doc.para(story, &path) else { continue };
+        let rtl = s.doc.styles.resolve_para(&para.props.clone().overlaid(&props)).bidi;
+        let para = s.doc.para_mut(story, &path)?;
+        para.props.overlay(&props);
+        if let Some(a) = align {
+            para.props.align = Some(a.visual(rtl));
+        }
+        let (start, end) = if rtl { (right, left) } else { (left, right) };
+        if let Some(x) = start {
+            para.props.indent_left = Some(x);
+        }
+        if let Some(x) = end {
+            para.props.indent_right = Some(x);
+        }
+        para.touch();
+    }
+    sel_result(s)
 }
 
 pub fn indent(s: &mut Session, _: &Value) -> CmdResult {
