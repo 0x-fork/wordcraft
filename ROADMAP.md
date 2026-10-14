@@ -319,6 +319,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Turkish (`tr`) interface: all 1,307 catalog entries, `tr-TR`/`tr-CY` system locales and a saved language choice; command search keeps Turkish dotted and dotless I apart (`italik` finds İtalik); locale, catalog, search and bundled-font tests; no Turkish proofing resources |
 | 2026-10-11 | Italian (`it`) interface (#594): 2,399 entries, feature names as Italian Word users know them, locale and saved-preference tests, bundled-font checks; no Italian proofing resources |
 | 2026-10-12 | Native drawing-level Word ink preserved through DOCX edits and repeated saves, including its InkML part and optional VML picture fallback; native ink rendering and editing remain missing |
+| 2026-10-12 | List-label line height: automatic spacing scales body text before adding label ascent overflow; AtLeast spacing keeps text descent. Original Word for Mac probes and deterministic layout tests cover symbol/decimal labels, wrapped lines, fixed/minimum spacing and inline pictures. Overall readiness unchanged; [evidence](docs/layout-parity.md#list-label-line-spacing) |
 | 2026-10-11 | Contextual paragraph spacing: same-style first-only 12/8 pt and 10/12 pt gaps corrected to 0 pt and 2 pt in body and header layout, with per-side controls; measured against Word 16.113.3. Ordinary overlap remains #108 |
 | 2026-10-11 | Citations and bibliography in all 12 of Word's styles: Harvard, ISO 690 (author-date and numerical), Turabian, GB/T 7714, GOST (name and title sort) and SIST02 join APA, MLA, Chicago and IEEE; numbered styles count in order of first citation (#383) |
 | 2026-10-11 | Interface size setting (#475): File › Options › General scales the interface 80–200 % on top of the system display scale, kept between runs; `ui.interfaceSize` for agents |
@@ -460,6 +461,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | trivial | Hungarian interface (`hu`): progress log and shipped languages |
 | 2026-10-11 | trivial | Turkish interface (`tr`): progress log and shipped languages |
 | 2026-10-12 | minor | Native drawing-level ink and its picture fallback survive DOCX edits and repeated saves; adapted to the current graphic writer; rendering and editing InkML remain missing |
+| 2026-10-12 | minor | List-label automatic/AtLeast line-height inflation corrected; gap #4 remains open and readiness unchanged |
 | 2026-10-11 | minor | Progress log: contextual paragraph spacing in body paragraphs and headers |
 | 2026-10-11 | trivial | Progress log: eight more bibliography styles (#383) |
 | 2026-10-14 | trivial | Progress log: ODT and `.doc` pictures read once, within their byte budget (#1334) |
