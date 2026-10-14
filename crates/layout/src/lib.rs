@@ -660,6 +660,14 @@ impl Ctx<'_> {
 
     /// The list label of `p`, advancing the list counters: call it once per paragraph, in
     /// document order (only for paragraphs that will show).
+    /// Whether `p` gets a list label ([`Ctx::next_label`] is `Some`), without counting it.
+    fn has_label(&self, p: &Paragraph) -> bool {
+        p.props
+            .numbering
+            .or_else(|| self.doc.styles.resolve_para(&p.props).numbering)
+            .filter(|n| n.num != 0)
+            .is_some_and(|n| self.doc.numbering.shows_label(n.num, n.level))
+    }
     fn next_label(&mut self, p: &Paragraph) -> Option<(String, Level)> {
         let n = p.props.numbering.or_else(|| self.doc.styles.resolve_para(&p.props).numbering).filter(|n| n.num != 0)?;
         self.counters.next_label(&self.doc.numbering, n.num, n.level)
@@ -2777,6 +2785,8 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         anchor_y = y0 - applied_before;
     }
     let mut n = pl.lines.len();
+    // Worked out only for a last line on a page with notes.
+    let mut after_on_page: Option<f32> = None;
     let mut l0 = 0;
     while l0 < n {
         // How many lines fit?
@@ -2815,6 +2825,17 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                 - if pb.notes.is_empty() && !new_notes.is_empty() { pb.seps.sep_h(false) } else { 0.0 }
                 - extra;
             let bottom = pb.y + lead + (l.top + l.height - first.top);
+            // On a page with footnotes the paragraph's last line keeps its space after clear of
+            // the separator (Word): if the space doesn't fit, the line goes to the next page (and,
+            // with widow control, one more with it). Without notes the space after may run past
+            // the bottom margin as usual.
+            let has_notes = !pb.notes.is_empty() || !new_notes.is_empty() || !line_notes.is_empty();
+            let tail = if has_notes && l1 + 1 == n {
+                *after_on_page.get_or_insert_with(|| space_after_kept(ctx, block, &pl.rp, label.is_some()))
+            } else {
+                0.0
+            };
+            let over = bottom + tail > limit + 0.01;
             // Notes too long for the rest of the page continue on the next one: the line still
             // fits if the notes before its last one, and that one's first line, fit below it.
             // The notes then take the rest of the page.
@@ -2824,7 +2845,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                     let sep = pb.seps.sep_h(pb.notes.first().is_some_and(|n| n.cont));
                     pb.body_floor().max(bottom) + sep + before + last.first_piece() + pb.seps.notice_h() <= pb.orig_bottom + 0.01
                 });
-            if bottom > limit + 0.01 && l1 > l0 && !split {
+            if over && l1 > l0 && !split {
                 break;
             }
             // A line holding nothing but a page or column break stays at the bottom of the page
@@ -2834,7 +2855,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                 && p.text
                     .get(l.start..l.stop)
                     .is_some_and(|t| t.chars().all(|c| matches!(c, wordcraft_doc::para::PAGE_BREAK | wordcraft_doc::para::COLUMN_BREAK)));
-            if bottom > limit + 0.01 && l1 == l0 && !pb.at_top() && !split && !only_break {
+            if over && l1 == l0 && !pb.at_top() && !split && !only_break {
                 break;
             }
             new_notes.extend(line_notes);
@@ -3061,6 +3082,28 @@ fn mirror_shift(rp: &wordcraft_doc::resolve::ResolvedPara, number: u32, web: boo
     }
     let (left, right) = rp.visual_indents();
     right - left
+}
+
+/// The space after body paragraph `block` (resolved as `rp`) that is really left below it: none
+/// when contextual spacing or automatic spacing between list items drops it before the next
+/// paragraph. Same tests as the spacing between paragraphs in `place_para_in_flow`: contextual
+/// spacing removes this paragraph's space after only when this one asks for it, and the next
+/// counts as a list item when it gets a label.
+fn space_after_kept(ctx: &Ctx, block: usize, rp: &wordcraft_doc::resolve::ResolvedPara, listed: bool) -> f32 {
+    let after = rp.space_after.max(0.0);
+    if after <= 0.0 {
+        return 0.0;
+    }
+    if let Some(Block::Para(next)) = ctx.doc.body.get(block + 1).map(|b| &**b) {
+        let nrp = ctx.doc.styles.resolve_para(&next.props);
+        if nrp.style == rp.style && rp.contextual_spacing {
+            return 0.0;
+        }
+        if listed && rp.after_auto && ctx.has_label(next) {
+            return 0.0;
+        }
+    }
+    after
 }
 
 /// Height of the first line of the block after `block` (for keep-with-next).
