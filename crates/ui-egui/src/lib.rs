@@ -1771,7 +1771,12 @@ impl WordApp {
             self.fonts_system_cjk = system_cjk;
             // Mod with -, = and 0 are Word shortcuts (optional hyphen, subscript, paragraph spacing);
             // egui's keyboard zoom would also scale the whole window on them. Zoom is View › Zoom.
-            ctx.options_mut(|o| o.zoom_with_keyboard = false);
+            // egui quits on Command-Q, which is Ctrl+Q off the Mac: Word's Reset Paragraph
+            // Formatting there (#1218). Keep ⌘Q, which only the Mac sends.
+            ctx.options_mut(|o| {
+                o.zoom_with_keyboard = false;
+                o.quit_shortcuts = vec![egui::KeyboardShortcut::new(egui::Modifiers::MAC_CMD, egui::Key::Q)];
+            });
             self.styled = true;
         }
     }
@@ -4359,6 +4364,45 @@ mod tests {
         h.event(egui::Event::Text("x".into()));
         h.step();
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
+    }
+
+    /// #1218: Ctrl+Q resets the paragraph formatting and nothing else; it also closed the window
+    /// (asking to save) on Windows and Linux. ⌘Q still quits on the Mac.
+    #[test]
+    fn ctrl_q_resets_the_paragraph_without_closing_the_window() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        let closes = |h: &egui_kittest::Harness<WordApp>| {
+            h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Close))
+        };
+        let align = |h: &egui_kittest::Harness<WordApp>| h.state().session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).and_then(|p| p.props.align);
+        h.event(egui::Event::Text("Kilns".into()));
+        h.step();
+        h.state_mut().run("para.alignCenter", json!({})).unwrap();
+        h.step();
+        assert!(align(&h).is_some());
+        // Off the Mac, Ctrl is the command key: egui sets both `ctrl` and `command`.
+        let ctrl_q = if cfg!(target_os = "macos") { egui::Modifiers::CTRL } else { egui::Modifiers::CTRL | egui::Modifiers::COMMAND };
+        h.event(key(egui::Key::Q, ctrl_q));
+        h.step();
+        assert_eq!(align(&h), None, "Ctrl+Q resets the paragraph formatting");
+        // Ctrl+Q as Windows and Linux send it, on any host.
+        h.event(key(egui::Key::Q, egui::Modifiers::CTRL | egui::Modifiers::COMMAND));
+        h.step();
+        assert!(!closes(&h), "Ctrl+Q doesn't close the window");
+        h.event(key(egui::Key::Q, egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND));
+        h.step();
+        assert!(closes(&h), "⌘Q still quits on the Mac");
     }
 
     /// #819: Alt+Q opens Search with its box focused, as in Word: the Q isn't typed into the
