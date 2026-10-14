@@ -246,6 +246,8 @@ pub enum Dialog {
         left: f32,
         right: f32,
         landscape: bool,
+        /// Mirrored margins (the whole document's): left and right become inside and outside.
+        mirror: bool,
         /// Document grid: kind (0 none, 1 lines, 2 lines and characters, 3 snap to characters),
         /// lines per page and characters per line; `grid_was` as opened (applied only if changed).
         grid: (u8, u32, u32),
@@ -1175,6 +1177,7 @@ impl Dialog {
                     left: sp.margin_left / crate::options::unit().pt_per_unit(),
                     right: sp.margin_right / crate::options::unit().pt_per_unit(),
                     landscape: sp.landscape,
+                    mirror: app.session.doc.settings.mirror_margins,
                     grid,
                     grid_was: grid,
                     rtl: sp.rtl,
@@ -2118,7 +2121,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::PageSetup { top, bottom, left, right, landscape, rtl, grid, grid_was, paper, paper_was, paper_custom, message } => {
+        Dialog::PageSetup { top, bottom, left, right, landscape, mirror, rtl, grid, grid_was, paper, paper_was, paper_custom, message } => {
             ui.label(egui::RichText::new(tl!("Margins")).font(semibold(12.5)));
             egui::Grid::new("ps").num_columns(4).show(ui, |ui| {
                 ui.label(tl!("Top:"));
@@ -2128,9 +2131,9 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     egui::DragValue::new(bottom).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2),
                 );
                 ui.end_row();
-                ui.label(tl!("Left:"));
+                ui.label(if *mirror { tl!("Inside:") } else { tl!("Left:") });
                 ui.add(egui::DragValue::new(left).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
-                ui.label(tl!("Right:"));
+                ui.label(if *mirror { tl!("Outside:") } else { tl!("Right:") });
                 ui.add(egui::DragValue::new(right).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
                 ui.end_row();
             });
@@ -2139,6 +2142,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.radio_value(landscape, false, tl!("Portrait"));
                 ui.radio_value(landscape, true, tl!("Landscape"));
             });
+            ui.label(egui::RichText::new(tl!("Pages")).font(semibold(12.5)));
+            ui.checkbox(mirror, tl!("Mirror margins"));
             page_paper_group(ui, paper, landscape, paper_custom);
             ui.label(egui::RichText::new(tl!("Document Grid")).font(semibold(12.5)));
             ui.horizontal_wrapped(|ui| {
@@ -2168,6 +2173,10 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 let result = page_layout_commands(app, (*paper, *paper_was), *landscape, (*top, *bottom, *left, *right))
                     .map_err(|e| tl!(e).to_string())
                     .and_then(|mut commands| {
+                        // Mirror margins go with the margins (#1181).
+                        if let Some((_, v)) = commands.iter_mut().rev().find(|(id, _)| *id == "layout.margins") {
+                            v["mirror"] = json!(*mirror);
+                        }
                         if grid != grid_was {
                             let kind = ["none", "lines", "linesAndChars", "snapToChars"].get(grid.0 as usize).copied().unwrap_or("none");
                             let mut v = json!({"type": kind});

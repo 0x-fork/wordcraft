@@ -1625,6 +1625,15 @@ fn page_setup_and_breaks() {
     assert_eq!(s.doc.sections().len(), 2);
     assert_eq!(s.layout().pages.len(), 2);
     assert!(s.run("layout.margins", &json!({"left": 1000.0})).is_err());
+    // Mirrored margins: from the preset or `mirror` (#1181); plain numbers keep the setting.
+    run(&mut s, "layout.margins", json!({"preset": "mirrored"}));
+    assert!(s.doc.settings.mirror_margins);
+    run(&mut s, "layout.margins", json!({"left": 80.0}));
+    assert!(s.doc.settings.mirror_margins);
+    run(&mut s, "layout.margins", json!({"left": 80.0, "mirror": false}));
+    assert!(!s.doc.settings.mirror_margins && s.doc.last_section.margin_left == 80.0);
+    run(&mut s, "layout.margins", json!({"mirror": true}));
+    assert!(s.doc.settings.mirror_margins);
 }
 
 /// #1433: a custom page size (More Paper Sizes…) sets the section in its orientation, and

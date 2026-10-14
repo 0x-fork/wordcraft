@@ -1354,7 +1354,9 @@ fn margins_items(ui: &mut Ui, app: &mut WordApp) {
         ("Mirrored", "mirrored"),
         ("Office 2003 Default", "office2003"),
     ] {
-        mi_check(ui, app, l, current == Some(k), "layout.margins", json!({"preset": k}));
+        // Mirrored margins come from the document as well as from the preset (#1181).
+        let on = current == Some(k) || (k == "mirrored" && app.session.doc.settings.mirror_margins);
+        mi_check(ui, app, l, on, "layout.margins", json!({"preset": k}));
     }
     mi(ui, app, "Custom Margins…", "ui.dialog", json!({"name": "pageSetup"}));
 }

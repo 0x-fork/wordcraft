@@ -650,6 +650,8 @@ struct Ctx<'a> {
     /// Body blocks that are empty paragraphs carrying only a section break before a continuous
     /// section, in order: they take no room (see [`place_para`]).
     quiet_marks: Vec<usize>,
+    /// Whether even pages are mirrored (mirrored margins, on pages): see [`mirror_even_pages`].
+    mirror: bool,
     /// Cache-key hashes of the table-style text formatting cells were laid out with
     /// ([`Ctx::table_key`]).
     table_keys: Vec<(para::CellText, u64)>,
@@ -1227,17 +1229,21 @@ fn box_float_table_rect(
 ) -> (Rect, Rect) {
     let h = tl.rows.iter().map(|r| r.height).sum::<f32>().clamp(0.0, 100_000.0);
     let w = tl.width.clamp(1.0, 100_000.0);
-    let page_x = |s: &SectionProps| match f.h_rel {
-        Anchor::Page => Some((0.0, s.page_w)),
-        Anchor::Margin => Some((s.margin_left + s.gutter, s.text_width())),
-        _ => None,
+    // Across, as laid out before an even page is mirrored (see `float_rect`).
+    let page_x = |fr: &PageFrame| {
+        let (left, _, shift) = fr.sides();
+        match f.h_rel {
+            Anchor::Page => Some((-shift, fr.sect.page_w)),
+            Anchor::Margin => Some((left - shift, fr.sect.text_width())),
+            _ => None,
+        }
     };
     let page_y = |s: &SectionProps| match f.v_rel {
         Anchor::Page => Some((0.0, s.page_h)),
         Anchor::Margin => Some((s.margin_top, s.text_height())),
         _ => None,
     };
-    let h_area = frame.and_then(|fr| page_x(fr.sect).map(|(a, e)| (a - fr.origin.0, e))).unwrap_or((0.0, width));
+    let h_area = frame.and_then(|fr| page_x(&fr).map(|(a, e)| (a - fr.origin.0, e))).unwrap_or((0.0, width));
     // In a cell an offset from the page or margin has nothing to measure from: the table stands
     // where the text is.
     let (v_area, y_off) = match frame.and_then(|fr| page_y(fr.sect).map(|(a, e)| (a - fr.origin.1, e))) {
@@ -1247,7 +1253,7 @@ fn box_float_table_rect(
     };
     // Nor is there an area to align in: the table starts where the text is.
     let v_align = if frame.is_none() && matches!(f.v_rel, Anchor::Page | Anchor::Margin) { None } else { f.v_align };
-    let x = align_in(h_area, f.x, w, f.h_align) - if f.h_align.is_none() { legacy } else { 0.0 };
+    let x = align_in(h_area, f.x, w, PageFrame::h_align(frame.as_ref(), f.h_align)) - if f.h_align.is_none() { legacy } else { 0.0 };
     let r = clear_of_float_tables(Rect::new(x, align_in(v_area, y_off, h, v_align), w, h), f, legacy, h_area.0, float_tables);
     let [dl, dt, dr, db] = f.dist_from_text();
     (r, r.inset(-dl, -dt, -dr, -db))
@@ -1936,12 +1942,14 @@ fn layout_pass(
         uses_totals: false,
         track_totals: true,
         quiet_marks: Vec::new(),
+        mirror: false,
         table_keys: Vec::new(),
     };
     let sections = doc.sections();
     let web = matches!(opts.view, ViewMode::Web | ViewMode::Draft | ViewMode::Outline);
     let read = opts.view == ViewMode::Read;
     let reflow = web || read;
+    ctx.mirror = doc.settings.mirror_margins && !reflow;
     ctx.quiet_marks = sections
         .windows(2)
         .filter(|w| w[1].1.start == SectionStart::Continuous)
@@ -2478,7 +2486,7 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
     let Some(part) = ctx.doc.parts.get(&id) else { return sect.margin_top };
     let blocks = part.blocks.clone();
     // Placed as `headers_footers` draws it, so page-relative floats wrap the same way.
-    let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header) };
+    let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header), number: 1, mirror: ctx.mirror };
     let track = std::mem::replace(&mut ctx.track_totals, false);
     let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, Some(frame)).height;
     ctx.track_totals = track;
@@ -2505,6 +2513,34 @@ struct PageFrame<'a> {
     sect: &'a SectionProps,
     /// Page position of the box's (0, 0); (0, 0) for body text.
     origin: (f32, f32),
+    /// The page's number: inside and outside are left and right on odd pages, the other way
+    /// round on even ones.
+    number: u32,
+    /// Whether an even page is mirrored ([`mirror_even_pages`]).
+    mirror: bool,
+}
+
+impl PageFrame<'_> {
+    fn even(&self) -> bool {
+        self.number.is_multiple_of(2)
+    }
+
+    /// The widths of the page's left and right margins (the gutter is on the inside), and how
+    /// far [`mirror_even_pages`] moves what is laid out on it.
+    fn sides(&self) -> (f32, f32, f32) {
+        let (inside, outside) = (self.sect.margin_left + self.sect.gutter, self.sect.margin_right);
+        let shift = outside - inside;
+        if self.mirror && self.even() && shift.is_finite() { (outside, inside, shift) } else { (inside, outside, 0.0) }
+    }
+
+    /// Alignment `a` across the page: inside and outside become right and left on an even page.
+    fn h_align(frame: Option<&Self>, a: Option<FloatAlign>) -> Option<FloatAlign> {
+        match a {
+            Some(FloatAlign::Inside) if frame.is_some_and(|f| f.even()) => Some(FloatAlign::End),
+            Some(FloatAlign::Outside) if frame.is_some_and(|f| f.even()) => Some(FloatAlign::Start),
+            a => a,
+        }
+    }
 }
 
 /// A floating (not inline) picture, chart or shape: its size and placement.
@@ -2518,16 +2554,22 @@ fn floating(o: &InlineObject) -> Option<(f32, f32, &Float)> {
 /// to the box itself.
 fn float_rect(frame: Option<PageFrame>, col: (f32, f32), y0: f32, w: f32, h: f32, float: &Float) -> Rect {
     let (w, h) = (w.clamp(1.0, 4000.0), h.clamp(1.0, 4000.0));
-    // Each axis: the reference area's start and extent, in page coordinates.
-    let page_x = |s: &SectionProps| {
-        let left = s.margin_left + s.gutter;
-        match float.h_rel {
-            Anchor::Page => Some((0.0, s.page_w)),
-            Anchor::Margin => Some((left, s.text_width())),
-            Anchor::LeftMargin | Anchor::InsideMargin => Some((0.0, left)),
-            Anchor::RightMargin | Anchor::OutsideMargin => Some((s.page_w - s.margin_right, s.margin_right)),
-            _ => None,
-        }
+    // Each axis: the reference area's start and extent, in page coordinates. Across, as laid out
+    // before an even page is mirrored (less the shift it then gets).
+    let page_x = |f: &PageFrame| {
+        let (s, even) = (f.sect, f.even());
+        let (left, right, shift) = f.sides();
+        let (start, extent) = match float.h_rel {
+            Anchor::Page => (0.0, s.page_w),
+            Anchor::Margin => (left, s.text_width()),
+            Anchor::LeftMargin => (0.0, left),
+            Anchor::RightMargin => (s.page_w - right, right),
+            Anchor::InsideMargin if even => (s.page_w - right, right),
+            Anchor::OutsideMargin if !even => (s.page_w - right, right),
+            Anchor::InsideMargin | Anchor::OutsideMargin => (0.0, left),
+            _ => return None,
+        };
+        Some((start - shift, extent))
     };
     let page_y = |s: &SectionProps| match float.v_rel {
         Anchor::Page => Some((0.0, s.page_h)),
@@ -2536,9 +2578,10 @@ fn float_rect(frame: Option<PageFrame>, col: (f32, f32), y0: f32, w: f32, h: f32
         Anchor::BottomMargin | Anchor::OutsideMargin => Some((s.page_h - s.margin_bottom, s.margin_bottom)),
         _ => None,
     };
-    let hx = frame.and_then(|f| page_x(f.sect).map(|(a, e)| (a - f.origin.0, e))).unwrap_or(col);
+    let hx = frame.and_then(|f| page_x(&f).map(|(a, e)| (a - f.origin.0, e))).unwrap_or(col);
     let vy = frame.and_then(|f| page_y(f.sect).map(|(a, e)| (a - f.origin.1, e))).unwrap_or((y0, 0.0));
-    Rect::new(align_in(hx, float.x, w, float.h_align), align_in(vy, float.y, h, float.v_align), w, h)
+    let h_align = PageFrame::h_align(frame.as_ref(), float.h_align);
+    Rect::new(align_in(hx, float.x, w, h_align), align_in(vy, float.y, h, float.v_align), w, h)
 }
 
 /// Where an object of `size` starts on one axis of `area` (start, extent): at `offset` from the
@@ -2687,7 +2730,7 @@ fn anchor_floats(
     let (col_x, width) = (pb.col_x(), pb.col_w());
     let mut rects = HashMap::new();
     if !pb.web {
-        let frame = PageFrame { sect: pb.sect, origin: (0.0, 0.0) };
+        let frame = PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror };
         // An object left out of the layout (hidden, or deleted in the final text) is not placed, so
         // it takes no room either.
         let left_out = left_out_objects(ctx.doc, p, None, ctx.opts.show_hidden, ctx.hide_deleted);
@@ -3198,7 +3241,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         push_para(&mut items, StoryRef::Body, &[block as u32], &pl, l0, l1, x, y, width);
         // Pictures, shapes and text boxes in these lines (web view: floats placed by this piece).
         let at = ObjFrame {
-            page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0) }),
+            page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror }),
             col: (x, width),
             para_y: if pb.web { y } else { anchor_y },
             table_chr: None,
@@ -3331,7 +3374,12 @@ fn place_outline_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let y = pb.y + pl.lines.first().map(|f| f.top.max(0.0)).unwrap_or(0.0);
     let mut items = Vec::new();
     push_para(&mut items, StoryRef::Body, &[block as u32], &pl, 0, l1, x, y, width);
-    let at = ObjFrame { page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0) }), col: (x, width), para_y: y, table_chr: None };
+    let at = ObjFrame {
+        page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror }),
+        col: (x, width),
+        para_y: y,
+        table_chr: None,
+    };
     let (behind, front) = place_objects(ctx, StoryRef::Body, &[block as u32], &q, &pl, (0, l1), (x, y), &at, &HashMap::new(), 0);
     items.extend(front);
     let children = level < outline::BODY && outline::has_children(&o.levels, block);
@@ -3446,12 +3494,12 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
         let legacy = if ctx.doc.settings.compat_mode < 15 { table::first_cell_left_margin(ctx, t) } else { 0.0 };
         let h: f32 = tl.rows.iter().map(|r| r.height).sum();
         if h <= pb.uncapped_bottom() - pb.top + 0.01 {
-            place_floating_table(pb, &tl, &f, legacy, block, body_top);
+            place_floating_table(pb, &tl, &f, legacy, ctx.mirror, block, body_top);
             return;
         }
         // Too tall for a page: Word lets it run across pages like a table in the text, from its
         // own left edge.
-        tl.x = float_table_x(pb, tl.width, &f, legacy) - pb.col_x();
+        tl.x = float_table_x(pb, tl.width, &f, legacy, ctx.mirror) - pb.col_x();
     }
     // A table in the text flow starts below the floating objects in its way.
     below_floats(pb, pb.col_x() + tl.x, pb.col_x() + tl.x + tl.width);
@@ -3553,20 +3601,20 @@ fn table_notes(ctx: &mut Ctx, pb: &mut PageBuilder, items: &[Placed]) {
 
 /// Place floating table `tl` (`w:tblpPr`): at its own position, which takes no room in the text
 /// flow; the text after it wraps around it.
-fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &TableFloat, legacy: f32, block: usize, body_top: f32) {
+fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &TableFloat, legacy: f32, mirror: bool, block: usize, body_top: f32) {
     let h: f32 = tl.rows.iter().map(|r| r.height).sum::<f32>().clamp(0.0, 100_000.0);
     let w = tl.width.clamp(1.0, 100_000.0);
     let [dl, dt, dr, db] = f.dist_from_text();
     for attempt in 0..2 {
         let s = pb.sect;
-        let h_area = float_table_h_area(pb, f);
+        let h_area = float_table_h_area(pb, f, mirror);
         // The text a table anchored to it stands in: where the next paragraph starts.
         let v_area = match f.v_rel {
             Anchor::Page => (0.0, s.page_h),
             Anchor::Margin => (s.margin_top, s.text_height()),
             _ => (pb.y, 0.0),
         };
-        let x = float_table_x(pb, w, f, legacy);
+        let x = float_table_x(pb, w, f, legacy, mirror);
         let r = clear_of_float_tables(Rect::new(x, align_in(v_area, f.y, h, f.v_align), w, h), f, legacy, h_area.0, &pb.float_tables);
         // Like Word, a table that doesn't fit below the text before it moves to the next page with
         // its anchor: one placed relative to the paragraph when it would run off the page, one
@@ -3599,20 +3647,28 @@ fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &Table
     }
 }
 
-/// The area a floating table's `x` is measured in: its start and width on the page.
-fn float_table_h_area(pb: &PageBuilder, f: &TableFloat) -> (f32, f32) {
+/// The page `pb` is filling, for placing floating objects on it (`mirror`: [`Ctx::mirror`]).
+fn page_frame<'a>(pb: &PageBuilder<'a>, mirror: bool) -> PageFrame<'a> {
+    PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror }
+}
+
+/// The area a floating table's `x` is measured in: its start and width on the page, as laid out
+/// before an even page is mirrored (see [`float_rect`]).
+fn float_table_h_area(pb: &PageBuilder, f: &TableFloat, mirror: bool) -> (f32, f32) {
     let s = pb.sect;
+    let (left, _, shift) = page_frame(pb, mirror).sides();
     match f.h_rel {
-        Anchor::Page => (0.0, s.page_w),
-        Anchor::Margin => (s.margin_left + s.gutter, s.text_width()),
+        Anchor::Page => (-shift, s.page_w),
+        Anchor::Margin => (left - shift, s.text_width()),
         _ => (pb.col_x(), pb.col_w()),
     }
 }
 
 /// A floating table's left edge on the page (`legacy`: the first cell's left margin before Word
 /// 2013 layout, when an offset places the cell's text).
-fn float_table_x(pb: &PageBuilder, w: f32, f: &TableFloat, legacy: f32) -> f32 {
-    let x = align_in(float_table_h_area(pb, f), f.x, w, f.h_align);
+fn float_table_x(pb: &PageBuilder, w: f32, f: &TableFloat, legacy: f32, mirror: bool) -> f32 {
+    let align = PageFrame::h_align(Some(&page_frame(pb, mirror)), f.h_align);
+    let x = align_in(float_table_h_area(pb, f, mirror), f.x, w, align);
     if f.h_align.is_none() { x - legacy } else { x }
 }
 
@@ -3782,7 +3838,7 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             && let Some(part) = ctx.doc.parts.get(&id)
         {
             let blocks = part.blocks.clone();
-            let frame = PageFrame { sect, origin: (x, sect.header) };
+            let frame = PageFrame { sect, origin: (x, sect.header), number: page.number, mirror: ctx.mirror };
             let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items;
             for it in &mut items {
                 it.translate(x, sect.header);
@@ -3796,7 +3852,7 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             let blocks = part.blocks.clone();
             // The footer's height fixes where it sits, which page-relative floats need.
             let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, None).height;
-            let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h) };
+            let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h), number: page.number, mirror: ctx.mirror };
             let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items;
             for it in &mut items {
                 it.translate(x, sect.page_h - sect.footer - h);

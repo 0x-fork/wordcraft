@@ -3103,7 +3103,7 @@ fn lines_with_tabs_never_shrink() {
     }
 }
 
-fn rect_shape(w: f32, h: f32, float: wordcraft_doc::para::Float) -> InlineObject {
+pub(super) fn rect_shape(w: f32, h: f32, float: wordcraft_doc::para::Float) -> InlineObject {
     InlineObject::Shape {
         kind: wordcraft_doc::para::ShapeKind::Rectangle,
         w,
@@ -3119,7 +3119,7 @@ fn rect_shape(w: f32, h: f32, float: wordcraft_doc::para::Float) -> InlineObject
     }
 }
 
-fn shapes(items: &[Placed]) -> Vec<Rect> {
+pub(super) fn shapes(items: &[Placed]) -> Vec<Rect> {
     items.iter().filter_map(|i| if let Placed::Shape { rect, .. } = i { Some(*rect) } else { None }).collect()
 }
 

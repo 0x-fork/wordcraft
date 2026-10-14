@@ -12,7 +12,7 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("layout.margins", "Margins", "Layout › Page Setup", margins).params(
-            r#"{"preset"?: "normal|narrow|moderate|wide|mirrored|office2003", "top"?: pt, "bottom"?: pt, "left"?: pt, "right"?: pt, "gutter"?: pt}"#,
+            r#"{"preset"?: "normal|narrow|moderate|wide|mirrored|office2003", "top"?: pt, "bottom"?: pt, "left"?: pt, "right"?: pt, "gutter"?: pt, "mirror"?: bool}"#,
         ),
         CommandSpec::new("layout.orientation", "Orientation", "Layout › Page Setup", |s, v| {
             let land = match p::str(v, "value") {
@@ -396,9 +396,10 @@ fn margins(s: &mut Session, v: &Value) -> CmdResult {
     if !margins_fit((cur.page_w, cur.page_h), (t, b, l, r), gutter.unwrap_or(cur.gutter)) {
         return Err(CmdError::Params("margins leave no room for text".into()));
     }
-    // A preset picks mirrored or not; plain numbers (a ruler drag, an agent) keep the setting.
-    if preset.is_some() {
-        s.doc.settings.mirror_margins = preset == Some("mirrored");
+    // A preset picks mirrored or not, as does `mirror` (Page Setup's Multiple pages); plain numbers
+    // alone (a ruler drag, an agent) keep the setting.
+    if let Some(on) = p::bool(v, "mirror").or(preset.map(|k| k == "mirrored")) {
+        s.doc.settings.mirror_margins = on;
     }
     with_sect(s, |x| {
         x.margin_top = t.max(0.0);
