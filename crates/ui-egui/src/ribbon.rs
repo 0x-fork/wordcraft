@@ -2205,6 +2205,25 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
             for v in [0.0, 15.0, 30.0, 50.0, 65.0, 80.0, 95.0] {
                 mi(ui, app, &format!("{v:.0}%"), "picture.transparency", json!({"percent": v}));
             }
+            ui.separator();
+            // An exact value, dragged with a live preview: absolute from the original
+            // pixels, one undo step for the whole drag (same pattern as Size › W/H).
+            // The current value isn't stored anywhere, so the slider reopens where it
+            // was last left for this picture.
+            let (media, off) = match wordcraft_engine::cmd::objects::selected(&app.session) {
+                Some((pos, wordcraft_doc::para::InlineObject::Image { media, .. })) => (media, pos.off),
+                _ => (String::new(), 0),
+            };
+            let key = egui::Id::new(("picture_transparency", media, off));
+            let mut v = ui.data(|d| d.get_temp::<f64>(key)).unwrap_or(0.0);
+            let r = ui.add(egui::DragValue::new(&mut v).speed(1.0).range(0.0..=100.0).suffix("%"));
+            if r.changed() {
+                ui.data_mut(|d| d.insert_temp(key, v));
+                if r.dragged() && !r.drag_started() {
+                    app.session.join_next_undo();
+                }
+                let _ = app.run("picture.transparency", json!({"percent": v}));
+            }
         });
         stack(ui, |ui| {
             small(ui, app, "picture", Some("Change"), "Change Picture", "ui.changePicture", json!({}), false);
