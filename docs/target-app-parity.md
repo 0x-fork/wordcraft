@@ -1,6 +1,6 @@
 # WordCraft parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** trivial (Ink to Shape recognises arrows; previously trivial: table border drags with Ctrl and Alt, from the left edge and of selected cells, #711; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: all 12 bibliography styles, #383; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; replaces the parity tables that lived in ROADMAP.md) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-14 · **Change:** trivial (Ink to Shape recognises arrows; previously trivial: open-issue count dated 2026-10-10; previously trivial: table border drags with Ctrl and Alt, from the left edge and of selected cells, #711; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: all 12 bibliography styles, #383; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; replaces the parity tables that lived in ROADMAP.md) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 The authoritative assessment of how close WordCraft is to Microsoft Word. [`ROADMAP.md`](../ROADMAP.md)
 summarizes it; [`gaps.md`](gaps.md) itemizes every shortfall; the deep checklists are
@@ -43,7 +43,7 @@ The generated ribbon checklist is [`parity-checklist.md`](parity-checklist.md).
   and our knowledge of Word for Windows and Mac (Microsoft 365). Windows-only features (PDF Reflow
   open, Works/WordPerfect import) are counted, because a Word user on Windows expects them.
 - WordCraft as it is on origin/main today: source (catalog, command registry, readers/writers,
-  layout), tests, the i18n catalogs, open issues (62) and open PRs (~45), git history.
+  layout), tests, the i18n catalogs, open issues (62 as of 2026-10-10) and open PRs (~45 as of 2026-10-10), git history.
 - **Not done this pass:** opening real-world .docx files in both apps and comparing pages. There is
   no real-world corpus in the repo (Word-produced files can't be committed), and the disk budget
   ruled out building. That comparison is the first gap in [`gaps.md`](gaps.md).
@@ -219,7 +219,7 @@ Word. Their weighted sum is the **full ready for real work** number.
 - **Why the hours went up** from "120–150 h to 100%" (2026-10-06): that figure left out
   localization, multilingual proofing, ecosystem, hardware, PDF Reflow and `.doc` writing, and
   priced DOCX corpus fidelity at 10 h. The new evidence is the Word bundle inventory (30 UI
-  languages, 120 proofing tools, 12 bibliography styles), the 62 open issues (crashes, freezes,
+  languages, 120 proofing tools, 12 bibliography styles), the 62 open issues as of 2026-10-10 (crashes, freezes,
   RTL reports) and the size of comparable work actually done (below).
 
 ### Calibration of hours (from this repo's history)
@@ -252,6 +252,7 @@ can be used without committing Word output.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-12 | minor | Italian proofing: it-IT spelling, accent-first suggestions and conservative grammar; Proofing row updated, 42% → 44% |
+| 2026-10-12 | trivial | The 62 open issues and ~45 open PRs cited as evidence are dated 2026-10-10 (the measurement pass); not re-counted (197 issues were open on 2026-10-12) |
 | 2026-10-11 | trivial | Tables: Ctrl, Alt, left-edge and selected-cells border drags (#711); Tables row updated, no percentage change |
 | 2026-10-11 | trivial | Tables: column and row markers on the rulers (#700); Tables row updated, no percentage change |
 | 2026-10-11 | trivial | Tables: the table context menu, its items following the selection as in Word (Delete Cells, Rows, Columns or Table, Merge and Split Cells, Distribute, AutoFit, Text Direction, Insert Caption…, Table Properties…); Tables row updated, no percentage change |
