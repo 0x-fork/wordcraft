@@ -772,6 +772,20 @@ mod tests {
         assert_eq!(wordcraft_engine::proof::hunspell::search_dirs(None).first(), Some(&dir), "searched first");
     }
 
+    /// #1792: Check spelling as you type is saved with the other proofing choices, so after a
+    /// restart the box comes back the way the user left it.
+    #[test]
+    fn check_spelling_survives_a_restart() {
+        let mut a = app();
+        a.run("file.options", json!({"checkSpelling": false})).unwrap();
+        assert!(!a.session.view.proofing, "off right away");
+        let saved = serde_json::to_value(a.prefs()).unwrap();
+        assert_eq!(saved["editing"]["checkSpelling"], false, "saved in ui.json");
+        let mut b = app();
+        b.apply_prefs(UiState::from_json(&serde_json::to_vec(&saved).unwrap()).unwrap());
+        assert!(!b.session.view.proofing, "spelling stays off after a restart");
+    }
+
     /// Settings saved before #838 kept the unit under `editing.units` (default inches): a unit
     /// the user chose carries over to `measurementUnits`; inches, junk or a newer value don't.
     #[test]

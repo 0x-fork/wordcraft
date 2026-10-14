@@ -176,6 +176,7 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
     }
     if let Some(b) = check_spelling {
         s.view.proofing = b;
+        s.prefs.check_spelling = b;
     }
     for w in &add {
         wordcraft_proof::add_word(w);
