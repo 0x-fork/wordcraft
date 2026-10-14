@@ -1588,7 +1588,12 @@ fn next_tab(x: f32, tabs: &[TabStop], default_tab: f32, hanging_at: Option<f32>)
     }
     best.unwrap_or_else(|| {
         let d = if default_tab > 1.0 { default_tab } else { 36.0 };
-        let n = ((x + 0.01) / d).floor() + 1.0;
+        // Left of the margin Word's arithmetic truncates toward zero: the next default stop is
+        // the first multiple of the interval *at or after* `x`, so a tab that already sits on
+        // one (a second tab in a row, or a line starting at -72 pt) stays put. Measured on Word
+        // 2016+: a line starting at -72 pt with a leading tab stays at -72, at -60 goes to -36;
+        // "a\t\tX" at -60 puts X at -36, not 0. Letterheads with negative indents rely on it.
+        let n = if x < -0.01 { ((x - 0.01) / d).ceil() } else { ((x + 0.01) / d).floor() + 1.0 };
         TabStop { pos: (n * d).min(1e6), align: TabAlign::Left, leader: TabLeader::None }
     })
 }

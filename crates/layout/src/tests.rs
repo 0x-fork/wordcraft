@@ -719,6 +719,25 @@ fn tabs_land_on_default_stops() {
     assert!((xb - (72.0 + 36.0)).abs() < 0.5, "{xb}");
 }
 
+/// Left of the margin Word's next default tab stop is the first multiple of the interval at or
+/// after the position (its arithmetic truncates toward zero), so a tab already on a stop stays
+/// put. Measured on Word: "a\t\tX" at -60 pt puts X at -36 pt (not 0), "\tX" starting at -72 pt
+/// leaves X at -72, at -60 moves it to -36; right of the margin the stops are as usual.
+/// Letterheads that line up a footer with tabs under a negative indent rely on it.
+#[test]
+fn tabs_left_of_the_margin_stay_on_a_default_stop() {
+    let x_of = |text: &str, indent: f32, off: usize| {
+        let mut d = Document::from_text(text);
+        d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.indent_left = Some(indent)).unwrap();
+        lay(&d).caret(&Pos::body(0, off)).unwrap().x - 72.0
+    };
+    assert!((x_of("a\t\tX", -60.0, 3) - -36.0).abs() < 0.5, "second tab from a stop left of the margin: {}", x_of("a\t\tX", -60.0, 3));
+    assert!((x_of("\tX", -72.0, 1) - -72.0).abs() < 0.5, "leading tab on a stop: {}", x_of("\tX", -72.0, 1));
+    assert!((x_of("\tX", -60.0, 1) - -36.0).abs() < 0.5, "leading tab between stops: {}", x_of("\tX", -60.0, 1));
+    assert!((x_of("\t \tX", -60.0, 3) - 0.0).abs() < 0.5, "a space between the tabs: {}", x_of("\t \tX", -60.0, 3));
+    assert!((x_of("a\t\tX", 0.0, 3) - 72.0).abs() < 0.5, "right of the margin: {}", x_of("a\t\tX", 0.0, 3));
+}
+
 #[test]
 fn right_tab_aligns_text_end() {
     let mut d = Document::from_text("left\tright");
