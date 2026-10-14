@@ -357,7 +357,9 @@ impl Writer {
                         flush(&mut body, &mut spaces, prev_space);
                         prev_space = true;
                     }
-                    let link = f.link.as_ref();
+                    // A script, `file:`, UNC or other non-web target is written as plain text, as
+                    // the HTML and Markdown exporters do (LibreOffice follows `file:`/UNC hrefs).
+                    let link = f.link.as_deref().filter(|l| wordcraft_doc::link::is_safe_href(l));
                     if let Some(l) = link {
                         out.push_str(&format!("<text:a xlink:type=\"simple\" xlink:href=\"{}\">", x(l)));
                     }

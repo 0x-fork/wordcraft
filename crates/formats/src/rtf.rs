@@ -173,7 +173,10 @@ impl Writer {
             ctl.push_str(&format!("\\chcbpat{i}"));
         }
         let body = if ctl.is_empty() { esc(t) } else { format!("{{{ctl} {}}}", esc(t)) };
-        match &f.link {
+        // A script, `file:`, UNC or other non-web target is written as plain text, as the HTML and
+        // Markdown exporters do: Word follows a HYPERLINK field's target on click, and a UNC one
+        // leaks the reader's NTLM credentials.
+        match f.link.as_deref().filter(|l| wordcraft_doc::link::is_safe_href(l)) {
             Some(l) => {
                 out.push_str(&format!("{{\\field{{\\*\\fldinst{{HYPERLINK \"{}\"}}}}{{\\fldrslt{{{}}}}}}}", esc(&l.replace('"', "%22")), body));
             }
@@ -186,8 +189,9 @@ impl Writer {
             "png" => (img.data.to_vec(), "\\pngblip"),
             "jpeg" | "jpg" => (img.data.to_vec(), "\\jpegblip"),
             _ => {
-                // Re-encode other formats as PNG.
-                let Ok(dec) = image::load_from_memory(&img.data) else { return };
+                // Re-encode other formats as PNG, bounding the decode so a tiny file declaring
+                // huge dimensions can't exhaust memory on export.
+                let Some(dec) = model::decode_bounded(&img.data) else { return };
                 let mut buf = Vec::new();
                 if dec.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_err() {
                     return;
