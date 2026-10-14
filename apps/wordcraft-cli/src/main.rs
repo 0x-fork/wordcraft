@@ -43,13 +43,34 @@ USAGE:
                                               addNote, refresh, removeCodes, setDocPrefs
                                               (--cmd runs first, e.g. --cmd caret.docEnd)
   wordcraft-cli --version
+
+Paper: documents created here, and HTML, Markdown and text files (which give no page size), use
+the system region's paper (A4, or Letter in the US and other Letter regions), read from
+LC_ALL / LC_PAPER / LANG or the platform. Set WORDCRAFT_REGION=en-US (or another tag) for the
+same output on every machine.
 ";
 
 fn open(path: &str) -> Result<Session, String> {
-    let doc = wordcraft_engine::io::open_path(std::path::Path::new(path))?;
-    let mut s = Session::new(doc);
+    // A file that gives no page size (HTML, Markdown, plain text) opens on the system region's
+    // paper, as in the app: A4 in Italy, Letter in the US (#1381).
+    let region = system_region();
+    let (doc, _) = wordcraft_engine::io::open_path_in(std::path::Path::new(path), None, &region)?;
+    let mut s = session(doc);
     s.path = Some(path.into());
     Ok(s)
+}
+
+/// A headless session in the system region: every way the CLI starts one gives `file.new` the
+/// same paper (#1381).
+fn session(doc: wordcraft_doc::Document) -> Session {
+    let mut s = Session::new(doc);
+    s.system_region = system_region();
+    s
+}
+
+/// The system region, read as the app reads it (locale variables, else the platform's locale).
+fn system_region() -> wordcraft_engine::Region {
+    wordcraft_engine::Region::from_locale_vars(|name| std::env::var(name).ok(), sys_locale::get_locale)
 }
 
 /// The body text for `text`: the plain-text export, so list items keep their bullet or number label.
@@ -245,11 +266,11 @@ fn run(args: &[String]) -> Result<(), Failure> {
             let mut s = match (arg_value(&rest, "--file"), arg_value(&rest, "--template")) {
                 (Some(f), _) => open(&f)?,
                 (None, Some(t)) => {
-                    let mut s = Session::new(wordcraft_doc::Document::new());
+                    let mut s = session(wordcraft_doc::Document::new());
                     s.run("file.new", &json!({"template": t})).map_err(|e| e.to_string())?;
                     s
                 }
-                _ => Session::new(wordcraft_doc::Document::new()),
+                _ => session(wordcraft_doc::Document::new()),
             };
             if let Some(name) = arg_value(&rest, "--author") {
                 set_author(&mut s, &name)?;
@@ -291,7 +312,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
         }
         "commands" => {
             validate_options("commands", &rest, COMMANDS_OPTIONS)?;
-            let s = Session::new(wordcraft_doc::Document::new());
+            let s = session(wordcraft_doc::Document::new());
             if rest.iter().any(|a| a == "--json") {
                 let list = serde_json::to_string_pretty(&s.registry.describe()).unwrap_or_default();
                 write_stdout(|o| writeln!(o, "{list}"))
@@ -306,7 +327,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
         }
         "parity" => {
             validate_options("parity", &rest, PARITY_OPTIONS)?;
-            let s = Session::new(wordcraft_doc::Document::new());
+            let s = session(wordcraft_doc::Document::new());
             let p = wordcraft_engine::catalog::parity(&s.registry);
             if rest.iter().any(|a| a == "--markdown") {
                 write_stdout(|o| write!(o, "{}", parity_markdown(&p)))

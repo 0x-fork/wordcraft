@@ -5389,6 +5389,111 @@ fn insert_picture_takes_a_windows_metafile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// #1381: the reporter's sample HTML (synthetic, 1.7 KB).
+const SAMPLE_1381: &str = r##"<html><head><meta charset="utf-8"><title>Testo iniziale</title></head><body>
+<h2 style="color:#1c3a70;">Premessa</h2>
+<p>Il presente documento descrive l&rsquo;organizzazione della <strong>struttura sanitaria di prova</strong> e le misure
+adottate per la <em>gestione del rischio clinico</em>. I contenuti sono <span style="color:#c00000;">sintetici</span>
+e servono solo a verificare la resa della conversione.</p>
+<p style="text-align:justify;">Le attività sono svolte secondo le raccomandazioni ministeriali vigenti e sono oggetto
+di revisione annuale da parte del comitato per la valutazione dei sinistri.</p>
+<ul>
+<li>Identificazione dei rischi per reparto</li>
+<li>Analisi degli eventi avversi e dei <em>near miss</em>
+<ul><li>segnalazione spontanea</li><li>revisione delle cartelle cliniche</li></ul></li>
+<li>Piano annuale di miglioramento</li>
+</ul>
+<ol>
+<li>Raccolta delle segnalazioni</li>
+<li>Classificazione dell&rsquo;evento</li>
+<li>Azioni correttive</li>
+</ol>
+<table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
+<thead><tr style="background-color:#e8f0fa;"><th>Indicatore</th><th>Valore atteso</th><th>Valore rilevato</th></tr></thead>
+<tbody>
+<tr><td>Segnalazioni analizzate entro 30 giorni</td><td style="text-align:right;">&ge; 90%</td><td style="text-align:right;">93%</td></tr>
+<tr><td>Audit clinici svolti</td><td style="text-align:right;">4</td><td style="text-align:right;">5</td></tr>
+<tr><td colspan="2">Totale azioni correttive aperte</td><td style="text-align:right;">12</td></tr>
+</tbody></table>
+<p style="font-size:9pt;color:#595959;">Fonte: elaborazione interna su dati sintetici.</p>
+</body></html>"##;
+
+/// The first table's grid width in points.
+fn first_table_width(doc: &wordcraft_doc::Document) -> f32 {
+    doc.body.iter().find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t.grid.iter().sum::<f32>()) } else { None }).unwrap()
+}
+
+#[test]
+fn opened_html_text_and_markdown_get_the_region_paper() {
+    // #1381: a file that gives no page size opens on the region's paper, as a new blank document
+    // does (#838): A4 in Italy, Letter in the US. Tables fit that page.
+    let dir = std::env::temp_dir().join(format!("wordcraft-region-paper-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let html = dir.join("S05.html");
+    std::fs::write(&html, SAMPLE_1381).unwrap();
+    for (tag, size) in [("it-IT", (595.28, 841.89)), ("en-US", (612.0, 792.0))] {
+        let mut s = s();
+        s.system_region = wordcraft_geom::Region::from_tag(tag);
+        // By path (pictures load from beside the file) and by bytes (the web, MCP).
+        run(&mut s, "file.open", json!({"path": html.to_string_lossy()}));
+        let sp = s.doc.last_section.clone();
+        assert_eq!((sp.page_w, sp.page_h), size, "{tag}: HTML by path");
+        assert!(first_table_width(&s.doc) <= sp.text_width() + 0.5, "{tag}: the table fits the page");
+        for (name, body) in [("S05.html", SAMPLE_1381), ("notes.txt", "Hello"), ("notes.md", "# Title\n\n|a|b|\n|-|-|\n|1|2|\n")] {
+            let data = crate::cmd::insert::base64_encode(body.as_bytes());
+            run(&mut s, "file.open", json!({"path": name, "data": data}));
+            let sp = &s.doc.last_section;
+            assert_eq!((sp.page_w, sp.page_h), size, "{tag}: {name}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn opened_documents_with_their_own_page_size_keep_it() {
+    // #1381: only files without a page size take the region's paper.
+    for (w, h) in [(500.0, 700.0), (612.0, 792.0)] {
+        let mut doc = wordcraft_doc::Document::from_text("Own size");
+        doc.last_section.page_w = w;
+        doc.last_section.page_h = h;
+        for name in ["own.docx", "own.rtf", "own.odt"] {
+            let bytes = crate::io::save_bytes(name, &doc).unwrap();
+            let mut s = s();
+            s.system_region = wordcraft_geom::Region::from_tag("it-IT");
+            run(&mut s, "file.open", json!({"path": name, "data": crate::cmd::insert::base64_encode(&bytes)}));
+            let sp = &s.doc.last_section;
+            assert_eq!((sp.page_w.round(), sp.page_h.round()), (w, h), "{name}");
+        }
+    }
+}
+
+#[test]
+fn html_converted_to_docx_keeps_bold_headers_and_right_aligned_cells() {
+    // #1381: `wordcraft-cli convert S05.html out.docx`: the <th> runs are bold and the
+    // `text-align:right` cells' paragraphs carry `w:jc w:val="right"`.
+    use std::io::Read;
+    let mut s = s();
+    run(&mut s, "file.open", json!({"path": "S05.html", "data": crate::cmd::insert::base64_encode(SAMPLE_1381.as_bytes())}));
+    let bytes = crate::io::save_bytes("out.docx", &s.doc).unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+    let mut xml = String::new();
+    zip.by_name("word/document.xml").unwrap().read_to_string(&mut xml).unwrap();
+    let cell = |text: &str| {
+        let at = xml.find(&format!(">{text}<")).unwrap_or_else(|| panic!("{text} in {xml}"));
+        let start = xml[..at].rfind("<w:tc>").or_else(|| xml[..at].rfind("<w:tc ")).unwrap();
+        let end = at + xml[at..].find("</w:tc>").unwrap();
+        xml[start..end].to_string()
+    };
+    for head in ["Indicatore", "Valore atteso", "Valore rilevato"] {
+        assert!(cell(head).contains("<w:b/>"), "{head}: {}", cell(head));
+    }
+    for right in ["93%", "4", "5", "12"] {
+        assert!(cell(right).contains(r#"<w:jc w:val="right"/>"#), "{right}: {}", cell(right));
+    }
+    let left = cell("Audit clinici svolti");
+    assert!(!left.contains(r#"<w:jc w:val="right"/>"#) && !left.contains("<w:b/>"), "{left}");
+}
+
 #[test]
 fn exported_page_images_draw_headers_at_full_strength() {
     // file.exportPng (and `wordcraft-cli render`) drew headers and footers dimmed, as the screen
