@@ -1090,7 +1090,7 @@ fn blocks_content(ctx: &mut Ctx, blocks: &Blocks, text: Option<&CellText>, depth
         let (l, h) = match &**b {
             Block::Para(p) => {
                 let label = list_level(ctx, p).map(|l| (String::new(), l));
-                para_content(&ctx.para_labelled(p, UNBOUNDED, text, &[], label))
+                ctx.para_measured(p, UNBOUNDED, text, label, para_content)
             }
             // A nested table: its fixed width, else its columns' but at least its preferred width
             // (its own, else its grid's when it has preferred widths at all).

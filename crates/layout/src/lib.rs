@@ -478,6 +478,8 @@ struct Key {
 #[derive(Default)]
 pub struct LayoutCache {
     paras: HashMap<Key, Arc<ParaLayout>>,
+    /// Narrowest and widest content of paragraphs measured for table autofit ([`Ctx::para_measured`]).
+    measures: HashMap<Key, (f32, f32)>,
     /// Outlines of pictures' opaque pixels (Tight and Through wrapping), by media key, the
     /// media's bytes (address and length) and crop.
     outlines: HashMap<(String, usize, usize, [u32; 4]), Option<Arc<Vec<(f32, f32)>>>>,
@@ -499,6 +501,7 @@ impl LayoutCache {
     }
     pub fn clear(&mut self) {
         self.paras.clear();
+        self.measures.clear();
         self.outlines.clear();
     }
 }
@@ -625,6 +628,9 @@ struct Ctx<'a> {
     /// Body blocks that are empty paragraphs carrying only a section break before a continuous
     /// section, in order: they take no room (see [`place_para`]).
     quiet_marks: Vec<usize>,
+    /// Cache-key hashes of the table-style text formatting cells were laid out with
+    /// ([`Ctx::table_key`]).
+    table_keys: Vec<(para::CellText, u64)>,
 }
 
 impl Ctx<'_> {
@@ -705,6 +711,51 @@ impl Ctx<'_> {
         exclusions: &[para::Exclusion],
         label: Option<(String, Level)>,
     ) -> Arc<ParaLayout> {
+        let (key, eq_number) = self.para_key(p, width, table, exclusions, label.as_ref());
+        self.cache.used.insert(key.clone());
+        if let Some(pl) = self.cache.paras.get(&key) {
+            self.cache.hits += 1;
+            return pl.clone();
+        }
+        self.cache.misses += 1;
+        let pl = Arc::new(para::layout_para(p, &self.para_env(width, label, table, exclusions, eq_number)));
+        self.cache.paras.insert(key, pl.clone());
+        pl
+    }
+
+    /// What `measure` reads from `p` laid out as [`Ctx::para_labelled`] would, remembering only
+    /// the result: a table's columns measure every cell once at an unbounded width, and keeping
+    /// those layouts would double what a long table holds (and walk them all again on each pass).
+    fn para_measured(
+        &mut self,
+        p: &Paragraph,
+        width: f32,
+        table: Option<&para::CellText>,
+        label: Option<(String, Level)>,
+        measure: impl FnOnce(&ParaLayout) -> (f32, f32),
+    ) -> (f32, f32) {
+        let (key, eq_number) = self.para_key(p, width, table, &[], label.as_ref());
+        self.cache.used.insert(key.clone());
+        if let Some(m) = self.cache.measures.get(&key) {
+            self.cache.hits += 1;
+            return *m;
+        }
+        self.cache.misses += 1;
+        let m = measure(&para::layout_para(p, &self.para_env(width, label, table, &[], eq_number)));
+        self.cache.measures.insert(key, m);
+        m
+    }
+
+    /// The cache key of `p` laid out with these inputs, and its first automatic equation number
+    /// (advancing the count past its equations).
+    fn para_key(
+        &mut self,
+        p: &Paragraph,
+        width: f32,
+        table: Option<&para::CellText>,
+        exclusions: &[para::Exclusion],
+        label: Option<&(String, Level)>,
+    ) -> (Key, u32) {
         let page = if has_page_fields(p) { Some(self.fields.page_key()) } else { None };
         if self.track_totals && !self.uses_totals && has_total_fields(p) {
             self.uses_totals = true;
@@ -723,10 +774,10 @@ impl Ctx<'_> {
         let key = Key {
             rev: p.rev,
             width: width.to_bits(),
-            label: label.as_ref().map(|(t, l)| format!("{t}|{}|{}|{:?}|{:?}|{:?}|{:?}", l.indent, l.hanging, l.suffix, l.align, l.tab, l.chr)),
+            label: label.map(|(t, l)| format!("{t}|{}|{}|{:?}|{:?}|{:?}|{:?}", l.indent, l.hanging, l.suffix, l.align, l.tab, l.chr)),
             page_from: if page.is_some() && !self.fields.page_from.is_empty() { hash_of(&self.fields.page_from) } else { 0 },
             page,
-            table: table.map(|t| hash_of(&format!("{t:?}"))).unwrap_or(0),
+            table: table.map(|t| self.table_key(t)).unwrap_or(0),
             notes: if p.objects.iter().any(|o| matches!(o, InlineObject::NoteRef { .. })) { self.notes_hash } else { 0 },
             excl: if exclusions.is_empty() { 0 } else { hash_of(&format!("{exclusions:?}")) },
             eq: if eq_here > 0 { eq_number } else { 0 },
@@ -735,13 +786,33 @@ impl Ctx<'_> {
             fit: self.boxes.inside(),
             hide_deleted: self.hide_deleted,
         };
-        self.cache.used.insert(key.clone());
-        if let Some(pl) = self.cache.paras.get(&key) {
-            self.cache.hits += 1;
-            return pl.clone();
+        (key, eq_number)
+    }
+
+    /// The cache-key hash of a cell's table-style text formatting. Hashing it means formatting it
+    /// as text, which a long table would otherwise do for each of its paragraphs on every pass; a
+    /// document's tables only give their text a few different formats.
+    fn table_key(&mut self, t: &para::CellText) -> u64 {
+        if let Some((_, h)) = self.table_keys.iter().find(|(c, _)| c == t) {
+            return *h;
         }
-        self.cache.misses += 1;
-        let env = para::ParaEnv {
+        let h = hash_of(&format!("{t:?}"));
+        if self.table_keys.len() >= 64 {
+            self.table_keys.clear();
+        }
+        self.table_keys.push((t.clone(), h));
+        h
+    }
+
+    fn para_env<'b>(
+        &'b self,
+        width: f32,
+        label: Option<(String, Level)>,
+        table: Option<&'b para::CellText>,
+        exclusions: &'b [para::Exclusion],
+        eq_number: u32,
+    ) -> para::ParaEnv<'b> {
+        para::ParaEnv {
             doc: self.doc,
             width,
             label,
@@ -757,10 +828,7 @@ impl Ctx<'_> {
             read_line_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing } else { None },
             grid: self.grid,
             fit_objects: self.boxes.inside(),
-        };
-        let pl = Arc::new(para::layout_para(p, &env));
-        self.cache.paras.insert(key, pl.clone());
-        pl
+        }
     }
 }
 
@@ -1786,6 +1854,7 @@ fn layout_pass(
     let env = env_hash(doc, opts);
     if env != cache.env {
         cache.paras.clear();
+        cache.measures.clear();
         cache.env = env;
     }
     cache.used.clear();
@@ -1821,6 +1890,7 @@ fn layout_pass(
         uses_totals: false,
         track_totals: true,
         quiet_marks: Vec::new(),
+        table_keys: Vec::new(),
     };
     let sections = doc.sections();
     let web = matches!(opts.view, ViewMode::Web | ViewMode::Draft | ViewMode::Outline);
@@ -2077,9 +2147,10 @@ fn layout_pass(
         }
     }
     // Evict paragraph layouts that weren't used this pass if the cache grew large.
-    if ctx.cache.paras.len() > 4 * ctx.cache.used.len().max(1024) {
+    if ctx.cache.paras.len() + ctx.cache.measures.len() > 4 * ctx.cache.used.len().max(1024) {
         let used = std::mem::take(&mut ctx.cache.used);
         ctx.cache.paras.retain(|k, _| used.contains(k));
+        ctx.cache.measures.retain(|k, _| used.contains(k));
         ctx.cache.used = used;
     }
     let mut index: HashMap<(StoryRef, Path), Vec<(usize, usize)>> = HashMap::new();

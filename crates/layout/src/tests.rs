@@ -870,6 +870,29 @@ fn cache_reuses_unchanged_paragraphs() {
     assert_eq!(c.misses, misses + 1);
 }
 
+/// Autofit measures every cell at an unbounded width; the cache keeps what it measured, not
+/// those layouts, so a long table holds one layout per cell paragraph. Laying the document out
+/// again after an edit elsewhere measures nothing again.
+#[test]
+fn cache_keeps_one_layout_per_table_cell() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(4, 3, 468.0);
+    for (r, row) in t.rows.iter_mut().enumerate() {
+        for (k, cell) in row.cells.iter_mut().enumerate() {
+            cell.blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&format!("row {r} cell {k}"), Default::default()))];
+        }
+    }
+    assert!(!t.props.fixed);
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let mut c = LayoutCache::new();
+    layout(&d, &mut c, &LayoutOptions::default());
+    assert_eq!(c.len(), 2 + 12);
+    let misses = c.misses;
+    d.insert_text(&Pos::body(0, 0), "x", &Default::default()).unwrap();
+    layout(&d, &mut c, &LayoutOptions::default());
+    assert_eq!(c.misses, misses + 1);
+}
+
 #[test]
 fn selection_rects_cover_range() {
     let d = Document::from_text("Hello world\nSecond line");
