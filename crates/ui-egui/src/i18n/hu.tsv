@@ -1740,7 +1740,8 @@
 	Formatted	Formázott
 	Deleted	Törölve
 	Interface size:	Felület mérete:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	A menüszalag, a menük és a párbeszédablakok nagyítása vagy kicsinyítése a rendszer kijelzőméretezésén felül. A dokumentum nagyítása ettől független.
+	Auto ({percent}%)	Automatikus ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	A menüszalag, a menük és a párbeszédablakok nagyítása vagy kicsinyítése. Az Automatikus a rendszer kijelzőméretezését követi; 100% pontonként egy képernyőpixel. A dokumentum nagyítása ettől független.
 	Copyright Sign	Copyright jel
 	Demote	Lefokozás
 	Edit Field Code	Mezőkód szerkesztése

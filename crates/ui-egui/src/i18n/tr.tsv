@@ -1720,7 +1720,8 @@ preview	Title	Örnek
 	✓ None	✓ Yok
 	Formatted	Biçimlendirildi
 	Interface size:	Arabirim boyutu:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Şeridi, menüleri ve iletişim kutularını sisteminizin ekran ölçeklendirmesine ek olarak büyütür veya küçültür. Belge yakınlaştırması ayrıdır.
+	Auto ({percent}%)	Otomatik (%{percent})
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Şeridi, menüleri ve iletişim kutularını büyütür veya küçültür. Otomatik, sisteminizin ekran ölçeklendirmesini izler; %100, nokta başına bir ekran pikselidir. Belge yakınlaştırması ayrıdır.
 	Deleted	Silindi
 	Copyright Sign	Telif Hakkı İşareti
 	Demote	Düzey Düşür

@@ -1722,7 +1722,8 @@ preview	Title	Пример
 	Formatted	Отформатировано
 	Deleted	Удалено
 	Interface size:	Размер интерфейса:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Увеличивает или уменьшает ленту, меню и диалоговые окна поверх системного масштабирования экрана. Масштаб документа настраивается отдельно.
+	Auto ({percent}%)	Авто ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Увеличивает или уменьшает ленту, меню и диалоговые окна. «Авто» следует системному масштабированию экрана; 100% — один пиксель экрана на точку. Масштаб документа настраивается отдельно.
 	Copyright Sign	Знак авторского права
 	Demote	Понизить уровень
 	Edit Field Code	Изменить код поля

@@ -1360,7 +1360,8 @@
 	Edit Field…	Редактиране на поле…
 	Formatted	Форматиран
 	Interface size:	Размер на интерфейса:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Уголемява или смалява лентата, менютата и диалоговите прозорци в допълнение към мащабирането на дисплея в системата. Мащабът на документа е отделна настройка.
+	Auto ({percent}%)	Автоматично ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Уголемява или смалява лентата, менютата и диалоговите прозорци. „Автоматично“ следва мащабирането на дисплея в системата; 100% е един пиксел от екрана на точка. Мащабът на документа е отделна настройка.
 	In Line with Text	На един ред с текста
 	Square	Квадрат
 	Through	През

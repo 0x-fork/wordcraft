@@ -468,15 +468,22 @@ fn theme_picker(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
-/// Interface size: 80–200 %, on top of the system's display scale (#475).
+/// Interface size (#475, #822): Auto, which keeps the system's display scale and shows the size it
+/// draws at, or an absolute size, so "100%" means one screen pixel per point.
 fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::InterfaceSize;
-    let current = app.ui.interface_size.percent();
+    let size = app.ui.interface_size;
+    let native = ui.ctx().native_pixels_per_point().unwrap_or(1.0);
+    let auto = crate::i18n::fmt(tl!("Auto ({percent}%)"), &[("percent", &InterfaceSize::AUTO.drawn_percent(native).to_string())]);
+    let selected = size.percent().map_or_else(|| auto.clone(), |pct| format!("{pct}%"));
     ui.horizontal(|ui| {
         ui.label(tl!("Interface size:"));
-        egui::ComboBox::from_id_salt("interface_size").selected_text(format!("{current}%")).width(220.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("interface_size").selected_text(selected).width(220.0).show_ui(ui, |ui| {
+            if ui.selectable_label(size.is_auto(), auto).clicked() {
+                let _ = app.run("ui.interfaceSize", json!({"value": "auto"}));
+            }
             for pct in InterfaceSize::PRESETS {
-                if ui.selectable_label(current == pct, format!("{pct}%")).clicked() {
+                if ui.selectable_label(size.percent() == Some(pct), format!("{pct}%")).clicked() {
                     let _ = app.run("ui.interfaceSize", json!({"percent": pct}));
                 }
             }
@@ -484,7 +491,7 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     });
     ui.label(
         RichText::new(tl!(
-            "Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate."
+            "Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate."
         ))
         .small()
         .weak(),

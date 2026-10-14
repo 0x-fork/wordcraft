@@ -1354,7 +1354,8 @@
 	Edit Field…	Upravit pole…
 	Formatted	Formátováno
 	Interface size:	Velikost rozhraní:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Zvětší nebo zmenší pás karet, nabídky a dialogová okna nad rámec škálování displeje v systému. Lupa dokumentu se nastavuje zvlášť.
+	Auto ({percent}%)	Automaticky ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Zvětší nebo zmenší pás karet, nabídky a dialogová okna. Automaticky sleduje škálování displeje v systému; 100% je jeden pixel obrazovky na bod. Lupa dokumentu se nastavuje zvlášť.
 	In Line with Text	V řádku s textem
 	Square	Čtverec
 	Through	Průchozí

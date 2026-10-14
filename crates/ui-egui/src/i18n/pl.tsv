@@ -1253,7 +1253,8 @@
 	Links and References	Łącza i odwołania
 	List Definition	Definicja listy
 	Mail Merge	Korespondencja seryjna
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Powiększa lub zmniejsza wstążkę, menu i okna dialogowe, niezależnie od skalowania ekranu w systemie. Powiększenie dokumentu ustawia się osobno.
+	Auto ({percent}%)	Automatycznie ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Powiększa lub zmniejsza wstążkę, menu i okna dialogowe. Automatycznie oznacza skalowanie ekranu ustawione w systemie; 100% to jeden piksel ekranu na punkt. Powiększenie dokumentu ustawia się osobno.
 	Model	Model
 	Mon	Pon
 	More Columns…	Więcej kolumn…

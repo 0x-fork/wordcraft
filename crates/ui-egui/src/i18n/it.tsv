@@ -1331,7 +1331,8 @@
 	Flip Horizontal	Capovolgi orizzontalmente
 	Formatted	Formattato
 	Interface size:	Dimensioni interfaccia:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Ingrandisce o riduce la barra multifunzione, i menu e le finestre di dialogo, in aggiunta al ridimensionamento dello schermo del sistema. Lo zoom del documento è separato.
+	Auto ({percent}%)	Auto ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Ingrandisce o riduce la barra multifunzione, i menu e le finestre di dialogo. Auto segue il ridimensionamento dello schermo del sistema; 100% è un pixel dello schermo per punto. Lo zoom del documento è separato.
 	Title	Titolo
 	Subject	Oggetto
 	Keywords	Parole chiave
