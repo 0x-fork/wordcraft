@@ -2476,6 +2476,8 @@ preview	Title	Örnek
 	Leave out the date and time of comments and tracked changes when saving	Kaydederken açıklamaların ve izlenen değişikliklerin tarih ve saatini dahil etme
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Düzenlediğiniz belge adları ve tarihleri korur; yalnızca kaydedilen dosya bunları içermez.
 	Privacy Settings	Geçerli gizlilik ayarları
+	Waiting for the save to finish…	Kaydetme işleminin bitmesi bekleniyor…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	{name} kaydetme işlemi iptal edildi; belge hâlâ açık ve hiçbir şey kaybolmadı.
 	Paper	Kağıt
 	Paper size:	Kağıt boyutu:
 	Custom size	Özel boyut

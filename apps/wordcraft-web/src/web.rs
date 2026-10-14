@@ -1,11 +1,12 @@
 //! The browser shell: web `Services`, drag-and-drop, the unsaved-changes guard and the eframe
 //! web runner.
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
 
 use wasm_bindgen::JsCast as _;
 use wordcraft_engine::Session;
+use wordcraft_ui_egui::async_saves::{AsyncSaves, SaveOutcome};
 use wordcraft_ui_egui::{Inbox, Services, WordApp};
 
 const DOC_EXTS: &[&str] = &["docx", "docm", "dotx", "dotm", "doc", "dot", "odt", "rtf", "txt", "md", "html", "htm", "tex", "json", "xml"];
@@ -27,7 +28,7 @@ pub fn start() {
             return;
         };
         let dirty = Rc::new(Cell::new(false));
-        let saves = Rc::new(PickerSaves::default());
+        let saves = AsyncSaves::default();
         if let Err(e) = guard_unload(dirty.clone(), saves.clone()) {
             log::error!("no unsaved-changes guard: {e}");
         }
@@ -67,7 +68,7 @@ pub fn start() {
                     if !sample {
                         app.start_screen();
                     }
-                    Ok(Box::new(WebShell { app, inbox, saves }))
+                    Ok(Box::new(WebShell { app, inbox }))
                 }),
             )
             .await;
@@ -89,38 +90,6 @@ fn query() -> String {
 struct WebShell {
     app: WordApp,
     inbox: Inbox,
-    saves: Rc<PickerSaves>,
-}
-
-/// Saves the browser's save picker finishes after `download` has returned (#728). The app marks
-/// the document saved as soon as `download` returns, so a cancelled or failed picker save must
-/// mark it unsaved again, and the `beforeunload` guard keeps warning while one is in flight.
-#[derive(Default)]
-struct PickerSaves {
-    /// Picker saves started and not yet written and closed.
-    pending: Cell<u32>,
-    /// Picker saves that didn't write the file: (name, error, or `None` when cancelled).
-    unsaved: RefCell<Vec<(String, Option<String>)>>,
-}
-
-impl WebShell {
-    /// A picker save that didn't happen leaves the document with unsaved changes.
-    fn settle_picker_saves(&mut self) {
-        let unsaved = std::mem::take(&mut *self.saves.unsaved.borrow_mut());
-        for (name, error) in unsaved {
-            // Only a save in a format that keeps everything marked the document saved.
-            if wordcraft_ui_egui::keeps_everything(&name) {
-                self.app.session.dirty = true;
-            }
-            if let Some(error) = error {
-                let msg = wordcraft_ui_egui::i18n::fmt(
-                    wordcraft_ui_egui::i18n::t("Couldn't download {name}: {error}"),
-                    &[("name", &name), ("error", &error)],
-                );
-                self.app.status(msg);
-            }
-        }
-    }
 }
 
 impl eframe::App for WebShell {
@@ -140,7 +109,6 @@ impl eframe::App for WebShell {
                 }
             });
         }
-        self.settle_picker_saves();
         self.app.logic(ctx);
     }
 
@@ -201,7 +169,7 @@ fn listen_for_pasted_pictures(inbox: Inbox, ctx: egui::Context) -> Result<(), St
 }
 
 /// `dirty` is the flag the `beforeunload` guard reads ([`guard_unload`]).
-fn services(inbox: Inbox, ctx: egui::Context, dirty: Rc<Cell<bool>>, saves: Rc<PickerSaves>) -> Services {
+fn services(inbox: Inbox, ctx: egui::Context, dirty: Rc<Cell<bool>>, saves: AsyncSaves) -> Services {
     let open_inbox = inbox.clone();
     let save_ctx = ctx.clone();
     Services {
@@ -228,6 +196,7 @@ fn services(inbox: Inbox, ctx: egui::Context, dirty: Rc<Cell<bool>>, saves: Rc<P
         })),
         // Exports ask for a name; the browser decides where the download goes.
         pick_save: Some(Box::new(|name: &str| Some(name.to_string()))),
+        async_saves: Some(saves.clone()),
         download: Some(Box::new(move |path: &str, bytes: &[u8]| download(&saves, &save_ctx, path, bytes))),
         print: Some(Box::new(print_pdf)),
         inbox: Some(inbox),
@@ -249,11 +218,11 @@ fn animations_enabled() -> Box<dyn Fn() -> Option<bool>> {
 
 /// Closing, reloading or leaving the tab with unsaved changes asks first. Browsers show their own
 /// confirmation (a page can only ask for it), so there is no Save button: Cancel, then File › Save.
-fn guard_unload(dirty: Rc<Cell<bool>>, saves: Rc<PickerSaves>) -> Result<(), String> {
+fn guard_unload(dirty: Rc<Cell<bool>>, saves: AsyncSaves) -> Result<(), String> {
     let window = web_sys::window().ok_or("no window")?;
     let on_unload = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(move |e: web_sys::BeforeUnloadEvent| {
         // A save still in the browser's picker hasn't written anything yet.
-        if dirty.get() || saves.pending.get() > 0 {
+        if dirty.get() || saves.pending() > 0 {
             e.prevent_default();
             // Older browsers ask only when `returnValue` is set.
             e.set_return_value("unsaved changes");
@@ -266,7 +235,7 @@ fn guard_unload(dirty: Rc<Cell<bool>>, saves: Rc<PickerSaves>) -> Result<(), Str
 }
 
 /// Trigger a browser save dialog or download of `bytes` named after the last component of `path`.
-fn download(saves: &Rc<PickerSaves>, ctx: &egui::Context, path: &str, bytes: &[u8]) -> Result<(), String> {
+fn download(saves: &AsyncSaves, ctx: &egui::Context, path: &str, bytes: &[u8]) -> Result<(), String> {
     let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "document".into());
     let window = web_sys::window().ok_or("no window")?;
 
@@ -288,7 +257,7 @@ fn download(saves: &Rc<PickerSaves>, ctx: &egui::Context, path: &str, bytes: &[u
 }
 
 fn trigger_save_file_picker(
-    saves: &Rc<PickerSaves>,
+    saves: &AsyncSaves,
     ctx: &egui::Context,
     window: &web_sys::Window,
     picker_fn: &js_sys::Function,
@@ -332,18 +301,19 @@ fn trigger_save_file_picker(
     let saves = saves.clone();
     let ctx = ctx.clone();
     let name = name.to_string();
-    saves.pending.set(saves.pending.get().saturating_add(1));
+    // The app holds back a Save Changes prompt's New/Open until this ticket ends (#1315).
+    let ticket = saves.start();
     wasm_bindgen_futures::spawn_local(async move {
         // The document counts as saved only once the file is written and closed.
-        let unsaved = match wasm_bindgen_futures::JsFuture::from(prom).await {
+        let outcome = match wasm_bindgen_futures::JsFuture::from(prom).await {
             Ok(handle_val) => match write_file_handle(&handle_val, &bytes_vec).await {
                 Ok(()) => {
                     log::info!("saved {name} through the save picker");
-                    None
+                    SaveOutcome::Saved
                 }
                 Err(e) => {
                     log::error!("couldn't write {name}: {e}");
-                    Some(Some(e))
+                    SaveOutcome::Failed(e)
                 }
             },
             Err(e) => {
@@ -351,17 +321,14 @@ fn trigger_save_file_picker(
                     js_sys::Reflect::get(&e, &wasm_bindgen::JsValue::from_str("name")).ok().and_then(|v| v.as_string()).unwrap_or_default();
                 if err_name == "AbortError" {
                     log::debug!("save picker cancelled");
-                    Some(None)
+                    SaveOutcome::Cancelled
                 } else {
                     log::error!("showSaveFilePicker error: {e:?}");
-                    Some(Some(format!("{e:?}")))
+                    SaveOutcome::Failed(format!("{e:?}"))
                 }
             }
         };
-        if let Some(error) = unsaved {
-            saves.unsaved.borrow_mut().push((name, error));
-        }
-        saves.pending.set(saves.pending.get().saturating_sub(1));
+        saves.finish(ticket, outcome);
         ctx.request_repaint();
     });
     Ok(())

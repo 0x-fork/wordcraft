@@ -2087,6 +2087,8 @@
 	Leave out the date and time of comments and tracked changes when saving	保存時にコメントと変更履歴の日時を含めない
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	編集中のドキュメントには名前と日時が残ります。保存したファイルにだけ含まれません。
 	Privacy Settings	現在のプライバシー設定
+	Waiting for the save to finish…	保存が完了するのを待っています…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	{name} の保存はキャンセルされました。文書は開いたままで、何も失われていません。
 	Paper	用紙
 	Paper size:	用紙サイズ:
 	Custom size	ユーザー定義サイズ

@@ -2121,6 +2121,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Jäta salvestamisel välja kommentaaride ja jälitatud muudatuste kuupäev ja kellaaeg
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Redigeeritav dokument säilitab nimed ja kuupäevad; need jäetakse välja ainult salvestatud failist.
 	Privacy Settings	Praegused privaatsussätted
+	Waiting for the save to finish…	Ootan salvestamise lõppu…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Faili {name} salvestamine tühistati, see on endiselt avatud ja midagi ei läinud kaotsi.
 	Paper	Paber
 	Paper size:	Paberi suurus:
 	Custom size	Kohandatud suurus

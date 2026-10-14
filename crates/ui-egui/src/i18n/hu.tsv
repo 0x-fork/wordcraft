@@ -2475,6 +2475,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Mentéskor a megjegyzések és a követett módosítások dátumának és idejének elhagyása
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	A szerkesztett dokumentum megtartja a neveket és a dátumokat; csak a mentett fájlból maradnak ki.
 	Privacy Settings	Jelenlegi adatvédelmi beállítások
+	Waiting for the save to finish…	Várakozás a mentés befejezésére…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	A(z) {name} mentése megszakadt, így továbbra is nyitva van, és semmi sem veszett el.
 	Paper	Papír
 	Paper size:	Papírméret:
 	Custom size	Egyéni méret

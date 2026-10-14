@@ -2471,6 +2471,8 @@ preview	Title	Tytuł
 	Leave out the date and time of comments and tracked changes when saving	Pomiń datę i godzinę komentarzy i śledzonych zmian przy zapisywaniu
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Edytowany dokument zachowuje nazwiska i daty; pomija je tylko zapisany plik.
 	Privacy Settings	Bieżące ustawienia prywatności
+	Waiting for the save to finish…	Oczekiwanie na zakończenie zapisywania…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Zapisywanie pliku {name} zostało anulowane. Dokument jest nadal otwarty i nic nie zostało utracone.
 	Paper	Papier
 	Paper size:	Rozmiar papieru:
 	Custom size	Rozmiar niestandardowy

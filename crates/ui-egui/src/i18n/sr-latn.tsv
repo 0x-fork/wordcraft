@@ -2097,6 +2097,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Izostavi datum i vreme komentara i praćenih izmena pri čuvanju
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Dokument koji uređujete zadržava imena i datume; izostavlja ih samo sačuvana datoteka.
 	Privacy Settings	Trenutna podešavanja privatnosti
+	Waiting for the save to finish…	Čeka se da se čuvanje završi…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Čuvanje {name} je otkazano. Dokument je i dalje otvoren i ništa nije izgubljeno.
 	Paper	Papir
 	Paper size:	Veličina papira:
 	Custom size	Prilagođena veličina

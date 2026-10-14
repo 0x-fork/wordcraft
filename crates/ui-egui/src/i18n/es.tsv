@@ -2453,6 +2453,8 @@ preview	Title	Título
 	Leave out the date and time of comments and tracked changes when saving	Omitir la fecha y la hora de los comentarios y los cambios controlados al guardar
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	El documento que editas conserva los nombres y las fechas; solo el archivo guardado los omite.
 	Privacy Settings	Configuración de privacidad actual
+	Waiting for the save to finish…	Esperando a que termine de guardarse…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Se canceló el guardado de {name}; sigue abierto y no se perdió nada.
 	Paper	Papel
 	Paper size:	Tamaño del papel:
 	Custom size	Tamaño personalizado

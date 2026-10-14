@@ -2092,6 +2092,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Při ukládání vynechat datum a čas komentářů a sledovaných změn
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Upravovaný dokument si jména a data ponechá; vynechá je jen uložený soubor.
 	Privacy Settings	Aktuální nastavení soukromí
+	Waiting for the save to finish…	Čeká se na dokončení ukládání…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Ukládání {name} bylo zrušeno, dokument zůstává otevřený a nic se neztratilo.
 	Paper	Papír
 	Paper size:	Velikost papíru:
 	Custom size	Vlastní velikost

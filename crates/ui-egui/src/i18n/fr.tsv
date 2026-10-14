@@ -2095,6 +2095,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Omettre la date et l’heure des commentaires et des modifications suivies à l’enregistrement
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Le document en cours de modification garde les noms et les dates ; seul le fichier enregistré les omet.
 	Privacy Settings	Paramètres de confidentialité actuels
+	Waiting for the save to finish…	En attente de la fin de l'enregistrement…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	L'enregistrement de {name} a été annulé : le document reste ouvert et rien n'a été perdu.
 	Paper	Papier
 	Paper size:	Taille du papier :
 	Custom size	Taille personnalisée
