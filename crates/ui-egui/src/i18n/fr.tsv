@@ -2095,6 +2095,9 @@
 	Leave out the date and time of comments and tracked changes when saving	Omettre la date et l’heure des commentaires et des modifications suivies à l’enregistrement
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Le document en cours de modification garde les noms et les dates ; seul le fichier enregistré les omet.
 	Privacy Settings	Paramètres de confidentialité actuels
+	Full Screen	Plein écran
+	Full\nScreen	Plein\nécran
+	Use the browser's full screen (F11)	Utilisez le plein écran du navigateur (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} po

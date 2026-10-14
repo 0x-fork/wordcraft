@@ -421,6 +421,12 @@ pub struct WordApp {
     pub frame_ms: f64,
     /// The window title last sent; a viewport command schedules a repaint, so only send changes.
     sent_title: String,
+    /// Full screen as last asked of the window, and as the window last reported it (#980).
+    sent_full_screen: bool,
+    seen_full_screen: Option<bool>,
+    /// Nothing else (a dialog, menu, keytips, the File tab) is open to take Escape this frame, so
+    /// Escape may leave full screen. Read before anything handles the frame's keys.
+    escape_free: bool,
     pub quit_requested: bool,
     pub autosave: bool,
     pub word_count: (u64, usize),
@@ -522,6 +528,9 @@ impl WordApp {
             applied_animations: None,
             frame_ms: 0.0,
             sent_title: String::new(),
+            sent_full_screen: false,
+            seen_full_screen: None,
+            escape_free: false,
             quit_requested: false,
             autosave: true,
             word_count: (0, 0),
@@ -1577,6 +1586,7 @@ impl WordApp {
             return;
         }
         let t = theme::Tokens::get(&ctx);
+        self.escape_free = self.dialog.is_none() && !self.ui.backstage && self.ui.keytips == keytips::Phase::Off && !egui::Popup::is_any_open(&ctx);
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
@@ -1619,9 +1629,32 @@ impl WordApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.sent_title = title;
         }
+        self.sync_full_screen(&ctx);
         self.frame_ms = now_ms() - t0;
         // Typing and formatting land here, after `logic` has reported.
         self.report_dirty();
+    }
+
+    /// Carry View › Full Screen (`view.fullScreen`, F11) to the window, and follow the window
+    /// when the system takes it in or out of full screen (the macOS title bar button, the window
+    /// manager). Leaving full screen gives the window back its earlier size and place: the system
+    /// keeps them, and [`window_geometry`] never saves a full-screen size (#980).
+    fn sync_full_screen(&mut self, ctx: &egui::Context) {
+        let seen = ctx.input(|i| i.viewport().fullscreen);
+        if seen != self.seen_full_screen {
+            self.seen_full_screen = seen;
+            if let Some(on) = seen
+                && on != self.session.view.full_screen
+            {
+                self.session.view.full_screen = on;
+                self.sent_full_screen = on;
+            }
+        }
+        let want = self.session.view.full_screen;
+        if want != self.sent_full_screen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(want));
+            self.sent_full_screen = want;
+        }
     }
 
     /// A click on the window's chrome (ribbon tabs and empty ribbon space, galleries, check
@@ -4341,6 +4374,126 @@ mod tests {
         let commands = out.viewport_output.remove(&egui::ViewportId::ROOT).map(|v| v.commands).unwrap_or_default();
         out.drop_without_applying_deltas();
         commands
+    }
+
+    /// #980: F11 and View › Full Screen (`view.fullScreen`) take the window to full screen; a
+    /// second F11 or Escape brings it back.
+    #[test]
+    fn f11_and_escape_toggle_full_screen() {
+        use egui::ViewportCommand::Fullscreen;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        // Run frames and return the full-screen requests the window got.
+        let sent = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                h.step();
+                out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
+            }
+            out
+        };
+        assert_eq!(sent(&mut h), vec![], "a normal window to start with");
+        h.event(key(egui::Key::F11));
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)], "F11");
+        assert!(h.state().session.view.full_screen);
+        h.event(key(egui::Key::F11));
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "F11 again");
+        assert!(!h.state().session.view.full_screen);
+        // The command (ribbon, command search, agents), then Escape.
+        assert_eq!(h.state_mut().run("view.fullScreen", json!({})).unwrap(), json!({"value": true}));
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)], "the command");
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "Escape");
+        // Escape in a normal window doesn't touch the window.
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![]);
+        // Escape closing a dialog leaves full screen alone.
+        h.state_mut().run("view.fullScreen", json!({"value": true})).unwrap();
+        h.state_mut().run("ui.dialog", json!({"name": "zoom"})).unwrap();
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)]);
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![]);
+        assert!(h.state().dialog.is_none(), "Escape closed the dialog");
+        assert!(h.state().session.view.full_screen, "and only that");
+    }
+
+    /// #980: in full screen, Escape with text selected collapses the selection (as in a normal
+    /// window) and leaves full screen alone; the next Escape, with nothing selected, leaves it.
+    #[test]
+    fn escape_collapses_a_selection_before_leaving_full_screen() {
+        use egui::ViewportCommand::Fullscreen;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let sent = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                h.step();
+                out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
+            }
+            out
+        };
+        h.state_mut().canvas.focused = true;
+        h.state_mut().run("text.insert", json!({"text": "Hello world"})).unwrap();
+        h.state_mut().run("select.all", json!({})).unwrap();
+        h.state_mut().run("view.fullScreen", json!({"value": true})).unwrap();
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)]);
+        assert!(!h.state().session.sel.is_collapsed());
+        h.event(esc.clone());
+        assert_eq!(sent(&mut h), vec![], "Escape with a selection stays in full screen");
+        assert!(h.state().session.sel.is_collapsed(), "and collapses the selection");
+        assert!(h.state().session.view.full_screen);
+        h.event(esc);
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "Escape with nothing selected leaves");
+        assert!(!h.state().session.view.full_screen);
+    }
+
+    /// #980: the window leaving full screen by other means (the window manager, the macOS title
+    /// bar button) turns View › Full Screen off, and entering it turns it on.
+    #[test]
+    fn full_screen_follows_the_window() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        let frame = |a: &mut WordApp, fullscreen: Option<bool>| {
+            let mut input = egui::RawInput::default();
+            input.viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = fullscreen;
+            let mut out = ctx.run_ui(input, |ui| a.sync_full_screen(ui.ctx()));
+            let sent = out.viewport_output.remove(&egui::ViewportId::ROOT).map(|v| v.commands).unwrap_or_default();
+            out.drop_without_applying_deltas();
+            sent.into_iter().filter(|c| matches!(c, egui::ViewportCommand::Fullscreen(_))).collect::<Vec<_>>()
+        };
+        assert!(frame(&mut a, Some(false)).is_empty());
+        let sent = frame(&mut a, Some(true));
+        assert!(sent.is_empty(), "the window went full screen: nothing to ask: {sent:?}");
+        assert!(a.session.view.full_screen);
+        assert!(frame(&mut a, Some(false)).is_empty());
+        assert!(!a.session.view.full_screen, "and came back");
+        // Asked for: sent once; the window is slow to report it, which doesn't undo the request.
+        a.run("view.fullScreen", json!({})).unwrap();
+        assert_eq!(frame(&mut a, Some(false)), vec![egui::ViewportCommand::Fullscreen(true)]);
+        assert!(frame(&mut a, Some(false)).is_empty());
+        assert!(a.session.view.full_screen);
+        assert!(frame(&mut a, Some(true)).is_empty());
+        assert!(a.session.view.full_screen);
     }
 
     /// #311: with System, egui's theme preference stays System, so the native window is never

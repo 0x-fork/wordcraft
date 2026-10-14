@@ -2099,6 +2099,9 @@
 	Leave out the date and time of comments and tracked changes when saving	保存时不包含批注和修订的日期与时间
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	正在编辑的文档保留姓名和日期；只有保存的文件中不包含它们。
 	Privacy Settings	当前隐私设置
+	Full Screen	全屏
+	Full\nScreen	全屏
+	Use the browser's full screen (F11)	请使用浏览器的全屏模式 (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} 英寸
