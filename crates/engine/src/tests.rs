@@ -4804,6 +4804,32 @@ fn polish_proofing_through_the_review_commands() {
     assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
 }
 
+/// Review › Language and proofing commands work in Turkish end to end.
+#[test]
+fn turkish_proofing_through_the_review_commands() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Bana bazen gelenler oldu ise de. Sana olacaklardan sonra sorna"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "tr-TR", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("tr-TR"));
+
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    // "sorna" must be flagged as spelling issue
+    let sorna_issue = arr.iter().find(|i| i["text"] == "sorna" && i["kind"] == "spelling");
+    assert!(sorna_issue.is_some(), "sorna must be flagged: {issues}");
+
+    // Check suggestions for sorna
+    let sugs: Vec<String> = sorna_issue.unwrap()["suggestions"].as_array().unwrap().iter().filter_map(|x| x.as_str().map(str::to_string)).collect();
+    assert!(sugs.contains(&"sonra".to_string()), "sorna must suggest sonra: {sugs:?}");
+
+    // Add to Dictionary: adding "sorna" should remove its issue
+    run(&mut s, "review.addToDictionary", json!({"word": "sorna"}));
+    let issues_after = run(&mut s, "review.issues", json!({}));
+    let arr_after = issues_after.as_array().unwrap();
+    assert!(!arr_after.iter().any(|i| i["text"] == "sorna"), "sorna should no longer be flagged after adding to dictionary: {issues_after}");
+}
+
 /// `review.language`: tags are validated and normalized, `noProof` alone keeps the language,
 /// no parameters keep the old meaning (US English), and `default` needs a language.
 #[test]

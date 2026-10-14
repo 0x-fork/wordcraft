@@ -3857,6 +3857,7 @@ mod tests {
     /// Types `text` after a click on `what` and checks it reached the document (#1093).
     fn type_after_click(h: &mut egui_kittest::Harness<'_, WordApp>, what: &str, text: &str) {
         h.step();
+        h.step();
         h.event(egui::Event::Text(text.into()));
         h.step();
         assert!(h.state().canvas.focused, "{what}: the page keeps keyboard focus");
