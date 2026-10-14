@@ -2095,6 +2095,14 @@
 	AutoFit Column by Double-Clicking	Аутоматско уклапање колоне двоструким кликом
 	Region:	Регион:
 	Automatic ({region})	Аутоматски ({region})
+	Text of the nearest paragraph with a given style (running headers)	Текст најближег пасуса са задатим стилом (текућа заглавља)
+	Style name:	Назив стила:
+	Search from bottom of page to top	Претражи од дна странице ка врху
+	Insert paragraph number	Уметни број пасуса
+	Insert paragraph number in relative context	Уметни број пасуса у релативном контексту
+	Insert paragraph number in full context	Уметни број пасуса у пуном контексту
+	Suppress all non-delimiter characters	Изостави све знакове осим граничника
+	Insert position (above or below)	Уметни положај (изнад или испод)
 	Start-up	Покретање
 	Show the Start screen when WordCraft starts	Прикажи почетни екран при покретању програма WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Укључено: WordCraft се отвара на Фајл › Почетак, са празним документом, шаблонима и недавним документима. Искључено: отвара празан документ.

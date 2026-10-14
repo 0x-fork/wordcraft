@@ -2560,3 +2560,13 @@
 # Show only the selected text's comment (#1066)
 	In the margin	Trong lề
 	Only for the selected text	Chỉ cho văn bản được chọn
+
+# STYLEREF field (#882)
+	Insert paragraph number	Chèn số đoạn văn
+	Insert paragraph number in full context	Chèn số đoạn văn trong ngữ cảnh đầy đủ
+	Insert paragraph number in relative context	Chèn số đoạn văn trong ngữ cảnh tương đối
+	Insert position (above or below)	Chèn vị trí (phía trên hoặc phía dưới)
+	Search from bottom of page to top	Tìm từ cuối trang lên đầu
+	Style name:	Tên kiểu:
+	Suppress all non-delimiter characters	Bỏ mọi ký tự không phải dấu phân cách
+	Text of the nearest paragraph with a given style (running headers)	Văn bản của đoạn gần nhất có kiểu đã cho (đầu trang chạy)

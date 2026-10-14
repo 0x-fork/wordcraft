@@ -2083,6 +2083,14 @@
 	Automatic ({region})	Automatique ({region})
 	Picture	Image
 	Pastes the clipboard's picture.	Colle l'image du Presse-papiers.
+	Text of the nearest paragraph with a given style (running headers)	Texte du paragraphe le plus proche ayant un style donné (titres courants)
+	Style name:	Nom du style :
+	Search from bottom of page to top	Rechercher du bas vers le haut de la page
+	Insert paragraph number	Insérer le numéro de paragraphe
+	Insert paragraph number in relative context	Insérer le numéro de paragraphe en contexte relatif
+	Insert paragraph number in full context	Insérer le numéro de paragraphe en contexte complet
+	Suppress all non-delimiter characters	Supprimer tous les caractères autres que les séparateurs
+	Insert position (above or below)	Insérer la position (au-dessus ou au-dessous)
 	Select Column	Sélectionner la colonne
 	Select Table Cells by Clicking	Sélectionner des cellules du tableau en cliquant
 	Insert Row or Column by Clicking	Insérer une ligne ou une colonne en cliquant

@@ -2081,6 +2081,14 @@
 	Correct accidental usage of cAPS LOCK key	Unbeabsichtigtes Verwenden der fESTSTELLTASTE korrigieren
 	Region:	Region:
 	Automatic ({region})	Automatisch ({region})
+	Text of the nearest paragraph with a given style (running headers)	Text des nächsten Absatzes mit einer bestimmten Formatvorlage (lebende Kolumnentitel)
+	Style name:	Formatvorlagenname:
+	Search from bottom of page to top	Seite von unten nach oben durchsuchen
+	Insert paragraph number	Absatznummer einfügen
+	Insert paragraph number in relative context	Absatznummer in relativem Kontext einfügen
+	Insert paragraph number in full context	Absatznummer in vollständigem Kontext einfügen
+	Suppress all non-delimiter characters	Alle Zeichen außer Trennzeichen unterdrücken
+	Insert position (above or below)	Position einfügen (oberhalb oder unterhalb)
 	Search	Suchen
 	Title Bar	Titelleiste
 	Copy to	Kopieren nach

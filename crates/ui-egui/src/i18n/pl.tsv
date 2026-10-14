@@ -2123,6 +2123,14 @@
 	Correct accidental usage of cAPS LOCK key	Poprawiaj przypadkowe użycie klawisza cAPS LOCK
 	Region:	Region:
 	Automatic ({region})	Automatycznie ({region})
+	Text of the nearest paragraph with a given style (running headers)	Tekst najbliższego akapitu o danym stylu (żywa pagina)
+	Style name:	Nazwa stylu:
+	Search from bottom of page to top	Szukaj od dołu strony do góry
+	Insert paragraph number	Wstaw numer akapitu
+	Insert paragraph number in relative context	Wstaw numer akapitu w kontekście względnym
+	Insert paragraph number in full context	Wstaw numer akapitu w pełnym kontekście
+	Suppress all non-delimiter characters	Pomiń wszystkie znaki niebędące ogranicznikami
+	Insert position (above or below)	Wstaw położenie (powyżej lub poniżej)
 
 # Style, table style, watermark, paper size and equation gallery names, from #750 by @olekkut
 	AaBbCcDd	AaBbCcDd

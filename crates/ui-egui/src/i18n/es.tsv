@@ -2447,6 +2447,14 @@ preview	Title	Título
 	Other Large Operators	Otros operadores grandes
 	Region:	Región:
 	Automatic ({region})	Automático ({region})
+	Text of the nearest paragraph with a given style (running headers)	Texto del párrafo más cercano con un estilo dado (encabezados variables)
+	Style name:	Nombre del estilo:
+	Search from bottom of page to top	Buscar desde el final de la página hacia el principio
+	Insert paragraph number	Insertar número de párrafo
+	Insert paragraph number in relative context	Insertar número de párrafo en contexto relativo
+	Insert paragraph number in full context	Insertar número de párrafo en contexto completo
+	Suppress all non-delimiter characters	Suprimir todos los caracteres que no sean delimitadores
+	Insert position (above or below)	Insertar posición (encima o debajo)
 	Start-up	Inicio de la aplicación
 	Show the Start screen when WordCraft starts	Mostrar la pantalla de inicio al abrir WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Activado: WordCraft se abre en Archivo › Inicio, con un documento en blanco, las plantillas y tus documentos recientes. Desactivado: abre un documento en blanco.

@@ -267,6 +267,12 @@ pub struct Counters {
 }
 
 impl Counters {
+    /// The current value of each level of `num`'s list (0 for a level not counted yet).
+    pub fn values(&self, numbering: &Numbering, num: u32) -> Option<[u32; 9]> {
+        let abs = numbering.abstract_of(num)?;
+        Some(self.state.get(&abs.id).copied().unwrap_or([0; 9]))
+    }
+
     /// Advance the counter for `num`/`level` and return the label (`"1."`, `"a)"`, `"•"`).
     pub fn next_label(&mut self, numbering: &Numbering, num: u32, level: u8) -> Option<(String, Level)> {
         let n = numbering.num(num)?;

@@ -2463,6 +2463,14 @@ preview	Title	Örnek
 	AutoFit Column by Double-Clicking	Sütunu Çift Tıklayarak Otomatik Sığdır
 	Region:	Bölge:
 	Automatic ({region})	Otomatik ({region})
+	Text of the nearest paragraph with a given style (running headers)	Belirli bir stile sahip en yakın paragrafın metni (değişken üstbilgiler)
+	Style name:	Stil adı:
+	Search from bottom of page to top	Sayfanın altından üstüne doğru ara
+	Insert paragraph number	Paragraf numarası ekle
+	Insert paragraph number in relative context	Paragraf numarasını göreli bağlamda ekle
+	Insert paragraph number in full context	Paragraf numarasını tam bağlamda ekle
+	Suppress all non-delimiter characters	Ayırıcı olmayan tüm karakterleri gizle
+	Insert position (above or below)	Konum ekle (yukarıda veya aşağıda)
 	Start-up	Başlangıç
 	Show the Start screen when WordCraft starts	WordCraft açılırken Başlangıç ekranını göster
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Açık: WordCraft, Dosya › Giriş sayfasında boş belge, şablonlar ve son belgelerinizle açılır. Kapalı: boş bir belge açar.

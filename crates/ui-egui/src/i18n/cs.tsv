@@ -2466,6 +2466,14 @@ preview	Title	Ukázka
 	Correct accidental usage of cAPS LOCK key	Opravovat náhodné použití klávesy cAPS LOCK
 	Region:	Oblast:
 	Automatic ({region})	Automaticky ({region})
+	Text of the nearest paragraph with a given style (running headers)	Text nejbližšího odstavce s daným stylem (živá záhlaví)
+	Style name:	Název stylu:
+	Search from bottom of page to top	Hledat od konce stránky k začátku
+	Insert paragraph number	Vložit číslo odstavce
+	Insert paragraph number in relative context	Vložit číslo odstavce v relativním kontextu
+	Insert paragraph number in full context	Vložit číslo odstavce v úplném kontextu
+	Suppress all non-delimiter characters	Potlačit všechny znaky kromě oddělovačů
+	Insert position (above or below)	Vložit pozici (nad nebo pod)
 	Search	Hledat
 	Title Bar	Záhlaví okna
 	Copy to	Kopírovat do
