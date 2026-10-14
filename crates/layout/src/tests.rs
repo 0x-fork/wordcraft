@@ -764,6 +764,33 @@ fn table_style_borders_survive_empty_tbl_borders() {
     assert!(rules_on_page0(&l).len() >= 8, "rules {:?}", rules_on_page0(&l));
 }
 
+/// Thick borders meet in closed corners: a horizontal edge starts at the outer side of the
+/// vertical edge it meets, not at its centre line.
+#[test]
+fn table_border_corners_close() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(2, 2, 468.0);
+    let thick = Some(Border::single(3.0));
+    for r in &mut t.rows {
+        for c in &mut r.cells {
+            c.props.borders = Some(Borders { top: thick, left: thick, bottom: thick, right: thick, ..Borders::default() });
+        }
+    }
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let (mut h_left, mut v_left) = (f32::MAX, f32::MAX);
+    for it in &l.pages[0].items {
+        if let Placed::Rule { x0, y0, x1, y1, .. } = it {
+            if y0 == y1 {
+                h_left = h_left.min(x0.min(*x1));
+            } else if x0 == x1 {
+                v_left = v_left.min(*x0);
+            }
+        }
+    }
+    assert!((h_left - (v_left - 1.5)).abs() < 0.01, "horizontal starts at {h_left}, vertical centre line at {v_left}");
+}
+
 #[test]
 fn table_own_border_overrides_only_that_side() {
     let mut d = Document::from_text("before\nafter");
