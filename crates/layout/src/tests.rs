@@ -3553,6 +3553,38 @@ fn unequal_formats_lay_out_in_linear_time() {
 }
 
 #[test]
+fn formats_past_65536_in_a_paragraph_keep_their_own_style() {
+    // More distinct formats than a 16-bit index counts (the paragraph mark takes a style too): every
+    // run past that limit still draws with its own link, deletion and size, not an earlier run's.
+    let n = usize::from(u16::MAX) + 3;
+    let props = |i: usize| wordcraft_doc::CharProps {
+        link: Some(format!("#r{i}")),
+        del: (i % 2 == 1).then_some(0),
+        size: Some(if i.is_multiple_of(3) { 9.0 } else { 11.0 }),
+        ..Default::default()
+    };
+    let mut p = wordcraft_doc::Paragraph::with_text("", Default::default());
+    p.text = "ab ".repeat(n);
+    p.runs = (0..n).map(|i| wordcraft_doc::Run { len: 3, props: props(i) }).collect();
+    let mut d = Document::from_text("");
+    d.body = vec![wordcraft_doc::para_block(p)];
+    let l = lay(&d);
+    let Some(Placed::Lines { para, .. }) = l.pages.iter().flat_map(|pg| pg.items.iter()).find(|i| matches!(i, Placed::Lines { .. })) else {
+        panic!("no lines")
+    };
+    assert!(para.styles.len() > n, "{} styles for {n} formats", para.styles.len());
+    let mut last = 0;
+    for c in &para.clusters {
+        let i = c.start / 3;
+        let rc = &para.styles[c.style as usize].rc;
+        let want = props(i);
+        assert_eq!((&rc.link, rc.del, rc.size), (&want.link, want.del, want.size.unwrap()), "run {i}");
+        last = last.max(i);
+    }
+    assert_eq!(last, n - 1);
+}
+
+#[test]
 fn hidden_float_in_a_table_cell_takes_no_room() {
     use wordcraft_doc::para::{Anchor, Float, Wrap};
     // A square-wrapped shape anchored in hidden text inside a table cell, beside wrapping text.
