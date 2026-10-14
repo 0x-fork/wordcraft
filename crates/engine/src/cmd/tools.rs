@@ -647,7 +647,8 @@ pub fn specs() -> Vec<CommandSpec> {
             } else {
                 "select.all"
             };
-            s.run(id, &json!({}))
+            let params = if id == "select.all" { json!({"whole": true}) } else { json!({}) };
+            s.run(id, &params)
         })
         .key("F8")
         .pure(),

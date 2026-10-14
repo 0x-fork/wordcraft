@@ -944,7 +944,9 @@ impl WordApp {
             self.canvas.read_first_visible = None;
         }
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
-        if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
+        if self.session.selects_whole_story() || id == "select.all" {
+            self.canvas.scroll_to_caret = false;
+        } else if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
             self.canvas.scroll_to_caret = true;
         }
         for req in std::mem::take(&mut self.session.ui_requests) {
@@ -4993,6 +4995,20 @@ mod tests {
         keeps_view(&mut a, "draw.stroke", json!({"page": 0, "points": [[300, 500], [400, 500]], "tool": "pencil"}));
         keeps_view(&mut a, "draw.erase", json!({"page": 0, "x": 350, "y": 500}));
         a.canvas.scroll_to_caret = false;
+        a.run("text.insert", json!({"text": "x"})).unwrap();
+        assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
+    }
+
+    #[test]
+    fn select_all_does_not_scroll_to_the_end() {
+        let mut a = typed();
+        a.canvas.scroll_to_caret = true;
+        a.run("select.all", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
+        a.run("format.bold", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
+        a.run("edit.copy", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
         a.run("text.insert", json!({"text": "x"})).unwrap();
         assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
     }

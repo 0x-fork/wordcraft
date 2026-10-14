@@ -799,7 +799,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let caret = layout.caret_on(&app.session.sel_ends().focus, app.session.page_hint);
     // Editing a header/footer (or a note) dims the body; once per frame, for every page.
     let dim_body = dims_body(app, &layout);
-    if let Some(c) = caret {
+    if let Some(c) = caret
+        && !app.session.selects_whole_story()
+    {
         app.session.page_hint = c.page;
     }
     let mut scroll_target: Option<Rect> = None;
@@ -1941,7 +1943,8 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
                     "paragraph" => "select.paragraph",
                     _ => "select.line",
                 };
-                let _ = app.run(id, json!({}));
+                let params = if id == "select.all" { json!({"whole": true}) } else { json!({}) };
+                let _ = app.run(id, params);
                 let (start, end) = app.session.sel.ordered();
                 (unit, start, end)
             };

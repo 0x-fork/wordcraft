@@ -747,6 +747,40 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"result": text}))
 }
 
+/// Ctrl+A in a table, as in Word: the cell, then its row, then the table. A nested table that
+/// is already fully selected grows to the cell around it. Returns `None` when the next step is
+/// the whole story (not in a table, or the top-level table is already selected).
+pub(crate) fn grow_select_all(s: &mut Session) -> Option<CmdResult> {
+    let story = s.sel.focus.story;
+    if let Some(cr) = s.cell_range().filter(|cr| cr.story == story).cloned() {
+        let tp = cr.table.clone();
+        let (last_row, last_col, one_cell) = {
+            let t = s.doc.table(story, &tp)?;
+            let last_row = t.rows.len().saturating_sub(1);
+            let last_col = t.cols().saturating_sub(1);
+            let one_cell = cr.rows.0 == cr.rows.1
+                && t.rows.get(cr.rows.0).is_some_and(|row| (0..row.cells.len()).any(|c| grid_cols(t, cr.rows.0, c) == cr.cols));
+            (last_row, last_col, one_cell)
+        };
+        if cr.rows == (0, last_row) && cr.cols == (0, last_col) {
+            return tp.cell().map(|(otp, or, oc)| select_cells(s, &otp, Some((or, Some(oc)))));
+        }
+        if cr.rows.0 == cr.rows.1 && cr.cols == (0, last_col) {
+            return Some(select_cells(s, &tp, None));
+        }
+        if one_cell {
+            return Some(select_cells(s, &tp, Some((cr.rows.0, None))));
+        }
+        return Some(select_cells(s, &tp, None));
+    }
+    let (a, b) = s.sel.ordered();
+    let (tp, r, c) = a.path.cell()?;
+    if b.path.cell() != Some((tp.clone(), r, c)) {
+        return None;
+    }
+    Some(select_cells(s, &tp, Some((r, Some(c)))))
+}
+
 fn select_cells(s: &mut Session, tp: &Path, which: Option<(usize, Option<usize>)>) -> CmdResult {
     let story = s.sel.focus.story;
     let Some(t) = s.doc.table(story, tp) else { return sel_result(s) };

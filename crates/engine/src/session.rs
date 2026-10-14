@@ -691,6 +691,12 @@ impl Session {
         self.widened.as_ref().filter(|w| w.sel == self.sel).map_or(&self.sel, |w| &w.ends)
     }
 
+    pub fn selects_whole_story(&self) -> bool {
+        let st = self.sel.focus.story;
+        let (a, b) = self.sel.ordered();
+        a == self.doc.start_of(st) && b == self.doc.end_of(st)
+    }
+
     /// Document revision (bumped by every change).
     pub fn rev(&self) -> u64 {
         self.rev
