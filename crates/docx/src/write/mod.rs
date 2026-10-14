@@ -189,8 +189,28 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:document", &ns_refs);
-    if let Some(c) = doc.settings.page_color {
-        w.empty("w:background", &[("w:color", &c.hex())]);
+    let pic = doc.settings.page_picture.as_ref().filter(|p| wr.media_files.contains_key(&p.media) && doc.media.contains_key(&p.media));
+    if pic.is_some() || doc.settings.page_color.is_some() {
+        let color = doc.settings.page_color.map(|c| c.hex());
+        let attrs: Vec<(&str, &str)> = color.iter().map(|c| ("w:color", c.as_str())).collect();
+        w.open("w:background", &attrs);
+        if let Some(p) = pic
+            && let Some(file) = wr.media_files.get(&p.media)
+        {
+            let rid = rels.add(rt::IMAGE, &format!("media/{file}"), false);
+            wr.used_media.insert(p.media.clone());
+            w.open("v:background", &[("id", "_x0000_s1025"), ("o:bwmode", "white")]);
+            let mut fa: Vec<(&str, &str)> = vec![("r:id", &rid)];
+            if !p.fill_type.is_empty() {
+                fa.push(("type", &p.fill_type));
+            }
+            if !p.title.is_empty() {
+                fa.push(("o:title", &p.title));
+            }
+            w.empty("v:fill", &fa);
+            w.close("v:background");
+        }
+        w.close("w:background");
     }
     w.open("w:body", &[]);
     wr.blocks(&mut w, &doc.body, &mut rels, true, 0);
@@ -912,7 +932,7 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     if s.remove_date_time {
         w.empty("w:removeDateAndTime", &[]);
     }
-    if s.page_color.is_some() {
+    if s.page_color.is_some() || s.page_picture.is_some() {
         w.empty("w:displayBackgroundShape", &[]);
     }
     if s.mirror_margins {

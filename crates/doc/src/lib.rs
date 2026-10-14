@@ -433,6 +433,8 @@ pub struct Settings {
     /// Most consecutive lines that may end with a hyphen (`w:consecutiveHyphenLimit`); 0 = no limit.
     pub consecutive_hyphen_limit: u32,
     pub page_color: Option<Rgb>,
+    /// Picture or texture page background (Design › Page Color › Fill Effects), drawn over the colour.
+    pub page_picture: Option<PagePicture>,
     pub watermark: Option<Watermark>,
     /// Theme fonts (major = headings, minor = body).
     pub major_font: String,
@@ -525,6 +527,18 @@ pub const DEFAULT_HYPHENATION_ZONE: f32 = 18.0;
 /// ECMA-376 §17.15.1.44/45: 180 twentieths of a point when a document doesn't say.
 pub const DEFAULT_GRID: f32 = 9.0;
 
+/// A picture fill for the page background (`v:background/v:fill` with an image).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PagePicture {
+    /// Key into [`Document::media`].
+    pub media: String,
+    /// `v:fill/@type` (`tile`, `frame`, `tile`...); tiled when `tile`, stretched to the page otherwise.
+    pub fill_type: String,
+    /// `o:title` of the fill (texture name), kept for round trip.
+    pub title: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Watermark {
@@ -569,6 +583,7 @@ impl Default for Settings {
             hyphenate_caps: true,
             consecutive_hyphen_limit: 0,
             page_color: None,
+            page_picture: None,
             watermark: None,
             major_font: styles::HEADING_FONT.into(),
             minor_font: styles::BODY_FONT.into(),

@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-12 | Page background pictures and textures (Design › Page Color › Fill Effects) are drawn (tiled or stretched) and kept on save instead of being dropped from the package (#999); PDF export paints them too |
 | 2026-10-12 | Document title opens Rename Document; the account badge opens Options › General for user name and initials. `file.rename {name}` preserves file extensions and refuses an existing destination; unsaved names become the suggested save name without changing the Title property. |
 | 2026-10-13 | Rounded rectangles (#1476): a `roundRect` keeps the corner radius its file gives it (`adj`), on screen, in PDF and when saved; all were drawn with a 16% corner |
 | 2026-10-13 | PAGEREF in headers and footers (#1477): "Page X of Y" with Y a page reference to a bookmark at each letter's end shows each letter's own total instead of the result stored in the file |

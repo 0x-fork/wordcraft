@@ -2239,3 +2239,24 @@ fn replace_part(zip_bytes: &[u8], name: &str, data: &[u8]) -> Vec<u8> {
     }
     out.finish().unwrap().into_inner()
 }
+
+/// A texture or picture page background (`v:background/v:fill`) survives a save (#999): the image
+/// part, its relationship and the fill attributes.
+#[test]
+fn page_background_picture_round_trips() {
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([200, 150, 100, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let mut d = Document::new();
+    d.settings.page_color = Some(Rgb(0xFF, 0xFF, 0xCC));
+    d.media.insert("paper.png".into(), Arc::new(png.clone()));
+    d.settings.page_picture = Some(wordcraft_doc::PagePicture { media: "paper.png".into(), fill_type: "tile".into(), title: "Paper".into() });
+    let r = rt(&d);
+    let pic = r.settings.page_picture.as_ref().expect("picture kept");
+    assert_eq!((pic.fill_type.as_str(), pic.title.as_str()), ("tile", "Paper"));
+    assert_eq!(r.media.get(&pic.media).map(|b| b.as_slice()), Some(png.as_slice()));
+    assert_eq!(r.settings.page_color, d.settings.page_color);
+    // Saved again, it is still there.
+    assert!(rt(&r).settings.page_picture.is_some());
+}

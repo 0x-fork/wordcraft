@@ -331,6 +331,37 @@ fn device_pixel(view: Affine) -> f64 {
     if scale.is_finite() && scale > 1e-9 { 1.0 / scale } else { 1.0 }
 }
 
+/// Largest page-background picture decoded, in pixels (hostile files).
+const MAX_BACKGROUND_PIXELS: u64 = 64 * 1024 * 1024;
+
+/// Draw the page's picture or texture fill (Design › Page Color › Fill Effects) behind the content:
+/// tiled at its natural size (96 dpi) for a `tile` fill, stretched over the page otherwise.
+fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view: Affine) {
+    let Some(pic) = &doc.settings.page_picture else { return };
+    let Some(bytes) = doc.media.get(&pic.media) else { return };
+    match image_size(bytes) {
+        Some((w, h)) if w > 0 && h > 0 && (w as u64) * (h as u64) <= MAX_BACKGROUND_PIXELS => {}
+        _ => return,
+    }
+    let Some(pm) = pixmap_for(doc, &pic.media) else { return };
+    let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
+    let (w, h) = (page.w as f64, (page.h as f64).min(1e6));
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return;
+    }
+    let tile = pic.fill_type.eq_ignore_ascii_case("tile");
+    let (sx, sy) = if tile { (0.75, 0.75) } else { (w / pw, h / ph) };
+    let extend = if tile { peniko::Extend::Repeat } else { peniko::Extend::Pad };
+    ctx.set_transform(view);
+    ctx.set_paint(vello_cpu::Image {
+        image: vello_cpu::ImageSource::Pixmap(pm),
+        sampler: peniko::ImageSampler::default().with_quality(peniko::ImageQuality::Medium).with_extend(extend),
+    });
+    ctx.set_paint_transform(Affine::scale_non_uniform(sx, sy));
+    ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w, h));
+    ctx.reset_paint_transform();
+}
+
 fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
     let bytes = doc.media.get(key)?;
     if let Some(v) = lock(images()).get(key, bytes) {
@@ -458,6 +489,7 @@ pub fn render_region(doc: &Document, page: &Page, w: u32, h: u32, view: Affine, 
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
     ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64));
+    draw_page_picture(&mut ctx, doc, page, view);
     let items = page_display(doc, page, &opts.display);
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     if let Some(wm) = &doc.settings.watermark {
@@ -1255,6 +1287,28 @@ mod tests {
         assert!(b as f64 > a as f64 * 1.08 && (b as f64) < a as f64 * 1.6, "plain {a}, darkened {b}");
         // Off by default: exports and thumbnails are untouched.
         assert!(!RenderOptions::default().text_darkening);
+    }
+
+    #[test]
+    fn page_picture_is_painted_behind_the_text() {
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 200, 30, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let mut d = Document::new();
+        d.media.insert("bg.png".into(), Arc::new(png));
+        for kind in ["tile", "frame"] {
+            d.settings.page_picture = Some(wordcraft_doc::PagePicture { media: "bg.png".into(), fill_type: kind.into(), title: String::new() });
+            let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+            let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+            let i = ((300 * img.width + 300) * 4) as usize;
+            assert_eq!(&img.pixels[i..i + 3], &[10, 200, 30], "{kind}");
+        }
+        // An undecodable picture leaves the paper alone.
+        d.media.insert("bg.png".into(), Arc::new(b"junk".to_vec()));
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+        assert_eq!(&img.pixels[0..3], &[255, 255, 255]);
     }
 
     #[test]
