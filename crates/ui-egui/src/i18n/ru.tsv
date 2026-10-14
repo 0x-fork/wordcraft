@@ -2513,3 +2513,10 @@ preview	Title	Пример
 	Suggested	Предлагаемые
 	Set Proofing Language…	Выбрать язык проверки правописания…
 	Language Preferences…	Языковые параметры…
+
+# Cross-reference dialog (#1003)
+	For which item:	Для какого элемента:
+	Heading	Заголовок
+	Heading text	Текст заголовка
+	Insert reference to:	Вставить ссылку на:
+	Reference type:	Тип ссылки:

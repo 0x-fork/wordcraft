@@ -2503,3 +2503,10 @@
 	Suggested	Предложения
 	Set Proofing Language…	Задаване на езика за проверка…
 	Language Preferences…	Езикови предпочитания…
+
+# Cross-reference dialog (#1003)
+	For which item:	За кой елемент:
+	Heading	Заглавие
+	Heading text	Текст на заглавието
+	Insert reference to:	Вмъкване на препратка към:
+	Reference type:	Тип препратка:

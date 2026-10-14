@@ -2532,3 +2532,10 @@
 # Alignment guides (#1519)
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Đối tượng được di chuyển sẽ bắt vào mép và tâm trang, lề và các đối tượng khác. Giữ Alt để di chuyển tự do.
 	Show alignment guides when moving pictures and shapes	Hiện đường căn chỉnh khi di chuyển ảnh và hình
+
+# Cross-reference dialog (#1003)
+	For which item:	Cho mục nào:
+	Heading	Đề mục
+	Heading text	Văn bản đề mục
+	Insert reference to:	Chèn tham chiếu tới:
+	Reference type:	Loại tham chiếu:

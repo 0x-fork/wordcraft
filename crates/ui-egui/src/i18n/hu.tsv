@@ -2512,3 +2512,10 @@
 	Set Proofing Language…	Nyelvi ellenőrzés nyelvének beállítása…
 	Language Preferences…	Nyelvi beállítások…
 	Title Bar	Címsáv
+
+# Cross-reference dialog (#1003)
+	For which item:	Melyik elemhez:
+	Heading	Címsor
+	Heading text	Címsor szövege
+	Insert reference to:	Hivatkozás beszúrása erre:
+	Reference type:	Hivatkozás típusa:

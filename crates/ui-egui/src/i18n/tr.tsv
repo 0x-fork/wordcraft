@@ -2512,3 +2512,10 @@ preview	Title	Örnek
 	Suggested	Önerilenler
 	Set Proofing Language…	Yazım denetimi dilini ayarla…
 	Language Preferences…	Dil tercihleri…
+
+# Cross-reference dialog (#1003)
+	For which item:	Hangi öğe için:
+	Heading	Başlık
+	Heading text	Başlık metni
+	Insert reference to:	Başvuru ekle:
+	Reference type:	Başvuru türü:

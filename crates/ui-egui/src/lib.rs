@@ -2127,6 +2127,8 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
             Some(if id == "references.caption" { "caption" } else { "index" })
         }
         "references.markEntry" if !has("entry") => Some("markEntry"),
+        // Cross-reference without a target shows its dialog (#916); scripts get the target list.
+        "insert.crossReference" if !has("target") => Some("crossReference"),
         "references.sources" if params.as_object().is_none_or(|m| m.is_empty()) => Some("sourceManager"),
         "references.citation" if !has("tag") && !has("source") => Some("createSource"),
         // Templates and Add-ins, and the Organizer without a file to list (#377).
