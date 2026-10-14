@@ -2561,10 +2561,43 @@ fn modify_style_takes_hex_colours_like_format_color() {
     assert_eq!(color(&s), Some(red));
     assert_eq!(s.doc.styles.resolve_char(Some("Heading1"), &CharProps::default()).color, red);
 
-    for bad in [json!("1B16"), json!("not a colour"), json!({"Rgb": "1B1611"}), json!(7)] {
+    for bad in [json!("1B16"), json!("not a colour"), json!({"Rgb": "1B16"}), json!(7)] {
         let r = modify(&mut s, bad.clone());
         assert!(matches!(r, Err(crate::CmdError::Params(_))), "{bad}: {r:?}");
         assert_eq!(color(&s), Some(red), "{bad} leaves the style alone");
+    }
+    modify(&mut s, json!({"Rgb": "1B1611"})).unwrap();
+    assert_eq!(color(&s), Some(TextColor::Rgb(Rgb(0x1B, 0x16, 0x11))), "the hex string also reads inside {{\"Rgb\": …}}");
+}
+
+/// #865: the other colours in CharProps and ParaProps (`underlineColor`, `shading`, a border's
+/// `color`) take `RRGGBB` / `#RRGGBB` like `para.borders` and `table.shading`, and still `[r, g, b]`.
+#[test]
+fn props_colours_take_hex_strings() {
+    use wordcraft_doc::{Pos, Rgb};
+    let ink = Rgb(0x1B, 0x16, 0x11);
+    let mut s = s();
+    run(
+        &mut s,
+        "styles.modify",
+        json!({"style": "Heading1",
+            "chr": {"underlineColor": "1B1611", "shading": "#1b1611", "border": {"style": "single", "width": 1, "color": "1B1611"}},
+            "para": {"shading": "1B1611", "borders": {"bottom": {"style": "single", "width": 1, "color": "#1B1611"}}}}),
+    );
+    let st = s.doc.styles.get("Heading1").unwrap();
+    assert_eq!((st.chr.underline_color, st.chr.shading, st.chr.border.and_then(|b| b.color)), (Some(ink), Some(ink), Some(ink)));
+    assert_eq!((st.para.shading, st.para.borders.and_then(|b| b.bottom).and_then(|b| b.color)), (Some(ink), Some(ink)));
+
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "para.set", json!({"props": {"shading": "C00000"}}));
+    assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.shading, Some(Rgb(0xC0, 0, 0)));
+    run(&mut s, "para.set", json!({"props": {"shading": [1, 2, 3]}}));
+    assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.shading, Some(Rgb(1, 2, 3)), "[r, g, b] still reads");
+
+    for bad in [json!("C0000"), json!("auto"), json!([1, 2]), json!([1, 2, 300]), json!(7)] {
+        let r = s.run("para.set", &json!({"props": {"shading": bad}}));
+        assert!(matches!(r, Err(crate::CmdError::Params(_))), "{bad}: {r:?}");
+        assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.shading, Some(Rgb(1, 2, 3)), "{bad} changes nothing");
     }
 }
 
