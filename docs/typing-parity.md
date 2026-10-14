@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** minor (Alt+numpad character codes, #961; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** trivial (Alt+numpad character codes, #961; previously trivial: text typed just after a field goes outside it, #898; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -100,6 +100,9 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
   isn't linked; typing inside it is. Linking a whole paragraph doesn't link its mark, so the
   paragraphs Enter makes from it aren't links (#413; `a_link_covers_only_its_own_text`,
   `typing_at_either_end_of_a_link_is_not_linked`).
+- A field covers only its own result: text typed or pasted with the caret just after a field
+  (a Zotero citation at the end of a paragraph, the caret put there with a click) goes after
+  the field, not into its result (#898; `typing_after_a_citation_goes_outside_its_field`).
 - Enter after `---` `===` `***` `___` `~~~` `###` → a bottom border on the paragraph above
   (single, double, dotted, thick, wave, triple) (`border_line_autoformat`). ⌘Z right after brings the
   characters back and removes the border; the Enter stays (one undo step) ¹
@@ -187,6 +190,7 @@ Word.
 |---|---|---|
 | 2026-10-12 | trivial | Sample-text formulas on Enter (#1067), exact matching, bounded parameters, original English and one-step undo |
 | 2026-10-13 | minor | Alt+numpad decimal character codes: the ANSI code page with a leading 0, the OEM page without (the system locale's on Windows: 1250–1254, 437/737/850/852/857/866), Unicode above 255 (#961) |
+| 2026-10-13 | trivial | Fields: text typed or pasted just after a field (a Zotero citation) goes outside it (#898) |
 | 2026-10-12 | trivial | Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864) |
 | 2026-10-12 | minor | AutoCorrect: Correct TWo INitial CApitals, accidental cAPS LOCK, capitalize first letter of table cells (#544) |
 | 2026-10-11 | minor | Text direction: right-to-left letters typed into an empty paragraph make it right-to-left; existing paragraphs keep theirs (#713) |

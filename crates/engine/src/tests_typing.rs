@@ -1015,3 +1015,30 @@ fn typing_rtl_letters_into_an_empty_paragraph_makes_it_rtl() {
     let x = doc.layout().caret(&doc.sel.focus).map(|c| c.x).unwrap_or(f32::MAX);
     assert!(x < 300.0, "left-to-right paragraph: caret at {x}");
 }
+
+/// #898: a click just after a citation at the end of a paragraph puts the caret before the
+/// citation's hidden field end; what is typed there goes after the citation, as in Word, instead
+/// of into its result (Zotero then reports the citation as edited by hand).
+#[test]
+fn typing_after_a_citation_goes_outside_its_field() {
+    use wordcraft_doc::props::CharProps;
+    use wordcraft_doc::{InlineObject, Path};
+    let mut doc = wordcraft_doc::Document::from_text("Cats purr ");
+    let c = CharProps::default();
+    let p = doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    let start = p.len();
+    p.insert_object(start, InlineObject::FieldStart { instr: "ADDIN ZOTERO_ITEM CSL_CITATION {}".into(), locked: false }, &c).unwrap();
+    let n = p.insert_text(p.len(), "(Smith 2020)", &c).unwrap();
+    p.insert_object(start + 3 + n, InlineObject::FieldEnd, &c).unwrap();
+    let mut s = Session::new(doc);
+    let end = Pos::body(0, s.doc.para(StoryRef::Body, &Path::top(0)).unwrap().len());
+    let at = s.layout().caret(&end).unwrap();
+    let hit = s.layout().hit(at.page, at.x + 20.0, at.top + at.height / 2.0, StoryRef::Body).unwrap();
+    s.sel = crate::Selection::caret(hit);
+    typ(&mut s, ". Dogs bark.");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Cats purr (Smith 2020). Dogs bark.");
+    let f = s.doc.field_ranges(StoryRef::Body);
+    assert_eq!(f.len(), 1);
+    let inside = Pos { off: f[0].start.off + wordcraft_doc::para::OBJ.len_utf8(), ..f[0].start.clone() };
+    assert_eq!(s.doc.copy_range(&inside, &f[0].end).plain_text(), "(Smith 2020)");
+}
