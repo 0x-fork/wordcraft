@@ -355,7 +355,10 @@ mod tests {
     fn hebrew_fonts_substitute_hebrew_faces() {
         for f in ["David", "Miriam", "Arial Hebrew", "Calibri Hebrew", "Noto Sans Hebrew"] {
             assert!(substitutes(f).contains(&"Noto Sans Hebrew"), "{f}");
-            assert!(substitutes(f).contains(&"David") || f == "David", "{f}");
+            // David is a Windows font; only the Windows list offers it.
+            if cfg!(target_os = "windows") {
+                assert!(substitutes(f).contains(&"David") || f == "David", "{f}");
+            }
         }
         // Generic names with "Hebrew" in them also get Hebrew substitutions
         assert!(substitutes("SomeFont Hebrew").contains(&"Noto Sans Hebrew"));
