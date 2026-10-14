@@ -3293,6 +3293,63 @@ mod tests {
         assert!(!a.session.sel.is_collapsed(), "the drag left a selection");
     }
 
+    /// Issue #1388: the mouse wheel did nothing while a selection was being dragged, so a passage
+    /// longer than the screen couldn't be selected in one go.
+    #[test]
+    fn wheel_scrolls_the_view_while_drag_selecting() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(1200)})).unwrap();
+        // Start at the top: typing left the caret (and the view) at the end.
+        a.run("caret.docStart", json!({})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let (Some(vp), Some(page)) = (a.canvas.viewport, a.canvas.page_rects.first()) else { panic!("the canvas laid out") };
+        let start = page.left_top() + egui::vec2(120.0, 150.0);
+        frame(&mut a, vec![egui::Event::PointerMoved(start)]);
+        frame(
+            &mut a,
+            vec![egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }],
+        );
+        // Drag to the middle of the view, well away from the edges that auto-scroll.
+        let mid = vp.center();
+        for _ in 0..5 {
+            frame(&mut a, vec![egui::Event::PointerMoved(mid)]);
+        }
+        assert!(a.canvas.drag_selecting(), "the press started a drag-select");
+        assert_eq!(a.canvas.scroll_offset.y, 0.0, "nothing scrolled before the wheel");
+        let base = a.session.sel.focus.clone();
+        let wheel = egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, -3.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(&mut a, vec![egui::Event::PointerMoved(mid), wheel]);
+        for _ in 0..30 {
+            frame(&mut a, vec![egui::Event::PointerMoved(mid)]);
+        }
+        assert!(a.canvas.scroll_offset.y > 0.0, "the wheel scrolled the view during the drag");
+        assert!(a.session.sel.focus > base, "the selection followed the content under the pointer");
+        frame(
+            &mut a,
+            vec![egui::Event::PointerButton { pos: mid, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+        );
+        assert!(!a.session.sel.is_collapsed(), "the drag left a selection");
+    }
+
     /// #1013: a press inside the selected comment's balloon (to move the caret in its text) left
     /// the balloon, because the canvas under it also "contained" the pointer.
     #[test]

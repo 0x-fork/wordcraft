@@ -894,7 +894,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // momentum, wheel notches eased in (or all at once with animation effects off). Applied
     // before drawing, so it shows this frame. In reading mode, wheel and touchpad events turn
     // whole columns instead.
-    let hovered = ui.rect_contains_pointer(area) && ui.ctx().dragged_id().is_none();
+    let hovered = wheel_hovered(ui.rect_contains_pointer(area), ui.ctx().dragged_id().is_some(), app.canvas.drag_selecting());
     let notch = crate::scroll::notch_px(app.canvas.scale / PX_PER_PT);
     let wheel_delta = if app.session.view.read_mode {
         let turns = ui.input(|i| read_wheel_turns(&i.events, hovered, &mut app.canvas.read_wheel_accum));
@@ -1835,6 +1835,12 @@ pub fn nearest_page(rects: &[Rect], p: Pos2) -> Option<usize> {
         }
     }
     best.map(|(i, _)| i)
+}
+
+/// Whether wheel input counts as being over the canvas. Another widget's drag (a scrollbar, say)
+/// owns the wheel, but a drag-select on the canvas itself keeps scrolling so a long passage can be selected.
+fn wheel_hovered(over_canvas: bool, any_drag: bool, drag_selecting: bool) -> bool {
+    over_canvas && (!any_drag || drag_selecting)
 }
 
 /// The drag auto-scroll along one axis for a pointer at `p` inside the viewport band `lo..hi`, in
@@ -2838,6 +2844,14 @@ fn is_followable_link(url: &str) -> bool {
 mod tests {
     use super::*;
     use crate::table_resize::tests::{H, cell, screen, steps, table_window};
+
+    #[test]
+    fn wheel_scrolls_while_drag_selecting() {
+        assert!(wheel_hovered(true, false, false));
+        assert!(wheel_hovered(true, true, true), "wheel keeps scrolling during a drag-select");
+        assert!(!wheel_hovered(true, true, false), "another widget's drag still owns the wheel");
+        assert!(!wheel_hovered(false, true, true));
+    }
 
     #[test]
     fn reading_animation_eases_then_lands_exactly_on_column_start() {
