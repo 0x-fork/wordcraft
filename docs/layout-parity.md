@@ -62,9 +62,9 @@ font can't match Word's metrics.
 | Equations: display layout, numbering, wrapping long display equations | ✅ | #191; long display equations break at top-level operators (`m:brkBin`, `m:brkBinSub`), manual breaks and `m:alnAt`, continuation lines indented by `m:wrapIndent` or set right (`m:wrapRight`) (#326) | — |
 | Hidden text excluded from breaking and hyphenation | ✅ | #173 | — |
 | Fields: PAGE, NUMPAGES, SECTIONPAGES, TOC page numbers | ✅ | #52; totals in the body need a second pass once the page count is known (#451) | — |
+| Compatibility modes (Word 2003/2007/2010 layout for old files: `w:compat` options) | 🟡 | `allowSpaceOfSameStyleInTable` supported in modes 11/12/14; mode 15 retains contextual suppression. Most other legacy compat options remain ignored | 10–20 |
 | Fields: STYLEREF in headers and footers (running chapter titles) | ✅ | Evaluated per page at layout time: the page's first (or with `\l` last) paragraph of the style, else the nearest before it; style name, id or heading level; character styles; `\n \r \w \s \t \p` (`\r` treated as `\w`); body STYLEREF updated with the other fields (#775) | — |
 | Fields: PAGE, NUMPAGES, SECTIONPAGES, TOC page numbers, PAGEREF in headers and footers | ✅ | #52; totals in the body need a second pass once the page count is known (#451); a PAGE field in a paragraph that runs onto a later page (a page break inside it, or a natural split) shows that page's number, the rest of the paragraph broken again for the wider result (#1352); PAGEREF in headers and footers shows its bookmark's page, filled in after pagination like their totals (#1477); in the body it keeps its result until fields are updated | — |
-| Compatibility modes (Word 2003/2007/2010 layout for old files: `w:compat` options) | 🟡 | mode 15 behaviour; the ~60 legacy compat options are mostly ignored | 10–20 |
 | Page-by-page comparison harness against Word | ❌ | Run Word locally on our own synthetic documents, export PDF, compare line breaks; Word output stays under `plan/` (never committed) | 8–12 |
 
 ## List-label line spacing
@@ -94,6 +94,32 @@ so CI does not require those installed fonts. Inline pictures retain their exist
 Picture bullets are not implemented, and the private Linux Symbol substitution report has not
 been reproduced. Absolute baseline-leading placement remains the separate #108 contribution.
 This narrows gap #4 without raising the overall readiness estimate.
+
+## Legacy table contextual spacing
+
+Observed in Word for Mac 16.113.3 (build 26092714) on macOS 26.6.2, using
+original synthetic DOCX files, Roboto Regular 12 pt, exactly 24 pt lines, equal paragraph
+styles, both paragraphs contextual, first paragraph after-space 12 pt and before-space 0 pt.
+The one-cell table had no borders or cell margins. Baseline separation was 36 pt with
+`w:allowSpaceOfSameStyleInTable` enabled in compatibility modes 11, 12 and 14, versus
+24 pt with it disabled. Mode 15 measured 24 pt in either state. Body and header controls
+in modes 14 and 15 measured 24 pt with the flag enabled. Comparison tolerance: 0.25 pt.
+
+The model and DOCX reader/writer preserve the flag. Cell layout bypasses contextual
+suppression only for enabled modes 11/12/14, including cells without table-style formatting.
+Tests: `legacy_table_contextual_spacing_flag_keeps_after_space` and
+`legacy_table_contextual_spacing_flag_is_scoped_to_cells_and_legacy_mode`.
+WordCraft original-open and save/reopen measurements match all 12 controls; reopening
+its saved DOCX files in Word retains the same gaps. Word-derived exports stay local under
+ignored `plan/word/`; no Word-generated fixture is committed.
+
+The [published option](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.allowspaceofsamestyleintable?view=openxml-3.0.1)
+specifies an override inside tables. Its mode 15 exception is not explained by that source;
+the guard follows this observation. [MS-DOCX compatibilityMode](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-docx/90138c4d-eb18-4edc-aa6c-dfb799cb1d0d)
+allows 11, 12, 14 and 15. Mode 13 is invalid and Word rejected its synthetic input.
+Ordinary overlapping before/after space and one-sided contextual spacing remain separate
+work in #108 and #568. Nested tables, rotated cells, other fonts and Word for Windows
+were not reference-tested here. This closes one compatibility-option gap, not table parity.
 
 ## Contextual paragraph spacing
 
@@ -174,6 +200,7 @@ No overall parity estimate changes from these probes.
 | 2026-10-10 | trivial | The document's own note separators and continuation notice are drawn (#352) |
 | 2026-10-11 | trivial | Newspaper columns balance before a continuous section break (#350) |
 | 2026-10-12 | minor | Measured synthetic list-label line height; automatic and AtLeast spacing keep text descent and unscaled label ascent overflow |
+| 2026-10-12 | trivial | Legacy table contextual spacing measured and supported; modes 11/12/14 versus 15 checked with original synthetic documents |
 | 2026-10-11 | minor | Body/header contextual spacing corrected from original Word probes; ordinary overlap remains #108 |
 | 2026-10-11 | trivial | Group and Ungroup keep turned members' orientation and placement (#441, #443); Size resizes a group (#442); the eraser hits turned ink where it is drawn (#445) |
 | 2026-10-10 | trivial | Long footnotes continue onto the next page with a continuation separator (#352) |
@@ -186,5 +213,9 @@ No overall parity estimate changes from these probes.
 | 2026-10-10 | trivial | Long display equations wrap across lines (#326) |
 | 2026-10-10 | trivial | AutoFit Contents measures the text (#44) |
 | 2026-10-10 | major | First version: layout and pagination checklist with evidence from `crates/layout`, PRs and issues |
+
+Maintenance on 2026-10-12 retains current tracked-deletion, endnote, footer-total, text-box
+and balloon layout while supplying explicit cell identity at every box call. The native Word
+probes above are historical; this rebase has no new native or other-platform measurement.
 
 Repeated table-cell control, 12 October 2026: four same-style contextual paragraphs with 6 pt before/after and exactly 24 pt lines retain zero extra gap at every boundary. The body control uses the same fixture. This is an original specification-based regression; no new native Word table comparison was run.
