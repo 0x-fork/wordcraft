@@ -2077,6 +2077,40 @@ fn track_changes_and_set_author_list_their_params() {
 }
 
 #[test]
+fn line_and_page_break_toggles_take_an_explicit_value() {
+    // #967: a script sets keep with next on a heading and clears it on the paragraph after,
+    // which inherits it through Enter, without tracking the toggle state.
+    let reg = cmd::registry();
+    type Field = fn(&wordcraft_doc::ParaProps) -> Option<bool>;
+    let cases: [(&str, Field); 4] = [
+        ("para.keepNext", |p| p.keep_next),
+        ("para.keepLines", |p| p.keep_lines),
+        ("para.pageBreakBefore", |p| p.page_break_before),
+        ("para.widowControl", |p| p.widow_control),
+    ];
+    for (id, field) in cases {
+        assert!(reg.get(id).unwrap().params.contains(r#""value"?: bool"#), "{id} lists its param");
+        let mut s = s();
+        run(&mut s, "text.insert", json!({"text": "Heading"}));
+        let at = |s: &Session, block| s.doc.para_at(&Pos::body(block, 0)).and_then(|p| field(&p.props));
+        for value in [true, true, false, false, true] {
+            run(&mut s, id, json!({"value": value}));
+            assert_eq!(at(&s, 0), Some(value), "{id} value {value} sets, never toggles");
+        }
+        run(&mut s, "text.newParagraph", json!({}));
+        assert_eq!(at(&s, 1), Some(true), "{id} carries over to the new paragraph");
+        run(&mut s, id, json!({"value": false}));
+        assert_eq!((at(&s, 0), at(&s, 1)), (Some(true), Some(false)), "{id} clears only the new paragraph");
+        run(&mut s, id, json!({}));
+        assert_eq!(at(&s, 1), Some(true), "{id} without value toggles");
+        run(&mut s, id, json!({}));
+        assert_eq!(at(&s, 1), Some(false), "{id} without value toggles back");
+        run(&mut s, id, json!({"value": "yes"}));
+        assert_eq!(at(&s, 1), Some(true), "{id} ignores a value that isn't a bool and toggles, as format.bold does");
+    }
+}
+
+#[test]
 fn no_markup_view_lays_out_the_final_text() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "original"}));
