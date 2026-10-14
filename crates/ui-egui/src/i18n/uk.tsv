@@ -2097,3 +2097,25 @@
 	Leave out the date and time of comments and tracked changes when saving	Не зберігати дату й час приміток і відстежуваних змін
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Документ, який ви редагуєте, зберігає імена й дати; їх не буде лише у збереженому файлі.
 	Privacy Settings	Поточні налаштування конфіденційності
+
+# #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
+	{name}   {height} × {width} in	{name}   {height} × {width} дюйма
+	{name}   {height} × {width} mm	{name}   {height} × {width} мм
+	{width} × {height} mm	{width} × {height} мм
+	{kind}, {columns} × {rows}, {size} ({paper})	{kind}, {columns} × {rows}, {size} ({paper})
+	Researcher needs an online service; WordCraft keeps your documents offline.	Досліднику потрібна онлайн-служба, а WordCraft працює з документами без підключення до інтернету.
+	These settings will be used for new documents.	Ці параметри використовуватимуться для нових документів.
+	can't split at the first row	не можна розділити таблицю на першому рядку
+	select two or more cells to merge	виділіть дві або більше клітинок, щоб об'єднати їх
+	there is no ink to replay	немає рукописних приміток для відтворення
+	there's no citation after the caret	після курсора немає цитати
+	this item is already at the top level	цей елемент уже на верхньому рівні
+	Envelope #10	Конверт №10
+	Envelope DL	Конверт DL
+	Reading Mode	Режим читання
+	Column width	Ширина стовпця
+	Text size	Розмір тексту
+	Edit Document	Редагувати документ
+	Go to what:	Перейти до:
+	Type +2 or -1 to move from the page you are on.	Введіть +2 або -1, щоб перейти на стільки сторінок від поточної.
+	Suggested	Пропоновані
