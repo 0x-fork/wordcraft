@@ -1733,6 +1733,27 @@ fn comments() {
     assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().objects.len(), 0);
 }
 
+/// #1085: a new comment with no text, in an empty document or on a word, goes with Review ›
+/// Delete at the caret (no id) and by id.
+#[test]
+fn empty_comments_delete() {
+    for body in ["", "Some text here"] {
+        for by_id in [false, true] {
+            let mut s = Session::new(wordcraft_doc::Document::new());
+            if !body.is_empty() {
+                run(&mut s, "text.insert", json!({"text": body}));
+                run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [0], "off": 6}}));
+            }
+            let id = run(&mut s, "review.newComment", json!({}))["id"].clone();
+            assert_eq!(run(&mut s, "review.comments", json!({}))[0]["text"], "");
+            run(&mut s, "review.deleteComment", if by_id { json!({"id": id}) } else { json!({}) });
+            assert!(s.doc.comments.is_empty(), "{body:?} by id {by_id}");
+            assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().objects.len(), 0, "{body:?}: anchors gone");
+            assert_eq!(text(&s), body);
+        }
+    }
+}
+
 #[test]
 fn toc_and_fields() {
     let mut s = Session::new(crate::sample::report());

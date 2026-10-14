@@ -1229,8 +1229,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // the scroll area is built, so it reads last frame's viewport.
     app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
-    // A click on the page leaves the selected comment balloon.
-    if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() {
+    // A click on the page leaves the selected comment balloon; a click inside a balloon (its
+    // Delete or Resolve button, say) does not (#1085).
+    let in_balloon = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p)));
+    if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() && !in_balloon {
         deselect_balloon(app, ui.ctx());
     }
     // Focus: the canvas takes keyboard focus on click and keeps Tab/arrows.
@@ -2935,6 +2937,52 @@ mod tests {
         h.event(Event::PointerMoved(at));
         h.step();
         assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default);
+    }
+
+    /// #1085: a selected balloon's buttons work (pressing them is not a click on the page that
+    /// leaves the balloon): a new comment with no text resolves and deletes from its balloon.
+    #[test]
+    fn an_empty_comment_balloon_deletes() {
+        for body in ["", "Some text here"] {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+            if !body.is_empty() {
+                a.run("text.insert", json!({"text": body})).unwrap();
+                a.run("select.text", json!({"text": "text"})).unwrap();
+            }
+            let id = a.run("review.newComment", json!({})).unwrap()["id"].as_u64().unwrap() as u32;
+            a.run("view.commentsPane", json!({"value": false})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..6 {
+                h.step();
+            }
+            let click = |h: &mut egui_kittest::Harness<'_, WordApp>, at: egui::Pos2| {
+                h.event(egui::Event::PointerMoved(at));
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+                h.step();
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+                for _ in 0..3 {
+                    h.step();
+                }
+            };
+            let card = h.state().canvas.balloon_rects.iter().find(|(i, _)| *i == id).map(|(_, r)| *r).expect("the comment has a balloon");
+            click(&mut h, card.left_top() + vec2(30.0, 8.0));
+            assert_eq!(h.state().canvas.balloon, Some(id), "{body:?}: the click selected the balloon");
+            use egui_kittest::kittest::Queryable;
+            let resolve = h.get_by_label("Resolve").rect().center();
+            click(&mut h, resolve);
+            assert!(h.state().session.doc.comments[&id].resolved, "{body:?}: Resolve worked");
+            assert_eq!(h.state().canvas.balloon, Some(id), "{body:?}: the balloon stays selected");
+            let del = h.get_by_label("Delete").rect().center();
+            click(&mut h, del);
+            assert!(h.state().session.doc.comments.is_empty(), "{body:?}: the empty comment was deleted");
+        }
     }
 
     /// A typed character is laid out and painted in the frame that delivers the key, not the next
