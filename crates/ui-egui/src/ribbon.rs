@@ -429,45 +429,175 @@ pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 6] = [
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
-/// default, US English; a tag without a name here: the tag).
+/// default, US English): a listed language by its name; another region of one by the language
+/// and the region ("French (Canada)"); a bare language subtag by its usual variant; else the tag.
 pub(crate) fn language_name(tag: Option<&str>) -> String {
     let tag = tag.unwrap_or("en-US");
-    if let Some((_, name)) = PROOFING_LANGUAGES.iter().find(|(t, _)| t.eq_ignore_ascii_case(tag)) {
-        return (*name).to_string();
+    let named =
+        |t: &str| PROOFING_LANGUAGES.iter().chain(crate::dialogs_layout::LANGUAGES.iter()).find(|(l, _)| l.eq_ignore_ascii_case(t)).map(|(_, n)| *n);
+    // Any language the Language dialog offers (French, German…) by its name, not its tag (#860).
+    if let Some(name) = named(tag) {
+        return name.to_string();
     }
-    match wordcraft_engine::proof::ProofLang::from_tag(Some(tag)) {
-        wordcraft_engine::proof::ProofLang::Pl => "Polish".into(),
-        wordcraft_engine::proof::ProofLang::Hr => "Croatian".into(),
-        wordcraft_engine::proof::ProofLang::Pt => "Portuguese (Brazil)".into(),
-        wordcraft_engine::proof::ProofLang::It => "Italian".into(),
-        wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
-        _ => tag.to_string(),
+    let mut parts = tag.split(['-', '_']);
+    let primary = parts.next().unwrap_or("");
+    // The region: the first two-letter or three-digit subtag after the language (and script).
+    let region =
+        parts.find(|p| (p.len() == 2 && p.chars().all(|c| c.is_ascii_alphabetic())) || (p.len() == 3 && p.chars().all(|c| c.is_ascii_digit())));
+    match region {
+        // A region the list doesn't have: the language's name without its own region or variant.
+        Some(r) => {
+            let language = crate::dialogs_layout::LANGUAGES
+                .iter()
+                .find(|(l, _)| l.split('-').next().is_some_and(|p| p.eq_ignore_ascii_case(primary)))
+                .map(|(_, n)| n.split(" (").next().unwrap_or(n));
+            match language {
+                Some(language) => format!("{language} ({})", region_name(r)),
+                None => tag.to_string(),
+            }
+        }
+        // A bare language subtag ("pt", "pl"): the variant WordCraft proofs.
+        None => match wordcraft_engine::proof::ProofLang::from_tag(Some(tag)) {
+            wordcraft_engine::proof::ProofLang::Pl => "Polish".into(),
+            wordcraft_engine::proof::ProofLang::Hr => "Croatian".into(),
+            wordcraft_engine::proof::ProofLang::Pt => "Portuguese (Brazil)".into(),
+            wordcraft_engine::proof::ProofLang::It => "Italian".into(),
+            wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
+            _ => tag.to_string(),
+        },
     }
+}
+
+/// The English name of a region subtag the language list has no entry for (else the subtag).
+fn region_name(code: &str) -> String {
+    const REGIONS: [(&str, &str); 62] = [
+        ("AE", "U.A.E."),
+        ("AO", "Angola"),
+        ("AR", "Argentina"),
+        ("AT", "Austria"),
+        ("AU", "Australia"),
+        ("BA", "Bosnia and Herzegovina"),
+        ("BE", "Belgium"),
+        ("BO", "Bolivia"),
+        ("BR", "Brazil"),
+        ("BY", "Belarus"),
+        ("CA", "Canada"),
+        ("CH", "Switzerland"),
+        ("CL", "Chile"),
+        ("CN", "China"),
+        ("CO", "Colombia"),
+        ("CR", "Costa Rica"),
+        ("CV", "Cabo Verde"),
+        ("CY", "Cyprus"),
+        ("DE", "Germany"),
+        ("DO", "Dominican Republic"),
+        ("EC", "Ecuador"),
+        ("EG", "Egypt"),
+        ("ES", "Spain"),
+        ("FR", "France"),
+        ("GB", "United Kingdom"),
+        ("GT", "Guatemala"),
+        ("HK", "Hong Kong SAR"),
+        ("IE", "Ireland"),
+        ("IN", "India"),
+        ("IQ", "Iraq"),
+        ("IT", "Italy"),
+        ("JM", "Jamaica"),
+        ("JO", "Jordan"),
+        ("KW", "Kuwait"),
+        ("KZ", "Kazakhstan"),
+        ("LB", "Lebanon"),
+        ("LI", "Liechtenstein"),
+        ("LU", "Luxembourg"),
+        ("MA", "Morocco"),
+        ("MC", "Monaco"),
+        ("ME", "Montenegro"),
+        ("MO", "Macao SAR"),
+        ("MX", "Mexico"),
+        ("MY", "Malaysia"),
+        ("MZ", "Mozambique"),
+        ("NL", "Netherlands"),
+        ("NZ", "New Zealand"),
+        ("PE", "Peru"),
+        ("PH", "Philippines"),
+        ("PR", "Puerto Rico"),
+        ("PT", "Portugal"),
+        ("PY", "Paraguay"),
+        ("QA", "Qatar"),
+        ("RU", "Russia"),
+        ("SG", "Singapore"),
+        ("SY", "Syria"),
+        ("TW", "Taiwan"),
+        ("UA", "Ukraine"),
+        ("US", "United States"),
+        ("UY", "Uruguay"),
+        ("VE", "Venezuela"),
+        ("ZA", "South Africa"),
+    ];
+    REGIONS.iter().find(|(c, _)| c.eq_ignore_ascii_case(code)).map_or_else(|| code.to_ascii_uppercase(), |(_, n)| (*n).to_string())
 }
 
 /// The language at the caret (resolved through the styles), translated, for the status bar.
 pub(crate) fn caret_language(app: &WordApp) -> String {
+    tl!(&language_name(caret_lang_tag(app).as_deref())).to_string()
+}
+
+/// The language tag at the caret, resolved through the styles and the document default.
+fn caret_lang_tag(app: &WordApp) -> Option<String> {
     let s = &app.session;
     let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.clone());
-    let rc = s.doc.styles.resolve_char(style.as_deref(), &s.typing_props());
-    tl!(&language_name(rc.lang.as_deref())).to_string()
+    s.doc.styles.resolve_char(style.as_deref(), &s.typing_props()).lang
 }
 
 /// Review › Language (and the status bar's language): set the selection's proofing language, or
-/// leave it unchecked. The current choice has a check mark.
+/// leave it unchecked. The current choice has a check mark; a language outside the short list
+/// (French, German…) shows checked above it. Set Proofing Language… opens the Language dialog
+/// with every language and Set As Default, and Language Preferences… opens Options › Language
+/// (#860: the short list alone left no way to pick French).
 pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
     let st = app.session.run("format.state", &json!({})).unwrap_or_default();
-    let current = st.get("lang").and_then(Value::as_str).unwrap_or("").to_string();
+    // The selection's own language; else (nothing set on the text) the one it gets from its
+    // style or the document default, as the status bar shows.
+    let current = match st.get("lang") {
+        Some(Value::String(t)) => t.clone(),
+        Some(Value::Null) if app.session.sel.is_collapsed() => caret_lang_tag(app).unwrap_or_else(|| "en-US".into()),
+        _ => String::new(),
+    };
     let no_proof = st.get("noProof").and_then(Value::as_bool).unwrap_or(false);
-    for (tag, name) in PROOFING_LANGUAGES {
-        let on = current.eq_ignore_ascii_case(tag)
+    let listed = |tag: &str| {
+        current.eq_ignore_ascii_case(tag)
             || (tag == "pl-PL" && current.eq_ignore_ascii_case("pl"))
             || (tag == "pt-BR" && current.eq_ignore_ascii_case("pt"))
-            || (tag == "it-IT" && current.eq_ignore_ascii_case("it"));
+            || (tag == "it-IT" && current.eq_ignore_ascii_case("it"))
+            || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
+    };
+    let checks = language_checks(&current, listed);
+    if let Some(name) = checks.extra {
+        mi_check(ui, app, &name, true, "review.language", json!({"lang": current}));
+    }
+    for ((tag, name), on) in PROOFING_LANGUAGES.iter().zip(checks.listed) {
         mi_check(ui, app, name, on, "review.language", json!({"lang": tag}));
     }
     ui.separator();
     mi_check(ui, app, "Do Not Check Spelling or Grammar", no_proof, "review.language", json!({"noProof": !no_proof}));
+    ui.separator();
+    mi_check(ui, app, "Set Proofing Language…", false, "review.language", json!({}));
+    mi_check(ui, app, "Language Preferences…", false, "file.options", json!({"pane": "language"}));
+}
+
+/// The Language menu's check marks for the `current` tag: which short-list entries are checked
+/// (`listed` matches a tag), and the name of the current language when it is none of them,
+/// shown checked above. A language named like a short-list entry checks that entry, so no name
+/// shows twice.
+struct LanguageChecks {
+    extra: Option<String>,
+    listed: [bool; PROOFING_LANGUAGES.len()],
+}
+
+fn language_checks(current: &str, listed: impl Fn(&str) -> bool) -> LanguageChecks {
+    let name = (!current.is_empty()).then(|| language_name(Some(current)));
+    let on = PROOFING_LANGUAGES.map(|(t, n)| listed(t) || name.as_deref() == Some(n));
+    LanguageChecks { extra: name.filter(|_| !on.contains(&true)), listed: on }
 }
 
 /// A menu item with a check mark when `checked` (the current choice of several).
@@ -2468,6 +2598,30 @@ mod tests {
         }
     }
 
+    /// #860 review: a tag the language list doesn't have shows by language and region, not as
+    /// the tag; Portuguese (Angola) isn't Brazil's, and no name shows twice in the menu.
+    #[test]
+    fn other_regions_show_by_name_once() {
+        assert_eq!(language_name(Some("fr-CA")), "French (Canada)");
+        assert_eq!(language_name(Some("en-AU")), "English (Australia)");
+        assert_eq!(language_name(Some("de_AT")), "German (Austria)");
+        assert_eq!(language_name(Some("pt-AO")), "Portuguese (Angola)");
+        assert_eq!(language_name(Some("sr-Latn-BA")), "Serbian (Bosnia and Herzegovina)");
+        assert_eq!(language_name(Some("en-ZZ")), "English (ZZ)");
+        assert_eq!(language_name(Some("xx-YY")), "xx-YY");
+        let exact = |cur: &'static str| move |t: &str| t.eq_ignore_ascii_case(cur);
+        for tag in ["fr-CA", "pt-AO", "en-AU"] {
+            let c = language_checks(tag, exact(tag));
+            let name = c.extra.expect("shown above the list");
+            assert!(!PROOFING_LANGUAGES.iter().any(|(_, n)| *n == name), "{name} is listed once");
+            assert!(!c.listed.contains(&true), "{tag}: nothing in the list checked");
+        }
+        // A tag named like a list entry checks that entry instead of showing it again.
+        let c = language_checks("PT-br-x-test", |_| false);
+        assert_eq!(c.extra, None);
+        assert_eq!(c.listed, PROOFING_LANGUAGES.map(|(t, _)| t == "pt-BR"));
+    }
+
     #[test]
     fn portuguese_has_a_name_in_the_language_menu() {
         assert!(PROOFING_LANGUAGES.iter().any(|(t, _)| *t == "pt-BR"));
@@ -2578,6 +2732,36 @@ mod tests {
         tall.sort();
         tall.dedup();
         assert!(tall.is_empty(), "groups taller than the ribbon: {tall:#?}");
+    }
+
+    /// #860: Review › Language (and the status bar) reach every proofing language, not just the
+    /// short list: Set Proofing Language… opens the Language dialog (French, Set As Default),
+    /// Language Preferences… opens Options › Language, and French text shows by name, checked.
+    #[test]
+    fn language_menu_reaches_every_language() {
+        use egui_kittest::kittest::{By, NodeT, Queryable};
+        let item = |label: &'static str| By::new().label_contains(label);
+        let app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Bonjour")), crate::Services::default());
+        let mut h =
+            egui_kittest::Harness::builder().with_size(vec2(400.0, 400.0)).build_ui_state(|ui, app: &mut WordApp| language_menu(ui, app), app);
+        h.run();
+        assert!(h.query(item("French (France)")).is_none(), "the short list only, on an English document");
+        assert!(!h.get(item("Set Proofing Language…")).accesskit_node().is_disabled(), "never greyed out on a fresh document");
+        assert!(!h.get(item("English (United States)")).accesskit_node().is_disabled());
+        h.get(item("Set Proofing Language…")).click();
+        h.run();
+        assert_eq!(h.state().dialog.as_ref().map(crate::dialogs::Dialog::name), Some("language"));
+        h.state_mut().dialog = None;
+        // French for the whole document: the menu and the status bar name it.
+        h.state_mut().run("review.language", json!({"lang": "fr-FR", "default": true})).unwrap();
+        h.run();
+        assert_eq!(caret_language(h.state()), "French (France)");
+        assert!(h.query(item("French (France)")).is_some(), "the current language is listed (only while it is the current one)");
+        h.get(item("Language Preferences…")).click();
+        h.run();
+        assert!(h.state().ui.backstage, "File › Options opened");
+        assert_eq!(h.state().ui.options_pane, "language");
+        assert_eq!(language_name(Some("de-DE")), "German (Germany)");
     }
 
     #[test]
