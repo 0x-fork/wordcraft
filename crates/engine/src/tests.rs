@@ -5108,3 +5108,25 @@ fn insert_picture_takes_a_windows_metafile() {
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn exported_page_images_draw_headers_at_full_strength() {
+    // file.exportPng (and `wordcraft-cli render`) drew headers and footers dimmed, as the screen
+    // does while the body is edited; Word's exported pages and WordCraft's PDF don't.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Body"}));
+    let mut hp = wordcraft_doc::Paragraph::with_text("HEADER", wordcraft_doc::props::CharProps { size: Some(28.0), ..Default::default() });
+    hp.props.align = Some(wordcraft_doc::props::Align::Left);
+    let id = s.doc.add_part(wordcraft_doc::PartKind::Header, vec![wordcraft_doc::para_block(hp)]);
+    s.doc.last_section.headers.default = Some(id);
+    let dir = std::env::temp_dir().join(format!("wordcraft-png-header-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("p.png");
+    s.run("file.exportPng", &json!({"path": path.to_string_lossy(), "scale": 1.0})).unwrap();
+    let img = image::open(&path).unwrap().to_luma8();
+    // The darkest pixel in the top tenth of the page (the header) is black, not grey.
+    let top = img.height() / 10;
+    let darkest = (0..top).flat_map(|y| (0..img.width()).map(move |x| (x, y))).map(|(x, y)| img.get_pixel(x, y)[0]).min().unwrap();
+    assert!(darkest < 60, "header drawn dimmed: darkest pixel {darkest}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
