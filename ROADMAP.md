@@ -242,6 +242,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | Rendering like Word for Windows, found by comparing real .gov documents page by page: text is kerned only where Kerning for fonts asks for it (line breaks now match Word's), and automatic paragraph spacing (`w:beforeAutospacing`/`w:afterAutospacing`, common in pasted web text) is 14 pt, dropped at the document's and cells' edges |
 | 2026-10-12 | Keyboard context menu (#821): Shift+F10 opens the page's right-click menu below the caret; `ui.contextMenu` |
 | 2026-10-12 | The Font list no longer keeps every family it previews in memory (#848): the Font box drew each family's name in its own face by loading the whole family for good, so every trip through the list kept tens of megabytes (1.47 GB after 40 changes on macOS); entries are now drawn from a face read for the preview alone and freed (120 families previewed: +17 MB RSS instead of +411 MB); only fonts actually used load |
+| 2026-10-13 | An empty file opens (#1384): the zero-byte .docx that File Explorer's New › Microsoft Word Document makes opens as a new blank document (the region's paper, the editing language), and Save writes it back to that file instead of asking for a name |
 | 2026-10-12 | Scrolling a document with one very large table stays smooth (#811): pages are fingerprinted for the texture cache once per layout and only when shown (not every page every frame), the markup-area check is cached per revision, and textures far from the view are dropped. The issue's 1,096-page table: ~600 ms → ~2.4 ms idle frames, ~590 ms → ~4.5 ms scroll frames |
 | 2026-10-12 | Search (#819): Alt+Q, or Alt then Q, opens the Search box from anywhere with nothing typed into it; queries match every word; `tools.search` for agents |
 | 2026-10-12 | Section breaks (#852): Layout › Breaks with text selected puts the break before the selection and keeps the text, as Word does; it used to delete it, leaving the first section empty |
@@ -425,6 +426,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | trivial | Font list previews no longer grow memory (#848) |
 | 2026-10-12 | trivial | Progress log: section break keeps the selected text (#852) |
 | 2026-10-12 | trivial | Progress log: save prompt from the keyboard (#861) |
+| 2026-10-13 | trivial | Progress log: an empty .docx opens and saves back to itself (#1384) |
 | 2026-10-12 | trivial | Progress log: craft-fonts Simplified Chinese in documents |
 | 2026-10-12 | trivial | Progress log: symbol-font text drawn as Unicode symbols (#776) |
 | 2026-10-12 | trivial | Progress log: WMF and EMF pictures can be inserted (#802) |

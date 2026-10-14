@@ -97,6 +97,20 @@ pub fn wrong_password(err: &str) -> bool {
     err.contains(wordcraft_docx::WRONG_PASSWORD)
 }
 
+/// Is the file at `path` empty, zero bytes long? File Explorer's New › Microsoft Word Document
+/// makes one, and `file.open` opens it as a new blank document (#1384). False for a file that
+/// can't be read: opening it says why.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn is_empty_file(path: &std::path::Path) -> bool {
+    crate::file_access::check_read(&path.to_string_lossy()).is_ok() && std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == 0)
+}
+
+/// [`is_empty_file`]: on the web files come through the browser, never by path.
+#[cfg(target_arch = "wasm32")]
+pub fn is_empty_file(_path: &std::path::Path) -> bool {
+    false
+}
+
 /// Can files with this extension be saved with a password (Word's packages)?
 pub fn can_encrypt(name: &str) -> bool {
     is_word_package(&ext_of(name))
