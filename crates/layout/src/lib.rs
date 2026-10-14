@@ -3029,8 +3029,11 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             _ => {}
         }
     }
-    pb.y += pl.rp.space_after;
-    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, pl.rp.space_after, pl.rp.after_auto, label.is_some()));
+    // A mark that stayed with its page break keeps its space after on that page too: the next page
+    // starts with the next paragraph (Word, compatibility modes 12 to 15).
+    let space_after = if pb.after_break_mark { 0.0 } else { pl.rp.space_after };
+    pb.y += space_after;
+    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, space_after, pl.rp.after_auto, label.is_some()));
 }
 
 /// The outline of the body for an Outline view pass.

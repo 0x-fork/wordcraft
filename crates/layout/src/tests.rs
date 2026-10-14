@@ -4749,8 +4749,8 @@ fn text_after_a_column_break_takes_the_new_column_s_width() {
 }
 
 /// Space before at the top of a page, measured in Word for Windows (32 cases): a paragraph that
-/// ends with a page break keeps its mark with the break (nothing of it goes to the new page) and the
-/// next paragraph gets no space before there; a paragraph that starts with a page break starts on
+/// ends with a page break keeps its mark with the break (nothing of it, not even its space after,
+/// goes to the new page) and the next paragraph gets no space before there; a paragraph that starts with a page break starts on
 /// the new page with its space before; a page break before keeps the space before in compatibility
 /// modes up to 14 (less the previous paragraph's space after) and drops it in mode 15.
 #[test]
@@ -4776,6 +4776,33 @@ fn space_before_at_the_top_of_a_page_like_word() {
         let (page, top) = probe_top(vec![para(&format!("first{brk}"), 0.0, false), para("PROBE", 24.0, false)], mode);
         assert_eq!(page, 1, "mode {mode}");
         assert!((top - plain_top).abs() < 0.05, "mode {mode}: the mark stays with the break and the space goes: {top} vs {plain_top}");
+    }
+    // Its space after stays behind too (modes 12 to 15), also when it holds only the break: the next
+    // paragraph, one with a page break before (no blank page) or a table starts at the top.
+    let after = |text: &str| {
+        let mut p = wordcraft_doc::Paragraph::with_text(text, Default::default());
+        p.props = ParaProps { space_before: Some(0.0), space_after: Some(12.4), ..Default::default() };
+        wordcraft_doc::para_block(p)
+    };
+    let table_top = |blocks: Vec<std::sync::Arc<wordcraft_doc::Block>>| {
+        let mut d = Document::new();
+        d.body = blocks;
+        d.body.push(std::sync::Arc::new(wordcraft_doc::Block::Table(Table::new(1, 1, 468.0))));
+        let l = lay(&d);
+        let page = l.pages.len() - 1;
+        let y = l.pages[page].items.iter().find_map(|i| if let Placed::Cell { rect, .. } = i { Some(rect.y) } else { None });
+        (page, y)
+    };
+    let (_, alone) = table_top(vec![]);
+    for text in [brk.to_string(), format!("first{brk}")] {
+        for mode in [12, 14, 15] {
+            for (before, pbb) in [(0.0, false), (24.0, false), (0.0, true)] {
+                let (page, top) = probe_top(vec![after(&text), para("PROBE", before, pbb)], mode);
+                assert_eq!(page, 1, "mode {mode} {text:?} page break before {pbb}");
+                assert!((top - plain_top).abs() < 0.05, "mode {mode} {text:?} before {before}: {top} vs {plain_top}");
+            }
+        }
+        assert_eq!(table_top(vec![after(&text)]), (1, alone), "{text:?}: a table after the break");
     }
     // A paragraph starting with a page break: its space before on the new page.
     let mut d = Document::new();
