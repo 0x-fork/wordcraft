@@ -89,6 +89,8 @@ struct Writer {
     t: Tables,
     /// List definitions: per list, the ordered flag per level.
     lists: Vec<[bool; 9]>,
+    /// Authors of tracked changes (`\revtbl` entries after "Unknown"), when the text has any.
+    authors: Option<Vec<String>>,
 }
 
 const HEAD_SIZES: [f32; 6] = [20.0, 16.0, 14.0, 12.0, 12.0, 11.0];
@@ -104,8 +106,36 @@ fn style_num(k: Kind) -> Option<u32> {
 }
 
 impl Writer {
+    /// `\revtbl` index of a tracked change's author (0 = "Unknown").
+    fn author(&mut self, a: &str) -> usize {
+        let authors = self.authors.get_or_insert_with(Vec::new);
+        let a = a.trim();
+        if a.is_empty() {
+            return 0;
+        }
+        match authors.iter().position(|x| x == a) {
+            Some(i) => i + 1,
+            None => {
+                authors.push(a.to_string());
+                authors.len()
+            }
+        }
+    }
+
     fn run(&mut self, t: &str, f: &Fmt, out: &mut String) {
         let mut ctl = String::new();
+        if let Some(m) = &f.ins {
+            ctl.push_str(&format!("\\revised\\revauth{}", self.author(&m.author)));
+            if let Some(d) = iso_to_dttm(&m.date) {
+                ctl.push_str(&format!("\\revdttm{}", d as i32));
+            }
+        }
+        if let Some(m) = &f.del {
+            ctl.push_str(&format!("\\deleted\\revauthdel{}", self.author(&m.author)));
+            if let Some(d) = iso_to_dttm(&m.date) {
+                ctl.push_str(&format!("\\revdttmdel{}", d as i32));
+            }
+        }
         if f.bold {
             ctl.push_str("\\b");
         }
@@ -397,11 +427,65 @@ fn rtf_date(s: &str) -> Option<String> {
     Some(format!("\\yr{y}\\mo{mo}\\dy{d}\\hr{h}\\min{mi}"))
 }
 
+fn days_in_month(y: u32, m: u32) -> u32 {
+    match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+/// Day of the week, 0 = Sunday (Sakamoto's method).
+fn weekday(y: u32, m: u32, d: u32) -> u32 {
+    const T: [u32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let y = if m < 3 { y.saturating_sub(1) } else { y };
+    (y + y / 4 - y / 100 + y / 400 + T.get(m.saturating_sub(1) as usize).copied().unwrap_or(0) + d) % 7
+}
+
+/// An RTF revision date (DTTM, RTF 1.9.1 "Revision Marks": minute in bits 0–5, hour 6–10, day
+/// 11–15, month 16–19, year − 1900 20–28, weekday 29–31) as ISO 8601 (`2024-03-15T10:30:00Z`).
+/// Zero or an impossible date is no date. DTTM has no time zone or seconds: times are read as
+/// UTC (`Z`).
+pub fn dttm_to_iso(v: u32) -> Option<String> {
+    let (mi, h, d, mo, y) = (v & 0x3F, (v >> 6) & 0x1F, (v >> 11) & 0x1F, (v >> 16) & 0xF, 1900 + ((v >> 20) & 0x1FF));
+    if v == 0 || mi > 59 || h > 23 || d == 0 || d > days_in_month(y, mo) {
+        return None;
+    }
+    Some(format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:00Z"))
+}
+
+/// An ISO 8601 date (`YYYY-MM-DD`, optionally `THH:MM…`; seconds and zone ignored) as an RTF
+/// DTTM; `None` when it isn't one or falls outside DTTM's years (1900–2411). DTTM has no time
+/// zone or seconds: the clock time is written as given (WordCraft keeps UTC, `Z`), and seconds
+/// and any offset are dropped.
+pub fn iso_to_dttm(s: &str) -> Option<u32> {
+    let num = |a: usize, b: usize| s.get(a..b).filter(|t| t.bytes().all(|c| c.is_ascii_digit())).and_then(|t| t.parse::<u32>().ok());
+    let sep = |i: usize, c: &[&str]| s.get(i..i + 1).is_some_and(|t| c.contains(&t));
+    let (y, mo, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    if !sep(4, &["-"]) || !sep(7, &["-"]) {
+        return None;
+    }
+    let (h, mi) = if s.len() > 10 {
+        if !sep(10, &["T", " "]) || !sep(13, &[":"]) {
+            return None;
+        }
+        (num(11, 13)?, num(14, 16)?)
+    } else {
+        (0, 0)
+    };
+    if !(1900..=2411).contains(&y) || mi > 59 || h > 23 || d == 0 || d > days_in_month(y, mo) {
+        return None;
+    }
+    Some(mi | (h << 6) | (d << 11) | (mo << 16) | ((y - 1900) << 20) | (weekday(y, mo, d) << 29))
+}
+
 /// RTF text of a document.
 pub fn export(doc: &Document) -> String {
-    let flow = model::from_doc(doc);
+    let flow = model::from_doc_tracked(doc);
     let base_font = doc.styles.default_chr.font.clone().unwrap_or_else(|| wordcraft_doc::styles::BODY_FONT.to_string());
-    let mut w = Writer { t: Tables { fonts: vec![base_font], colors: Vec::new() }, lists: Vec::new() };
+    let mut w = Writer { t: Tables { fonts: vec![base_font], colors: Vec::new() }, lists: Vec::new(), authors: None };
     let mut body = String::new();
     w.blocks(&flow.blocks, false, "\\par", &mut body, 0);
     export_with(&flow.meta, &w, &body, &doc.last_section)
@@ -438,6 +522,13 @@ fn export_with(m: &Meta, w: &Writer, body: &str, sec: &wordcraft_doc::SectionPro
         out.push_str("}\n{\\*\\listoverridetable");
         for i in 1..=w.lists.len() {
             out.push_str(&format!("{{\\listoverride\\listid{i}\\listoverridecount0\\ls{i}}}"));
+        }
+        out.push_str("}\n");
+    }
+    if let Some(authors) = &w.authors {
+        out.push_str("{\\*\\revtbl {Unknown;}");
+        for a in authors {
+            out.push_str(&format!("{{{};}}", esc(&a.replace(';', ","))));
         }
         out.push_str("}\n");
     }
@@ -482,6 +573,23 @@ enum Dest {
     FldInst,
     Pict,
     Bookmark,
+    /// The author table of tracked changes (`\revtbl`).
+    RevTbl,
+}
+
+/// Most authors read from a `\revtbl` (hostile input).
+const MAX_REV_AUTHORS: usize = 10_000;
+
+/// Tracked-change character properties: `\revised` / `\deleted`, their authors (`\revtbl`
+/// indices) and dates (DTTM).
+#[derive(Clone, Copy, Debug, Default)]
+struct RevSt {
+    ins: bool,
+    del: bool,
+    auth: i32,
+    authdel: i32,
+    dttm: u32,
+    dttmdel: u32,
 }
 
 /// Which header or footer a `\header…`/`\footer…` group is: footer or header, and the pages
@@ -519,6 +627,7 @@ struct Output {
 struct St {
     dest: Dest,
     fmt: Fmt,
+    rev: RevSt,
     uc: usize,
     hidden: bool,
     // Paragraph properties.
@@ -552,6 +661,7 @@ impl Default for St {
         St {
             dest: Dest::Body,
             fmt: Fmt::default(),
+            rev: RevSt::default(),
             uc: 1,
             hidden: false,
             align: None,
@@ -747,6 +857,9 @@ struct Reader {
     pict_sx: f32,
     pict_sy: f32,
     bkmk: Option<(usize, String)>,
+    /// Authors of tracked changes (`\revtbl`), and the entry being read.
+    rev_authors: Vec<String>,
+    rev_name: String,
     skip_chars: usize,
     pending_high: Option<u16>,
     // Output.
@@ -906,6 +1019,7 @@ impl Reader {
         match closing {
             Dest::FontTbl if !self.font_name.is_empty() => self.commit_font(),
             Dest::StyleSheet if !self.style_name.is_empty() => self.commit_style(),
+            Dest::RevTbl if !self.rev_name.trim().is_empty() => self.commit_author(),
             Dest::Info(k) => {
                 let t = std::mem::take(&mut self.info_text).trim().to_string();
                 match k {
@@ -939,6 +1053,20 @@ impl Reader {
         if self.hf.as_ref().is_some_and(|(d, _, _)| self.depth() < *d) {
             self.end_header_footer();
         }
+    }
+
+    fn commit_author(&mut self) {
+        let name = std::mem::take(&mut self.rev_name).trim().to_string();
+        if self.rev_authors.len() < MAX_REV_AUTHORS {
+            self.rev_authors.push(name);
+        }
+    }
+
+    /// The tracked-change mark for `\revtbl` author index `i` and DTTM `dttm`; an index outside
+    /// the table is "Unknown".
+    fn rev_mark(&self, i: i32, dttm: u32) -> model::RevMark {
+        let author = usize::try_from(i).ok().and_then(|i| self.rev_authors.get(i)).cloned().unwrap_or_else(|| "Unknown".to_string());
+        model::RevMark { author, date: dttm_to_iso(dttm).unwrap_or_default() }
     }
 
     fn commit_font(&mut self) {
@@ -989,7 +1117,14 @@ impl Reader {
                 if self.st.hidden {
                     return;
                 }
-                let f = self.st.fmt.clone();
+                let mut f = self.st.fmt.clone();
+                let r = self.st.rev;
+                if r.ins {
+                    f.ins = Some(self.rev_mark(r.auth, r.dttm));
+                }
+                if r.del {
+                    f.del = Some(self.rev_mark(r.authdel, r.dttmdel));
+                }
                 self.para.push_text(s, &f);
                 self.para_has = true;
             }
@@ -1053,6 +1188,15 @@ impl Reader {
                     && n.len() < 256
                 {
                     n.push_str(s);
+                }
+            }
+            Dest::RevTbl => {
+                for c in s.chars() {
+                    if c == ';' {
+                        self.commit_author();
+                    } else if self.rev_name.len() < 256 {
+                        self.rev_name.push(c);
+                    }
                 }
             }
             Dest::Skip | Dest::ListTable | Dest::ListOverride => {}
@@ -1258,6 +1402,7 @@ impl Reader {
             "keywords" if self.in_info() => Some(Dest::Info(4)),
             "doccomm" if self.in_info() => Some(Dest::Info(5)),
             "listtable" => Some(Dest::ListTable),
+            "revtbl" => Some(Dest::RevTbl),
             "listoverridetable" => Some(Dest::ListOverride),
             "fldinst" => Some(Dest::FldInst),
             // Transparent wrapper: read the nested pict without changing the destination.
@@ -1280,10 +1425,8 @@ impl Reader {
             | "listtext" | "object" | "nonshppict" | "xe" | "tc" | "txe" | "private" | "bkmkend" | "atnid" | "atnauthor" | "comment" | "shpinst"
             | "do" | "operator" | "company" | "manager" | "category" | "hlinkbase" | "revtime" | "printim" | "buptim" | "version" | "nofpages"
             | "nofwords" | "nofchars" | "edmins" | "vern" | "themedata" | "colorschememapping" | "latentstyles" | "datastore" | "xmlnstbl"
-            | "rsidtbl" | "generator" | "mmathPr" | "pgdsctbl" | "filetbl" | "revtbl" | "listpicture" | "userprops" | "docvar" | "objdata"
-            | "fontemb" | "fontfile" | "panose" | "falt" | "mhtmltag" | "htmltag" | "pnseclvl" | "background" | "sp" | "pn" | "pgptbl" => {
-                Some(Dest::Skip)
-            }
+            | "rsidtbl" | "generator" | "mmathPr" | "pgdsctbl" | "filetbl" | "listpicture" | "userprops" | "docvar" | "objdata" | "fontemb"
+            | "fontfile" | "panose" | "falt" | "mhtmltag" | "htmltag" | "pnseclvl" | "background" | "sp" | "pn" | "pgptbl" => Some(Dest::Skip),
             "creatim" if self.in_info() => {
                 self.in_creatim = true;
                 Some(Dest::Skip)
@@ -1414,6 +1557,9 @@ impl Reader {
                 }
                 return;
             }
+            // Author names take Unicode escapes like the other text destinations.
+            Dest::RevTbl if !matches!(w, "u" | "uc") => return,
+            Dest::RevTbl => {}
             Dest::Pict => {
                 match w {
                     "pngblip" => self.pict_kind = 1,
@@ -1468,13 +1614,22 @@ impl Reader {
             "uc" => self.st.uc = pv.clamp(0, 8) as usize,
             "plain" => {
                 self.st.fmt = Fmt { link: self.st.fmt.link.clone(), ..Default::default() };
+                self.st.rev = RevSt::default();
                 self.st.hidden = false;
             }
             "pard" => {
                 let field = self.st.field;
-                let (dest, fmt, uc, hidden) = (self.st.dest, self.st.fmt.clone(), self.st.uc, self.st.hidden);
-                self.st = St { dest, fmt, uc, hidden, field, ..Default::default() };
+                // Revision marks are character formatting, which `\pard` leaves alone.
+                let (dest, fmt, rev, uc, hidden) = (self.st.dest, self.st.fmt.clone(), self.st.rev, self.st.uc, self.st.hidden);
+                self.st = St { dest, fmt, rev, uc, hidden, field, ..Default::default() };
             }
+            "revised" => self.st.rev.ins = on,
+            "deleted" => self.st.rev.del = on,
+            "revauth" => self.st.rev.auth = pv,
+            "revauthdel" => self.st.rev.authdel = pv,
+            // DTTMs are 32-bit patterns, written signed or unsigned.
+            "revdttm" => self.st.rev.dttm = pv as u32,
+            "revdttmdel" => self.st.rev.dttmdel = pv as u32,
             "b" => self.st.fmt.bold = on,
             "i" => self.st.fmt.italic = on,
             "ul" | "uld" | "uldash" | "uldashd" | "uldashdd" | "uldb" | "ulth" | "ulw" | "ulwave" | "ulhwave" | "ulldash" | "ulthd" => {
@@ -1720,6 +1875,12 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                     let param = if k > d0 {
                         let v = std::str::from_utf8(bytes.get(d0..k).unwrap_or(b"0")).ok().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
                         let v = if neg { -v } else { v };
+                        // A date (DTTM) is a 32-bit pattern some writers put unsigned.
+                        let v = if matches!(word, "revdttm" | "revdttmdel") && v > i64::from(i32::MAX) && v <= i64::from(u32::MAX) {
+                            v - (1i64 << 32)
+                        } else {
+                            v
+                        };
                         Some(v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
                     } else {
                         if neg {
@@ -2226,6 +2387,136 @@ mod tests {
             "{inl:?}"
         );
         assert_eq!(texts(&f).last().map(String::as_str), Some("Normal:Café"));
+    }
+
+    /// A hand-written RTF with tracked changes: Alice inserts "added ", Bob deletes "gone", and
+    /// "both" is inserted by Alice then deleted by Bob.
+    pub(crate) const TRACKED: &[u8] = br"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}{\*\revtbl {Unknown;}{Alice;}{Bob;}}
+\pard Keep {\revised\revauth1\revdttm-1480361314 added }text{\deleted\revauthdel2\revdttmdel-2016341499  gone} end{\revised\revauth1\revdttm-1480361314\deleted\revauthdel2\revdttmdel-2016341499  both}.\par}";
+
+    /// (text, insertion (author, date), deletion (author, date)) of each run of the first paragraph.
+    #[allow(clippy::type_complexity)]
+    fn tracked_runs(doc: &Document) -> Vec<(String, Option<(String, String)>, Option<(String, String)>)> {
+        let rev = |i: Option<u32>, kind: wordcraft_doc::RevisionKind| {
+            i.map(|i| {
+                let r = doc.revisions.get(i as usize).unwrap();
+                assert_eq!(r.kind, kind);
+                (r.author.clone(), r.date.clone())
+            })
+        };
+        let Some(wordcraft_doc::Block::Para(p)) = doc.body.first().map(|b| &**b) else { panic!("no paragraph") };
+        p.run_ranges()
+            .map(|(r, cp)| {
+                (p.text[r].to_string(), rev(cp.ins, wordcraft_doc::RevisionKind::Insert), rev(cp.del, wordcraft_doc::RevisionKind::Delete))
+            })
+            .collect()
+    }
+
+    fn expected_tracked() -> Vec<(String, Option<(String, String)>, Option<(String, String)>)> {
+        let a = Some(("Alice".to_string(), "2024-03-15T10:30:00Z".to_string()));
+        let b = Some(("Bob".to_string(), "2025-01-02T08:05:00Z".to_string()));
+        vec![
+            ("Keep ".into(), None, None),
+            ("added ".into(), a.clone(), None),
+            ("text".into(), None, None),
+            (" gone".into(), None, b.clone()),
+            (" end".into(), None, None),
+            (" both".into(), a, b),
+            (".".into(), None, None),
+        ]
+    }
+
+    #[test]
+    fn tracked_changes_import_with_authors_and_dates() {
+        let doc = import(TRACKED).unwrap();
+        assert_eq!(tracked_runs(&doc), expected_tracked());
+        // One revision per (kind, author, date).
+        assert_eq!(doc.revisions.len(), 2);
+    }
+
+    #[test]
+    fn tracked_changes_survive_export_and_import() {
+        let doc = import(TRACKED).unwrap();
+        let rtf = export(&doc);
+        assert!(rtf.contains("{\\*\\revtbl {Unknown;}{Alice;}{Bob;}}"), "{rtf}");
+        assert!(rtf.contains("\\deleted\\revauthdel2\\revdttmdel-2016341499"), "{rtf}");
+        let back = import(rtf.as_bytes()).unwrap();
+        assert_eq!(tracked_runs(&back), expected_tracked());
+    }
+
+    #[test]
+    fn plain_text_export_still_drops_deleted_text() {
+        // Only RTF keeps the deletions: the shared flow for other formats leaves them out.
+        let doc = import(TRACKED).unwrap();
+        let flow = model::from_doc(&doc);
+        assert_eq!(texts(&flow), vec!["Normal:Keep added text end."]);
+    }
+
+    #[test]
+    fn dttm_converts_to_and_from_iso() {
+        assert_eq!(dttm_to_iso(-1480361314i32 as u32).as_deref(), Some("2024-03-15T10:30:00Z"));
+        assert_eq!(dttm_to_iso(-2016341499i32 as u32).as_deref(), Some("2025-01-02T08:05:00Z"));
+        assert_eq!(iso_to_dttm("2024-03-15T10:30:00Z"), Some(-1480361314i32 as u32));
+        assert_eq!(iso_to_dttm("2025-01-02T08:05:59.123+02:00"), Some(-2016341499i32 as u32));
+        assert_eq!(iso_to_dttm("2000-02-29T00:00:00Z").and_then(dttm_to_iso).as_deref(), Some("2000-02-29T00:00:00Z"));
+        // Zero, out-of-range fields and impossible days are no date.
+        assert_eq!(dttm_to_iso(0), None);
+        assert_eq!(dttm_to_iso(13 << 16 | 1 << 11 | 100 << 20), None);
+        assert_eq!(dttm_to_iso(2 << 16 | 30 << 11 | 101 << 20), None);
+        assert_eq!(dttm_to_iso(1 << 16 | 1 << 11 | 100 << 20 | 60), None);
+        assert_eq!(iso_to_dttm(""), None);
+        assert_eq!(iso_to_dttm("1899-12-31T00:00:00Z"), None);
+        assert_eq!(iso_to_dttm("2024-02-30T00:00:00Z"), None);
+        assert_eq!(iso_to_dttm("2024-1é-01T00:00:00Z"), None);
+        assert_eq!(iso_to_dttm("2024-03-15"), iso_to_dttm("2024-03-15T00:00:00Z"));
+    }
+
+    #[test]
+    fn hostile_revision_tables_and_indices() {
+        // An author index past the table, a negative one, and a malformed table.
+        let rtf = br"{\rtf1{\*\revtbl {Unknown;}{Ann}{;}{\b;}}{\revised\revauth99999999 a}{\deleted\revauthdel-5\revdttmdel4294967295 b}{\revised\revauth1 c}\par}";
+        let doc = import(rtf).unwrap();
+        let runs = tracked_runs(&doc);
+        assert_eq!(runs.first().and_then(|r| r.1.clone()), Some(("Unknown".to_string(), String::new())));
+        assert_eq!(runs.get(1).and_then(|r| r.2.clone()), Some(("Unknown".to_string(), String::new())));
+        assert_eq!(runs.get(2).and_then(|r| r.1.clone()), Some(("Ann".to_string(), String::new())));
+        // A huge table is capped, and indices past the cap are "Unknown".
+        let mut rtf = String::from("{\\rtf1{\\*\\revtbl ");
+        for i in 0..20_000 {
+            rtf.push_str(&format!("{{A{i};}}"));
+        }
+        rtf.push_str("}{\\revised\\revauth15000 x}{\\revised\\revauth9999 y}\\par}");
+        let doc = import(rtf.as_bytes()).unwrap();
+        let runs = tracked_runs(&doc);
+        assert_eq!(runs.first().and_then(|r| r.1.clone()).map(|a| a.0).as_deref(), Some("Unknown"));
+        assert_eq!(runs.get(1).and_then(|r| r.1.clone()).map(|a| a.0).as_deref(), Some("A9999"));
+        // Unterminated table and revision words outside the body never panic.
+        for bad in [&br"{\rtf1{\*\revtbl {Al"[..], br"{\rtf1{\*\revtbl \revised\deleted{x}}y\par}", br"{\rtf1\revauth\revdttm\deleted"] {
+            let _ = import(bad);
+        }
+    }
+
+    #[test]
+    fn unicode_author_names_survive_import_and_round_trip() {
+        // `\uN` in the author table: "José" and "Дмитрий" (not "Jos?" / "???????").
+        let rtf = br"{\rtf1\uc1{\*\revtbl {Unknown;}{Jos\u233?;}{\u1044?\u1084?\u1080?\u1090?\u1088?\u1080?\u1081?;}}{\revised\revauth1 a}{\deleted\revauthdel2 b}\par}";
+        let authors = |d: &Document| tracked_runs(d).into_iter().map(|r| (r.1.map(|a| a.0), r.2.map(|a| a.0))).collect::<Vec<_>>();
+        let want = vec![(Some("José".to_string()), None), (None, Some("Дмитрий".to_string()))];
+        let doc = import(rtf).unwrap();
+        assert_eq!(authors(&doc), want);
+        let back = import(export(&doc).as_bytes()).unwrap();
+        assert_eq!(authors(&back), want);
+    }
+
+    #[test]
+    fn pard_keeps_revision_marks() {
+        // Revision marks are character formatting: `\pard` resets paragraph formatting only.
+        let rtf = br"{\rtf1{\*\revtbl {Unknown;}{Bob;}}\deleted\revauthdel1 gone\par\pard more\par}";
+        let doc = import(rtf).unwrap();
+        let Some(wordcraft_doc::Block::Para(p)) = doc.body.get(1).map(|b| &**b) else { panic!("no second paragraph") };
+        assert_eq!(p.text, "more");
+        let del = p.props_of_char(0).del.and_then(|i| doc.revisions.get(i as usize));
+        assert_eq!(del.map(|r| (r.kind, r.author.as_str())), Some((wordcraft_doc::RevisionKind::Delete, "Bob")));
     }
 
     #[test]

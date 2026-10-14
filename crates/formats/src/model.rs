@@ -11,7 +11,7 @@ use wordcraft_doc::props::{
 };
 use wordcraft_doc::section::NumFormat;
 use wordcraft_doc::styles::{Style, StyleKind};
-use wordcraft_doc::{Align, Block, Blocks, Document, Paragraph, Rgb, Table, para_block};
+use wordcraft_doc::{Align, Block, Blocks, Document, Paragraph, Revision, RevisionKind, Rgb, Table, para_block};
 
 /// Font used for code spans and code blocks.
 pub const MONO_FONT: &str = "Courier New";
@@ -37,6 +37,17 @@ pub struct Fmt {
     pub font: Option<String>,
     /// Background (highlight / shading).
     pub background: Option<Rgb>,
+    /// Tracked insertion of this text (formats that keep revisions: RTF).
+    pub ins: Option<RevMark>,
+    /// Tracked deletion of this text. Only [`from_doc_tracked`] keeps deleted text in a flow.
+    pub del: Option<RevMark>,
+}
+
+/// Who made a tracked change and when (ISO 8601; empty = unknown).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct RevMark {
+    pub author: String,
+    pub date: String,
 }
 
 /// An embedded picture.
@@ -386,9 +397,42 @@ fn append(p: &mut Paragraph, text: &str, props: &CharProps, obj: Option<InlineOb
 
 struct Builder<'a> {
     doc: &'a mut Document,
+    /// Revisions already in `doc` by (kind, author, date), so each change is added once.
+    revs: std::collections::HashMap<(u8, RevMark), u32>,
 }
 
-impl Builder<'_> {
+fn rev_key(kind: RevisionKind) -> u8 {
+    match kind {
+        RevisionKind::Insert => 0,
+        RevisionKind::Delete => 1,
+        RevisionKind::Format => 2,
+    }
+}
+
+impl<'a> Builder<'a> {
+    fn new(doc: &'a mut Document) -> Builder<'a> {
+        let mut revs = std::collections::HashMap::new();
+        for (i, r) in doc.revisions.iter().enumerate() {
+            if r.move_name.is_none() {
+                let mark = RevMark { author: r.author.clone(), date: r.date.clone() };
+                revs.entry((rev_key(r.kind), mark)).or_insert(i as u32);
+            }
+        }
+        Builder { doc, revs }
+    }
+
+    /// The document revision for a tracked change, added the first time it is seen.
+    fn revision(&mut self, kind: RevisionKind, m: &RevMark) -> u32 {
+        let key = (rev_key(kind), m.clone());
+        if let Some(i) = self.revs.get(&key) {
+            return *i;
+        }
+        let i = u32::try_from(self.doc.revisions.len()).unwrap_or(u32::MAX);
+        self.doc.revisions.push(Revision::new(kind, m.author.clone(), m.date.clone()));
+        self.revs.insert(key, i);
+        i
+    }
+
     fn para(&mut self, p: &Para, list_num: Option<u32>) -> Paragraph {
         let mut out = Paragraph::new();
         let style = match p.kind {
@@ -429,6 +473,8 @@ impl Builder<'_> {
                 Inline::Text(t, f) => {
                     let t = clean_text(t);
                     let mut cp = char_props(f);
+                    cp.ins = f.ins.as_ref().map(|m| self.revision(RevisionKind::Insert, m));
+                    cp.del = f.del.as_ref().map(|m| self.revision(RevisionKind::Delete, m));
                     if p.kind == Kind::Code && cp.font.as_deref() == Some(MONO_FONT) {
                         cp.font = None;
                     }
@@ -606,7 +652,7 @@ pub fn to_doc_in(flow: &Flow, section: wordcraft_doc::SectionProps) -> Document 
     if uses_code {
         doc.styles.upsert(code_style());
     }
-    let body = Builder { doc: &mut doc }.blocks(&flow.blocks, 0);
+    let body = Builder::new(&mut doc).blocks(&flow.blocks, 0);
     doc.body = body;
     let m = &flow.meta;
     doc.core.title = m.title.clone();
@@ -622,7 +668,7 @@ pub fn to_doc_in(flow: &Flow, section: wordcraft_doc::SectionProps) -> Document 
 /// `blocks` as document blocks of `doc` (their pictures go into its media), for a header,
 /// footer or other part an importer adds itself.
 pub fn part_blocks(doc: &mut Document, blocks: &[FBlock]) -> Blocks {
-    let mut out = Builder { doc }.blocks(blocks, 0);
+    let mut out = Builder::new(doc).blocks(blocks, 0);
     if out.is_empty() {
         out.push(para_block(Paragraph::new()));
     }
@@ -690,7 +736,17 @@ fn fmt_of(doc: &Document, cp: &CharProps, in_code: bool) -> Fmt {
         size: e.size,
         font: if code || in_code { None } else { e.font.clone() },
         background: e.highlight.and_then(|h| h.rgb()).or(e.shading),
+        ins: None,
+        del: None,
     }
+}
+
+/// The insertion and deletion `cp` tracks, as flow marks.
+fn rev_marks(doc: &Document, cp: &CharProps) -> (Option<RevMark>, Option<RevMark>) {
+    let mark = |i: Option<u32>| {
+        i.map(|i| doc.revisions.get(i as usize).map(|r| RevMark { author: r.author.clone(), date: r.date.clone() }).unwrap_or_default())
+    };
+    (mark(cp.ins), mark(cp.del))
 }
 
 /// Paragraph kind and list membership of a document paragraph.
@@ -734,6 +790,12 @@ fn media_ext(key: &str, data: &[u8]) -> String {
 /// A document paragraph as flow paragraphs: a page break character inside the text ends the
 /// paragraph, and the text after it starts a new one that carries `page_break`.
 pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
+    flow_paras_in(doc, p, false)
+}
+
+/// [`flow_paras`]; `tracked` keeps tracked changes: deleted text stays, and text carries its
+/// insertion and deletion marks.
+fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
     let (kind, list) = para_kind(doc, p);
     let mut done: Vec<Para> = Vec::new();
     let mut out = Para {
@@ -750,8 +812,13 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
     let mut k = 0usize;
     for (range, props) in p.run_ranges() {
         let Some(text) = p.text.get(range.clone()) else { continue };
+        // Deleted objects and page breaks stay out even when tracking: the flow has no marks for them.
         let hidden = props.hidden.unwrap_or(false) || props.del.is_some();
-        let f = fmt_of(doc, props, in_code);
+        let hidden_text = props.hidden.unwrap_or(false) || (props.del.is_some() && !tracked);
+        let mut f = fmt_of(doc, props, in_code);
+        if tracked {
+            (f.ins, f.del) = rev_marks(doc, props);
+        }
         let mut buf = String::new();
         for c in text.chars() {
             if c == PAGE_BREAK {
@@ -827,7 +894,7 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
                 None => {}
             }
         }
-        if !hidden {
+        if !hidden_text {
             out.push_text(&buf, &f);
         }
     }
@@ -835,16 +902,16 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
     done
 }
 
-fn flow_blocks(doc: &Document, bl: &Blocks, depth: usize) -> Vec<FBlock> {
+fn flow_blocks(doc: &Document, bl: &Blocks, depth: usize, tracked: bool) -> Vec<FBlock> {
     let mut out = Vec::new();
     for b in bl {
         match &**b {
-            Block::Para(p) => out.extend(flow_paras(doc, p).into_iter().map(FBlock::Para)),
-            Block::Table(t) if depth < MAX_DEPTH => out.push(FBlock::Table(flow_table(doc, t, depth))),
+            Block::Para(p) => out.extend(flow_paras_in(doc, p, tracked).into_iter().map(FBlock::Para)),
+            Block::Table(t) if depth < MAX_DEPTH => out.push(FBlock::Table(flow_table(doc, t, depth, tracked))),
             Block::Table(t) => {
                 for r in &t.rows {
                     for c in &r.cells {
-                        out.extend(flow_blocks(doc, &c.blocks, depth));
+                        out.extend(flow_blocks(doc, &c.blocks, depth, tracked));
                     }
                 }
             }
@@ -853,7 +920,7 @@ fn flow_blocks(doc: &Document, bl: &Blocks, depth: usize) -> Vec<FBlock> {
     out
 }
 
-fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
+fn flow_table(doc: &Document, t: &Table, depth: usize, tracked: bool) -> FTable {
     let mut rows = Vec::new();
     for (ri, r) in t.rows.iter().enumerate() {
         let header = r.props.header || (ri == 0 && t.props.look.header_row && t.rows.len() > 1);
@@ -871,7 +938,7 @@ fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
                 }
             }
             cells.push(Cell {
-                blocks: flow_blocks(doc, &c.blocks, depth + 1),
+                blocks: flow_blocks(doc, &c.blocks, depth + 1, tracked),
                 colspan: c.span() as u32,
                 rowspan,
                 covered: c.props.vmerge == VMerge::Continue,
@@ -891,9 +958,19 @@ fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
 
 /// The document body as a flow.
 pub fn from_doc(doc: &Document) -> Flow {
+    flow_of(doc, false)
+}
+
+/// [`from_doc`] keeping tracked changes: deleted text stays, and text carries its insertion and
+/// deletion marks ([`Fmt::ins`], [`Fmt::del`]), for formats that can write revisions (RTF).
+pub fn from_doc_tracked(doc: &Document) -> Flow {
+    flow_of(doc, true)
+}
+
+fn flow_of(doc: &Document, tracked: bool) -> Flow {
     let c = &doc.core;
     Flow {
-        blocks: flow_blocks(doc, &doc.body, 0),
+        blocks: flow_blocks(doc, &doc.body, 0, tracked),
         meta: Meta {
             title: c.title.clone(),
             author: c.creator.clone(),

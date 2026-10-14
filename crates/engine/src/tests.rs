@@ -912,6 +912,61 @@ fn paste_special_lists_formats_and_pastes_text_without_formatting() {
 }
 
 #[test]
+fn pasted_rtf_tracked_changes_point_at_their_own_revisions() {
+    // Gap 19: RTF tracked changes come with revisions of their own; pasted into a document that
+    // already has revisions, they must not point at the document's (index 0 here is "Zed").
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    s.doc.revisions.push(wordcraft_doc::Revision::new(wordcraft_doc::RevisionKind::Delete, "Zed", ""));
+    run(&mut s, "caret.docEnd", json!({}));
+    let rtf = r"{\rtf1{\*\revtbl {Unknown;}{Alice;}}{\revised\revauth1 added}\par}";
+    run(&mut s, "edit.pasteSpecial", json!({"as": "rtf", "rtf": rtf}));
+    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 2 };
+    let ins = s.doc.para_at(&pos).and_then(|p| p.props_of_char(2).ins);
+    let rev = ins.and_then(|i| s.doc.revisions.get(i as usize));
+    assert_eq!(rev.map(|r| (r.kind, r.author.as_str())), Some((wordcraft_doc::RevisionKind::Insert, "Alice")), "{:?}", s.doc.revisions);
+}
+
+/// Insertion and deletion revision kinds at body paragraph 0, offset `off`.
+fn rev_kinds_at(s: &Session, off: usize) -> (Option<wordcraft_doc::RevisionKind>, Option<wordcraft_doc::RevisionKind>) {
+    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off };
+    let cp = s.doc.para_at(&pos).map(|p| p.props_of_char(off).clone()).unwrap_or_default();
+    let kind = |i: Option<u32>| i.and_then(|i| s.doc.revisions.get(i as usize)).map(|r| r.kind);
+    (kind(cp.ins), kind(cp.del))
+}
+
+const RTF_WITH_DELETION: &str = r"{\rtf1{\*\revtbl {Unknown;}{Bob;}}kept{\deleted\revauthdel1 gone}\par}";
+
+#[test]
+fn pasted_rtf_deletions_stay_deleted_under_track_changes() {
+    // Gap 19: with Track Changes on the paste is an insertion, and text deleted in the source is
+    // inserted-then-deleted (struck), never live text.
+    use wordcraft_doc::RevisionKind::{Delete, Insert};
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "edit.pasteSpecial", json!({"as": "rtf", "rtf": RTF_WITH_DELETION}));
+    assert_eq!(rev_kinds_at(&s, 1), (Some(Insert), None), "kept");
+    assert_eq!(rev_kinds_at(&s, 5), (Some(Insert), Some(Delete)), "gone");
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(text(&s), "xkept");
+}
+
+#[test]
+fn paste_merge_formatting_keeps_rtf_deletions() {
+    use wordcraft_doc::RevisionKind::Delete;
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "edit.pasteMerge", json!({"rtf": RTF_WITH_DELETION}));
+    assert_eq!(rev_kinds_at(&s, 1), (None, None), "kept");
+    assert_eq!(rev_kinds_at(&s, 5), (None, Some(Delete)), "gone");
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(text(&s), "xkept");
+}
+
+#[test]
 fn pasted_rtf_sections_link_their_headers_to_the_previous() {
     // #1378: the RTF's own header part ids mean nothing in this document; a pasted section
     // break keeps its page but links its headers and footers to the previous section.
