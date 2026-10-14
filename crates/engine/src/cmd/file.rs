@@ -217,6 +217,9 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
         doc.styles.default_chr.lang = Some(lang.clone());
     }
     s.set_document(doc);
+    if let Some(z) = s.doc.settings.zoom {
+        super::view::restore_zoom(s, z);
+    }
     s.path = Some(path.into());
     // Like Word, a document opened with a password is saved with it again.
     if encrypted {

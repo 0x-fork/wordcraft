@@ -480,6 +480,10 @@ pub struct Settings {
     pub attached_template: Option<String>,
     /// Update the document's styles from the attached template when it is opened (`w:linkStyles`).
     pub link_styles: bool,
+    /// The zoom the document was saved at (`w:zoom`), restored when it is opened; `None` for 100%
+    /// without a fit mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<Zoom>,
     /// Remove personal information when saving (`w:removePersonalInformation`, ECMA-376
     /// §17.15.1.70): the saved file names comment and revision authors "Author" and leaves out
     /// the document's creator and last-modified-by. The open document keeps its real values.
@@ -489,6 +493,24 @@ pub struct Settings {
     /// comments and tracked changes are saved without `w:date`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remove_date_time: bool,
+}
+
+/// A saved zoom: a percentage, or a fit mode (the percentage it last came to).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Zoom {
+    /// 10–500.
+    pub percent: u32,
+    pub fit: Option<ZoomFit>,
+}
+
+/// View › Zoom's fit modes a document can be saved in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ZoomFit {
+    OnePage,
+    PageWidth,
+    TextWidth,
 }
 
 /// Word's compatibility mode for documents that don't state one.
@@ -566,6 +588,7 @@ impl Default for Settings {
             bib_style: None,
             attached_template: None,
             link_styles: false,
+            zoom: None,
             remove_personal_info: false,
             remove_date_time: false,
         }

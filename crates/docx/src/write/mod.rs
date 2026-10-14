@@ -892,7 +892,19 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:settings", &ns_refs);
-    w.empty("w:zoom", &[("w:percent", "100")]);
+    let zoom = s.zoom.unwrap_or(wordcraft_doc::Zoom { percent: 100, fit: None });
+    let percent = zoom.percent.clamp(10, 500).to_string();
+    match zoom.fit {
+        Some(fit) => {
+            let val = match fit {
+                wordcraft_doc::ZoomFit::OnePage => "fullPage",
+                wordcraft_doc::ZoomFit::PageWidth => "bestFit",
+                wordcraft_doc::ZoomFit::TextWidth => "textFit",
+            };
+            w.empty("w:zoom", &[("w:val", val), ("w:percent", &percent)]);
+        }
+        None => w.empty("w:zoom", &[("w:percent", &percent)]),
+    }
     // §17.15.1.70 / §17.15.1.69, right after `w:zoom` in CT_Settings.
     if s.remove_personal_info {
         w.empty("w:removePersonalInformation", &[]);

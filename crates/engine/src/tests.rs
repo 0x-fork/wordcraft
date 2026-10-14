@@ -3418,6 +3418,37 @@ fn zoom_after_one_page_keeps_single_column() {
     assert!(!s.view.single_column);
 }
 
+/// Issue #995: One Page is saved with the document (`w:zoom`, like Word) and restored when it is
+/// reopened; changing the zoom alone doesn't make the document unsaved.
+#[test]
+fn one_page_is_restored_when_the_document_is_reopened() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-zoom-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("one-page.docx");
+    let path = path.to_string_lossy();
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "file.save", json!({"path": path}));
+    run(&mut s, "view.onePage", json!({}));
+    assert!(!s.dirty, "a zoom isn't an edit");
+    run(&mut s, "file.save", json!({}));
+
+    let mut other = Session::new(wordcraft_doc::Document::new());
+    run(&mut other, "file.open", json!({"path": path}));
+    assert_eq!(other.view.fit, "onePage");
+    assert!(other.view.single_column && !other.view.multi_page);
+    assert!(!other.dirty);
+
+    // A percentage is restored as a percentage, the fit mode dropped.
+    run(&mut other, "view.zoom", json!({"value": 80}));
+    run(&mut other, "file.save", json!({}));
+    run(&mut s, "file.open", json!({"path": path}));
+    assert!(s.view.fit.is_empty() && !s.view.single_column);
+    assert!((s.view.zoom - 0.8).abs() < 1e-6);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn navigation_pane_opens_without_changing_view_mode() {
     // Reading Mode's heading navigation is the Navigation pane; Outline is an editing view (#493).
