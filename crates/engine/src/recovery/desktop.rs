@@ -683,8 +683,20 @@ mod tests {
         assert!(store.save(snapshot(&id, "New copy")).is_err());
         assert_eq!(fs::read(first).unwrap(), bytes);
         drop(store);
+        // The record's lock can be briefly held by a process another test is starting (a forked
+        // child holds the descriptor until it execs), and a record that can't be locked is
+        // skipped, not reported: try again rather than read that as success.
         let mut reopened = Store::new(t.0.clone()).unwrap();
-        assert!(reopened.scan().is_err());
+        let mut scanned = reopened.scan();
+        for _ in 0..50 {
+            if scanned.is_err() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            reopened = Store::new(t.0.clone()).unwrap();
+            scanned = reopened.scan();
+        }
+        assert!(scanned.is_err());
         assert_eq!(reopened.load(&id).unwrap().document.plain_text(StoryRef::Body), "Last valid copy");
     }
 
