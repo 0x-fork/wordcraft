@@ -1553,6 +1553,47 @@ mod tests {
         click_resize_and_drag("insert.picture", json!({"data": data, "width": 100}));
     }
 
+    /// #965: a picture or icon inserted by a command leaves the caret after it, so a script's next
+    /// Enter or typing keeps it (and the saved file has it); Picture Format commands still reach it.
+    #[test]
+    fn typing_after_an_inserted_picture_keeps_it() {
+        let data = super::super::insert::base64_encode(&png(20, 10));
+        for (id, params) in [("insert.picture", json!({"data": data, "width": 100})), ("insert.icon", json!({"id": "sun"}))] {
+            let mut s = Session::new(wordcraft_doc::Document::new());
+            s.run("text.insert", &json!({"text": "x"})).unwrap();
+            s.run("text.newParagraph", &json!({})).unwrap();
+            s.run(id, &params).unwrap();
+            assert!(s.sel.is_collapsed(), "{id}: caret, not a selection");
+            assert!(selected(&s).is_some(), "{id}: still the object Picture Format acts on");
+            s.run("text.newParagraph", &json!({})).unwrap();
+            s.run("text.insert", &json!({"text": "cap"})).unwrap();
+            assert_eq!(s.run("arrange.selectionPane", &json!({})).unwrap().as_array().map(Vec::len), Some(1), "{id}");
+            let paras: Vec<String> = s
+                .doc
+                .body
+                .iter()
+                .filter_map(|b| match &**b {
+                    wordcraft_doc::Block::Para(p) => Some(p.text.replace(wordcraft_doc::para::OBJ, "#")),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(paras, ["X", "#", "cap"], "{id}");
+            let docx = crate::io::save_bytes("p.docx", &s.doc).unwrap();
+            assert!(docx.windows(11).any(|w| w == b"word/media/"), "{id}: the saved file keeps the picture");
+        }
+    }
+
+    /// #965: two pictures inserted by commands in a row are both kept; the second doesn't
+    /// replace the first.
+    #[test]
+    fn two_inserted_pictures_in_a_row_are_both_kept() {
+        let data = super::super::insert::base64_encode(&png(20, 10));
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.picture", &json!({"data": data})).unwrap();
+        s.run("insert.picture", &json!({"data": data})).unwrap();
+        assert_eq!(s.run("arrange.selectionPane", &json!({})).unwrap().as_array().map(Vec::len), Some(2));
+    }
+
     #[test]
     fn picture_pipeline() {
         let mut s = Session::new(wordcraft_doc::Document::new());
