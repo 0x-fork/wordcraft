@@ -44,6 +44,7 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         })),
         CommandSpec::new("insert.bookmark", "Bookmark", "Insert › Links", bookmark).params(r#"{"name": string}"#).key("Mod+Shift+F5"),
+        CommandSpec::new("insert.deleteBookmark", "Delete Bookmark", "Insert › Links", delete_bookmark).params(r#"{"name": string}"#),
         CommandSpec::new("insert.header", "Header", "Insert › Header & Footer", |s, v| header_footer(s, v, true)).params(r#"{"text"?: string, "preset"?: "blank|blankThree|title"}"#),
         CommandSpec::new("insert.footer", "Footer", "Insert › Header & Footer", |s, v| header_footer(s, v, false)).params(r#"{"text"?: string, "preset"?: "blank|blankThree|pageNumber"}"#),
         CommandSpec::new("insert.pageNumber", "Page Number", "Insert › Header & Footer", page_number).params(r#"{"position"?: "top|bottom|current", "align"?: "left|center|right", "format"?: "x of y"}"#),
@@ -394,20 +395,85 @@ fn link(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
+/// Whether `name` can name a bookmark: no spaces, at most 40 characters, not starting with a digit.
+pub fn bookmark_name_ok(name: &str) -> bool {
+    !name.is_empty() && !name.contains(' ') && name.len() <= 40 && !name.chars().next().is_some_and(|c| c.is_ascii_digit())
+}
+
+/// Where bookmark `name` is: see [`bookmark_span`]. `None` when there is no such bookmark.
+pub fn bookmark_range(doc: &wordcraft_doc::Document, name: &str) -> Option<(Pos, Pos)> {
+    let (_, start) = doc.bookmarks().into_iter().find(|(n, _)| n == name)?;
+    Some(bookmark_span(doc, name, &start))
+}
+
+/// The text of bookmark `name` whose start mark is at `start`: from just after that mark to its
+/// end mark — in a later paragraph when it spans several (the start again when it has no end).
+pub fn bookmark_span(doc: &wordcraft_doc::Document, name: &str, start: &Pos) -> (Pos, Pos) {
+    let from = Pos { off: start.off.saturating_add(wordcraft_doc::para::OBJ.len_utf8()), ..start.clone() };
+    let end = doc.para_paths(start.story).into_iter().skip_while(|p| *p != start.path).find_map(|path| {
+        let para = doc.para(start.story, &path)?;
+        let off = para.object_offsets().into_iter().find(|o| {
+            (path != start.path || *o > start.off) && matches!(para.object_at(*o), Some(InlineObject::BookmarkEnd { name: n }) if n == name)
+        })?;
+        Some(Pos { story: start.story, path, off })
+    });
+    let end = end.unwrap_or_else(|| from.clone());
+    (from, end)
+}
+
+/// Remove bookmark `name`'s start and end marks, in whichever paragraphs and stories they are,
+/// keeping the selection on the same text. Returns whether the bookmark was there.
+fn remove_bookmark(s: &mut Session, name: &str) -> Result<bool, CmdError> {
+    let mark_len = wordcraft_doc::para::OBJ.len_utf8();
+    let mut found = false;
+    let stories: Vec<StoryRef> = std::iter::once(StoryRef::Body).chain(s.doc.parts.keys().map(|k| StoryRef::Part(*k))).collect();
+    for story in stories {
+        for path in s.doc.para_paths(story) {
+            let Some(p) = s.doc.para(story, &path) else { continue };
+            let mut marks = Vec::new();
+            for off in p.object_offsets() {
+                match p.object_at(off) {
+                    Some(InlineObject::BookmarkStart { name: n }) if n == name => {
+                        found = true;
+                        marks.push(off);
+                    }
+                    Some(InlineObject::BookmarkEnd { name: n }) if n == name => marks.push(off),
+                    _ => {}
+                }
+            }
+            if marks.is_empty() {
+                continue;
+            }
+            let para = s.doc.para_mut(story, &path)?;
+            for off in marks.into_iter().rev() {
+                para.delete(off, off + mark_len)?;
+                for at in [&mut s.sel.anchor, &mut s.sel.focus] {
+                    if at.story == story && at.path == path && at.off > off {
+                        at.off = at.off.saturating_sub(mark_len);
+                    }
+                }
+            }
+        }
+    }
+    s.clamp_selection();
+    Ok(found)
+}
+
+fn delete_bookmark(s: &mut Session, v: &Value) -> CmdResult {
+    let name = p::req_str(v, "name")?.trim();
+    if !remove_bookmark(s, name)? {
+        return Err(CmdError::Params(format!("no bookmark `{name}`")));
+    }
+    sel_result(s)
+}
+
 fn bookmark(s: &mut Session, v: &Value) -> CmdResult {
     let name = p::req_str(v, "name")?.trim().to_string();
-    if name.is_empty() || name.contains(' ') || name.len() > 40 || name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+    if !bookmark_name_ok(&name) {
         return Err(CmdError::Params("bookmark names start with a letter, have no spaces and at most 40 characters".into()));
     }
     // Replace an existing bookmark of the same name.
-    for (_, pos) in s.doc.bookmarks().into_iter().filter(|(n, _)| *n == name).rev() {
-        let para = s.doc.para_mut(pos.story, &pos.path)?;
-        para.delete(pos.off, pos.off + wordcraft_doc::para::OBJ.len_utf8())?;
-        let offs: Vec<usize> = para.object_offsets();
-        if let Some(e) = offs.into_iter().find(|o| matches!(para.object_at(*o), Some(InlineObject::BookmarkEnd { name: n }) if *n == name)) {
-            para.delete(e, e + wordcraft_doc::para::OBJ.len_utf8())?;
-        }
-    }
+    remove_bookmark(s, &name)?;
     let (a, b) = s.sel.ordered();
     let props = CharProps::default();
     let end = s.doc.insert_object(&b, InlineObject::BookmarkEnd { name: name.clone() }, &props)?;
@@ -938,6 +1004,57 @@ mod tests {
         let data = b"hello world!?";
         assert_eq!(base64_decode(&base64_encode(data)).unwrap(), data);
         assert!(base64_decode("!!!").is_none());
+    }
+
+    /// Every bookmark mark in the body, in order: (paragraph, start or end, name).
+    fn bookmark_marks(s: &Session) -> Vec<(usize, bool, String)> {
+        let mut out = Vec::new();
+        for (i, path) in s.doc.para_paths(StoryRef::Body).iter().enumerate() {
+            let p = s.doc.para(StoryRef::Body, path).unwrap();
+            for off in p.object_offsets() {
+                match p.object_at(off) {
+                    Some(InlineObject::BookmarkStart { name }) => out.push((i, true, name.clone())),
+                    Some(InlineObject::BookmarkEnd { name }) => out.push((i, false, name.clone())),
+                    _ => {}
+                }
+            }
+        }
+        out
+    }
+
+    /// Insert › Bookmark › Delete (#1236): a bookmark across two paragraphs loses both its marks,
+    /// the text and the selection stay where they were, and one undo brings it back. Go To
+    /// selects the bookmark's text, as in Word.
+    #[test]
+    fn deleting_a_bookmark_removes_its_start_and_end() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Alpha beta\ngamma delta"));
+        s.sel = Selection { anchor: Pos::body(0, 6), focus: Pos::body(1, 5) };
+        s.run("insert.bookmark", &json!({"name": "Across"})).unwrap();
+        assert_eq!(bookmark_marks(&s), vec![(0, true, "Across".into()), (1, false, "Across".into())]);
+        s.run("edit.goto", &json!({"bookmark": "Across"})).unwrap();
+        let picked = s.selected_text();
+        assert!(picked.starts_with("beta") && picked.ends_with("gamma"), "{picked:?}");
+        s.run("select.text", &json!({"text": "delta"})).unwrap();
+        s.run("insert.deleteBookmark", &json!({"name": "Across"})).unwrap();
+        assert!(bookmark_marks(&s).is_empty(), "{:?}", bookmark_marks(&s));
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Alpha beta\ngamma delta");
+        assert_eq!(s.selected_text(), "delta", "the selection stays on its text");
+        assert!(s.run("insert.deleteBookmark", &json!({"name": "Across"})).is_err(), "gone");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(bookmark_marks(&s).len(), 2, "one undo step");
+    }
+
+    /// Adding a bookmark under a name in use moves it, and the old end goes too — it was only
+    /// looked for in the start's paragraph, so a bookmark across paragraphs left a stray end.
+    #[test]
+    fn adding_a_bookmark_again_moves_all_of_it() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Alpha beta\ngamma delta"));
+        s.sel = Selection { anchor: Pos::body(0, 6), focus: Pos::body(1, 5) };
+        s.run("insert.bookmark", &json!({"name": "Spot"})).unwrap();
+        s.run("select.text", &json!({"text": "delta"})).unwrap();
+        s.run("insert.bookmark", &json!({"name": "Spot"})).unwrap();
+        assert_eq!(bookmark_marks(&s), vec![(1, true, "Spot".into()), (1, false, "Spot".into())]);
+        assert_eq!(crate::cmd::references::bookmark_text(&s.doc, "Spot").as_deref(), Some("delta"));
     }
 
     /// Insert › Symbol with a font: only the symbol takes it, the caret's font carries on after.

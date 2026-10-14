@@ -2203,7 +2203,7 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "review.combine" if !has("path") && !has("text") => Some("combine"),
         "tools.autocorrect" if params.as_object().is_none_or(|m| m.is_empty()) => Some("autoCorrect"),
         "review.restrict" | "file.protect" if params.as_object().is_none_or(|m| m.is_empty()) => Some("restrictEditing"),
-        "insert.bookmark" if !has("name") => Some("bookmark"),
+        "insert.bookmark" | "insert.deleteBookmark" if !has("name") => Some("bookmark"),
         // Word Count from the keyboard or command search shows its dialog, as the ribbon does.
         "review.wordCount" if params.as_object().is_none_or(|m| m.is_empty()) => Some("wordCount"),
         // Content control Properties without settings shows the dialog.

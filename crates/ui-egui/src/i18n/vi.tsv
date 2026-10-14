@@ -2601,3 +2601,8 @@
 	Show its number relative to this field	Hiện số của nó tương đối với trường này
 	Show its number with all higher levels	Hiện số của nó kèm mọi cấp cao hơn
 	Take the last match on the page	Lấy kết quả khớp cuối cùng trên trang
+
+# Bookmark dialog (#1277)
+	Delete Bookmark	Xóa dấu trang
+	Hidden bookmarks	Dấu trang ẩn
+	Sort by:	Sắp xếp theo:

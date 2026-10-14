@@ -2044,7 +2044,10 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             && let Some(link) = link_under(app, layout, page, x, y, &pos)
         {
             if let Some(name) = link.strip_prefix('#') {
-                let _ = app.run("edit.goto", json!({"bookmark": name}));
+                // The caret goes to the bookmark's start, as in Word (Go To selects its text).
+                if app.run("edit.goto", json!({"bookmark": name})).is_ok() {
+                    let _ = app.run("select.collapse", json!({}));
+                }
             } else if is_followable_link(&link) {
                 app.canvas.open_url = Some(link);
             } else {
@@ -3563,6 +3566,41 @@ mod tests {
         ] {
             assert!(!is_followable_link(bad), "{bad:?}");
         }
+    }
+
+    /// Ctrl+click on a link to a bookmark puts the caret at the bookmark's start, as Word does;
+    /// only Go To selects the bookmark's text (#1236).
+    #[test]
+    fn a_link_to_a_bookmark_puts_the_caret_at_its_start() {
+        let mut a =
+            WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Alpha beta gamma\nSee here")), Default::default());
+        a.run("select.text", json!({"text": "beta"})).unwrap();
+        a.run("insert.bookmark", json!({"name": "Spot"})).unwrap();
+        a.run("select.text", json!({"text": "here"})).unwrap();
+        a.run("insert.link", json!({"url": "#Spot"})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        // Between the link's "h" and "e".
+        let c = h.state_mut().session.layout().caret(&Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(1), off: 5 }).unwrap();
+        let at = screen(&mut h, c.x, c.top + c.height / 2.0);
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        let press = egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::COMMAND };
+        h.event_modifiers(press, egui::Modifiers::COMMAND);
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+        steps(&mut h, 3);
+        let s = &h.state().session;
+        let (start, _) = wordcraft_engine::cmd::insert::bookmark_range(&s.doc, "Spot").unwrap();
+        assert!(s.sel.is_collapsed(), "a caret, not a selection: {:?}", s.sel);
+        assert_eq!(s.sel.focus, start, "at the bookmark's start");
     }
 
     /// #688: the drag auto-scroll waits in the middle, ramps in from both edges and never leaves

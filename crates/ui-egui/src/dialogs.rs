@@ -267,6 +267,12 @@ pub enum Dialog {
     },
     Bookmark {
         name: String,
+        /// Listed in document order (Word's Sort by Location) rather than by name.
+        by_location: bool,
+        /// Hidden bookmarks (`_Toc…`, `_Ref…`, made for tables of contents and cross-references) listed too.
+        hidden: bool,
+        /// A bookmark was deleted, so Cancel reads Close (as in Word).
+        deleted: bool,
     },
     WordCount {
         stats: Value,
@@ -1175,7 +1181,7 @@ impl Dialog {
                 }
             }
             "link" => Dialog::Link { url: "https://".into(), text: app.session.selected_text() },
-            "bookmark" => Dialog::Bookmark { name: String::new() },
+            "bookmark" => Dialog::Bookmark { name: bookmark_at_caret(&app.session), by_location: false, hidden: false, deleted: false },
             "wordCount" => Dialog::WordCount { stats: app.session.run("review.wordCount", &json!({})).unwrap_or_default() },
             "zoom" => Dialog::Zoom { percent: (app.session.view.zoom * 100.0).round() },
             "watermark" => Dialog::Watermark { text: "CONFIDENTIAL".into(), diagonal: true },
@@ -2200,21 +2206,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::Bookmark { name } => {
-            ui.label(tl!("Bookmark name:"));
-            ui.text_edit_singleline(name);
-            let marks = app.session.doc.bookmarks();
-            for (n, _) in &marks {
-                if ui.selectable_label(false, n).clicked() {
-                    let _ = app.run("edit.goto", json!({"bookmark": n}));
-                }
-            }
-            let (ok, cancel) = buttons(ui, tl!("Add"));
-            if ok {
-                let _ = app.run("insert.bookmark", json!({"name": name}));
-            }
-            ok || cancel
-        }
+        Dialog::Bookmark { name, by_location, hidden, deleted } => bookmark(app, ui, name, by_location, hidden, deleted),
         Dialog::WordCount { stats } => {
             egui::Grid::new("wc").num_columns(2).spacing(vec2(30.0, 6.0)).show(ui, |ui| {
                 for (l, k) in [
@@ -3292,6 +3284,92 @@ fn apply_asian(app: &mut WordApp, asian: [bool; 6], was: [bool; 6]) {
     }
 }
 
+/// The innermost bookmark around the caret, which the Bookmark dialog opens on (as Word does);
+/// empty when the caret is in none.
+fn bookmark_at_caret(s: &wordcraft_engine::Session) -> String {
+    let at = &s.sel.focus;
+    s.doc
+        .bookmarks()
+        .into_iter()
+        .rev()
+        .find(|(name, start)| !name.starts_with('_') && start <= at && *at <= wordcraft_engine::cmd::insert::bookmark_span(&s.doc, name, start).1)
+        .map(|(name, _)| name)
+        .unwrap_or_default()
+}
+
+/// The bookmarks the Bookmark dialog lists: by name or in document order, the hidden ones
+/// (`_Toc…`, `_Ref…`) only when asked for.
+fn bookmark_names(doc: &wordcraft_doc::Document, by_location: bool, hidden: bool) -> Vec<String> {
+    let mut names: Vec<String> = doc.bookmarks().into_iter().map(|(n, _)| n).filter(|n| hidden || !n.starts_with('_')).collect();
+    if !by_location {
+        names.sort_by_key(|n| n.to_lowercase());
+    }
+    names
+}
+
+/// Insert › Bookmark, laid out as Word's (#1236): the name box over the list, Add / Delete / Go To
+/// beside them, Sort by and Hidden bookmarks below. Add (Enter) closes the dialog; Delete and Go
+/// To leave it open, and once a bookmark is deleted Cancel reads Close.
+fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_location: &mut bool, hidden: &mut bool, deleted: &mut bool) -> bool {
+    let marks = bookmark_names(&app.session.doc, *by_location, *hidden);
+    let t = Tokens::get(ui.ctx());
+    let (mut add, mut delete, mut go_to) = (false, false, false);
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.label(tl!("Bookmark name:"));
+            ui.add(egui::TextEdit::singleline(name).desired_width(240.0));
+            egui::Frame::NONE.stroke(egui::Stroke::new(1.0, t.border)).inner_margin(4).show(ui, |ui| {
+                ui.set_width(232.0);
+                ui.set_height(150.0);
+                egui::ScrollArea::vertical().id_salt("bookmark_list").max_height(150.0).auto_shrink([false, false]).show(ui, |ui| {
+                    for n in &marks {
+                        if ui.selectable_label(*n == *name, n.as_str()).clicked() {
+                            *name = n.clone();
+                        }
+                    }
+                });
+            });
+        });
+        ui.vertical(|ui| {
+            ui.add_space(18.0);
+            let listed = marks.iter().any(|n| n == name.trim());
+            let w = vec2(90.0, 0.0);
+            add = ui.add_enabled(wordcraft_engine::cmd::insert::bookmark_name_ok(name.trim()), egui::Button::new(tl!("Add")).min_size(w)).clicked();
+            delete = ui.add_enabled(listed, egui::Button::new(tl!("Delete")).min_size(w)).clicked();
+            go_to = ui.add_enabled(listed, egui::Button::new(tl!("Go To")).min_size(w)).clicked();
+        });
+    });
+    ui.add_space(6.0);
+    ui.horizontal_top(|ui| {
+        ui.label(tl!("Sort by:"));
+        ui.vertical(|ui| {
+            ui.radio_value(by_location, false, tl!("Name"));
+            ui.radio_value(by_location, true, tl!("Location"));
+        });
+    });
+    ui.checkbox(hidden, tl!("Hidden bookmarks"));
+    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+    if add || (enter && wordcraft_engine::cmd::insert::bookmark_name_ok(name.trim())) {
+        let _ = app.run("insert.bookmark", json!({"name": name.trim()}));
+        return true;
+    }
+    if delete && app.run("insert.deleteBookmark", json!({"name": name.trim()})).is_ok() {
+        name.clear();
+        *deleted = true;
+    }
+    if go_to {
+        let _ = app.run("edit.goto", json!({"bookmark": name.trim()}));
+    }
+    ui.add_space(8.0);
+    let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            close |= ui.button(if *deleted { tl!("Close") } else { tl!("Cancel") }).clicked();
+        });
+    });
+    close
+}
+
 /// Manage Styles' body. Reads the list from `styles.manage`'s data (never re-running the command,
 /// which would ask to open this dialog again) and acts through commands.
 fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut bool, selected: &mut String) -> bool {
@@ -3713,6 +3791,56 @@ mod tests {
         for junk in ["0", "abc", "+x", "1.5", "99999999999999999999999"] {
             assert_eq!(goto_page(junk), None, "{junk}");
         }
+    }
+
+    /// Insert › Bookmark (#1236), as in Word: it opens on the bookmark around the caret, lists by
+    /// name, Go To selects a bookmark's text and Delete removes one — both leaving the dialog
+    /// open, Cancel then reading Close — and one undo brings the bookmark back.
+    #[test]
+    fn the_bookmark_dialog_goes_to_and_deletes_bookmarks() {
+        fn press(h: &mut egui_kittest::Harness<'_, WordApp>, label: &str) {
+            use egui_kittest::kittest::Queryable;
+            let dialog = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", "Bookmark")))).expect("the dialog is open");
+            h.query_all_by_label(label).find(|n| dialog.contains(n.rect().center())).expect(label).click();
+            for _ in 0..3 {
+                h.step();
+            }
+        }
+        let mut app = app_with("Alpha beta gamma");
+        for (word, name) in [("Alpha", "_Hidden"), ("beta", "Zulu"), ("gamma", "Yankee")] {
+            let _ = app.run("select.text", json!({"text": word}));
+            let _ = app.run("insert.bookmark", json!({"name": name}));
+        }
+        let doc = &app.session.doc;
+        assert_eq!(bookmark_names(doc, false, false), ["Yankee", "Zulu"], "by name, hidden ones left out");
+        assert_eq!(bookmark_names(doc, true, false), ["Zulu", "Yankee"], "by location");
+        assert_eq!(bookmark_names(doc, false, true), ["_Hidden", "Yankee", "Zulu"]);
+        let _ = app.run("select.text", json!({"text": "gamma"}));
+        app.dialog = Dialog::open("bookmark", &mut app);
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..4 {
+            h.step();
+        }
+        assert!(matches!(&h.state().dialog, Some(Dialog::Bookmark { name, .. }) if name == "Yankee"), "opens on the caret's bookmark");
+        press(&mut h, "Zulu");
+        press(&mut h, "Go To");
+        assert_eq!(h.state().session.selected_text(), "beta");
+        press(&mut h, "Delete");
+        let names: Vec<String> = h.state().session.doc.bookmarks().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, ["_Hidden", "Yankee"]);
+        assert!(matches!(&h.state().dialog, Some(Dialog::Bookmark { name, deleted: true, .. }) if name.is_empty()), "still open");
+        assert_eq!(h.state().session.selected_text(), "beta", "the text stays selected");
+        press(&mut h, "Close");
+        assert!(h.state().dialog.is_none());
+        let _ = h.state_mut().run("edit.undo", json!({}));
+        assert_eq!(h.state().session.doc.bookmarks().len(), 3, "one undo step");
     }
 
     /// Find, Replace and Go To are one dialog with three tabs (#712).
