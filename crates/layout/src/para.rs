@@ -527,7 +527,8 @@ impl SegKey {
     }
 }
 
-/// The capital All Caps and Small Caps draw for `c`: one character in, one out (ß draws as S).
+/// The first character of `c`'s capital (ß → S): the shaper's one-to-one mapping, and the
+/// text read back for labels and field results, whose byte ranges can't grow.
 fn upper_char(c: char) -> char {
     c.to_uppercase().next().unwrap_or(c)
 }
@@ -537,6 +538,18 @@ fn upper_char(c: char) -> char {
 /// the text read back is the text shown (#1473).
 pub(crate) fn caps_char(rc: &ResolvedChar, c: char) -> char {
     if rc.caps || (rc.small_caps && c.is_lowercase()) { upper_char(c) } else { c }
+}
+
+/// Appends the text drawn for `c` in a run formatted `rc`: like [`caps_char`], but with a
+/// letter's full capital (ß → SS), as body text draws it (#1581).
+pub(crate) fn push_caps(rc: &ResolvedChar, c: char, out: &mut String) {
+    if rc.caps || (rc.small_caps && c.is_lowercase()) { out.extend(c.to_uppercase()) } else { out.push(c) }
+}
+
+/// Whether `c`'s capital is more than one character (ß → SS), so All Caps draws more
+/// characters than the document holds.
+fn caps_expands(c: char) -> bool {
+    c.to_uppercase().nth(1).is_some()
 }
 
 /// Combining marks and joiners (bidi classes NSM, BN: harakat, ZWNJ, ZWJ) belong to the
@@ -822,19 +835,28 @@ impl<'a> Builder<'a> {
             let si = self.style(rc, key.face, small);
             let Some(st) = self.styles.get(si as usize).cloned() else { continue };
             let upper = rc.caps || small;
-            // Displayed text: numeral substitution is 1 char → 1 char, so codepoints stay
-            // aligned with the document and only byte offsets shift; `orig_of` maps each
-            // displayed char back to its original byte offset (+ a `sub.len()` sentinel).
-            let substituted = sub.char_indices().any(|(i, c)| self.numeral_char(&context, a + i, c, key.rtl) != c);
+            // All Caps and Small Caps draw a letter's full capital, which can be several
+            // characters (ß → SS, ﬀ → FF, ŉ → ʼN), as Word does (#1581). A symbol-font run
+            // draws its codes as symbols, never as expanded capitals.
+            let expands = sym.is_none() && upper && sub.chars().any(caps_expands);
+            // Displayed text: numeral substitution is 1 char → 1 char and a capital may be
+            // several; `map_starts` holds where each document char's displayed form starts and
+            // `orig_of` maps it back to the char's original byte offset (+ a `sub.len()` sentinel).
+            let substituted = expands || sub.char_indices().any(|(i, c)| self.numeral_char(&context, a + i, c, key.rtl) != c);
             let mut mapped = String::new();
             let mut map_starts: Vec<usize> = Vec::new();
             let mut orig_of: Vec<usize> = Vec::new();
             if substituted {
-                mapped = String::with_capacity(sub.len());
+                mapped = String::with_capacity(sub.len().saturating_add(8));
                 for (i, c) in sub.char_indices() {
                     map_starts.push(mapped.len());
                     orig_of.push(i);
-                    mapped.push(self.numeral_char(&context, a + i, c, key.rtl));
+                    let d = self.numeral_char(&context, a + i, c, key.rtl);
+                    if expands {
+                        mapped.extend(d.to_uppercase());
+                    } else {
+                        mapped.push(d);
+                    }
                 }
                 orig_of.push(sub.len());
             }
@@ -861,7 +883,12 @@ impl<'a> Builder<'a> {
             // Group glyphs by cluster byte offset; graphemes may span several shaper clusters.
             // Complex-script syllables the graphemes split (Myanmar vowel signs, stacked
             // consonants) stay one cluster: the caret never stops inside them.
-            let bounds: Vec<usize> = wordcraft_doc::cluster::cluster_starts(shape_text);
+            let mut bounds: Vec<usize> = wordcraft_doc::cluster::cluster_starts(shape_text);
+            if expands {
+                // The capitals drawn for one character (the two S of ß) are one cluster: the
+                // caret, selection and line breaking never stop inside the character.
+                bounds.retain(|b| map_starts.binary_search(b).is_ok());
+            }
             let mut gi = 0usize;
             for (bi, &gs) in bounds.iter().enumerate() {
                 let ge = bounds.get(bi + 1).copied().unwrap_or(shape_text.len());

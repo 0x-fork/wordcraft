@@ -6528,6 +6528,88 @@ fn paragraph_own_float_is_not_replaced_when_its_rest_wraps_in_the_next_column() 
     assert_clear_of(&line_boxes(&l, 0, 1, col2), r, "column 2");
 }
 
+/// "Straße" laid out with `f` applied to all of it: its first line's layout.
+fn strasse_with(f: &dyn Fn(&mut wordcraft_doc::props::CharProps)) -> ParaLayout {
+    let mut d = Document::from_text("Straße");
+    d.format_range(&Pos::body(0, 0), &Pos::body(0, "Straße".len()), f).unwrap();
+    let l = lay(&d);
+    l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some((**para).clone()) } else { None }).expect("a laid-out line")
+}
+
+/// Text clusters of the first line: (start, end, glyph ids, left x, advance).
+fn text_clusters(pl: &ParaLayout) -> Vec<(usize, usize, Vec<u32>, f32, f32)> {
+    let line = &pl.lines[0];
+    (line.c0..line.c1)
+        .filter(|&k| pl.clusters[k].kind == para::ClKind::Text)
+        .map(|k| {
+            let c = &pl.clusters[k];
+            let gids = pl.glyphs[c.g0 as usize..c.g1 as usize].iter().map(|g| g.gid).collect();
+            (c.start, c.end, gids, line.cl_left(k).unwrap(), c.adv)
+        })
+        .collect()
+}
+
+/// All Caps and Small Caps draw ß as SS, as Word does, and the ß stays one character for the
+/// caret, selection and hit testing (#1581).
+#[test]
+fn caps_draw_sharp_s_as_two_capitals_in_one_cluster() {
+    let width = |pl: &ParaLayout| text_clusters(pl).iter().map(|c| c.4).sum::<f32>();
+    let plain_strase = {
+        let d = Document::from_text("STRASE");
+        let l = lay(&d);
+        let pl = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some((**para).clone()) } else { None }).unwrap();
+        width(&pl)
+    };
+    let caps: &dyn Fn(&mut wordcraft_doc::props::CharProps) = &|c| c.caps = Some(true);
+    let small: &dyn Fn(&mut wordcraft_doc::props::CharProps) = &|c| c.small_caps = Some(true);
+    for (name, f) in [("All Caps", caps), ("Small Caps", small)] {
+        let pl = strasse_with(f);
+        let cl = text_clusters(&pl);
+        let glyphs: usize = cl.iter().map(|c| c.2.len()).sum();
+        assert_eq!(glyphs, 7, "{name}: S T R A S S E is seven glyphs: {cl:?}");
+        assert_eq!(cl.len(), 6, "{name}: six source characters, six clusters: {cl:?}");
+        let ss = cl.iter().find(|c| c.0 == 4).expect("a cluster for ß");
+        assert_eq!(ss.1, 6, "{name}: the ß cluster covers exactly the ß");
+        // Both glyphs drawn for ß are the S that starts the word.
+        let s_gid = cl.first().and_then(|c| c.2.first().copied());
+        assert_eq!(ss.2.len(), 2, "{name}: ß draws two glyphs");
+        assert!(ss.2.iter().all(|g| Some(*g) == s_gid), "{name}: both glyphs are S");
+        if name == "All Caps" {
+            assert!(width(&pl) > plain_strase + 1.0, "All Caps: STRASSE is wider than STRASE: {} vs {plain_strase}", width(&pl));
+        }
+        // Caret stops: one before each source character, and the end; none inside ß.
+        assert_eq!(pl.line_offsets(0), vec![0, 1, 2, 3, 4, 6, 7], "{name}");
+        // A click on the first S lands before the ß, on the second S after it.
+        assert_eq!(pl.off_at_x(0, ss.3 + ss.4 * 0.25), 4, "{name}: click on the first S");
+        assert_eq!(pl.off_at_x(0, ss.3 + ss.4 * 0.75), 6, "{name}: click on the second S");
+        if name == "Small Caps" {
+            // The ß is a lowercase letter: drawn at the small-caps size, like the "t", not
+            // at the size of the capital S that starts the word.
+            let style = |off: usize| pl.clusters.iter().find(|c| c.start == off).map(|c| c.style);
+            assert_eq!(style(4), style(1), "Small Caps: ß is scaled like t");
+            assert_ne!(style(4), style(0), "Small Caps: ß is not the size of the first S");
+        }
+    }
+    // Without caps, ß is one glyph of its own.
+    let pl = strasse_with(&|c| c.bold = Some(false));
+    let cl = text_clusters(&pl);
+    assert_eq!(cl.len(), 6);
+    assert_eq!(cl.iter().map(|c| c.2.len()).sum::<usize>(), 6, "{cl:?}");
+}
+
+/// A caps run in a symbol font draws each code as its symbol: ß never becomes two glyphs (#1581).
+#[test]
+fn caps_in_a_symbol_font_never_expand_characters() {
+    let pl = strasse_with(&|c| {
+        c.caps = Some(true);
+        c.font = Some("Wingdings".into());
+    });
+    let cl = text_clusters(&pl);
+    assert_eq!(cl.len(), 6, "{cl:?}");
+    let ss = cl.iter().find(|c| c.0 == 4).expect("a cluster for the ß code");
+    assert_eq!((ss.1, ss.2.len()), (6, 1), "the ß code is one symbol: {cl:?}");
+}
+
 /// #1320: a section's vertical alignment (`w:vAlign`, ECMA-376 §17.6.23). Justified shares the
 /// room left on each page out equally between the page's blocks, so the first line stays at the
 /// top margin and the last one sits on the bottom margin (Word for Mac 16.113.4): a partly filled

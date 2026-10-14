@@ -750,8 +750,10 @@ fn lines(
                             text.push_str(&wordcraft_doc::symbol_fonts::map_text(&st.rc.font, t));
                         } else if st.rc.caps || st.rc.small_caps {
                             // All Caps and Small Caps read as the capitals drawn (#1473), mapped
-                            // as the shaper maps them, so a glyph never stands for two cases.
-                            text.extend(t.chars().map(|ch| crate::para::caps_char(&st.rc, ch)));
+                            // as drawn, so a glyph never stands for two cases and ß reads as SS (#1581).
+                            for ch in t.chars() {
+                                crate::para::push_caps(&st.rc, ch, &mut text);
+                            }
                         } else {
                             text.push_str(t);
                         }
