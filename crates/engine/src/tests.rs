@@ -5601,6 +5601,75 @@ fn insert_picture_takes_a_windows_metafile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A DOCX built in code: a tracked deletion inside a field result, as Word writes when a
+/// formula field's result is edited (#1037). The first field's result is split across the field
+/// end; the second has its whole result deleted.
+fn tracked_field_result_docx() -> Vec<u8> {
+    use std::io::Write;
+    const WHO: &str = r#"w:author="Tester" w:date="2026-10-12T00:00:00Z""#;
+    let field = |instr: &str, inside: &str, after: &str| {
+        format!(
+            r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> {instr} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{inside}<w:r><w:fldChar w:fldCharType="end"/></w:r>{after}"#
+        )
+    };
+    let del = |id: u32, t: &str| format!(r#"<w:del w:id="{id}" {WHO}><w:r><w:delText>{t}</w:delText></w:r></w:del>"#);
+    let ins = |id: u32, t: &str| format!(r#"<w:ins w:id="{id}" {WHO}><w:r><w:t>{t}</w:t></w:r></w:ins>"#);
+    let p1 = field("=SUM(ABOVE)", &del(1, "$"), &(del(2, "150.00") + &ins(3, "$140.00")));
+    let p2 = field("=2+3", &del(4, "5"), &ins(5, "five"));
+    let xml = format!(
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>{p1}</w:p><w:p>{p2}</w:p></w:body></w:document>"#
+    );
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, value) in [
+        ("word/document.xml", xml.as_str()),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(value.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+#[test]
+fn tracked_deletion_inside_a_field_result_is_a_revision_and_is_saved() {
+    let doc = wordcraft_docx::read(&tracked_field_result_docx()).unwrap();
+    // Revisions with one author and date are shared: one deletion, one insertion.
+    let kinds: Vec<_> = doc.revisions.iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, [wordcraft_doc::RevisionKind::Delete, wordcraft_doc::RevisionKind::Insert]);
+    // The deleted `$` is still in the text, marked deleted (not ordinary result text).
+    let p = doc.body[0].as_para().unwrap();
+    assert_eq!(p.text.replace(wordcraft_doc::para::OBJ, ""), "$150.00$140.00");
+    // Saving keeps the deletion inside the result, with its text as delText.
+    let bytes = wordcraft_docx::write(&doc).unwrap();
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut z.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+    let sep = xml.find(r#"w:fldCharType="separate""#).unwrap();
+    let end = xml.find(r#"w:fldCharType="end""#).unwrap();
+    let inside = &xml[sep..end];
+    assert!(inside.contains("<w:del ") && inside.contains("<w:delText") && inside.contains('$'), "{inside}");
+}
+
+/// Paragraph texts without the field markers' placeholder characters.
+fn visible_texts(s: &Session) -> Vec<String> {
+    body_texts(s).iter().map(|t| t.replace(wordcraft_doc::para::OBJ, "")).collect()
+}
+
+#[test]
+fn accept_and_reject_all_handle_a_tracked_deletion_inside_a_field_result() {
+    let open = || Session::new(wordcraft_docx::read(&tracked_field_result_docx()).unwrap());
+    let mut s = open();
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(visible_texts(&s), ["$140.00", "five"]);
+    assert!(s.doc.revisions.is_empty());
+    let mut s = open();
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(visible_texts(&s), ["$150.00", "5"]);
+}
+
 #[test]
 fn rename_document_preserves_saved_contents_and_rejects_collisions() {
     let dir = std::env::temp_dir().join(format!("wordcraft-rename-{}", std::process::id()));

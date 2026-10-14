@@ -815,7 +815,11 @@ impl Reader<'_> {
         // A cached result holding a picture, chart or shape (`INCLUDEPICTURE`'s embedded
         // picture) can't be a text result: keep the field as a range around it so the picture
         // stays in the document and is saved again. The linked source is never read.
-        if !nested_in_instr && f.buf.iter().any(|(it, _)| matches!(it, Item::Obj(o) if o.frame().is_some())) {
+        // A tracked insertion or deletion inside the result (one the field itself isn't wrapped
+        // in) keeps the field a range too: a cached text result has one revision at most, so
+        // each piece stays an ordinary run with its own `w:ins` / `w:del` (#1037).
+        let tracked_inside = f.buf.iter().any(|(_, p)| (p.ins, p.del) != (f.props.ins, f.props.del));
+        if !nested_in_instr && (tracked_inside || f.buf.iter().any(|(it, _)| matches!(it, Item::Obj(o) if o.frame().is_some()))) {
             self.emit_obj(sc, pb, InlineObject::FieldStart { instr: f.instr.trim().to_string(), locked: f.locked }, &f.props);
             for (it, p) in f.buf {
                 match it {
