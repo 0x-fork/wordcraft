@@ -3153,6 +3153,63 @@ mod tests {
         assert!(!a.session.sel.is_collapsed(), "the drag left a selection");
     }
 
+    /// #1013: a press inside the selected comment's balloon (to move the caret in its text) left
+    /// the balloon, because the canvas under it also "contained" the pointer.
+    #[test]
+    fn a_press_inside_the_selected_comment_keeps_it_selected() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "Some text to comment on. ".repeat(40)})).unwrap();
+        a.run("select.word", json!({})).unwrap();
+        a.run("review.newComment", json!({"text": "A comment with a few words in it"})).unwrap();
+        a.session.view.comments_pane = false;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 700.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let (id, card) = *a.canvas.balloon_rects.first().expect("the comment has a balloon");
+        frame(&mut a, vec![egui::Event::PointerMoved(card.center())]);
+        frame(&mut a, vec![btn(card.center(), true)]);
+        frame(&mut a, vec![btn(card.center(), false)]);
+        for _ in 0..5 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.canvas.balloon, Some(id), "a click on the balloon selects it");
+        let (_, card) = *a.canvas.balloon_rects.iter().find(|(i, _)| *i == id).unwrap();
+        let (focus, scroll) = (a.session.sel.clone(), a.canvas.scroll_offset);
+        // Press, drag a little and release inside the comment's text.
+        let (from, to) = (card.left_top() + egui::vec2(30.0, 30.0), card.left_top() + egui::vec2(80.0, 30.0));
+        frame(&mut a, vec![egui::Event::PointerMoved(from)]);
+        frame(&mut a, vec![btn(from, true)]);
+        assert_eq!(a.canvas.balloon, Some(id), "the press stays in the balloon");
+        for _ in 0..3 {
+            frame(&mut a, vec![egui::Event::PointerMoved(to)]);
+        }
+        assert!(!a.canvas.drag_selecting(), "the press didn't start a drag in the document");
+        frame(&mut a, vec![btn(to, false)]);
+        assert_eq!(a.canvas.balloon, Some(id), "still selected after the release");
+        assert_eq!(a.session.sel, focus, "the document's caret didn't move");
+        assert_eq!(a.canvas.scroll_offset, scroll);
+        // A press on the page itself still leaves the balloon.
+        let page = a.canvas.page_rects.first().copied().unwrap();
+        let body = page.left_top() + egui::vec2(120.0, 160.0);
+        frame(&mut a, vec![egui::Event::PointerMoved(body)]);
+        frame(&mut a, vec![btn(body, true)]);
+        frame(&mut a, vec![btn(body, false)]);
+        assert_eq!(a.canvas.balloon, None, "a click on the page leaves the balloon");
+    }
+
     /// #1019: a double-click in the header area returned before the release ended the drag, so
     /// a later press held on the ribbon edge-scrolled the document up.
     #[test]

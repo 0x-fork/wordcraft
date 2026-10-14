@@ -1248,10 +1248,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // the scroll area is built, so it reads last frame's viewport.
     app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
-    // A click on the page leaves the selected comment balloon; a click inside a balloon (its
-    // Delete or Resolve button, say) does not (#1085).
-    let in_balloon = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p)));
-    if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() && !in_balloon {
+    // A click on the page leaves the selected comment balloon.
+    if app.canvas.balloon.is_some()
+        && ui.input(|i| i.pointer.any_pressed())
+        && resp.contains_pointer()
+        && !ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| over_balloon(app, p))
+    {
         deselect_balloon(app, ui.ctx());
     }
     // Space and Enter also set `Response::clicked` on a focused click-sensing widget
@@ -1710,6 +1712,11 @@ pub fn select_balloon(app: &mut WordApp, ctx: &egui::Context, id: u32) {
     app.canvas.balloon_h = 0.0;
 }
 
+/// A press over a balloon card belongs to the card, though the canvas under it also contains the pointer (#1013).
+fn over_balloon(app: &WordApp, p: Pos2) -> bool {
+    app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p))
+}
+
 /// Leave the selected balloon, writing back what was typed in it (its fields may not be drawn
 /// again to notice they lost focus).
 pub fn deselect_balloon(app: &mut WordApp, ctx: &egui::Context) {
@@ -1888,7 +1895,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         let _ = app.run("select.paragraph", json!({}));
         return;
     }
-    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer();
+    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);
     if pressed {
         let now = ui.input(|i| i.time);
         let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
