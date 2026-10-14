@@ -1023,3 +1023,253 @@ fn internal_links_export_in_linear_time() {
     let ratio = fastest(&big) / fastest(&small).max(1e-9);
     assert!(ratio < 9.0, "4x the paragraphs and links took {ratio:.1}x as long (quadratic would be ~16x)");
 }
+
+/// The reporter's four paragraphs from #1383 (Hebrew, Arabic and mixed right-to-left paragraphs,
+/// and a Latin one), then right-to-left words with a lam-alef ligature and with vowel marks.
+fn rtl_sample() -> Document {
+    let mut d = Document::from_text("שלום עולם\nمرحبا بالعالم\nייפוי כח מס' 123 – Power of Attorney\nHello world\nالسلام مَرْحَبًا שָׁלוֹם");
+    // Right to left: all but "Hello world".
+    for i in [0, 1, 2, 4] {
+        let at = wordcraft_doc::Pos::body(i, 0);
+        d.format_paragraphs(&at, &at, &|p: &mut wordcraft_doc::ParaProps| p.bidi = Some(true)).unwrap();
+    }
+    for (i, rtl) in [true, true, true, false, true].into_iter().enumerate() {
+        let Some(Block::Para(p)) = d.body.get(i).map(|b| &**b) else { panic!("paragraph {i}") };
+        assert_eq!(p.props.bidi == Some(true), rtl, "paragraph {i}");
+    }
+    d
+}
+
+/// Each glyph's Unicode text in content-stream order, with its baseline y and its outline's left
+/// and right edges (none for a space); `None` text for a glyph without a ToUnicode entry of its
+/// own (a cluster's extra glyph, covered by ActualText).
+type StreamGlyph = (Option<String>, f64, Option<(f64, f64)>);
+fn stream_glyphs(bytes: &[u8]) -> Vec<StreamGlyph> {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    struct Units(Vec<StreamGlyph>);
+    impl Device<'_> for Units {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, _: &kurbo::BezPath, _: kurbo::Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+        fn push_clip_path(&mut self, _: &ClipPath) {}
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, g: &Glyph<'_>, t: kurbo::Affine, gt: kurbo::Affine, _: &Paint<'_>, mode: &GlyphDrawMode) {
+            if matches!(mode, GlyphDrawMode::Stroke(_)) {
+                return;
+            }
+            let text = match g.as_unicode() {
+                Some(hayro_cmap::BfString::Char(c)) => Some(c.to_string()),
+                Some(hayro_cmap::BfString::String(s)) => Some(s),
+                None => None,
+            };
+            let edges = match g {
+                Glyph::Outline(o) if !o.outline().elements().is_empty() => {
+                    use kurbo::Shape;
+                    let b = (t * gt * o.outline()).bounding_box();
+                    Some((b.x0, b.x1))
+                }
+                _ => None,
+            };
+            self.0.push((text, (t * gt * kurbo::Point::ZERO).y, edges));
+        }
+        fn draw_image(&mut self, _: Image<'_, '_>, _: kurbo::Affine) {}
+        fn pop_clip_path(&mut self) {}
+        fn pop_transparency_group(&mut self) {}
+    }
+    let pdf = Pdf::new(bytes.to_vec()).expect("parse");
+    let cache = InterpreterCache::new();
+    let mut out = Units(Vec::new());
+    for page in pdf.pages().iter() {
+        let mut ctx = Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+        interpret_page(page, &mut ctx, &mut out);
+    }
+    out.0
+}
+
+/// Words as PDF viewers' text extraction (PDFium in Chrome and Edge, pdf.js, poppler) reads them:
+/// glyphs are taken to be in visual order, so a word in a right-to-left script is read with its
+/// glyphs reversed. Words end at spaces, at a jump back to the left, and where the
+/// baseline moves (more than a raised mark does).
+fn viewer_words(bytes: &[u8]) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word: Vec<String> = Vec::new();
+    let mut flush = |word: &mut Vec<String>| {
+        if word.concat().chars().any(wordcraft_fonts::is_rtl) {
+            word.reverse();
+        }
+        if !word.is_empty() {
+            words.push(word.concat());
+        }
+        word.clear();
+    };
+    let mut last_y = None;
+    let mut last_edges: Option<(f64, f64)> = None;
+    for (text, y, edges) in stream_glyphs(bytes) {
+        // A new line, or a letter wholly left of the last one (a jump back): a new word. Hebrew
+        // and Arabic vowel marks sit anywhere over or under their letter.
+        let mark = text.as_deref().is_some_and(|t| t.chars().all(|c| matches!(c, '\u{591}'..='\u{5C7}' | '\u{64B}'..='\u{65F}' | '\u{670}')));
+        let edges = edges.filter(|_| !mark);
+        let apart = matches!((last_edges, edges), (Some((l0, _)), Some((_, x1))) if x1 < l0);
+        if last_y.is_some_and(|l: f64| (l - y).abs() > 6.0) || apart {
+            flush(&mut word);
+        }
+        if !mark {
+            last_y = Some(y);
+        }
+        if edges.is_some() {
+            last_edges = edges;
+        }
+        let Some(text) = text else { continue };
+        if text.chars().all(char::is_whitespace) {
+            flush(&mut word);
+        } else {
+            word.push(text);
+        }
+    }
+    flush(&mut word);
+    words
+}
+
+/// Right-to-left text reads back whole (#1383): Chrome, Edge and other PDF viewers take a run's
+/// glyphs to be written left to right as they appear, and reverse right-to-left words to get
+/// their reading order. Written in reading order instead, `שלום` came back as `םולש`, and Arabic
+/// came apart.
+#[test]
+fn right_to_left_text_extracts_in_logical_order() {
+    let d = rtl_sample();
+    let words = viewer_words(&export(&d, &PdfOptions::default()).unwrap());
+    for w in ["שלום", "עולם", "مرحبا", "بالعالم", "ייפוי", "כח", "123", "Power", "Attorney", "Hello", "world", "السلام", "مَرْحَبًا", "שָׁלוֹם"]
+    {
+        assert!(words.iter().any(|x| x == w), "{w:?} not extracted intact from {words:?}");
+    }
+}
+
+/// Every glyph's outline on the page, as a rounded bounding box in page space (sorted): what the
+/// page looks like, whatever order the glyphs were written in.
+fn glyph_boxes(bytes: &[u8]) -> Vec<[i64; 4]> {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    use kurbo::Shape;
+    struct Boxes(Vec<[i64; 4]>);
+    impl Device<'_> for Boxes {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, _: &kurbo::BezPath, _: kurbo::Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+        fn push_clip_path(&mut self, _: &ClipPath) {}
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, g: &Glyph<'_>, t: kurbo::Affine, gt: kurbo::Affine, _: &Paint<'_>, mode: &GlyphDrawMode) {
+            if matches!(mode, GlyphDrawMode::Stroke(_)) {
+                return;
+            }
+            // Spaces have no outline: nothing to see.
+            if let Glyph::Outline(o) = g
+                && !o.outline().elements().is_empty()
+            {
+                let b = (t * gt * o.outline()).bounding_box();
+                let r = |v: f64| (v * 10.0).round() as i64;
+                self.0.push([r(b.x0), r(b.y0), r(b.x1), r(b.y1)]);
+            }
+        }
+        fn draw_image(&mut self, _: Image<'_, '_>, _: kurbo::Affine) {}
+        fn pop_clip_path(&mut self) {}
+        fn pop_transparency_group(&mut self) {}
+    }
+    let pdf = Pdf::new(bytes.to_vec()).expect("parse");
+    let cache = InterpreterCache::new();
+    let mut out = Boxes(Vec::new());
+    for page in pdf.pages().iter() {
+        let mut ctx = Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+        interpret_page(page, &mut ctx, &mut out);
+    }
+    out.0.sort_unstable();
+    out.0
+}
+
+/// Writing right-to-left runs in reading order doesn't move a glyph: the page draws the same
+/// glyph outlines at the same places as layout put them.
+#[test]
+fn right_to_left_glyphs_stay_where_layout_put_them() {
+    use kurbo::Shape;
+    let d = rtl_sample();
+    let bytes = export(&d, &PdfOptions::default()).unwrap();
+    let got = glyph_boxes(&bytes);
+    // Layout's glyphs, drawn as their outlines (y down from the page top; PDF is y up).
+    let lay = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+    let page = &lay.pages[0];
+    let h = f64::from(page.h);
+    let db = wordcraft_fonts::FontDb::global();
+    let mut want = Vec::new();
+    for item in wordcraft_layout::display::page_display(&d, page, &DisplayOptions::default()) {
+        let Draw::Glyphs { face, size, glyphs, .. } = item else { continue };
+        let scale = f64::from(size) / face.upem.max(1.0);
+        for (g, x, y) in glyphs {
+            let mut o = (*db.outline(&face, g)).clone();
+            if o.elements().is_empty() {
+                continue;
+            }
+            o.apply_affine(
+                kurbo::Affine::new([1.0, 0.0, 0.0, -1.0, 0.0, h])
+                    * kurbo::Affine::translate((f64::from(x), f64::from(y)))
+                    * kurbo::Affine::scale(scale),
+            );
+            let b = o.bounding_box();
+            let r = |v: f64| (v * 10.0).round() as i64;
+            want.push([r(b.x0), r(b.y0), r(b.x1), r(b.y1)]);
+        }
+    }
+    want.sort_unstable();
+    assert!(!want.is_empty());
+    let close = got.len() == want.len() && got.iter().zip(&want).all(|(a, b)| a.iter().zip(b).all(|(p, q)| (p - q).abs() <= 2));
+    assert!(close, "glyphs moved:\n got {got:?}\nwant {want:?}");
+}
+
+/// A separately formatted Latin run inside a right-to-left paragraph is written as it was, left
+/// to right, and the Hebrew around it still reads back whole.
+#[test]
+fn latin_run_in_right_to_left_paragraph_reads_back_whole() {
+    let mut p = Paragraph::with_text("שלום ", CharProps::default());
+    p.props.bidi = Some(true);
+    p.insert_text(p.len(), "Latin words", &CharProps { bold: Some(true), ..Default::default() }).unwrap();
+    p.insert_text(p.len(), " עולם", &CharProps::default()).unwrap();
+    let mut d = Document::new();
+    d.body = vec![para_block(p)];
+    let words = viewer_words(&export(&d, &PdfOptions::default()).unwrap());
+    for w in ["שלום", "Latin", "words", "עולם"] {
+        assert!(words.iter().any(|x| x == w), "{w:?} not extracted intact from {words:?}");
+    }
+}
+
+/// Glyphs already running left to right keep their order: Latin runs are written as before.
+#[test]
+fn left_to_right_glyphs_keep_their_order() {
+    let glyphs = [(1, 0.0, 10.0), (2, 5.0, 10.0), (3, 5.0, 10.0), (4, 9.0, 10.0)];
+    assert!(left_to_right(&glyphs));
+}
+
+/// Right-to-left glyphs (reading order, drawn right to left) are written left to right a
+/// cluster at a time. A letter's vowel mark takes its own character and goes before the letter,
+/// so a viewer reversing the word reads letter then mark; a lam-alef drawn as two glyphs keeps
+/// its glyphs together in shaping order, so no word comes apart.
+#[test]
+fn right_to_left_clusters_are_written_whole_left_to_right() {
+    // Reading order: shin with qamats (mark glyph 2 drawn at x 28, then the letter, glyph 1, at
+    // x 30); lam-alef as two glyphs at x 20 and 16; a one-glyph lam-alef at x 8; final mem at 0.
+    let text = "שָלالاם";
+    let glyphs = [(2, 28.0, 8.0), (1, 30.0, 10.0), (3, 20.0, 10.0), (4, 16.0, 10.0), (5, 8.0, 10.0), (6, 0.0, 10.0)];
+    let ranges = [0..4, 0..4, 4..8, 4..8, 8..12, 12..14];
+    let rev: std::collections::HashMap<u32, char> = [(1, 'ש'), (2, '\u{5B8}'), (6, 'ם')].into_iter().collect();
+    assert!(!left_to_right(&glyphs));
+    let parts = split_clusters(text, &glyphs, &ranges, &rev);
+    assert_eq!(parts, [2..4, 0..2, 4..8, 4..8, 8..12, 12..14]);
+    // Glyph by glyph by x this would be [5, 4, 3, 2, 0, 1]: the lam-alef's glyphs swapped.
+    assert_eq!(visual_order(text, &glyphs, &ranges, &parts), [5, 4, 2, 3, 0, 1]);
+}
