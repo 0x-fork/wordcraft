@@ -303,6 +303,21 @@ fn txt_export_writes_symbol_font_text_as_unicode() {
     assert_eq!(String::from_utf8(out).unwrap(), "Done \u{263A}\u{2713}");
 }
 
+/// #1080: `txt` export (and so `wordcraft-cli text`) keeps list labels, so a list item reads
+/// apart from an ordinary paragraph.
+#[test]
+fn txt_export_keeps_list_labels() {
+    let mut d = Document::new();
+    let bul = d.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+    let mut p = Paragraph::with_text("alpha", CharProps::default());
+    p.props.numbering = Some(wordcraft_doc::props::NumRef { num: bul, level: 0 });
+    d.body = vec![para_block(p), para_block(Paragraph::with_text("plain", CharProps::default()))];
+    let out = String::from_utf8(export("txt", &d).unwrap().unwrap()).unwrap();
+    let mut lines = out.split("\r\n");
+    assert!(lines.next().is_some_and(|l| l.contains("alpha") && !l.starts_with("alpha")), "{out:?}");
+    assert_eq!(lines.next(), Some("plain"));
+}
+
 /// #569: a file with an extension we don't know opens as text when it is text (a playlist), and
 /// a binary file is told apart.
 #[test]
