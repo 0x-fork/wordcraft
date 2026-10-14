@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (no document behind the Start screen, #1129; previously trivial: copied equations reach other programs as MathML, #816; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -102,6 +102,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | 2026-10-11 | trivial | Menu buttons (Header, Page Number, Breaks, Wrap Text, table Select/Delete/AutoFit…) grey out and don't open while the command their menu is about is disabled, like the other ribbon buttons (#658) |
 | 2026-10-11 | trivial | One drop-down marker everywhere: large ribbon buttons, Equation and the Editing/Reviewing button draw the `dropdown` icon after their label, like split and menu buttons, instead of a text glyph (#659) |
 | 2026-10-11 | trivial | Dark theme: Styles, style-set and table-style previews sit on a dimmer page tone; with View › Switch Modes on, the Styles gallery previews the dark page (#663) |
+| 2026-10-13 | trivial | Equation tab and Insert › Equation: every gallery tile, structure button and symbol is drawn from a few shared textures written in place (at most four, never wiped while their pictures are on screen), so the pictures stay in the theme's tile and text colours on Windows (DirectX 12) instead of turning inverted, red or teal (#1002) |
 | 2026-10-11 | trivial | Dialog primary buttons, the Discord pill, the table eraser line and the Navigation search highlight take their colours from the theme in both themes (`widgets::primary_button`); a test bans the old fixed values (#656) |
 | 2026-10-11 | trivial | Dark theme: Share, the avatar initials, the AutoSave knob and keytips use dark `on_accent` text on the light accent (6.2:1, 8.4:1 on hover; white was 2.9:1) (#655) |
 | 2026-10-11 | trivial | Text field and combo outlines reach 3:1 against their fill and surroundings in both themes (light #8A8A8A, dark #7A7A7A); a test pins the ratios (#657) |
