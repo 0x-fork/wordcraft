@@ -4327,6 +4327,48 @@ fn portuguese_proofing_through_the_review_commands() {
 /// Review › Language and the proofing commands work in Polish end to end: the language makes
 /// the document's words Polish, F7 and the issue list use the Polish dictionary and grammar,
 /// suggestions come from it, and a suggestion fixes the text.
+fn italian_test_dictionary() {
+    let aff = "SET UTF-8\nTRY aeiortnsclcaffèéè\nMAP 2\nMAP aà\nMAP eéè\nREP 1\nREP caffe caffè\n";
+    let dic = "6\ncasa\ncaffè\nroma\ndisse\ne\nper\n";
+    wordcraft_proof::it::install_dictionary(aff, dic).unwrap();
+}
+
+/// Review › Language and the proofing commands work in Italian end to end: the language makes
+/// the document's words Italian, F7 and the issue list use the Italian dictionary and grammar,
+/// suggestions come from it, and a suggestion fixes the text.
+#[test]
+fn italian_proofing_through_the_review_commands() {
+    italian_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Casa caffe, e roma roma disse."}));
+    // English by default: the Italian words are English misspellings.
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len() >= 3);
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "it_IT", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("it-IT"), "the tag is normalized");
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "it-IT");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    let has = |text: &str, kind: &str, sugg: &str| {
+        arr.iter()
+            .any(|i| i["text"] == text && i["kind"] == kind && i["lang"] == "it" && i["suggestions"].as_array().unwrap().iter().any(|x| x == sugg))
+    };
+    assert!(has("caffe", "spelling", "caffè"), "{issues}");
+    assert!(has("roma roma", "grammar", "roma"), "{issues}");
+    assert_eq!(arr.len(), 2, "{issues}");
+    assert!(arr.iter().any(|i| i["message"] == "Parola ripetuta: \"roma\""), "{issues}");
+    // F7 from the start selects the first issue; Change applies a suggestion.
+    run(&mut s, "caret.docStart", json!({}));
+    let first = run(&mut s, "review.spelling", json!({}));
+    assert_eq!(first["text"], "caffe");
+    run(&mut s, "review.applySuggestion", json!({"text": "caffè"}));
+    assert!(text(&s).starts_with("Casa caffè,"), "{}", text(&s));
+    // Add to Dictionary works for Italian words too.
+    run(&mut s, "review.addToDictionary", json!({"word": "caffe"}));
+    let left = run(&mut s, "review.issues", json!({}));
+    assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
+}
+
 #[test]
 fn polish_proofing_through_the_review_commands() {
     polish_test_dictionary();
