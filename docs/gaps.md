@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (sample-text formulas on Enter, #1067; previously trivial: radar, stock and other undrawn chart types show a placeholder instead of blank space, #998; previously trivial: saving Word 2003 XML, #1081; previously trivial: direct run-level native InkML content parts now survive DOCX saves; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -43,7 +43,7 @@ Native save reliability: synthetic cases on macOS reproduced loss through the pr
 | 26 | **Minor formats**: MHT, Works/WordPerfect | | Word XML Document (Flat OPC) opens and saves, Word 2003 XML opens (#548) and saves (#1081, not yet checked in Word) | Rare | 14–26 | [file-format-parity.md](file-format-parity.md) |
 | 27 | **View windows**: Side by Side, Synchronous Scrolling, Arrange All, Switch Windows | | [parity-checklist.md](parity-checklist.md) (View 25/29) | Comparing documents | 3–5 | [ui-parity.md](ui-parity.md) |
 | 28 | **Dictate** | | `tools.dictate` missing | Dictation users | 8–15 + owner (speech model) | [hardware-parity.md](hardware-parity.md) |
-| 29 | **Equations**: ink equations | | #191 notes; long display equations wrap at operators (#326) | Maths-heavy documents | 2–3 | [layout-parity.md](layout-parity.md) |
+| 29 | **Equations**: ink equations; copied equations as OMML for Word (#816, #1297) | | #191 notes; long display equations wrap at operators (#326); a copy holding an equation puts MathML in HTML on the clipboard (#816; Word/LibreOffice paste not yet verified); only copies containing an equation get HTML, text-only copies stay plain | Maths-heavy documents | 2–3 | [layout-parity.md](layout-parity.md) |
 
 **Beta needs #1–#7** (~150–230 h with the stability and layout work they imply): they are the
 blocking gaps, and closing them lifts file formats, layout, stability and UI enough to take the
@@ -63,7 +63,10 @@ The same gaps grouped the way the parity documents are, for agents working in on
   styles, and Draw Table and Eraser (#303) landed on 2026-10-10. Paste from other programs keeps
   their formatting (system clipboard HTML/RTF), Merge Formatting keeps emphasis, Paste Special lists
   what the system clipboard holds, and Linux/Wayland clipboard pictures paste (#687, #833);
-  still missing: the Paste Options button after a paste, and RTF on macOS and X11.
+  still missing: the Paste Options button after a paste, and RTF on macOS and X11. Copying an
+  equation puts MathML in HTML on the clipboard (#816; pasting into Word/LibreOffice not yet
+  verified; OMML on the clipboard is #1297); only copies containing an equation get HTML,
+  text-only copies stay plain text.
 - **UI/UX gaps:** #7, #18, #24; crop handles on the canvas (rotation handle landed, #332); context menus for objects (the table's landed; it still lacks Border Styles); Linux title bar theming (#78); File ›
   Options › Animation effects › Use system setting reads macOS (Reduce motion) and the Linux/BSD
   desktops (`apps/wordcraft/src/animations.rs`) but hasn't been tried on a Mac or in a real
@@ -141,6 +144,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 | 2026-10-10 | trivial | #10: Tight and Through wrapping follow the object's outline (#354) |
 | 2026-10-10 | trivial | #10: free rotation and flips for pictures, shapes and text boxes, with a rotation handle (#332); text boxes rotate their frame; their text stays upright |
 | 2026-10-10 | trivial | #10: Drawing Canvas landed (#344); in-canvas dragging of members remains |
+| 2026-10-13 | trivial | #29: copied equations reach the clipboard as MathML in HTML (#816); OMML for Word stays open (#1297) |
 | 2026-10-10 | trivial | #29: long display equations wrap across lines (#326) |
 | 2026-10-10 | trivial | #3: Windows lag on GPUs without a DirectX 12 driver fixed with an OpenGL fallback (#316) |
 | 2026-10-10 | minor | #8: Polish proofing (spelling, grammar, hyphenation) and a proofing language per run landed; the gap is now the other languages (20–40 h) |

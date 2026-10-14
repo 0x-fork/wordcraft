@@ -813,6 +813,55 @@ fn clipboard_round_trip() {
     assert_eq!(text(&s), "plain\ntext");
 }
 
+/// Equations in the paragraphs of a session's body, as linear text.
+fn equations(s: &Session) -> Vec<String> {
+    let mut out = Vec::new();
+    for b in &s.doc.body {
+        if let wordcraft_doc::Block::Para(p) = &**b {
+            for o in &p.objects {
+                if let wordcraft_doc::para::InlineObject::Equation { linear, .. } = o {
+                    out.push(linear.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn copying_an_equation_puts_mathml_on_the_clipboard() {
+    // #816: other programs get the equation as MathML in HTML, beside the linear text.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Speed "}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.equation", json!({"linear": "y=2x_s", "edit": false}));
+    run(&mut s, "select.all", json!({}));
+    let r = run(&mut s, "edit.copy", json!({}));
+    let html = r["html"].as_str().unwrap_or_default().to_string();
+    assert!(html.contains("<math xmlns=\"http://www.w3.org/1998/Math/MathML\">"), "{html}");
+    assert!(html.contains("<msub><mrow><mi>x</mi></mrow><mrow><mi>s</mi></mrow></msub>"), "{html}");
+    assert!(html.contains("Speed"), "{html}");
+    assert_eq!(s.clipboard_html, html);
+    assert!(r["text"].as_str().unwrap_or_default().contains("y=2x_s"));
+    let clip = r["text"].as_str().unwrap_or_default().to_string();
+
+    // Pasting it into another document reads the equation back from the HTML.
+    let mut t = Session::new(wordcraft_doc::Document::new());
+    run(&mut t, "edit.paste", json!({"text": clip, "html": html}));
+    assert_eq!(equations(&t), vec!["y=2x_s".to_string()]);
+    assert!(text(&t).starts_with("Speed"), "{}", text(&t));
+
+    // And back into this one, from our own copy.
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "edit.paste", json!({"text": clip, "html": html}));
+    assert_eq!(equations(&s), vec!["y=2x_s".to_string(), "y=2x_s".to_string()]);
+
+    // A copy without an equation carries no HTML.
+    run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 5}}));
+    let r = run(&mut s, "edit.copy", json!({}));
+    assert!(r.get("html").is_none() && s.clipboard_html.is_empty(), "{r}");
+}
+
 #[test]
 fn copying_symbol_font_text_puts_the_unicode_symbols_on_the_clipboard() {
     let mut s = s();
