@@ -2448,6 +2448,31 @@ preview	Title	Esempio
 	Hindi	Hindi
 	Context	Contesto
 	System	Sistema
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Filtra destinatari
+	Sort Recipients	Ordina destinatari
+	Filter and Sort	Filtra e ordina
+	And	E
+	Or	O
+	Comparison	Confronto
+	Compare to	Confronta con
+	Add Condition	Aggiungi condizione
+	Remove condition	Rimuovi condizione
+	Sort by	Ordina per
+	Then by	Poi per
+	Ascending	Crescente
+	Descending	Decrescente
+	Equal to	Uguale a
+	Not equal to	Diverso da
+	Less than	Minore di
+	Greater than	Maggiore di
+	Less than or equal	Minore o uguale a
+	Greater than or equal	Maggiore o uguale a
+	Is blank	È vuoto
+	Is not blank	Non è vuoto
+	Contains	Contiene
+	Does not contain	Non contiene
+	{count} of {total} recipients will be merged.	Destinatari da unire: {count} su {total}.
 	Show KeyTips (Alt or F10)	Mostra i suggerimenti tasti (Alt o F10)
 	Reading	Lettura
 	Reading Column Width	Larghezza colonna di lettura

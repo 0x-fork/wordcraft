@@ -2471,6 +2471,31 @@ preview	Title	Örnek
 	Insert paragraph number in full context	Paragraf numarasını tam bağlamda ekle
 	Suppress all non-delimiter characters	Ayırıcı olmayan tüm karakterleri gizle
 	Insert position (above or below)	Konum ekle (yukarıda veya aşağıda)
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Alıcıları filtrele
+	Sort Recipients	Alıcıları sırala
+	Filter and Sort	Filtrele ve sırala
+	And	Ve
+	Or	Veya
+	Comparison	Karşılaştırma
+	Compare to	Karşılaştırılacak değer
+	Add Condition	Koşul ekle
+	Remove condition	Koşulu kaldır
+	Sort by	Sıralama ölçütü
+	Then by	Sonra
+	Ascending	Artan
+	Descending	Azalan
+	Equal to	Eşittir
+	Not equal to	Eşit değildir
+	Less than	Küçüktür
+	Greater than	Büyüktür
+	Less than or equal	Küçük veya eşittir
+	Greater than or equal	Büyük veya eşittir
+	Is blank	Boştur
+	Is not blank	Boş değildir
+	Contains	İçerir
+	Does not contain	İçermez
+	{count} of {total} recipients will be merged.	Birleştirilecek alıcılar: {count} / {total}.
 	Start-up	Başlangıç
 	Show the Start screen when WordCraft starts	WordCraft açılırken Başlangıç ekranını göster
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Açık: WordCraft, Dosya › Giriş sayfasında boş belge, şablonlar ve son belgelerinizle açılır. Kapalı: boş bir belge açar.

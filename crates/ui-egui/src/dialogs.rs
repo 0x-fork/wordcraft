@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use wordcraft_engine::Password;
+use wordcraft_engine::cmd::mailings::{FilterOp, FilterRule, SortKey};
 
 use crate::WordApp;
 use crate::options::MeasureExt;
@@ -386,6 +387,8 @@ pub enum Dialog {
         fields: Vec<String>,
         rows: Vec<Vec<String>>,
         message: String,
+        /// Filter and Sort (#778): applied with `mailings.filterRecipients` on OK.
+        filter: RecipientFilter,
     },
     /// Mailings › Select Recipients › Use an Existing List… picked a workbook with several sheets
     /// (#334): which sheet holds the recipients, and whether its first row names the fields.
@@ -663,6 +666,67 @@ pub fn recipient_table(fields: &[String], rows: &[Vec<String>]) -> Result<Value,
         return Err("Type at least one recipient.");
     }
     Ok(json!({"fields": fields, "rows": rows}))
+}
+
+/// The Recipient List dialog's Filter and Sort section (#778).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct RecipientFilter {
+    /// Whether the section is shown.
+    pub open: bool,
+    pub rules: Vec<FilterRow>,
+    /// Sort by, then by, then by: a field (empty: none) and descending.
+    pub sort: [(String, bool); 3],
+}
+
+/// One filter condition row: `field op value`, joined to the row above with And or Or.
+#[derive(Clone, Debug, Serialize)]
+pub struct FilterRow {
+    pub field: String,
+    #[serde(serialize_with = "op_id")]
+    pub op: FilterOp,
+    pub value: String,
+    pub or: bool,
+}
+
+fn op_id<S: serde::Serializer>(op: &FilterOp, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(op.id())
+}
+
+impl RecipientFilter {
+    /// The session's current filter and sort.
+    pub fn from_session(m: &wordcraft_engine::cmd::mailings::MergeState) -> Self {
+        let mut sort: [(String, bool); 3] = Default::default();
+        for (slot, k) in sort.iter_mut().zip(&m.sort) {
+            *slot = (k.field.clone(), k.descending);
+        }
+        let rules: Vec<FilterRow> =
+            m.filter.iter().map(|r| FilterRow { field: r.field.clone(), op: r.op, value: r.value.clone(), or: r.or }).collect();
+        RecipientFilter { open: !rules.is_empty() || !m.sort.is_empty(), rules, sort }
+    }
+
+    fn engine(&self) -> (Vec<FilterRule>, Vec<SortKey>) {
+        let rules = self
+            .rules
+            .iter()
+            .filter(|r| !r.field.is_empty())
+            .map(|r| FilterRule { field: r.field.clone(), op: r.op, value: r.value.clone(), or: r.or })
+            .collect();
+        let sort = self.sort.iter().filter(|(f, _)| !f.is_empty()).map(|(f, d)| SortKey { field: f.clone(), descending: *d }).collect();
+        (rules, sort)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.rules.iter().all(|r| r.field.is_empty()) && self.sort.iter().all(|(f, _)| f.is_empty())
+    }
+
+    /// `mailings.filterRecipients` params.
+    pub fn params(&self) -> Value {
+        let (rules, sort) = self.engine();
+        json!({
+            "rules": rules.iter().map(|r| json!({"field": r.field, "op": r.op.id(), "value": r.value, "join": if r.or { "or" } else { "and" }})).collect::<Vec<_>>(),
+            "sort": sort.iter().map(|k| json!({"field": k.field, "descending": k.descending})).collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// One table style region in the Table Style dialog: colours are hex, empty for none.
@@ -1163,11 +1227,17 @@ impl Dialog {
             "recipientList" | "newRecipientList" => {
                 let m = &app.session.merge;
                 if name == "recipientList" && !m.headers.is_empty() {
-                    Dialog::RecipientList { fields: m.headers.clone(), rows: m.rows.clone(), message: String::new() }
+                    // Every record (not only the filtered ones), with the filter to edit.
+                    Dialog::RecipientList {
+                        fields: m.headers.clone(),
+                        rows: m.source.clone(),
+                        message: String::new(),
+                        filter: RecipientFilter::from_session(m),
+                    }
                 } else {
                     let fields: Vec<String> = NEW_LIST_FIELDS.iter().map(|f| f.to_string()).collect();
                     let rows = vec![vec![String::new(); fields.len()]];
-                    Dialog::RecipientList { fields, rows, message: String::new() }
+                    Dialog::RecipientList { fields, rows, message: String::new(), filter: RecipientFilter::default() }
                 }
             }
             "insertMergeField" => {
@@ -2570,7 +2640,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let _ = app.run("ui.saveChanges", json!({"answer": answer}));
             true
         }
-        Dialog::RecipientList { fields, rows, message } => recipient_list(app, ui, fields, rows, message),
+        Dialog::RecipientList { fields, rows, message, filter } => recipient_list(app, ui, fields, rows, message, filter),
         Dialog::InsertMergeField { fields, field } => {
             if fields.is_empty() {
                 ui.label(egui::RichText::new(tl!("Select recipients first to choose from their fields.")).small().weak());
@@ -2842,13 +2912,32 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
 }
 
 /// The Recipient List dialog's body: a file button, the editable table, OK/Cancel. True to close.
-fn recipient_list(app: &mut WordApp, ui: &mut Ui, fields: &mut Vec<String>, rows: &mut Vec<Vec<String>>, message: &mut String) -> bool {
+fn recipient_list(
+    app: &mut WordApp,
+    ui: &mut Ui,
+    fields: &mut Vec<String>,
+    rows: &mut Vec<Vec<String>>,
+    message: &mut String,
+    filter: &mut RecipientFilter,
+) -> bool {
     const CELL_W: f32 = 120.0;
     const X_W: f32 = 18.0;
     const ROW_H: f32 = 24.0;
+    const NUM_W: f32 = 34.0;
+    // Each record's place in the merge (None: filtered out), when there is a filter or sort.
+    let order: Option<Vec<Option<usize>>> = (!filter.is_empty()).then(|| {
+        let (rules, sort) = filter.engine();
+        let mut order = vec![None; rows.len()];
+        for (k, i) in wordcraft_engine::cmd::mailings::select_records(fields, rows, &rules, &sort).into_iter().enumerate() {
+            if let Some(slot) = order.get_mut(i) {
+                *slot = Some(k + 1);
+            }
+        }
+        order
+    });
     // Wide enough for every field (up to a limit; more scroll sideways).
     let gap = ui.spacing().item_spacing.x;
-    let table_w = fields.len() as f32 * (CELL_W + X_W + 2.0 * gap) + X_W + 2.0 * gap;
+    let table_w = NUM_W + gap + fields.len() as f32 * (CELL_W + X_W + 2.0 * gap) + X_W + 2.0 * gap;
     ui.set_min_width(table_w.clamp(340.0, 720.0));
     ui.label(tl!("Type the recipients, or load them from a file."));
     if ui.button(tl!("Use an Existing List…")).clicked() {
@@ -2864,6 +2953,7 @@ fn recipient_list(app: &mut WordApp, ui: &mut Ui, fields: &mut Vec<String>, rows
     egui::ScrollArea::horizontal().id_salt("recipients_h").max_width(720.0).show(ui, |ui| {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
+                ui.allocate_exact_size(vec2(NUM_W, ROW_H - 4.0), Sense::hover());
                 for (i, f) in fields.iter_mut().enumerate() {
                     ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(f).font(egui::TextStyle::Button).hint_text(tl!("Field name")));
                     let x = ui.add_enabled(can_remove, egui::Button::new("×").small().min_size(vec2(X_W, X_W))).on_hover_text(tl!("Remove field"));
@@ -2878,6 +2968,15 @@ fn recipient_list(app: &mut WordApp, ui: &mut Ui, fields: &mut Vec<String>, rows
                 for r in range {
                     let Some(row) = rows.get_mut(r) else { continue };
                     ui.horizontal(|ui| {
+                        // The record's number in the merge, a dash when the filter leaves it out.
+                        let (num, kept) = match order.as_ref().map(|o| o.get(r).copied().flatten()) {
+                            None => ((r + 1).to_string(), true),
+                            Some(Some(k)) => (k.to_string(), true),
+                            Some(None) => ("–".to_string(), false),
+                        };
+                        let num = egui::RichText::new(num).weak();
+                        let (rect, _) = ui.allocate_exact_size(vec2(NUM_W, ROW_H - 4.0), Sense::hover());
+                        ui.put(rect, egui::Label::new(if kept { num } else { num.strikethrough() }));
                         for c in row.iter_mut() {
                             ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(c));
                             // Under the field's remove button.
@@ -2913,6 +3012,22 @@ fn recipient_list(app: &mut WordApp, ui: &mut Ui, fields: &mut Vec<String>, rows
             }
         }
     });
+    ui.add_space(4.0);
+    let toggle = egui::Button::new(tl!("Filter and Sort")).selected(filter.open);
+    if ui.add(toggle).clicked() {
+        filter.open = !filter.open;
+    }
+    if filter.open {
+        recipient_filter(ui, fields, filter);
+    }
+    if let Some(order) = &order {
+        let count = order.iter().flatten().count().to_string();
+        let total = rows.len().to_string();
+        ui.label(
+            egui::RichText::new(crate::i18n::fmt(tl!("{count} of {total} recipients will be merged."), &[("count", &count), ("total", &total)]))
+                .weak(),
+        );
+    }
     if !message.is_empty() {
         ui.label(egui::RichText::new(message.as_str()).color(Tokens::get(ui.ctx()).red));
     }
@@ -2920,13 +3035,91 @@ fn recipient_list(app: &mut WordApp, ui: &mut Ui, fields: &mut Vec<String>, rows
     if !ok {
         return cancel;
     }
-    match recipient_table(fields, rows).map_err(|e| tl!(e).to_string()).and_then(|params| app.load_recipients(params)) {
+    let r = recipient_table(fields, rows).map_err(|e| tl!(e).to_string()).and_then(|params| app.load_recipients(params));
+    // A new list starts unfiltered; the dialog's filter and sort apply to it.
+    let r = r.and_then(|_| if filter.is_empty() { Ok(Value::Null) } else { app.run("mailings.filterRecipients", filter.params()) });
+    match r {
         Ok(_) => true,
         Err(e) => {
             *message = e;
             false
         }
     }
+}
+
+/// Filter and Sort: condition rows (And/Or, field, comparison, value) and three sort keys.
+fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter) {
+    let names: Vec<String> = fields.iter().map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect();
+    let field_combo = |ui: &mut Ui, id: (&str, usize), value: &mut String, none: bool| {
+        let shown = if value.is_empty() { tl!("(none)").to_string() } else { value.clone() };
+        egui::ComboBox::from_id_salt(id).width(130.0).selected_text(shown).show_ui(ui, |ui| {
+            if none {
+                ui.selectable_value(value, String::new(), tl!("(none)"));
+            }
+            for n in &names {
+                ui.selectable_value(value, n.clone(), n.as_str());
+            }
+        });
+    };
+    let mut remove = None;
+    egui::Grid::new("recipient_filter").num_columns(5).spacing(vec2(6.0, 4.0)).show(ui, |ui| {
+        ui.label("");
+        ui.label(egui::RichText::new(tl!("Field")).weak());
+        ui.label(egui::RichText::new(tl!("Comparison")).weak());
+        ui.label(egui::RichText::new(tl!("Compare to")).weak());
+        ui.end_row();
+        for (i, r) in filter.rules.iter_mut().enumerate() {
+            if i == 0 {
+                ui.label("");
+            } else {
+                egui::ComboBox::from_id_salt(("rf_join", i)).width(60.0).selected_text(tl!(if r.or { "Or" } else { "And" })).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut r.or, false, tl!("And"));
+                    ui.selectable_value(&mut r.or, true, tl!("Or"));
+                });
+            }
+            field_combo(ui, ("rf_field", i), &mut r.field, false);
+            egui::ComboBox::from_id_salt(("rf_op", i)).width(150.0).selected_text(tl!(r.op.label())).show_ui(ui, |ui| {
+                for op in FilterOp::ALL {
+                    ui.selectable_value(&mut r.op, op, tl!(op.label()));
+                }
+            });
+            ui.add_enabled(r.op.has_value(), egui::TextEdit::singleline(&mut r.value).desired_width(130.0));
+            if ui.add(egui::Button::new("×").small()).on_hover_text(tl!("Remove condition")).clicked() {
+                remove = Some(i);
+            }
+            ui.end_row();
+        }
+    });
+    if let Some(i) = remove.filter(|i| *i < filter.rules.len()) {
+        filter.rules.remove(i);
+    }
+    ui.horizontal(|ui| {
+        if ui.button(tl!("Add Condition")).clicked() && filter.rules.len() < 64 {
+            let field = names.first().cloned().unwrap_or_default();
+            filter.rules.push(FilterRow { field, op: FilterOp::Equal, value: String::new(), or: false });
+        }
+        if ui.button(tl!("Clear All")).clicked() {
+            filter.rules.clear();
+            filter.sort = Default::default();
+        }
+    });
+    ui.add_space(4.0);
+    egui::Grid::new("recipient_sort").num_columns(3).spacing(vec2(6.0, 4.0)).show(ui, |ui| {
+        for (i, (field, desc)) in filter.sort.iter_mut().enumerate() {
+            ui.label(tl!(if i == 0 { "Sort by" } else { "Then by" }));
+            field_combo(ui, ("rs_field", i), field, true);
+            ui.add_enabled_ui(!field.is_empty(), |ui| {
+                egui::ComboBox::from_id_salt(("rs_dir", i)).width(110.0).selected_text(tl!(if *desc { "Descending" } else { "Ascending" })).show_ui(
+                    ui,
+                    |ui| {
+                        ui.selectable_value(desc, false, tl!("Ascending"));
+                        ui.selectable_value(desc, true, tl!("Descending"));
+                    },
+                );
+            });
+            ui.end_row();
+        }
+    });
 }
 
 /// The Table Properties dialog's fields: Table, Row, Column and Cell sections.

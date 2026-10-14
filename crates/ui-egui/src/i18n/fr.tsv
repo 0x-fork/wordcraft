@@ -2070,6 +2070,30 @@
 	Reading Column Width	Largeur de colonne de lecture
 	Reading Line Spacing	Interligne de lecture
 	Reading Text Size	Taille du texte de lecture
+	Filter Recipients	Filtrer les destinataires
+	Sort Recipients	Trier les destinataires
+	Filter and Sort	Filtrer et trier
+	And	Et
+	Or	Ou
+	Comparison	Comparaison
+	Compare to	Comparer à
+	Add Condition	Ajouter une condition
+	Remove condition	Supprimer la condition
+	Sort by	Trier par
+	Then by	Puis par
+	Ascending	Croissant
+	Descending	Décroissant
+	Equal to	Égal à
+	Not equal to	Différent de
+	Less than	Inférieur à
+	Greater than	Supérieur à
+	Less than or equal	Inférieur ou égal à
+	Greater than or equal	Supérieur ou égal à
+	Is blank	Est vide
+	Is not blank	N'est pas vide
+	Contains	Contient
+	Does not contain	Ne contient pas
+	{count} of {total} recipients will be merged.	{count} destinataires sur {total} seront fusionnés.
 	Undo Actions	Annuler plusieurs actions
 	Undo History	Historique des annulations
 	Undo 1 Action	Annuler 1 action

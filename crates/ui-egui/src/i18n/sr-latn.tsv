@@ -2099,6 +2099,31 @@
 	Insert paragraph number in full context	Umetni broj pasusa u punom kontekstu
 	Suppress all non-delimiter characters	Izostavi sve znakove osim graničnika
 	Insert position (above or below)	Umetni položaj (iznad ili ispod)
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Filtriraj primaoce
+	Sort Recipients	Sortiraj primaoce
+	Filter and Sort	Filtriranje i sortiranje
+	And	I
+	Or	Ili
+	Comparison	Poređenje
+	Compare to	Uporedi sa
+	Add Condition	Dodaj uslov
+	Remove condition	Ukloni uslov
+	Sort by	Sortiraj po
+	Then by	Zatim po
+	Ascending	Rastuće
+	Descending	Opadajuće
+	Equal to	Jednako
+	Not equal to	Nije jednako
+	Less than	Manje od
+	Greater than	Veće od
+	Less than or equal	Manje ili jednako
+	Greater than or equal	Veće ili jednako
+	Is blank	Prazno
+	Is not blank	Nije prazno
+	Contains	Sadrži
+	Does not contain	Ne sadrži
+	{count} of {total} recipients will be merged.	Primalaca za spajanje: {count} od {total}.
 	Start-up	Pokretanje
 	Show the Start screen when WordCraft starts	Prikaži početni ekran pri pokretanju programa WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Uključeno: WordCraft se otvara na Fajl › Početak, sa praznim dokumentom, šablonima i nedavnim dokumentima. Isključeno: otvara prazan dokument.

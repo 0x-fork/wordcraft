@@ -534,8 +534,9 @@ pub fn save_path_with(path: &std::path::Path, _doc: &Document, _password: Option
     Err(format!("{}: files are saved through the browser on the web", path.display()))
 }
 
-/// Decode text bytes: UTF-8 (with or without BOM), UTF-16 LE/BE (BOM or sniffed), else
-/// Windows-1252 (see [`wordcraft_formats::txt::decode`]).
+/// Decode text bytes: UTF-8 (with or without BOM), UTF-16 LE/BE (BOM or sniffed), else the
+/// legacy encoding they look like — GBK, Big5, Shift_JIS, Windows-1252… (see
+/// [`wordcraft_formats::txt::decode`]).
 pub fn decode_text(b: &[u8]) -> String {
     wordcraft_formats::txt::decode(b)
 }

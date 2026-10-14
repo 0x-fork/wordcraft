@@ -2089,6 +2089,31 @@
 	Insert paragraph number in full context	段落番号を完全な形式で挿入する
 	Suppress all non-delimiter characters	区切り文字以外の文字をすべて非表示にする
 	Insert position (above or below)	位置 (上または下) を挿入する
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	宛先のフィルター
+	Sort Recipients	宛先の並べ替え
+	Filter and Sort	フィルターと並べ替え
+	And	かつ
+	Or	または
+	Comparison	比較
+	Compare to	比較する値
+	Add Condition	条件の追加
+	Remove condition	条件の削除
+	Sort by	並べ替えの基準
+	Then by	次の基準
+	Ascending	昇順
+	Descending	降順
+	Equal to	等しい
+	Not equal to	等しくない
+	Less than	より小さい
+	Greater than	より大きい
+	Less than or equal	以下
+	Greater than or equal	以上
+	Is blank	空白
+	Is not blank	空白ではない
+	Contains	含む
+	Does not contain	含まない
+	{count} of {total} recipients will be merged.	差し込む宛先: {total} 件中 {count} 件
 	Start-up	起動
 	Show the Start screen when WordCraft starts	WordCraft の起動時にスタート画面を表示する
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	オン: WordCraft は [ファイル] › [ホーム] で開き、白紙の文書、テンプレート、最近使った文書を表示します。オフ: 白紙の文書を開きます。

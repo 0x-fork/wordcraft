@@ -2451,6 +2451,30 @@
 	Reading Column Width	Olvasási oszlopszélesség
 	Reading Line Spacing	Olvasási sorköz
 	Reading Text Size	Olvasási szövegméret
+	Filter Recipients	Címzettek szűrése
+	Sort Recipients	Címzettek rendezése
+	Filter and Sort	Szűrés és rendezés
+	And	És
+	Or	Vagy
+	Comparison	Összehasonlítás
+	Compare to	Összehasonlítás ezzel
+	Add Condition	Feltétel hozzáadása
+	Remove condition	Feltétel eltávolítása
+	Sort by	Rendezés alapja
+	Then by	Majd
+	Ascending	Növekvő
+	Descending	Csökkenő
+	Equal to	Egyenlő
+	Not equal to	Nem egyenlő
+	Less than	Kisebb, mint
+	Greater than	Nagyobb, mint
+	Less than or equal	Kisebb vagy egyenlő
+	Greater than or equal	Nagyobb vagy egyenlő
+	Is blank	Üres
+	Is not blank	Nem üres
+	Contains	Tartalmazza
+	Does not contain	Nem tartalmazza
+	{count} of {total} recipients will be merged.	{total} címzettből {count} kerül egyesítésre.
 	Undo Actions	Több művelet visszavonása
 	Undo History	Visszavonási előzmények
 	Undo 1 Action	1 művelet visszavonása

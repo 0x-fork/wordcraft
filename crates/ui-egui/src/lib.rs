@@ -1688,7 +1688,7 @@ impl WordApp {
                 let path = f.path().to_string_lossy().to_string();
                 let lp = path.to_ascii_lowercase();
                 let img = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".wmf", ".emf"].iter().any(|e| lp.ends_with(e));
-                let sheet = [".xlsx", ".xlsm", ".ods"].iter().any(|e| lp.ends_with(e));
+                let sheet = wordcraft_engine::cmd::mailings::is_spreadsheet_name(&lp);
                 let _ = if img {
                     self.run("insert.picture", json!({"path": path}))
                 } else if sheet {
@@ -1938,7 +1938,7 @@ impl WordApp {
             // Any recipient file ends the pending picker request, so a later .txt drop opens normally.
             let asked = std::mem::take(&mut self.recipient_list_pending);
             let list = lower.ends_with(".csv") || lower.ends_with(".tsv") || (lower.ends_with(".txt") && asked);
-            let sheet = [".xlsx", ".xlsm", ".ods"].iter().any(|e| lower.ends_with(e));
+            let sheet = wordcraft_engine::cmd::mailings::is_spreadsheet_name(&lower);
             self.recipient_list_pending = asked && !list && !sheet;
             let r = if sheet {
                 self.load_recipients(json!({"path": name, "data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}))
@@ -5616,6 +5616,32 @@ mod tests {
 
     fn dialog_name(a: &WordApp) -> Option<&'static str> {
         a.dialog.as_ref().map(dialogs::Dialog::name)
+    }
+
+    /// #778: Edit Recipient List shows every record with the list's filter and sort, and its
+    /// Filter and Sort section maps to `mailings.filterRecipients`.
+    #[test]
+    fn recipient_list_dialog_carries_the_filter() {
+        let mut a = app();
+        a.run("mailings.recipients", json!({"csv": "Name,City\nAda,London\nAlan,Wilmslow\nGrace,London"})).unwrap();
+        a.run(
+            "mailings.filterRecipients",
+            json!({"rules": [{"field": "City", "op": "equal", "value": "London"}], "sort": [{"field": "Name", "descending": true}]}),
+        )
+        .unwrap();
+        a.run("mailings.editRecipients", json!({})).unwrap();
+        let Some(dialogs::Dialog::RecipientList { rows, filter, .. }) = &a.dialog else { panic!() };
+        assert_eq!(rows.len(), 3, "every record, not only the filtered ones");
+        assert!(filter.open);
+        let params = filter.params();
+        assert_eq!(params["rules"], json!([{"field": "City", "op": "equal", "value": "London", "join": "and"}]));
+        assert_eq!(params["sort"], json!([{"field": "Name", "descending": true}]));
+        // Applying the dialog's filter to a reloaded list gives the same records.
+        a.run("mailings.recipients", json!({"csv": "Name,City\nAda,London\nAlan,Wilmslow\nGrace,London"})).unwrap();
+        a.run("mailings.filterRecipients", params).unwrap();
+        let names: Vec<&str> = a.session.merge.rows.iter().map(|r| r[0].as_str()).collect();
+        assert_eq!(names, ["Grace", "Ada"]);
+        assert!(open_filters("recipients")[0].1.contains(&"xls"));
     }
 
     /// #240: Select Recipients needs data, so clicking it opens the recipient list instead of

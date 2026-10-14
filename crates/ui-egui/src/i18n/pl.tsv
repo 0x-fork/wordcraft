@@ -2090,6 +2090,31 @@
 	Hindi	Hindi
 	Context	Kontekstowe
 	System	Systemowe
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Filtruj adresatów
+	Sort Recipients	Sortuj adresatów
+	Filter and Sort	Filtrowanie i sortowanie
+	And	I
+	Or	Lub
+	Comparison	Porównanie
+	Compare to	Porównaj z
+	Add Condition	Dodaj warunek
+	Remove condition	Usuń warunek
+	Sort by	Sortuj według
+	Then by	Następnie według
+	Ascending	Rosnąco
+	Descending	Malejąco
+	Equal to	Równe
+	Not equal to	Różne od
+	Less than	Mniejsze niż
+	Greater than	Większe niż
+	Less than or equal	Mniejsze lub równe
+	Greater than or equal	Większe lub równe
+	Is blank	Jest puste
+	Is not blank	Nie jest puste
+	Contains	Zawiera
+	Does not contain	Nie zawiera
+	{count} of {total} recipients will be merged.	Adresaci do scalenia: {count} z {total}.
 	Book Title	Tytuł książki
 	Category	Kategoria
 	Contributors	Współtwórcy

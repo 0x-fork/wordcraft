@@ -2570,3 +2570,29 @@
 	Style name:	Tên kiểu:
 	Suppress all non-delimiter characters	Bỏ mọi ký tự không phải dấu phân cách
 	Text of the nearest paragraph with a given style (running headers)	Văn bản của đoạn gần nhất có kiểu đã cho (đầu trang chạy)
+
+# Mail merge Filter and Sort (#885)
+	Add Condition	Thêm điều kiện
+	And	Và
+	Ascending	Tăng dần
+	Compare to	So sánh với
+	Comparison	Phép so sánh
+	Contains	Chứa
+	Descending	Giảm dần
+	Does not contain	Không chứa
+	Equal to	Bằng
+	Filter Recipients	Lọc người nhận
+	Filter and Sort	Lọc và sắp xếp
+	Greater than	Lớn hơn
+	Greater than or equal	Lớn hơn hoặc bằng
+	Is blank	Trống
+	Is not blank	Không trống
+	Less than	Nhỏ hơn
+	Less than or equal	Nhỏ hơn hoặc bằng
+	Not equal to	Khác
+	Or	Hoặc
+	Remove condition	Xóa điều kiện
+	Sort Recipients	Sắp xếp người nhận
+	Sort by	Sắp xếp theo
+	Then by	Sau đó theo
+	{count} of {total} recipients will be merged.	Sẽ phối {count} trên {total} người nhận.

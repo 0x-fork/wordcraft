@@ -2103,6 +2103,31 @@
 	Insert paragraph number in full context	Уметни број пасуса у пуном контексту
 	Suppress all non-delimiter characters	Изостави све знакове осим граничника
 	Insert position (above or below)	Уметни положај (изнад или испод)
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Филтрирај примаоце
+	Sort Recipients	Сортирај примаоце
+	Filter and Sort	Филтрирање и сортирање
+	And	И
+	Or	Или
+	Comparison	Поређење
+	Compare to	Упореди са
+	Add Condition	Додај услов
+	Remove condition	Уклони услов
+	Sort by	Сортирај по
+	Then by	Затим по
+	Ascending	Растуће
+	Descending	Опадајуће
+	Equal to	Једнако
+	Not equal to	Није једнако
+	Less than	Мање од
+	Greater than	Веће од
+	Less than or equal	Мање или једнако
+	Greater than or equal	Веће или једнако
+	Is blank	Празно
+	Is not blank	Није празно
+	Contains	Садржи
+	Does not contain	Не садржи
+	{count} of {total} recipients will be merged.	Прималаца за спајање: {count} од {total}.
 	Start-up	Покретање
 	Show the Start screen when WordCraft starts	Прикажи почетни екран при покретању програма WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Укључено: WordCraft се отвара на Фајл › Почетак, са празним документом, шаблонима и недавним документима. Искључено: отвара празан документ.

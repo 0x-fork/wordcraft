@@ -2472,6 +2472,31 @@ preview	Title	Пример
 	Insert paragraph number in full context	Вставлять номер абзаца в полном контексте
 	Suppress all non-delimiter characters	Скрывать все символы, кроме разделителей
 	Insert position (above or below)	Вставлять положение (выше или ниже)
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Фильтр получателей
+	Sort Recipients	Сортировка получателей
+	Filter and Sort	Фильтр и сортировка
+	And	И
+	Or	Или
+	Comparison	Сравнение
+	Compare to	Значение
+	Add Condition	Добавить условие
+	Remove condition	Удалить условие
+	Sort by	Сортировать по
+	Then by	Затем по
+	Ascending	По возрастанию
+	Descending	По убыванию
+	Equal to	Равно
+	Not equal to	Не равно
+	Less than	Меньше
+	Greater than	Больше
+	Less than or equal	Меньше или равно
+	Greater than or equal	Больше или равно
+	Is blank	Пусто
+	Is not blank	Не пусто
+	Contains	Содержит
+	Does not contain	Не содержит
+	{count} of {total} recipients will be merged.	Получателей для слияния: {count} из {total}.
 	Start-up	Запуск
 	Show the Start screen when WordCraft starts	Показывать начальный экран при запуске WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Вкл.: WordCraft открывается на странице Файл › Главная с пустым документом, шаблонами и недавними документами. Выкл.: открывается пустой документ.

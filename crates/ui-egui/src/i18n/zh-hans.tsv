@@ -2101,6 +2101,31 @@
 	Insert paragraph number in full context	以完整上下文插入段落编号
 	Suppress all non-delimiter characters	隐藏分隔符以外的所有字符
 	Insert position (above or below)	插入位置（上方或下方）
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	筛选收件人
+	Sort Recipients	排序收件人
+	Filter and Sort	筛选和排序
+	And	与
+	Or	或
+	Comparison	比较
+	Compare to	比较值
+	Add Condition	添加条件
+	Remove condition	删除条件
+	Sort by	排序依据
+	Then by	然后依据
+	Ascending	升序
+	Descending	降序
+	Equal to	等于
+	Not equal to	不等于
+	Less than	小于
+	Greater than	大于
+	Less than or equal	小于或等于
+	Greater than or equal	大于或等于
+	Is blank	为空
+	Is not blank	不为空
+	Contains	包含
+	Does not contain	不包含
+	{count} of {total} recipients will be merged.	将合并 {total} 位收件人中的 {count} 位。
 	Start-up	启动
 	Show the Start screen when WordCraft starts	启动 WordCraft 时显示开始屏幕
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	开：WordCraft 打开时显示“文件 › 开始”，其中有空白文档、模板和最近使用的文档。关：直接打开空白文档。
