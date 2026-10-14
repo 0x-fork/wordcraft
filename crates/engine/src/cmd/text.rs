@@ -192,7 +192,7 @@ fn dash_autoformat(s: &mut Session) -> Result<(), CmdError> {
     } else if before.ends_with(' ')
         && let Some(i) = before.trim_end().rfind("--")
         && i > 0
-        && before.trim_end().get(i - 1..i).is_some_and(|c| c != " ")
+        && before.trim_end()[..i].chars().next_back().is_some_and(|c| c != ' ')
     {
         let p = s.doc.para_mut(f.story, &f.path)?;
         let props = p.props_at(i).clone();
