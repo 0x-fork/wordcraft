@@ -405,6 +405,17 @@ pub fn turn_rect(turn: TextDirection, x: f32, y: f32, r: Rect) -> Rect {
     }
 }
 
+/// Which header/footer of its section a page shows ([`Page::hf_slot`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HfSlot {
+    #[default]
+    Default,
+    /// The first page of a section with "Different First Page".
+    First,
+    /// An even page with "Different Odd & Even Pages".
+    Even,
+}
+
 /// One laid-out page.
 #[derive(Clone, Debug, Default)]
 pub struct Page {
@@ -422,6 +433,10 @@ pub struct Page {
     pub body: Rect,
     pub header_story: Option<u32>,
     pub footer_story: Option<u32>,
+    /// Which of its section's headers/footers this page shows (first page, even page or the
+    /// default), whether or not the section has one: double-clicking an empty header area
+    /// creates that one (#960).
+    pub hf_slot: HfSlot,
     /// Top-level body block index at the start of the page.
     pub first_block: usize,
     /// Width of the markup area on the right of `w` that holds comment balloons (Print Markup,
@@ -3372,6 +3387,13 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         };
         let hid = pick(|s| s.headers);
         let fid = pick(|s| s.footers);
+        page.hf_slot = if sect.title_page && first_of_section.contains(&i) {
+            HfSlot::First
+        } else if even_odd && page.number % 2 == 0 {
+            HfSlot::Even
+        } else {
+            HfSlot::Default
+        };
         ctx.fields.page = page.number;
         ctx.fields.page_format = sect.page_num_format;
         ctx.fields.pages = total;

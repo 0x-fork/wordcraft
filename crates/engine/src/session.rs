@@ -357,6 +357,10 @@ pub struct Session {
     pub painter: Option<(CharProps, wordcraft_doc::props::ParaProps, bool)>,
     /// Last message for the status bar / agents.
     pub status: String,
+    /// Headers/footers `insert.createHeader`/`insert.createFooter` made for a page that had none
+    /// (#960): `insert.closeHeader` takes those still empty away again, as Word does, and saving
+    /// leaves them out. Kept after that, so one an undo brings back goes again on the next close.
+    pub new_header_parts: Vec<u32>,
     /// Undo and redo steps. Shared so `run` can snapshot both stacks cheaply (a pointer per
     /// step) and put them back exactly when a command fails.
     history: Vec<Arc<Undo>>,
@@ -587,6 +591,7 @@ impl Session {
             initials: String::new(),
             painter: None,
             status: String::new(),
+            new_header_parts: Vec::new(),
             history: Vec::new(),
             undo_evicted: 0,
             redo: Vec::new(),
@@ -971,6 +976,7 @@ impl Session {
         self.column_mode = false;
         self.widened = None;
         self.edit_marks.clear();
+        self.new_header_parts.clear();
         self.go_back_step = 0;
         self.view.outline.collapsed.clear();
         self.reset_history();
@@ -1019,6 +1025,8 @@ impl Session {
             initials: _,
             painter: _,
             status: _,
+            // Headers just created to edit: closing checks they still exist and are empty.
+            new_header_parts: _,
             history,
             undo_evicted,
             redo,

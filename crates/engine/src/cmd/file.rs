@@ -245,7 +245,9 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     }
     s.stamp_save();
     let password = s.password.as_ref().map(crate::io::Password::as_str);
-    crate::io::save_path_with(&path, &s.doc, password, &opts).map_err(CmdError::Failed)?;
+    // A header/footer just made and left empty isn't saved (#960).
+    let copy = super::insert::saved_copy(s);
+    crate::io::save_path_with(&path, copy.as_ref().unwrap_or(&s.doc), password, &opts).map_err(CmdError::Failed)?;
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     if ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
         s.path = Some(path.clone());

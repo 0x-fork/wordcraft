@@ -1813,20 +1813,26 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.canvas.dragging = false;
         return;
     }
-    // Double-click in the header/footer area edits it; double-click in the body leaves it.
+    // Double-click in the header/footer area edits it (creating it when the page has none, #960);
+    // double-click in the body leaves it. Print Layout only: the other views show no margins.
+    let hf_zone = if app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode {
+        layout.header_footer_zone(page, y)
+    } else {
+        None
+    };
     if resp.double_clicked() {
-        if let Some((s, header)) = layout.header_footer_at(page, y)
+        if let Some((_, header)) = hf_zone
             && story == StoryRef::Body
         {
             let id = if header { "insert.editHeader" } else { "insert.editFooter" };
-            let _ = app.run(id, json!({}));
-            let _ = s;
-            if let Some(pos) = app.session.layout().hit(page, x, y, app.session.sel.focus.story) {
+            if app.run(id, json!({ "page": page })).is_ok()
+                && let Some(pos) = app.session.layout().hit(page, x, y, app.session.sel.focus.story)
+            {
                 app.session.sel = wordcraft_engine::Selection::caret(pos);
             }
             return;
         }
-        if matches!(story, StoryRef::Part(_)) && !in_text_box(app) && layout.header_footer_at(page, y).is_none() {
+        if matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none() {
             let _ = app.run("insert.closeHeader", json!({}));
             if let Some(pos) = layout.hit(page, x, y, StoryRef::Body) {
                 app.session.sel = wordcraft_engine::Selection::caret(pos);
@@ -1856,8 +1862,8 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.canvas.last_press = Some((now, p, clicks));
         app.canvas.unit_drag = None;
         // A double-click that enters or leaves a header/footer is handled on release.
-        let hf_switch = (layout.header_footer_at(page, y).is_some() && story == StoryRef::Body)
-            || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && layout.header_footer_at(page, y).is_none());
+        let hf_switch =
+            (hf_zone.is_some() && story == StoryRef::Body) || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
         // Clicking into a footnote/endnote or a text box edits it; clicking outside a text box goes
         // back to where it is. While editing a header/footer, only its own text boxes are in reach.
         let story = {
@@ -3154,6 +3160,77 @@ mod tests {
         assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step for the edit");
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Part(part)), "Original");
+    }
+
+    /// #960: double-clicking the top margin of a document without a header creates one and
+    /// edits it (the bottom margin: a footer), as in Word; typing goes into it, and
+    /// double-clicking the body leaves it. One left empty is taken away again.
+    #[test]
+    fn double_click_margin_creates_header_and_footer() {
+        use egui::{Event, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Body text"})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 2200.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let double_click = |h: &mut egui_kittest::Harness<'_, WordApp>, at: Pos2| {
+            h.event(Event::PointerMoved(at));
+            for _ in 0..2 {
+                h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+                h.step();
+                h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+                h.step();
+            }
+            // Let the double-click time pass before the next one.
+            for _ in 0..40 {
+                h.step();
+            }
+        };
+        let kind = |h: &egui_kittest::Harness<'_, WordApp>| part_kind(h.state(), h.state().session.sel.focus.story);
+        let page = h.state_mut().session.layout().pages[0].clone();
+        assert!(page.header_story.is_none() && page.footer_story.is_none());
+        let (x, top, bottom) = (page.body.x + 20.0, page.body.y / 2.0, (page.body.bottom() + page.h) / 2.0);
+        let body = page_to_screen(h.state_mut(), 0, x, page.body.y + 6.0).expect("body on screen");
+        // Top margin: a new header, the caret in it, typing goes there.
+        let at = page_to_screen(h.state_mut(), 0, x, top).expect("top margin on screen");
+        double_click(&mut h, at);
+        assert_eq!(kind(&h), Some(PartKind::Header), "editing a new header");
+        let header = h.state().session.sel.focus.story;
+        h.event(Event::Text("Running head".into()));
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(header), "Running head");
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "Body text");
+        // Double-click the body: back in it, the header kept.
+        double_click(&mut h, body);
+        assert_eq!(h.state().session.sel.focus.story, StoryRef::Body);
+        assert_eq!(h.state_mut().session.layout().pages[0].header_story.map(StoryRef::Part), Some(header));
+        // Bottom margin: a new footer; left empty, leaving takes it away again.
+        let at = page_to_screen(h.state_mut(), 0, x, bottom).expect("bottom margin on screen");
+        double_click(&mut h, at);
+        assert_eq!(kind(&h), Some(PartKind::Footer), "editing a new footer");
+        double_click(&mut h, body);
+        assert_eq!(h.state().session.sel.focus.story, StoryRef::Body);
+        assert!(h.state().session.doc.last_section.footers.default.is_none(), "the empty footer is gone");
+        // And a written footer stays.
+        double_click(&mut h, at);
+        let footer = h.state().session.sel.focus.story;
+        assert_eq!(kind(&h), Some(PartKind::Footer));
+        h.event(Event::Text("Page foot".into()));
+        h.step();
+        double_click(&mut h, body);
+        assert_eq!(h.state().session.sel.focus.story, StoryRef::Body);
+        assert_eq!(h.state().session.doc.plain_text(footer), "Page foot");
     }
 
     /// #513: right-clicking a picture selects it and offers Wrap Text, as in Word; choosing
