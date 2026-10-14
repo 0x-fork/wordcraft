@@ -2812,6 +2812,33 @@ fn again<T>(ctx: &mut Ctx, eq_start: u32, f: impl FnOnce(&mut Ctx) -> T) -> T {
     out
 }
 
+/// How many times one body paragraph's lines are broken again for the wrap areas of the later
+/// columns and pages it runs onto (#1374).
+const MAX_WRAP_RELAYS: usize = 64;
+
+#[cfg(test)]
+thread_local! {
+    /// How many wrap relays (#1374) the layouts on this thread made: tests check none happen
+    /// without something new to wrap around.
+    static WRAP_RELAYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The wrap areas for a paragraph laid out against `rel` (relative to its top) whose lines from the
+/// one at `t` (relative to its top) on go into the column starting at `x0`, that line at `y` on
+/// the page, which has the wrap areas `excl` (#1374). The areas the lines before were broken
+/// around end at `t`; the column's start there (one reaching above `t` with an outline keeps its
+/// whole outline, so it may change a line before, and the paragraph is then not broken again).
+/// Areas well clear of the column (outside `-width..2 * width`, room for negative indents) can't
+/// touch its lines and are left out.
+fn continued_exclusions(rel: &[para::Exclusion], excl: &[WrapArea], x0: f32, y: f32, t: f32, width: f32) -> Vec<para::Exclusion> {
+    let before = rel.iter().filter(|e| e.top < t).map(|e| para::Exclusion { bottom: e.bottom.min(t), ..e.clone() });
+    let here = rel_exclusions(excl, x0, y - t)
+        .into_iter()
+        .filter(|e| e.bottom > t && e.right > -width && e.left < 2.0 * width)
+        .map(|e| if e.top < t && e.contour.is_none() { para::Exclusion { top: t, ..e } } else { e });
+    before.chain(here).collect()
+}
+
 /// Run `f` with `map` as the field context's page map (`FieldCtx::page_from`), then take it back.
 fn with_page_map<T>(ctx: &mut Ctx, map: &mut Vec<(usize, u32)>, f: impl FnOnce(&mut Ctx) -> T) -> T {
     ctx.fields.page_from = std::mem::take(map);
@@ -2840,6 +2867,8 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // page (bounded: a paragraph over hundreds of pages keeps the last number it got).
     let (mut laid_page, mut laid_width) = (pb.number, pb.col_w());
     let mut page_relays = 0usize;
+    // How many times its lines were broken again for the wrap areas of a later column (#1374).
+    let mut wrap_relays = 0usize;
     // The anchor paragraph's top (above its space before) the floats were placed from.
     let mut anchor_y = pb.y;
     let spot = |pb: &PageBuilder| (pb.pages.len(), pb.col);
@@ -2924,6 +2953,33 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let mut after_on_page: Option<f32> = None;
     let mut l0 = 0;
     while l0 < n {
+        // The lines going into a new column (or page) were broken around the wrap areas where the
+        // paragraph started: break them again around this column's (the lines before stay as they
+        // were, and so do the paragraph's own floating objects), when they differ (#1374).
+        if l0 > 0
+            && !pb.web
+            && wrap_relays < MAX_WRAP_RELAYS
+            && let Some((resume, t)) = pl.lines.get(l0).map(|l| (l.start, l.top))
+        {
+            let here = continued_exclusions(&rel, &pb.excl, pb.col_x(), pb.y, t, laid_width);
+            if here != rel {
+                wrap_relays += 1;
+                ctx.fields.page = laid_page;
+                #[cfg(test)]
+                WRAP_RELAYS.with(|c| c.set(c.get() + 1));
+                let relaid =
+                    with_page_map(ctx, &mut page_map, |ctx| again(ctx, eq_start, |ctx| ctx.para_labelled(p, laid_width, None, &here, label.clone())));
+                // Only if the rest still starts at the same line, at the same height (an outline
+                // reaching above it could move the lines before down, and the column's areas with them).
+                if let Some(k) = relaid.lines.iter().position(|l| l.start == resume)
+                    && relaid.lines.get(k).is_some_and(|l| (l.top - t).abs() < 0.01)
+                {
+                    (pl, rel) = (relaid, here);
+                    n = pl.lines.len();
+                    l0 = k;
+                }
+            }
+        }
         // Page fields in the lines going onto a new page show that page's number: lay the
         // paragraph out again with the fields from there on on this page (the lines before stay as
         // they were, so the line the rest starts with is still there), breaking the rest again for
