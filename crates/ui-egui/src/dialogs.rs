@@ -2359,7 +2359,16 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.text_edit_singleline(name);
                 ui.end_row();
                 ui.label(tl!("Font:"));
-                ui.text_edit_singleline(font);
+                let shown = app.previews.font_shown(font);
+                let fams = app.previews.families();
+                let prev = app.previews.font_preview_fn();
+                if let Some(f) = crate::widgets::font_combo(ui, "ms_font", 220.0, &shown, &fams, Some(&*prev)) {
+                    if f == crate::widgets::ADD_FONT {
+                        let _ = app.run("font.add", json!({}));
+                    } else {
+                        *font = app.previews.font_stored(&f);
+                    }
+                }
                 ui.end_row();
                 ui.label(tl!("Size:"));
                 ui.add(egui::DragValue::new(size).range(1.0..=1638.0).speed(0.5));
@@ -4069,6 +4078,42 @@ mod tests {
         apply_font(&mut app, &d);
         let c = app.session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).map(|p| p.props_of_char(0).clone()).unwrap_or_default();
         assert_eq!((c.small_caps, c.caps, c.size), (Some(false), Some(true), Some(14.0)));
+    }
+
+    /// #1178: Modify Style's font box is the ribbon's font box, so typing part of a name picks the
+    /// installed family instead of storing the typed text.
+    #[test]
+    fn modify_style_font_box_finds_the_family() {
+        use egui_kittest::kittest::{By, Queryable};
+        let mut app = app_with("Example");
+        app.dialog = Dialog::modify_style(&app, "Normal");
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                if fonts {
+                    show(app, &ctx);
+                } else {
+                    crate::theme::install_fonts_for(&ctx, false);
+                    fonts = true;
+                }
+            },
+            app,
+        );
+        h.run_steps(3);
+        h.get(By::new().role(egui::accesskit::Role::TextInput).value(wordcraft_doc::styles::BODY_FONT)).focus();
+        h.step();
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        h.event(key(egui::Key::A, egui::Modifiers::COMMAND));
+        h.step();
+        h.event(egui::Event::Text("aptos disp".into()));
+        h.step();
+        // Enter both picks the highlighted family and presses OK, as in the Font dialog.
+        h.event(key(egui::Key::Enter, egui::Modifiers::NONE));
+        h.run_steps(2);
+        assert!(h.state().dialog.is_none(), "Enter pressed OK");
+        let rc = h.state().session.doc.styles.resolve_char(Some("Normal"), &wordcraft_doc::CharProps::default());
+        assert_eq!(rc.font, wordcraft_doc::styles::HEADING_FONT);
     }
 
     /// A dialog was pinned by its anchor, so dragging its title bar did nothing (#732).
