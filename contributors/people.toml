@@ -82,6 +82,9 @@ display_name = "cyril265"
 display_name = "Jason Brashear"
 sync_github_name = false
 
+
+[people.Losminek]
+sync_github_name = true
 [people.benandez]
 real_name = "Martin Ball"
 display_name = "Martin Ball"

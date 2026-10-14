@@ -173,7 +173,7 @@
 	Change Shape	Změnit tvar
 	Change Structure	Změnit strukturu
 	Change to Display	Změnit na samostatnou rovnici
-	Change to Inline	Změnit na vnořenou rovnici
+	Change to Inline	Změnit na rovnici v řádku
 	Changed lines:	Změněné řádky:
 	Changes	Změny
 	Character	Znak
@@ -276,7 +276,7 @@
 	Date & Time	Datum a čas
 	Date and Time	Datum a čas
 	Date formats:	Formáty data:
-	Decimal	Desetinná čárka
+	Decimal	Desetinné
 	Decrease Font Size	Zmenšit velikost písma
 	Decrease Indent	Zmenšit odsazení
 	Default	Výchozí
@@ -529,7 +529,7 @@
 	Ink to\nMath	Rukopis na\nrovnici
 	Ink to\nShape	Rukopis na\ntvar
 	Ink\nReplay	Přehrát\nrukopis
-	Inline	Vnořená
+	Inline	V řádku
 	Input Format	Formát vstupu
 	Insert	Vložení
 	Insert a new equation (Alt+=)	Vložit novou rovnici (Alt+=)
@@ -850,7 +850,7 @@
 	Print Layout	Rozvržení při tisku
 	Print\nLayout	Rozvržení\npři tisku
 	Professional	Profesionální
-	Proofing	Kontrola pravopisu a mluvnice
+	Proofing	Kontrola pravopisu
 	Proofing Issues	Nalezené chyby
 	Properties	Vlastnosti
 	Protect	Zabezpečení
@@ -1083,7 +1083,7 @@
 	Strikethrough	Přeškrtnuté
 	Structure Actions	Akce se strukturou
 	Structures	Struktury
-	Studio cover	Titulní stránka studia
+	Studio cover	Titulní stránka Studio
 	Studio handbook (sample)	Příručka studia (ukázka)
 	Style	Styl
 	Style based on:	Styl založený na:
@@ -1262,7 +1262,7 @@
 	Zotero: done	Zotero: hotovo
 	{count} items highlighted	Počet zvýrazněných položek: {count}
 	{group} settings	Nastavení skupiny {group}
-	{key}+Click to follow link	{key}+kliknutí pro otevření odkazu
+	{key}+Click to follow link	{key}+kliknutím otevřete odkaz
 	{name} is protected with a password.	Dokument {name} je chráněn heslem.
 	{n} lines	Řádků: {n}
 	{n} pt	{n} b.
@@ -1326,8 +1326,8 @@
 	Size and Crop…	Velikost a oříznutí…
 	Insert Columns to the Left	Vložit sloupce vlevo
 	Insert Columns to the Right	Vložit sloupce vpravo
-	Insert Rows Above	Vložit řádky výše
-	Insert Rows Below	Vložit řádky níže
+	Insert Rows Above	Vložit řádky nad
+	Insert Rows Below	Vložit řádky pod
 	Mon	Po
 	Tue	Út
 	Wed	St
@@ -1632,7 +1632,7 @@
 	Danish	Dánština
 	Delivery address:	Dodací adresa:
 	Detect language automatically	Rozpoznat jazyk automaticky
-	Do not check spelling or grammar	Nekontrolovat pravopis ani gramatiku
+	Do not check spelling or grammar	Nekontrolovat pravopis ani mluvnici
 	Dutch	Nizozemština
 	English (United Kingdom)	Angličtina (Spojené království)
 	Envelope size:	Velikost obálky:
@@ -1703,7 +1703,7 @@
 	Checked styles are allowed:	Povolené jsou zaškrtnuté styly:
 	Combine Documents	Zkombinovat dokumenty
 	Compare Documents	Porovnat dokumenty
-	Compared: {changes} changes	Porovnáno: počet změn: {changes}
+	Compared: {changes} changes	Porovnáno – počet změn: {changes}
 	Comparing with another file needs the desktop app.	Porovnání s jiným souborem vyžaduje desktopovou aplikaci.
 	Comparison settings	Nastavení porovnání
 	Don't capitalize after:	Nepsat velké písmeno po:
@@ -1722,7 +1722,7 @@
 	Hyphens (--) as dashes (—)	Spojovníky (--) jako pomlčky (—)
 	In equations, typing a name after a backslash replaces it with its symbol.	V rovnicích se název napsaný za zpětným lomítkem nahradí příslušným symbolem.
 	Internet addresses as links	Internetové adresy jako odkazy
-	Label changes with:	Označit změny štítkem:
+	Label changes with:	Označit změny jménem:
 	Limit formatting to a selection of styles	Omezit formátování na vybrané styly
 	Math AutoCorrect	Automatické opravy matematiky
 	More >>	Více >>
@@ -1846,7 +1846,7 @@
 	Interface language	Jazyk rozhraní
 	Inside:	Uvnitř:
 	Latin text font:	Písmo pro latinkový text:
-	Mark grammar errors as you type	Označovat gramatické chyby při psaní
+	Mark grammar errors as you type	Označovat mluvnické chyby při psaní
 	Measurement units:	Jednotky měření:
 	Millimeters	Milimetry
 	Mirror indents	Zrcadlové odsazení
@@ -1928,8 +1928,8 @@
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Systémový dialog pro práci se soubory není k dispozici, proto WordCraft zobrazuje vlastní. Chcete-li používat systémový dialog, nainstalujte portál pro výběr souborů (například xdg-desktop-portal-gtk) nebo zenity.
 	Up one level	O úroveň výš
 	Home folder	Domovská složka
-	{name} wasn't found.	{name} nebyl nalezen.
-	{name} already exists. Choose Save again to replace it.	{name} již existuje. Dalším zvolením Uložit jej nahradíte.
+	{name} wasn't found.	Položka {name} nebyla nalezena.
+	{name} already exists. Choose Save again to replace it.	Položka {name} již existuje. Dalším zvolením Uložit ji nahradíte.
 	This folder can't be read: {error}	Tuto složku nelze přečíst: {error}
 	Showing the first {count} items.	Zobrazuje se prvních {count} položek.
 	File name:	Název souboru:
@@ -1946,18 +1946,18 @@
 	Copies	Kopie
 	Collate copies	Kompletovat kopie
 	Pages like 1-3, 5	Stránky, např. 1-3, 5
-	{count} of {total} pages will print	Vytiskne se {count} z {total} stránek
+	{count} of {total} pages will print	Stránky k tisku: {count} z {total}
 	Save these pages as PDF…	Uložit tyto stránky jako PDF…
 	The printer, two-sided printing and pages per sheet are chosen in that dialog.	Tiskárna, oboustranný tisk a počet stránek na list se volí v tomto dialogu.
 	Previous Page	Předchozí stránka
 	Print to PDF	Tisk do PDF
 	Add Shape	Přidat tvar
 	Change Colors	Změnit barvy
-	Change Layout	Změnit rozložení
-	Create Graphic	Vytvořit obrázek
+	Change Layout	Změnit rozvržení
+	Create Graphic	Vytvořit grafiku
 	Edit Items	Upravit položky
-	Layouts	Rozložení
-	Reset Graphic	Obnovit obrázek
+	Layouts	Rozvržení
+	Reset Graphic	Obnovit grafiku
 	SmartArt Design	Návrh SmartArt
 	SmartArt Styles	Styly SmartArt
 	Text Pane	Podokno textu
@@ -1988,7 +1988,7 @@
 	One line per item. Enter adds an item.	Jeden řádek na položku. Klávesa Enter přidá položku.
 	Add\nShape	Přidat\ntvar
 	Change\nColors	Změnit\nbarvy
-	Reset\nGraphic	Obnovit\nobrázek
+	Reset\nGraphic	Obnovit\ngrafiku
 	Promote to Heading 1	Povýšit na Nadpis 1
 	Demote to Body Text	Snížit na základní text
 	Move Up	Přesunout nahoru
@@ -2056,7 +2056,7 @@
 	Your system has animation effects turned on.	Efekty animace jsou v systému zapnuté.
 	Your system has animation effects turned off.	Efekty animace jsou v systému vypnuté.
 	Your system doesn't report an animation setting, so animation effects stay on.	Systém neuvádí žádné nastavení animací, proto efekty animace zůstávají zapnuté.
-	Do Not Check Spelling or Grammar	Nekontrolovat pravopis ani gramatiku
+	Do Not Check Spelling or Grammar	Nekontrolovat pravopis ani mluvnici
 	Undo Actions	Vrátit více akcí
 	Undo History	Historie vrácení
 	Undo 1 Action	Vrátit 1 akci
