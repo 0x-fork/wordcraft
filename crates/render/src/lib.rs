@@ -767,7 +767,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 gx += face.advance(gid) * k;
             }
         }
-        Draw::Image { rect, media, crop, alpha } => {
+        Draw::Image { rect, media, crop, alpha, .. } => {
             let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
             if !r.overlaps(*visible) {
                 return;
