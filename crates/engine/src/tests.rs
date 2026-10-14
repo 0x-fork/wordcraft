@@ -1261,6 +1261,27 @@ fn select_extend_from_a_table_paragraph_selects_the_document() {
     assert_eq!(b, s.doc.end_of(StoryRef::Body));
 }
 
+/// #1596: tables nest 24 deep at most, the depth the DOCX reader and writer keep. Insert › Table
+/// in the deepest cell says so; a table pasted there brings its text as paragraphs.
+#[test]
+fn tables_nest_at_most_24_deep() {
+    use wordcraft_doc::table::MAX_TABLE_DEPTH;
+    let mut s = s();
+    for _ in 0..MAX_TABLE_DEPTH {
+        run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+    }
+    assert_eq!(s.sel.focus.path.depth(), MAX_TABLE_DEPTH);
+    let before = s.doc.clone();
+    let e = s.run("insert.table", &json!({"rows": 1, "cols": 1})).unwrap_err();
+    assert!(e.to_string().contains("24 deep"), "{e}");
+    assert_eq!(s.doc, before);
+    run(&mut s, "edit.paste", json!({"text": "b", "html": "<table><tr><td>b</td></tr></table>"}));
+    let cell = s.sel.focus.path.clone();
+    let blocks: Vec<_> = (0..).map_while(|i| s.doc.block(StoryRef::Body, &cell.with_last(i))).collect();
+    assert!(blocks.iter().all(|b| b.as_table().is_none()), "no table below the limit");
+    assert!(blocks.iter().any(|b| b.as_para().is_some_and(|p| p.text.contains('b'))), "the pasted text is there");
+}
+
 /// AutoFit Contents (#44) measures the text: a column of short words narrows, a column with a
 /// long sentence widens (wrapping within the page), and the widths are written to the grid.
 #[test]
