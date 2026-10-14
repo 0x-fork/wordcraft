@@ -220,6 +220,10 @@ pub struct Float {
     /// off, any VML shape in a header or footer): a picture watermark in a header that starts with a table.
     #[serde(skip_serializing_if = "is_false")]
     pub outside_cell: bool,
+    /// Stacking order among floating objects (`wp:anchor/@relativeHeight`): higher is drawn on
+    /// top. 0 = unknown, drawn in document order (objects inserted here, or from other formats).
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub z: u32,
 }
 
 /// Longest alternative text kept (characters): hostile files and commands are capped.
@@ -258,6 +262,9 @@ fn is_zero(v: &f32) -> bool {
 }
 fn is_false(v: &bool) -> bool {
     !*v
+}
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 impl Float {

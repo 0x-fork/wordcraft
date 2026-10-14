@@ -3216,8 +3216,11 @@ fn place_objects(
     floats: &HashMap<usize, Rect>,
     depth: usize,
 ) -> (Vec<Placed>, Vec<Placed>) {
-    let (mut behind, mut front) = (Vec::new(), Vec::new());
-    let Some(fl) = pl.lines.get(l0) else { return (behind, front) };
+    // Each object's items (behind the text, in front), with its stacking order: drawn lowest
+    // first once all are placed, as Word stacks floating objects by `relativeHeight`, not by
+    // their order in the paragraph. Inline objects and objects without one keep their order.
+    let mut stack: Vec<(u32, Vec<Placed>, Vec<Placed>)> = Vec::new();
+    let Some(fl) = pl.lines.get(l0) else { return (Vec::new(), Vec::new()) };
     // Objects left out of the layout (hidden, or deleted in the final text) aren't placed.
     let left_out = left_out_objects(ctx.doc, p, at.table_chr, ctx.opts.show_hidden, ctx.hide_deleted);
     // A floating object belongs to its paragraph, not to its line: Word puts it on the page the
@@ -3245,7 +3248,6 @@ fn place_objects(
                 continue;
             }
             let pinned = at.pinned.and_then(|m| m.get(&oi)).copied().filter(|_| floating);
-            let marks = (behind.len(), front.len());
             let rect = if let Some(r) = pinned {
                 r
             } else if floating {
@@ -3254,6 +3256,7 @@ fn place_objects(
                 let cx = x + line.cl_left(k).unwrap_or(0.0);
                 display::inline_rect(Some(obj), cx, y + (line.baseline - fl.top), c.adv, c.obj_h)
             };
+            let (mut behind, mut front) = (Vec::new(), Vec::new());
             let layer = if float.wrap == Wrap::BehindText { &mut behind } else { &mut front };
             // Floating ones are drawn here; inline ones with their line.
             if floating {
@@ -3299,15 +3302,23 @@ fn place_objects(
             }
             // Placed on the page from a header or footer cell: drawn with the header, once.
             if pinned.is_some() {
-                let (b, f) = (behind.split_off(marks.0.min(behind.len())), front.split_off(marks.1.min(front.len())));
                 if let Some(pin) = ctx.pin.as_mut()
                     && pin.seen.insert((path.to_vec(), c.start))
                 {
-                    pin.behind.extend(b);
-                    pin.front.extend(f);
+                    pin.behind.extend(behind);
+                    pin.front.extend(front);
                 }
+                continue;
             }
+            stack.push((if floating { float.z } else { 0 }, behind, front));
         }
+    }
+    // Stable: equal orders (none given) keep the paragraph's order.
+    stack.sort_by_key(|(z, _, _)| *z);
+    let (mut behind, mut front) = (Vec::new(), Vec::new());
+    for (_, b, f) in stack {
+        behind.extend(b);
+        front.extend(f);
     }
     (behind, front)
 }
