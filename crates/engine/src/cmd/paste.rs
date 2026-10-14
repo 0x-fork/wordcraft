@@ -304,6 +304,21 @@ pub(crate) fn each_para(b: &mut Block, depth: usize, f: &mut dyn FnMut(&mut Para
     }
 }
 
+/// Section breaks brought in from another document keep their page, but their header and
+/// footer ids are that document's: clear them (and the different first page that went with
+/// them) so the sections link to the previous section's headers and footers, as in Word.
+pub(crate) fn unlink_sections(blocks: &mut [Block]) {
+    for b in blocks {
+        each_para(b, 0, &mut |p| {
+            if let Some(sec) = p.section.as_deref_mut() {
+                sec.headers = Default::default();
+                sec.footers = Default::default();
+                sec.title_page = false;
+            }
+        });
+    }
+}
+
 /// Turn an imported document into a fragment of the session's document: bring over the media,
 /// lists and styles it refers to (renumbered so they can't collide with ours).
 fn adopt(s: &mut Session, src: Document) -> Fragment {
@@ -354,6 +369,7 @@ fn adopt(s: &mut Session, src: Document) -> Fragment {
             }
         });
     }
+    unlink_sections(&mut blocks);
     // Text box stories the imported shapes show; pasting gives each a new story of its own.
     let parts = src.parts.into_iter().filter(|(_, p)| p.kind == wordcraft_doc::PartKind::TextBox).collect();
     Fragment { blocks, parts }

@@ -25,6 +25,8 @@ use crate::model::{self, Cell, FBlock, FTable, Flow, Fmt, Inline, Kind, ListInfo
 const MAX_GROUPS: usize = 512;
 /// Largest picture we decode (bytes).
 const MAX_PICT: usize = 64 << 20;
+/// Most sections we read (`\sect`); later breaks end paragraphs only.
+const MAX_SECTIONS: usize = 10_000;
 
 // ---------------------------------------------------------------------------------------------
 // Export
@@ -639,6 +641,56 @@ impl PageGeom {
     }
 }
 
+/// Section formatting (`\sectd` resets it): the section's page words (`\pgwsxn`…, over the
+/// document's `\paperw`…), its break, columns, page numbering and title page.
+#[derive(Clone, Debug, Default)]
+struct SecFmt {
+    page: PageGeom,
+    start: wordcraft_doc::section::SectionStart,
+    cols: Option<i32>,
+    colsx: Option<i32>,
+    linebetcol: bool,
+    pgn_restart: bool,
+    pgn_start: Option<i32>,
+    pgn_fmt: wordcraft_doc::section::NumFormat,
+    title_page: bool,
+}
+
+impl SecFmt {
+    /// The section's properties over the document's page (`doc`); headers and footers unset.
+    fn props(&self, doc: &PageGeom) -> wordcraft_doc::SectionProps {
+        let p = &self.page;
+        let page = PageGeom {
+            w: p.w.or(doc.w),
+            h: p.h.or(doc.h),
+            left: p.left.or(doc.left),
+            right: p.right.or(doc.right),
+            top: p.top.or(doc.top),
+            bottom: p.bottom.or(doc.bottom),
+            header: p.header.or(doc.header),
+            footer: p.footer.or(doc.footer),
+            // A section that gives its own page size or orientation has its own orientation;
+            // the document's `\landscape` only applies to sections that give neither.
+            landscape: if p.w.is_some() || p.h.is_some() || p.landscape { p.landscape } else { doc.landscape },
+        };
+        let mut s = page.section();
+        s.start = self.start;
+        if let Some(n) = self.cols {
+            s.columns.count = n.clamp(1, 45) as u32;
+        }
+        if let Some(x) = self.colsx {
+            s.columns.space = (x as f32 / 20.0).clamp(0.0, 1584.0);
+        }
+        s.columns.separator = self.linebetcol;
+        if self.pgn_restart {
+            s.page_num_start = Some(self.pgn_start.unwrap_or(1).clamp(0, 32_767) as u32);
+        }
+        s.page_num_format = self.pgn_fmt;
+        s.title_page = self.title_page;
+        s
+    }
+}
+
 #[derive(Default)]
 struct Reader {
     st: St,
@@ -654,14 +706,17 @@ struct Reader {
     ansicpg: u16,
     /// The default font (`\deff`), whose charset applies before any `\f`.
     deff: i32,
+    /// The document's page (`\paperw`, `\margl`…) and the current section's formatting.
     page: PageGeom,
+    sec: SecFmt,
+    /// The headers and footers of each section ended so far (`\sect`); `hf_parts` holds the
+    /// current section's.
+    section_parts: Vec<Vec<(HeaderFooter, Vec<FBlock>)>>,
     /// The header or footer being read: the group depth it started at, which one, and the
     /// body's output, put back when the group closes.
     hf: Option<(usize, HeaderFooter, Box<Output>)>,
-    /// Headers and footers read, in order.
+    /// The current section's headers and footers, in order.
     hf_parts: Vec<(HeaderFooter, Vec<FBlock>)>,
-    /// `\titlepg`: the first page has its own header and footer.
-    title_page: bool,
     /// The cell border side being described (`\clbrdrt`, `l`, `b`, `r`): its line style, width
     /// and colour follow.
     cell_side: Option<char>,
@@ -762,11 +817,73 @@ impl Reader {
         }
         self.close_table();
         let part = self.swap_output(*body);
-        // A document names each one once; a repeat (another section's) replaces it.
+        // A section names each one once; a repeat replaces it.
         self.hf_parts.retain(|(w, _)| *w != which);
         if self.hf_parts.len() < 16 {
             self.hf_parts.push((which, part.body));
         }
+    }
+
+    /// `\sect`: end the paragraph, and with it the section, which takes its formatting and the
+    /// headers and footers read since the last break. Inside a header, footer or table, and past
+    /// [`MAX_SECTIONS`], it only ends the paragraph.
+    fn end_section(&mut self) {
+        self.end_para(false);
+        if self.hf.is_some() || self.st.intbl || self.section_parts.len() + 1 >= MAX_SECTIONS {
+            return;
+        }
+        let props = self.sec.props(&self.page);
+        if let Some(FBlock::Para(p)) = self.body.last_mut() {
+            p.section = Some(Box::new(props));
+            self.section_parts.push(std::mem::take(&mut self.hf_parts));
+        }
+    }
+
+    /// A section formatting word: applied to the current section, unless it's inside a header
+    /// or footer (whose `\sectd` isn't the body's). False when `w` isn't one.
+    fn section_word(&mut self, w: &str, p: Option<i32>) -> bool {
+        use wordcraft_doc::section::{NumFormat, SectionStart};
+        let on = p != Some(0);
+        let pv = p.unwrap_or(0);
+        // Inside a header or footer the word is read into a scratch copy and dropped.
+        let mut scratch;
+        let sec = if self.hf.is_some() {
+            scratch = self.sec.clone();
+            &mut scratch
+        } else {
+            &mut self.sec
+        };
+        match w {
+            "sectd" => *sec = SecFmt::default(),
+            "titlepg" => sec.title_page = on,
+            "pgwsxn" => sec.page.w = Some(pv),
+            "pghsxn" => sec.page.h = Some(pv),
+            "marglsxn" => sec.page.left = Some(pv),
+            "margrsxn" => sec.page.right = Some(pv),
+            "margtsxn" => sec.page.top = Some(pv),
+            "margbsxn" => sec.page.bottom = Some(pv),
+            "headery" => sec.page.header = Some(pv),
+            "footery" => sec.page.footer = Some(pv),
+            "lndscpsxn" => sec.page.landscape = on,
+            "sbknone" => sec.start = SectionStart::Continuous,
+            "sbkcol" => sec.start = SectionStart::NextColumn,
+            "sbkpage" => sec.start = SectionStart::NextPage,
+            "sbkeven" => sec.start = SectionStart::EvenPage,
+            "sbkodd" => sec.start = SectionStart::OddPage,
+            "cols" => sec.cols = Some(pv),
+            "colsx" => sec.colsx = Some(pv),
+            "linebetcol" => sec.linebetcol = on,
+            "pgnrestart" => sec.pgn_restart = true,
+            "pgncont" => sec.pgn_restart = false,
+            "pgnstarts" => sec.pgn_start = Some(pv),
+            "pgndec" => sec.pgn_fmt = NumFormat::Decimal,
+            "pgnucrm" => sec.pgn_fmt = NumFormat::UpperRoman,
+            "pgnlcrm" => sec.pgn_fmt = NumFormat::LowerRoman,
+            "pgnucltr" => sec.pgn_fmt = NumFormat::UpperLetter,
+            "pgnlcltr" => sec.pgn_fmt = NumFormat::LowerLetter,
+            _ => return false,
+        }
+        true
     }
 
     fn open(&mut self) {
@@ -1316,7 +1433,7 @@ impl Reader {
         }
         match w {
             "par" => self.end_para(false),
-            "sect" => self.end_para(false),
+            "sect" => self.end_section(),
             "cell" => self.end_cell(),
             "nestcell" => self.end_para(true),
             "row" => self.end_row(),
@@ -1474,16 +1591,14 @@ impl Reader {
                     b.color = color;
                 }
             }
-            "titlepg" => self.title_page = on,
-            "paperw" | "pgwsxn" => self.page.w = Some(pv),
-            "paperh" | "pghsxn" => self.page.h = Some(pv),
-            "margl" | "marglsxn" => self.page.left = Some(pv),
-            "margr" | "margrsxn" => self.page.right = Some(pv),
-            "margt" | "margtsxn" => self.page.top = Some(pv),
-            "margb" | "margbsxn" => self.page.bottom = Some(pv),
-            "headery" => self.page.header = Some(pv),
-            "footery" => self.page.footer = Some(pv),
-            "landscape" | "lndscpsxn" => self.page.landscape = on,
+            "paperw" => self.page.w = Some(pv),
+            "paperh" => self.page.h = Some(pv),
+            "margl" => self.page.left = Some(pv),
+            "margr" => self.page.right = Some(pv),
+            "margt" => self.page.top = Some(pv),
+            "margb" => self.page.bottom = Some(pv),
+            "landscape" => self.page.landscape = on,
+            _ if self.section_word(w, p) => {}
             "cellx" => {
                 self.cell_side = None;
                 let mut d = std::mem::take(&mut self.def_cur);
@@ -1550,9 +1665,11 @@ fn parse_with_page(bytes: &[u8]) -> Result<(Flow, PageGeom, Option<String>), Str
 struct Parsed {
     flow: Flow,
     page: PageGeom,
+    /// The last section's properties (the others are on the paragraphs that end them).
+    last_section: wordcraft_doc::SectionProps,
     default_font: Option<String>,
-    headers_footers: Vec<(HeaderFooter, Vec<FBlock>)>,
-    title_page: bool,
+    /// Each section's headers and footers, in order, the last section's last.
+    headers_footers: Vec<Vec<(HeaderFooter, Vec<FBlock>)>>,
 }
 
 fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
@@ -1722,11 +1839,22 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
         r.meta.created = format!("{y:04}-{:02}-{:02}T{:02}:{:02}:00Z", mo.clamp(1, 12), d.clamp(1, 31), h.min(23), mi.min(59));
     }
     let mut blocks = std::mem::take(&mut r.body);
+    // A file that ends with `\sect` ends its last section there: no empty one follows, and
+    // header or footer groups after that `\sect` (a section without text) are dropped.
+    let mut last_section = r.sec.props(&r.page);
+    let mut headers_footers = std::mem::take(&mut r.section_parts);
+    if let Some(FBlock::Para(p)) = blocks.last_mut()
+        && let Some(s) = p.section.take()
+    {
+        last_section = *s;
+    } else {
+        headers_footers.push(std::mem::take(&mut r.hf_parts));
+    }
     if blocks.is_empty() {
         blocks.push(FBlock::Para(Para::default()));
     }
     let default_font = r.fonts.get(&r.deff).filter(|n| !model::is_mono(n)).cloned();
-    Ok(Parsed { flow: Flow { blocks, meta: r.meta }, page: r.page, default_font, headers_footers: r.hf_parts, title_page: r.title_page })
+    Ok(Parsed { flow: Flow { blocks, meta: r.meta }, page: r.page, last_section, default_font, headers_footers })
 }
 
 /// The column grid of a table from its rows' cell right edges: every distinct edge starts a grid
@@ -1768,19 +1896,38 @@ fn column_grid(rows: &mut [Vec<Cell>], rights: &[Vec<i32>]) -> Vec<f32> {
 
 /// Parse RTF bytes into a document.
 pub fn import(bytes: &[u8]) -> Result<Document, String> {
-    let Parsed { flow, page, default_font, headers_footers, title_page } = parse_full(bytes)?;
-    let mut doc = model::to_doc_in(&flow, page.section());
-    for (which, blocks) in &headers_footers {
-        let blocks = model::part_blocks(&mut doc, blocks);
-        let id = doc.add_part(if which.footer { wordcraft_doc::PartKind::Footer } else { wordcraft_doc::PartKind::Header }, blocks);
-        let set = if which.footer { &mut doc.last_section.footers } else { &mut doc.last_section.headers };
-        match which.pages {
-            HfPages::Default => set.default = Some(id),
-            HfPages::First => set.first = Some(id),
-            HfPages::Even => set.even = Some(id),
+    let Parsed { flow, last_section, default_font, headers_footers, .. } = parse_full(bytes)?;
+    let mut doc = model::to_doc_in(&flow, last_section);
+    // Each section's own headers and footers; those it leaves out stay linked to the previous.
+    let mut sets = Vec::with_capacity(headers_footers.len());
+    for parts in &headers_footers {
+        let (mut headers, mut footers) = (wordcraft_doc::section::HeaderSet::default(), wordcraft_doc::section::HeaderSet::default());
+        for (which, blocks) in parts {
+            let blocks = model::part_blocks(&mut doc, blocks);
+            let id = doc.add_part(if which.footer { wordcraft_doc::PartKind::Footer } else { wordcraft_doc::PartKind::Header }, blocks);
+            let set = if which.footer { &mut footers } else { &mut headers };
+            match which.pages {
+                HfPages::Default => set.default = Some(id),
+                HfPages::First => set.first = Some(id),
+                HfPages::Even => set.even = Some(id),
+            }
+        }
+        sets.push((headers, footers));
+    }
+    let mut sets = sets.into_iter();
+    for b in &mut doc.body {
+        if let wordcraft_doc::Block::Para(p) = &**b
+            && p.section.is_some()
+            && let wordcraft_doc::Block::Para(p) = std::sync::Arc::make_mut(b)
+            && let Some(s) = p.section.as_deref_mut()
+            && let Some((h, f)) = sets.next()
+        {
+            (s.headers, s.footers) = (h, f);
         }
     }
-    doc.last_section.title_page = title_page;
+    if let Some((h, f)) = sets.next() {
+        (doc.last_section.headers, doc.last_section.footers) = (h, f);
+    }
     // RTF's paragraph defaults are single spacing and no space around paragraphs; what a file
     // wants beyond that it states on each paragraph.
     let dp = &mut doc.styles.default_para;
@@ -2079,6 +2226,110 @@ mod tests {
             "{inl:?}"
         );
         assert_eq!(texts(&f).last().map(String::as_str), Some("Normal:Café"));
+    }
+
+    #[test]
+    fn sections_keep_their_page_columns_numbering_and_headers() {
+        use wordcraft_doc::section::{NumFormat, SectionStart};
+        // A4 portrait → landscape restarting at 1 with its own header → continuous two columns
+        // → portrait. A `\sectd` inside a footer group is the footer's, not the body's.
+        let rtf = br"{\rtf1\ansi\paperw11906\paperh16838\margl1134\margr1134
+\sectd\headery708\footery708
+{\header \pard One head\par}
+{\footer \pard Page {\field{\*\fldinst PAGE}{\fldrslt 1}}\sectd\par}
+\pard First\par\sect
+\sectd\lndscpsxn\pgwsxn16838\pghsxn11906\headery708\pgnrestart\pgnstarts1\pgnlcrm\titlepg
+{\header \pard Two head\par}
+{\headerf \pard Two first\par}
+{\footer \pard Two foot\sectd\lndscpsxn\par}
+\pard Second\par
+\trowd\cellx2000\pard\intbl cell\cell\row
+\pard{\sect}
+\sectd\lndscpsxn\pgwsxn16838\pghsxn11906\headery708\sbknone\pgnrestart\cols2\colsx567\linebetcol
+\pard Third\sect
+\sectd\headery708\sbkodd
+\pard Fourth\par}";
+        let d = import(rtf).unwrap();
+        let secs = d.sections();
+        assert_eq!(secs.len(), 4, "{secs:?}");
+        let s: Vec<&wordcraft_doc::SectionProps> = secs.iter().map(|(_, s)| *s).collect();
+        // Page size and orientation; the document's margins apply to every section.
+        for (i, land) in [(0, false), (1, true), (2, true), (3, false)] {
+            assert_eq!(s[i].landscape, land, "section {i}");
+            let (w, h) = if land { (841.9, 595.3) } else { (595.3, 841.9) };
+            assert!((s[i].page_w - w).abs() < 0.1 && (s[i].page_h - h).abs() < 0.1, "section {i}: {} x {}", s[i].page_w, s[i].page_h);
+            assert!((s[i].margin_left - 56.7).abs() < 0.1, "section {i}");
+            assert!((s[i].header - 35.4).abs() < 0.1, "section {i}");
+        }
+        // Break types.
+        assert_eq!(
+            s.iter().map(|s| s.start).collect::<Vec<_>>(),
+            [SectionStart::NextPage, SectionStart::NextPage, SectionStart::Continuous, SectionStart::OddPage]
+        );
+        // Columns.
+        assert_eq!(s[2].columns.count, 2);
+        assert!((s[2].columns.space - 28.35).abs() < 0.01 && s[2].columns.separator);
+        assert_eq!(s[0].columns.count, 1);
+        assert_eq!(s[3].columns.count, 1);
+        // Page numbering: restart at 1 (lower roman) in 2 and 3; section 4 carries on.
+        assert_eq!(s.iter().map(|s| s.page_num_start).collect::<Vec<_>>(), [None, Some(1), Some(1), None]);
+        assert_eq!(s[1].page_num_format, NumFormat::LowerRoman);
+        assert_eq!(s[0].page_num_format, NumFormat::Decimal);
+        assert!(!s[0].title_page && s[1].title_page && !s[3].title_page);
+        // Headers and footers: sections 1 and 2 have their own; 3 and 4 inherit (none set).
+        let text = |id: Option<u32>| {
+            let p = id.and_then(|id| d.parts.get(&id)).unwrap();
+            p.blocks
+                .iter()
+                .filter_map(|b| if let wordcraft_doc::Block::Para(p) = &**b { Some(p.text.clone()) } else { None })
+                .collect::<Vec<_>>()
+                .join("|")
+        };
+        assert_eq!(text(s[0].headers.default), "One head");
+        assert!(text(s[0].footers.default).starts_with("Page"));
+        assert_eq!(text(s[1].headers.default), "Two head");
+        assert_eq!(text(s[1].headers.first), "Two first");
+        assert_eq!(text(s[1].footers.default), "Two foot");
+        assert!(s[0].headers.first.is_none());
+        for i in [2, 3] {
+            assert_eq!((s[i].headers, s[i].footers), Default::default(), "section {i}");
+        }
+        // Each section ends on its own paragraph, after the text it holds.
+        let body_text = |i: usize| match d.body.get(i).map(|b| &**b) {
+            Some(wordcraft_doc::Block::Para(p)) => p.text.clone(),
+            _ => "<table>".into(),
+        };
+        assert_eq!(body_text(secs[0].0 - 1), "First");
+        assert_eq!(body_text(secs[1].0 - 1), "<table>");
+        assert_eq!(body_text(secs[2].0), "Third");
+        assert_eq!(body_text(secs[3].0), "Fourth");
+        // A landscape document default doesn't turn a section that gives its own portrait page.
+        let d = import(br"{\rtf1\ansi\paperw16838\paperh11906\landscape\sectd a\sect\sectd\pgwsxn11906\pghsxn16838 b\par}").unwrap();
+        let secs = d.sections();
+        assert_eq!(secs.len(), 2);
+        assert!(secs[0].1.landscape && secs[0].1.page_w > secs[0].1.page_h, "{:?}", secs[0].1);
+        assert!(!secs[1].1.landscape && secs[1].1.page_w < secs[1].1.page_h, "{:?}", secs[1].1);
+    }
+
+    #[test]
+    fn sections_are_capped_and_a_trailing_sect_adds_no_empty_section() {
+        // A file that ends with `\sect` has no empty section after it.
+        let d = import(br"{\rtf1\ansi\sectd\sbknone a\sect\sectd\lndscpsxn b\sect}").unwrap();
+        let secs = d.sections();
+        assert_eq!(secs.len(), 2, "{secs:?}");
+        assert!(secs[1].1.landscape && !secs[0].1.landscape);
+        // Hostile: a flood of section breaks with headers is capped and never panics.
+        let mut rtf = b"{\\rtf1\\ansi".to_vec();
+        for _ in 0..(MAX_SECTIONS + 50) {
+            rtf.extend_from_slice(b"\\sectd\\cols99999\\colsx-5\\pgnrestart\\pgnstarts-7{\\header h\\par}{\\footerl f\\par}x\\sect");
+        }
+        rtf.push(b'}');
+        let d = import(&rtf).unwrap();
+        let secs = d.sections();
+        assert_eq!(secs.len(), MAX_SECTIONS);
+        // Each section keeps its own header and footer; the ones past the cap replace the last's.
+        assert!(d.parts.len() <= 2 * MAX_SECTIONS, "{}", d.parts.len());
+        assert!(secs.iter().all(|(_, s)| s.columns.count <= 45 && s.columns.space >= 0.0 && s.page_num_start == Some(0)));
     }
 
     #[test]
