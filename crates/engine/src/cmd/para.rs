@@ -536,8 +536,11 @@ fn list(s: &mut Session, v: &Value, default: ListKind) -> CmdResult {
     let num = match prev_num {
         Some(n) => n.num,
         None => match kind {
-            ListKind::Bullet | ListKind::BulletChar(_) => s.doc.numbering.find_kind(kind).unwrap_or_else(|| s.doc.numbering.add_list(kind)),
-            _ => s.doc.numbering.add_list(kind),
+            ListKind::Bullet | ListKind::BulletChar(_) => match s.doc.numbering.find_kind(kind) {
+                Some(n) => n,
+                None => s.doc.numbering.try_add_list(kind)?,
+            },
+            _ => s.doc.numbering.try_add_list(kind)?,
         },
     };
     fmt(s, &|p| {

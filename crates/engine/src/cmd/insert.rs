@@ -345,7 +345,7 @@ fn text_box(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::str(v, "text").unwrap_or("").to_string();
     let w = p::f32(v, "width").unwrap_or(144.0).clamp(18.0, 2000.0);
     let h = p::f32(v, "height").unwrap_or(72.0).clamp(18.0, 2000.0);
-    let id = s.doc.add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))]);
+    let id = s.doc.try_add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))])?;
     let obj = InlineObject::Shape {
         kind: ShapeKind::TextBox,
         w,

@@ -91,6 +91,46 @@ fn parts_and_media() {
 }
 
 #[test]
+fn free_ids_skip_taken_ones_instead_of_overflowing() {
+    assert_eq!(free_id(None, std::iter::empty(), 1), Some(1));
+    assert_eq!(free_id(Some(7), [3, 7].into_iter(), 1), Some(8));
+    assert_eq!(free_id(Some(0), [0].into_iter(), 1), Some(1));
+    // A file used the largest id: the lowest free one, not a wrapped 0 or a taken id.
+    assert_eq!(free_id(Some(u32::MAX), [1, 2, 4, u32::MAX].into_iter(), 1), Some(3));
+    assert_eq!(free_id(Some(u32::MAX), [u32::MAX, 1, 0, 1].into_iter(), 0), Some(2));
+    // Every id from `min` up taken: none, rather than a duplicate.
+    assert_eq!(free_id(Some(u32::MAX), [u32::MAX, u32::MAX - 1, u32::MAX - 2].into_iter(), u32::MAX - 2), None);
+}
+
+#[test]
+fn parts_and_lists_after_the_largest_ids_take_free_ones() {
+    // A file can carry any ids, 0 and u32::MAX included; new ones must not overflow or replace them.
+    let mut d = Document::new();
+    for id in [0, 1, u32::MAX] {
+        let blocks = vec![para_block(Paragraph::with_text(&id.to_string(), CharProps::default()))];
+        d.parts.insert(id, Part { kind: PartKind::Header, blocks, ..Default::default() });
+    }
+    let parts = d.parts.clone();
+    assert_eq!(d.try_add_part(PartKind::Comment, Vec::new()), Ok(2));
+    assert_eq!(d.add_part(PartKind::Footer, Vec::new()), 3);
+    assert!(parts.iter().all(|(k, p)| d.parts.get(k) == Some(p)));
+
+    let n = &mut d.numbering;
+    n.add_list(ListKind::Bullet);
+    n.add_list(ListKind::Bullet);
+    n.abstracts[1].id = u32::MAX;
+    n.nums[1].id = u32::MAX;
+    n.nums[1].abstract_id = u32::MAX;
+    let lists = n.clone();
+    let num = n.try_add_list(ListKind::Numbered).unwrap();
+    assert_eq!((num, n.num(num).map(|x| x.abstract_id)), (2, Some(1)));
+    assert_eq!(n.abstract_of(num).map(|a| &a.levels), Some(&numbering::levels_for(ListKind::Numbered)));
+    assert_eq!(n.restart(num), Some(3));
+    assert_eq!(n.num(3).map(|x| x.abstract_id), Some(1));
+    assert_eq!((&n.abstracts[..2], &n.nums[..2]), (&lists.abstracts[..], &lists.nums[..]));
+}
+
+#[test]
 fn clone_is_shallow() {
     let d = Document::from_text("a\nb");
     let mut e = d.clone();

@@ -606,7 +606,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let fmt = wordcraft_doc::section::NumFormat::from_ooxml(p::str(v, "format").unwrap_or("decimal"));
             let text = p::str(v, "text").unwrap_or("%1.").to_string();
             let start = p::u64(v, "start").unwrap_or(1).min(100_000) as u32;
-            let id = s.doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+            let id = s.doc.numbering.try_add_list(wordcraft_doc::ListKind::Numbered)?;
             if let Some(a) = s.doc.numbering.abstract_of(id).map(|a| a.id)
                 && let Some(abs) = s.doc.numbering.abstracts.iter_mut().find(|x| x.id == a)
                 && let Some(l) = abs.levels.first_mut()

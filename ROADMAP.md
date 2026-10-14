@@ -244,6 +244,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | An empty paragraph that only carries a continuous section break takes no room, as in Word (10 cases measured in Word for Windows): text after it follows right on and balanced columns don't count it |
 | 2026-10-12 | Floating objects positioned relative to their paragraph start above its space before, as in Word (10 cases measured in Word for Windows) |
 | 2026-10-12 | Unequal columns: text after a column break is broken for the column it lands in (NIH's SARP form had a paragraph a word or two wide) |
+| 2026-10-13 | New comments, notes, text boxes and lists in a document whose file used the largest ids (#1338): they take a free id instead of overflowing (a crash) or reusing one already taken (a new list could pick up another's definition); `Document::try_add_part` and `Numbering::try_add_list` report ids running out instead |
 | 2026-10-12 | Space before at the top of a page like Word after page breaks (32 cases measured): a paragraph ending with a page break keeps its mark with it, the next paragraph gets no space before; page break before drops it in Word 2013 mode |
 | 2026-10-12 | Automatic paragraph spacing drops between list items, as in Word (16 cases measured in Word for Windows): bulleted items that ask for automatic space before and after now touch, as in NIH's monitoring plan |
 | 2026-10-12 | Rendering like Word for Windows, found by comparing real .gov documents page by page: text is kerned only where Kerning for fonts asks for it (line breaks now match Word's), and automatic paragraph spacing (`w:beforeAutospacing`/`w:afterAutospacing`, common in pasted web text) is 14 pt, dropped at the document's and cells' edges |
@@ -478,6 +479,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | trivial | Progress log: selection bar in the left margin (#856) |
 | 2026-10-11 | trivial | Progress log: content controls (#381) |
 | 2026-10-11 | trivial | Progress log: Insert › Chart (#409); catalog 408/439 (92.9%) |
+| 2026-10-13 | trivial | Progress log: free part, list and comment ids after a file's largest ones (#1338) |
 | 2026-10-11 | trivial | Progress log: Line Numbers, Hyphenation, Language, Envelopes and Labels dialogs (#407) |
 | 2026-10-11 | trivial | Progress log: Alt Text pane, decorative objects, deeper accessibility checker (#386) |
 | 2026-10-11 | trivial | Progress log: Draw lasso, Add Pen, Ink to Shape, Ink Replay (#395); catalog 406/434 |

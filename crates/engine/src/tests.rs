@@ -2467,6 +2467,41 @@ fn text_box_insert_puts_the_caret_inside() {
 }
 
 #[test]
+fn commands_after_the_largest_ids_take_free_ones() {
+    // A file can carry any ids, 0 and u32::MAX included: comments, notes, boxes and lists the
+    // commands add take free ids, without overflowing or replacing what has the id they wrap to.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Some words here"}));
+    for id in [0, u32::MAX] {
+        let blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::new())];
+        s.doc.parts.insert(id, wordcraft_doc::Part { kind: wordcraft_doc::PartKind::Comment, blocks, ..Default::default() });
+        s.doc.comments.insert(id, wordcraft_doc::Comment { part: id, ..Default::default() });
+    }
+    s.doc.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+    s.doc.numbering.abstracts[0].id = u32::MAX;
+    s.doc.numbering.nums[0].id = u32::MAX;
+    s.doc.numbering.nums[0].abstract_id = u32::MAX;
+    let before = s.doc.clone();
+    assert_eq!(run(&mut s, "review.newComment", json!({"text": "new"})), json!({"id": 1, "story": 1}));
+    assert_eq!(run(&mut s, "review.reply", json!({"id": 0, "text": "re"})), json!({"id": 2}));
+    run(&mut s, "para.numbering", json!({}));
+    assert_eq!(run(&mut s, "list.define", json!({"levels": []}))["num"], 2);
+    assert_eq!(run(&mut s, "references.footnote", json!({"text": "note"}))["id"], 3);
+    for id in ["insert.wordArt", "insert.textBox"] {
+        run(&mut s, "caret.set", json!({"pos": Pos::body(0, 0)}));
+        run(&mut s, id, json!({"text": "Box"}));
+    }
+    assert_eq!((s.doc.parts.len(), s.doc.comments.len()), (before.parts.len() + 5, 4));
+    assert!(before.parts.iter().all(|(k, p)| s.doc.parts.get(k) == Some(p)));
+    assert!(before.comments.iter().all(|(k, c)| s.doc.comments.get(k) == Some(c)));
+    let n = &s.doc.numbering;
+    assert!(before.numbering.nums.iter().all(|x| n.nums.contains(x)) && before.numbering.abstracts.iter().all(|a| n.abstracts.contains(a)));
+    let unique = |ids: Vec<u32>| ids.iter().collect::<std::collections::HashSet<_>>().len() == ids.len();
+    assert!(unique(n.nums.iter().map(|x| x.id).collect()) && unique(n.abstracts.iter().map(|a| a.id).collect()), "{n:?}");
+    assert_eq!(n.nums.len(), 3);
+}
+
+#[test]
 fn text_box_in_a_table_cell_shows_its_text() {
     let mut s = s();
     run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));

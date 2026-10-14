@@ -127,8 +127,8 @@ fn new_comment(s: &mut Session, v: &Value) -> CmdResult {
     } else {
         (a, b)
     };
-    let part = s.doc.add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(&text, Default::default()))]);
-    let id = s.doc.comments.keys().next_back().map(|k| k + 1).unwrap_or(0);
+    let part = s.doc.try_add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(&text, Default::default()))])?;
+    let id = comment_id(s)?;
     let initials = s.user_initials();
     s.doc
         .comments
@@ -146,14 +146,20 @@ fn reply(s: &mut Session, v: &Value) -> CmdResult {
         return Err(CmdError::Params("no such comment".into()));
     }
     let text = p::req_str(v, "text")?;
-    let part = s.doc.add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(text, Default::default()))]);
-    let id = s.doc.comments.keys().next_back().map(|k| k + 1).unwrap_or(0);
+    let part = s.doc.try_add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(text, Default::default()))])?;
+    let id = comment_id(s)?;
     let initials = s.user_initials();
     s.doc.comments.insert(
         id,
         Comment { author: s.author.clone(), initials, date: now_iso(), parent: Some(parent), resolved: false, part, ..Default::default() },
     );
     Ok(json!({"id": id}))
+}
+
+/// An id no comment has: one past the largest, or the lowest free one once a file used `u32::MAX`.
+fn comment_id(s: &Session) -> Result<u32, CmdError> {
+    let ids = &s.doc.comments;
+    wordcraft_doc::free_id(ids.keys().next_back().copied(), ids.keys().copied(), 0).ok_or_else(|| CmdError::Failed("no free comment id".into()))
 }
 
 /// Replace a comment's (or reply's) text; each line becomes a paragraph.

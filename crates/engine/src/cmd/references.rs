@@ -547,7 +547,7 @@ fn note(s: &mut Session, v: &Value, kind: NoteKind) -> CmdResult {
         NoteKind::Endnote => (PartKind::Endnote, "EndnoteText", "EndnoteReference"),
     };
     let mut para = Paragraph::new().styled(style);
-    let id = s.doc.add_part(pk, Vec::new());
+    let id = s.doc.try_add_part(pk, Vec::new())?;
     para.insert_object(
         0,
         InlineObject::NoteRef { kind, id, custom: custom.clone() },

@@ -584,7 +584,7 @@ impl Document {
         let body = crate::TextBody { next: None, ..src.body };
         *budget -= 1;
         self.adopt_text_boxes(&mut blocks, parts, depth + 1, budget);
-        let id = self.add_part(PartKind::TextBox, blocks.into_iter().map(Arc::new).collect());
+        let id = self.try_add_part(PartKind::TextBox, blocks.into_iter().map(Arc::new).collect()).ok()?;
         if let Some(p) = self.parts.get_mut(&id) {
             p.body = body;
         }
