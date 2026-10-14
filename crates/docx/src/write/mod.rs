@@ -361,6 +361,7 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
             &format!("{CT_WML}commentsExtended+xml"),
             PartRels::default(),
         );
+        write_comment_ids(doc, &comment_paras, &mut entries, &mut overrides, &mut rels);
     }
 
     rels.add(rt::STYLES, "styles.xml", false);
@@ -415,6 +416,8 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
 
     wr.embeds.custom_xml_rels("D", &mut rels);
     wr.embeds.custom_xml_rels("P", &mut root);
+    wr.embeds.unmodelled_rels("D", &mut rels);
+    wr.embeds.unmodelled_rels("P", &mut root);
     // Parts of embedded objects and custom XML stores kept from the file.
     for (name, bytes, ct, prels) in std::mem::take(&mut wr.embeds.parts) {
         push_part(&mut entries, &mut overrides, &name, bytes, &ct, prels);
@@ -694,27 +697,33 @@ fn styles_xml(doc: &Document) -> Vec<u8> {
         w.close("w:pPrDefault");
     }
     w.close("w:docDefaults");
+    if let Some(latent) = s.latent_styles.as_deref() {
+        w.raw(latent);
+    }
+    // Kinds whose default style the file named (`w:default`); the English ids stand in otherwise.
+    let flagged: Vec<StyleKind> = s.styles.iter().filter(|st| st.default).map(|st| st.kind).collect();
     for st in &s.styles {
-        style_xml(&mut w, st);
+        style_xml(&mut w, st, &flagged);
     }
     w.close("w:styles");
     w.into_bytes()
 }
 
-fn style_xml(w: &mut W, st: &Style) {
+fn style_xml(w: &mut W, st: &Style, flagged: &[StyleKind]) {
     let ty = match st.kind {
         StyleKind::Paragraph => "paragraph",
         StyleKind::Character => "character",
         StyleKind::Table => "table",
         StyleKind::Numbering => "numbering",
     };
-    let is_default = matches!(
+    let english_default = matches!(
         (st.kind, st.id.as_str()),
         (StyleKind::Paragraph, "Normal")
             | (StyleKind::Character, "DefaultParagraphFont")
             | (StyleKind::Table, "TableNormal")
             | (StyleKind::Numbering, "NoList")
     );
+    let is_default = st.default || (english_default && !flagged.contains(&st.kind));
     let mut a = vec![("w:type", ty), ("w:styleId", st.id.as_str())];
     if is_default {
         a.push(("w:default", "1"));
@@ -822,9 +831,19 @@ fn numbering_xml(doc: &Document) -> Vec<u8> {
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:numbering", &ns_refs);
+    let mut nsids: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for a in &doc.numbering.abstracts {
         w.open("w:abstractNum", &[("w:abstractNumId", &a.id.to_string())]);
-        w.val("w:multiLevelType", if a.levels.len() > 1 { "multilevel" } else { "singleLevel" });
+        // CT_AbstractNum order: nsid, multiLevelType, tmpl, name… A copied definition repeats
+        // its source's nsid; only the first keeps it, so Word doesn't take them for one list.
+        if let Some(n) = a.nsid.as_deref().filter(|n| nsids.insert(n)) {
+            w.val("w:nsid", n);
+        }
+        let derived = if a.levels.len() > 1 { "multilevel" } else { "singleLevel" };
+        w.val("w:multiLevelType", a.multi_level_type.as_deref().unwrap_or(derived));
+        if let Some(t) = &a.tmpl {
+            w.val("w:tmpl", t);
+        }
         if let Some(n) = &a.name {
             w.val("w:name", n);
         }
@@ -1022,6 +1041,76 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     w.into_bytes()
 }
 
+/// Is `d` a usable `w16cid:durableId`: 1–8 hex digits, below 0x7FFFFFFF, not 0?
+pub(crate) fn durable_id_ok(d: &str) -> bool {
+    d.len() <= 8 && u32::from_str_radix(d, 16).is_ok_and(|v| v != 0 && v < 0x7FFF_FFFF)
+}
+
+/// `commentsIds.xml` (paragraph id → durable id) and `commentsExtensible.xml` (durable id → UTC
+/// date) for the comments that got paragraph ids. Durable ids read from the file are kept (unique
+/// ones); comments without one get the next free id. Word uses them to keep tracking a comment
+/// across saves and for its UTC time.
+fn write_comment_ids(
+    doc: &Document,
+    comment_paras: &[(u32, String)],
+    entries: &mut Vec<(String, Vec<u8>)>,
+    overrides: &mut Vec<(String, String)>,
+    rels: &mut PartRels,
+) {
+    if comment_paras.is_empty() {
+        return;
+    }
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut next = 0x1000_0000u32;
+    let mut rows: Vec<(String, String, Option<String>)> = Vec::new();
+    for (cid, pid) in comment_paras {
+        let Some(c) = doc.comments.get(cid) else { continue };
+        let kept = c.durable_id.as_deref().filter(|d| durable_id_ok(d)).map(|d| format!("{:08X}", u32::from_str_radix(d, 16).unwrap_or(0)));
+        let durable = match kept.filter(|d| !used.contains(d)) {
+            Some(d) => d,
+            None => loop {
+                next = next.saturating_add(1);
+                let d = format!("{next:08X}");
+                if !used.contains(&d) && !doc.comments.values().any(|o| o.durable_id.as_deref() == Some(d.as_str())) {
+                    break d;
+                }
+            },
+        };
+        used.insert(durable.clone());
+        // A local `w:date` with a zone designator is UTC already; otherwise only the file's own.
+        // Remove date and time on save (#1062): no comment date here either.
+        let utc = if doc.settings.remove_date_time { None } else { c.date_utc.clone().or_else(|| c.date.ends_with('Z').then(|| c.date.clone())) };
+        rows.push((pid.clone(), durable, utc));
+    }
+    let mc = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+    let mut w = W::new();
+    w.open(
+        "w16cid:commentsIds",
+        &[("xmlns:mc", mc), ("xmlns:w16cid", "http://schemas.microsoft.com/office/word/2016/wordml/cid"), ("mc:Ignorable", "w16cid")],
+    );
+    for (pid, durable, _) in &rows {
+        w.empty("w16cid:commentId", &[("w16cid:paraId", pid), ("w16cid:durableId", durable)]);
+    }
+    w.close("w16cid:commentsIds");
+    rels.add(rt::COMMENTS_IDS, "commentsIds.xml", false);
+    push_part(entries, overrides, "word/commentsIds.xml", w.into_bytes(), &format!("{CT_WML}commentsIds+xml"), PartRels::default());
+
+    let mut w = W::new();
+    w.open(
+        "w16cex:commentsExtensible",
+        &[("xmlns:mc", mc), ("xmlns:w16cex", "http://schemas.microsoft.com/office/word/2018/wordml/cex"), ("mc:Ignorable", "w16cex")],
+    );
+    for (_, durable, utc) in &rows {
+        match utc {
+            Some(d) => w.empty("w16cex:commentExtensible", &[("w16cex:durableId", durable), ("w16cex:dateUtc", d)]),
+            None => w.empty("w16cex:commentExtensible", &[("w16cex:durableId", durable)]),
+        }
+    }
+    w.close("w16cex:commentsExtensible");
+    rels.add(rt::COMMENTS_EXTENSIBLE, "commentsExtensible.xml", false);
+    push_part(entries, overrides, "word/commentsExtensible.xml", w.into_bytes(), &format!("{CT_WML}commentsExtensible+xml"), PartRels::default());
+}
+
 fn theme_xml(doc: &Document) -> Vec<u8> {
     let s = &doc.settings;
     let names = ["dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"];
@@ -1149,6 +1238,19 @@ fn app_xml(doc: &Document) -> Vec<u8> {
     w.leaf("Words", &[], &doc.word_count().to_string());
     w.leaf("Paragraphs", &[], &doc.paragraph_count().to_string());
     w.leaf("DocSecurity", &[], "0");
+    // Kept properties, except the personal ones when the file asks Word to remove personal
+    // information on save.
+    let private = doc.settings.remove_personal_info;
+    if let Some(kept) = doc.passthrough.get(crate::package::APP_KEPT) {
+        for line in String::from_utf8_lossy(kept).lines().take(crate::package::APP_KEPT_PROPS.len()) {
+            let Some((name, value)) = line.split_once('\t') else { continue };
+            let Some(name) = crate::package::APP_KEPT_PROPS.iter().find(|n| **n == name) else { continue };
+            if private && matches!(*name, "Company" | "Manager") {
+                continue;
+            }
+            w.leaf(name, &[], value);
+        }
+    }
     w.close("Properties");
     w.into_bytes()
 }

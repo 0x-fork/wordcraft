@@ -464,7 +464,7 @@ impl Writer<'_> {
                     w.empty("w:commentRangeEnd", &[("w:id", &s)]);
                     w.open("w:r", &[]);
                     w.open("w:rPr", &[]);
-                    w.val("w:rStyle", "CommentReference");
+                    w.val("w:rStyle", comment_reference_style(self.doc));
                     w.close("w:rPr");
                     w.empty("w:commentReference", &[("w:id", &s)]);
                     w.close("w:r");
@@ -1627,4 +1627,15 @@ pub(super) fn note_pr_inner(w: &mut W, pr: &NoteProps) {
     if let Some(r) = pr.num_restart {
         w.val("w:numRestart", r.ooxml());
     }
+}
+
+/// The character style for comment reference marks: the document's "annotation reference" style
+/// (Word's built-in name; localized documents give it another id, e.g. Polish
+/// `Odwoaniedokomentarza`), else `CommentReference`.
+fn comment_reference_style(doc: &wordcraft_doc::Document) -> &str {
+    doc.styles
+        .styles
+        .iter()
+        .find(|s| s.kind == wordcraft_doc::styles::StyleKind::Character && s.name.eq_ignore_ascii_case("annotation reference"))
+        .map_or("CommentReference", |s| s.id.as_str())
 }

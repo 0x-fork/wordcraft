@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-14 · **Change:** trivial (All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: password-protected DOCX row corrected, #55 #281; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-14 · **Change:** trivial (DOCX save keeps unmodelled parts and settings, #1034; previously trivial: All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: password-protected DOCX row corrected, #55 #281; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -53,7 +53,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Tables incl. floating (`w:tblpPr`), table styles and conditional formatting | ✅ | ✅ | Custom table styles round-trip (#256); right-to-left tables (`w:bidiVisual`) and sections (`w:bidi`) round-trip (#362) |
 | Headers/footers (first, even/odd), page borders, line numbers, gutter, mirror margins | ✅ | ✅ | |
 | Hyphenation settings (`w:autoHyphenation`, `w:hyphenationZone`, `w:doNotHyphenateCaps`, `w:consecutiveHyphenLimit`) | ✅ | ✅ | Zone, capitals and limit kept and honoured by layout (#407) |
-| Footnotes, endnotes, comments | ✅ | ✅ | The document's own note separators and continuation notice (`w:type` `separator`, `continuationSeparator`, `continuationNotice`) round-trip as ids -1, 0 and 1 (#352); note options (`w:pos`, `w:numFmt`, `w:numStart`, `w:numRestart`) round-trip in the settings and in each `w:sectPr` (#385); `commentsExtended` written; `commentsIds`, modern threaded comments (`w16cex`) partly |
+| Footnotes, endnotes, comments | ✅ | ✅ | The document's own note separators and continuation notice (`w:type` `separator`, `continuationSeparator`, `continuationNotice`) round-trip as ids -1, 0 and 1 (#352); note options (`w:pos`, `w:numFmt`, `w:numStart`, `w:numRestart`) round-trip in the settings and in each `w:sectPr` (#385); `commentsExtended` written; `commentsIds` (durable ids) and `commentsExtensible` (UTC dates) read and regenerated consistently with the written paragraph ids; `people.xml` carried verbatim |
 | Tracked insertions and deletions (`w:ins`/`w:del`), paragraph-mark revisions | ✅ | ✅ | #125, #244 |
 | Formatting revisions (`w:rPrChange`, `w:pPrChange`, `w:sectPrChange`, `w:tblPrChange`, `w:trPrChange`, `w:tcPrChange`, `w:numberingChange`) | ✅ | ✅ | #41: kept on open and save, schema order (change element last); changes inside `styles.xml` are dropped. RTF/ODT ignore them |
 | Move tracking (`w:moveFrom`/`w:moveTo`, `w:moveFromRangeStart/End`, `w:moveToRangeStart/End`), moved paragraph marks | ✅ | ✅ | #400: both ends linked by the range name; ranges rewritten around each moved stretch (ids renumbered); a move missing an end or a range end opens as a plain deletion/insertion. ODT/PDF export the result (moved-away text hidden like deletions); RTF writes a move as a plain tracked deletion and insertion |
@@ -73,7 +73,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Native Word ink (`w14:contentPart`, InkML) | 🟡 | 🟡 | Drawing-level ink kept opaque with its InkML part, relationship and content type; direct run-level `w:contentPart` and run-level `mc:AlternateContent` keep the native branch and VML picture fallback. Direct content parts remain direct through repeated save/reopen cycles, without a native rendering. Drawing-level ink shows the preview or a missing-picture box. No native stroke rendering, eraser, conversion or replay; ink nested in groups/canvases remains unsupported |
 | 3D models | ❌ | ❌ | Dropped on read, not preserved on save |
 | Equations (OMML `m:oMath`) | ✅ | ✅ | #191; manual breaks (`m:brk`) and the settings' `m:mathPr` wrapping options (#326) |
-| Themes, font table, settings, compatibility mode | ✅ | ✅ | Embedded fonts (`w:embedRegular`) not used for rendering, but the font table, its relationships and the embedded font parts are written back unchanged (#770); attached template (`w:attachedTemplate` and its external relationship) and `w:linkStyles` round-trip (#377). `w:removePersonalInformation` and `w:removeDateAndTime` round-trip and are honoured on save (#1062): comment and revision authors written as "Author" (initials "A"), no `dc:creator`/`cp:lastModifiedBy`, no annotation dates; the open document keeps its values (`file.privacyOptions` sets them, `file.privacy` reads them; File › Options › Save › Privacy for this document). The template path comes from the file, so opening never reads it: styles update from it only on an explicit Update Styles. Settings the model doesn't hold (other `w:compatSetting`s, rsids, document variables, proofing state, colour scheme mapping…) survive a save: the writer merges into the file's own `settings.xml` ([below](#settings-preservation)) |
+| Themes, font table, settings, compatibility mode | ✅ | ✅ | Embedded fonts (`w:embedRegular`) not used for rendering, but the font table, its relationships and the embedded font parts are written back unchanged (#770); attached template (`w:attachedTemplate` and its external relationship) and `w:linkStyles` round-trip (#377). `w:removePersonalInformation` and `w:removeDateAndTime` round-trip and are honoured on save (#1062): comment and revision authors written as "Author" (initials "A"), no `dc:creator`/`cp:lastModifiedBy`, no annotation dates; the open document keeps its values (`file.privacyOptions` sets them, `file.privacy` reads them; File › Options › Save › Privacy for this document). The template path comes from the file, so opening never reads it: styles update from it only on an explicit Update Styles. Settings the model doesn't hold (other `w:compatSetting`s, rsids, document variables, proofing state, colour scheme mapping…) survive a save: the writer merges into the file's own `settings.xml` ([below](#settings-preservation)); `w:latentStyles`, `w:default` on localized default styles and lists' `w:nsid`/`w:tmpl`/`w:multiLevelType` round-trip |
 | Custom XML parts, document properties, bibliography sources | 🟡 | 🟡 | Custom XML stores reached from the package/main document preserve opaque data, properties and relationships; binding evaluation remains absent. Custom properties round-trip; bibliography model I/O remains separate (#532 open) |
 | Section text direction (`w:textDirection` in `w:sectPr`, §17.6.20) | ✅ | ✅ | `tbRl`, `btLr` (and `tbRlV`/`tbLrV`, read as `tbRl`); `lrTbV` and unknown values read as horizontal (#491) |
 | Ruby (`w:ruby`: `w:rubyPr`, `w:rt`, `w:rubyBase`) | ✅ | ✅ | #288; base and ruby text with their run formatting, alignment, sizes, raise, language |
@@ -172,6 +172,21 @@ in `w:compat` only `compatibilityMode` is replaced. Kept children that point at 
 (a mail-merge data source) are dropped. Files WordCraft wrote itself keep nothing extra. Tests:
 `crates/docx/tests/settings_merge.rs`.
 
+## Unmodelled-part preservation
+
+Parts the package or the main document relate to that WordCraft neither models nor writes (web
+settings, styles-with-effects, add-in task panes, people, the thumbnail, a glossary, future parts)
+are carried verbatim with their relationships and content types. Relationship types the writer
+produces, and any the document's markup refers to by id, are not (`HANDLED_RELS` in
+`crates/docx/src/read/embed.rs`), so nothing is written twice. `app.xml` keeps Template, Manager,
+Company, HyperlinkBase and the link/sharing flags; counts (pages, lines, characters, editing
+time) and the producing application's version are not carried, and Manager and Company are
+dropped when the file asks to remove personal information on save. Not yet: unknown elements and
+attributes inside stories and style or list definitions; a regenerated theme. Tests:
+`crates/docx/tests/passthrough.rs`.
+
+
+
 ## Revision history
 
 | Date | Change | Summary |
@@ -182,6 +197,8 @@ in `w:compat` only `compatibilityMode` is replaced. Kept children that point at 
 | 2026-10-13 | trivial | Remove personal information / Remove date and time settings kept and honoured on save: anonymous annotation authors, no creator or last-modified-by, no annotation dates (#1062) |
 | 2026-10-12 | trivial | Direct run-level `w:contentPart` InkML keeps its relationship, content type and bytes through DOCX edits and repeated saves; nested group/canvas ink and native rendering remain missing |
 | 2026-10-13 | trivial | HTML export writes equations as MathML instead of linear text, and HTML import (open and paste) reads `<math>` back into equations; a copy holding an equation puts that HTML on the system clipboard: MathML in HTML on the clipboard (Word/LibreOffice paste not yet verified; OMML is #1297) (#816) |
+| 2026-10-14 | minor | DOCX save merges `settings.xml` into the file's original: unmodelled settings (compatibility options, rsids, document variables, proofing state…) survive (#1034) |
+| 2026-10-14 | minor | DOCX save carries unmodelled package parts verbatim; comment durable ids and UTC dates, localized `w:default`, latent styles, list `nsid`/`tmpl`/`multiLevelType` and `app.xml` template/company round-trip; comment reference marks use the document's own style id (#1034) |
 | 2026-10-14 | trivial | PDF export: All Caps and Small Caps text extracts in capitals, as displayed, and no longer turns later capitals in uncapitalised text lowercase (#1473) |
 | 2026-10-14 | trivial | ODT tracked changes: `text:tracked-changes` insertions and deletions open as revisions (author, date, inserted and deleted paragraph marks, insertions nested in deletions) and are written back, a missing date as the save time; `text:track-changes` maps to Track Changes on/off. Pictures, other objects and tables inside a tracked deletion are dropped |
 | 2026-10-14 | trivial | RTF reads and writes tracked insertions and deletions with their authors and dates (gap 19); deleted text no longer opens as normal text |
@@ -191,7 +208,6 @@ in `w:compat` only `compatibilityMode` is replaced. Kept children that point at 
 | 2026-10-13 | trivial | PDF export draws horizontal and vertical lines inside groups (#1474) |
 | 2026-10-14 | trivial | RTF import keeps sections: page size and orientation, margins, columns, break type, page numbering and each section's headers and footers (#1378) |
 | 2026-10-14 | trivial | `.doc` tables: cell shading read from every SHD record (`sprmTDefTableShd`/`ShdRaw` and their 2nd/3rd ranges for cells 22-62; Word 97 `Shd80` clear fills now show their background colour; exact colours win over the palette fallback), the row-end mark no longer becomes an extra empty column, and a table no longer inherits the previous table's grid, borders, alignment or indent (#1380). Horizontally merged rows (a row of fewer, wider cells) come with #1123 |
-| 2026-10-14 | minor | DOCX save merges `settings.xml` into the file's original: unmodelled settings (compatibility options, rsids, document variables, proofing state…) survive (#1034) |
 | 2026-10-12 | trivial | Password-protected DOCX row corrected: agile-encrypted `.docx` opens and saves since #281 (was listed as unsupported); legacy encrypted `.doc` (RC4/XOR) split out, still refused |
 | 2026-10-12 | trivial | Paste keeps the formatting of HTML and RTF on the system clipboard; Paste Special lists them and pictures (#687, #833) |
 | 2026-10-12 | trivial | ODT page size, orientation and margins read back from `styles.xml` on open, so they survive a save and reopen (#810) |

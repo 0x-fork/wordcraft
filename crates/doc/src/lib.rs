@@ -322,6 +322,13 @@ pub struct Comment {
     pub resolved: bool,
     /// `Document::parts` id of the comment text.
     pub part: u32,
+    /// Word's durable id for the comment (`w16cid:durableId`, hex), kept across saves so Word
+    /// keeps tracking the same comment. `None` for comments made here: the writer assigns one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub durable_id: Option<String>,
+    /// The comment's UTC timestamp from the file (`w16cex:dateUtc`); `date` is local time there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_utc: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]

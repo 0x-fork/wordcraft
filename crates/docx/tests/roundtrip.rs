@@ -230,6 +230,7 @@ fn styles_and_lists_round_trip() {
         hidden: false,
         builtin: false,
         locked: true,
+        default: false,
         table: None,
     });
     d.styles.upsert(Style {
@@ -470,11 +471,27 @@ fn comments_round_trip() {
     let c1 = d.add_part(PartKind::Comment, vec![para_block(Paragraph::with_text("Done.", CharProps::default()))]);
     d.comments.insert(
         0,
-        Comment { author: "Ann".into(), initials: "A".into(), date: "2026-01-02T03:04:05Z".into(), parent: None, resolved: true, part: c0 },
+        Comment {
+            author: "Ann".into(),
+            initials: "A".into(),
+            date: "2026-01-02T03:04:05Z".into(),
+            parent: None,
+            resolved: true,
+            part: c0,
+            ..Default::default()
+        },
     );
     d.comments.insert(
         1,
-        Comment { author: "Ben".into(), initials: "B".into(), date: "2026-01-03T00:00:00Z".into(), parent: Some(0), resolved: false, part: c1 },
+        Comment {
+            author: "Ben".into(),
+            initials: "B".into(),
+            date: "2026-01-03T00:00:00Z".into(),
+            parent: Some(0),
+            resolved: false,
+            part: c1,
+            ..Default::default()
+        },
     );
     let mut p = Paragraph::with_text("commented text", CharProps::default());
     p.insert_object(0, InlineObject::CommentStart { id: 0 }, &CharProps::default()).unwrap();

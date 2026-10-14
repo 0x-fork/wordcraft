@@ -539,7 +539,7 @@ impl<'a> Builder<'a> {
             .collect();
         let numbering = &mut self.doc.numbering;
         let aid = numbering.abstracts.iter().map(|a| a.id + 1).max().unwrap_or(0);
-        numbering.abstracts.push(AbstractNum { id: aid, name: None, levels });
+        numbering.abstracts.push(AbstractNum { id: aid, name: None, levels, ..Default::default() });
         let nid = numbering.nums.iter().map(|n| n.id + 1).max().unwrap_or(1).max(1);
         numbering.nums.push(Num { id: nid, abstract_id: aid, ..Default::default() });
         nid
