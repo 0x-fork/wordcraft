@@ -3102,6 +3102,24 @@ fn inline_picture_wider_than_the_text_keeps_its_size() {
     assert!((r.w - 1000.0).abs() < 0.01 && (r.h - 100.0).abs() < 0.01, "{r:?}");
 }
 
+#[test]
+fn a_picture_too_wide_after_a_content_control_start_stays_on_the_first_line() {
+    // The picture opening a picture content control (a logo in a text box a little too
+    // narrow for it): the control's start marker before it takes no room, so the picture is
+    // still the line's first item and stays there instead of leaving an empty line above it.
+    let mut d = Document::from_text("");
+    if let Some(wordcraft_doc::Block::Para(p)) = d.body.get_mut(0).map(std::sync::Arc::make_mut) {
+        p.insert_object(0, picture(500.0, 100.0, Default::default()), &Default::default()).unwrap();
+        let start = InlineObject::ControlStart { control: Box::default() };
+        p.insert_object(0, start, &Default::default()).unwrap();
+    }
+    let l = lay(&d);
+    let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!() };
+    assert_eq!(para.lines.len(), 1, "{:?}", para.lines);
+    let line = &para.lines[0];
+    assert!((line.baseline - line.top - 100.0).abs() < 0.01, "the picture is on the first line: {line:?}");
+}
+
 /// The paragraph at `path` on page 0: its first line's x, its y and its line count.
 fn para_at(l: &DocLayout, path: &[u32]) -> Vec<(f32, f32, usize)> {
     l.pages[0]
