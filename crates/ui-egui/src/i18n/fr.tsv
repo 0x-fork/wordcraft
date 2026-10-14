@@ -1344,6 +1344,7 @@
 	Demote	Abaisser le niveau
 	Go Back	Revenir en arrière
 	Toggle Unicode Character	Basculer le caractère Unicode
+	Type Character Code	Saisir un code de caractère
 	Toggle Field Codes	Basculer les codes de champ
 	Edit Field Code	Modifier le code de champ
 	Unlink Fields	Dissocier les champs

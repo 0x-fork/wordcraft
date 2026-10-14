@@ -11,6 +11,11 @@ pub fn set_system_locale(tag: &str) {
     let _ = SYSTEM_LOCALE.set(tag.to_string());
 }
 
+/// The system locale [`set_system_locale`] recorded, if the shell set one.
+pub(crate) fn system_locale() -> Option<&'static str> {
+    SYSTEM_LOCALE.get().map(String::as_str)
+}
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wordcraft_doc::edit::Fragment;

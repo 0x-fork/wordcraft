@@ -133,6 +133,11 @@ pub struct CanvasState {
     /// The last key ran an Alt shortcut: the text its key sends (it may arrive a frame later)
     /// isn't typed. The next key press clears it.
     pub(crate) swallow_text: bool,
+    /// Alt+numpad entry in progress: the digits typed while Alt is held (#961).
+    pub(crate) alt_code: String,
+    /// The character an Alt code just typed: if the platform also sends its own composed
+    /// character as text on the Alt release (Windows does), it isn't typed twice.
+    pub(crate) alt_code_echo: Option<crate::keys::AltCodeEcho>,
     /// Create Link is waiting for a click on the text box to link to: the linking box's object.
     pub(crate) link_from: Option<wordcraft_doc::Pos>,
     /// What screen readers were last told about the document (#488).
@@ -193,6 +198,8 @@ impl Default for CanvasState {
             mini_anchor: None,
             pasted: false,
             swallow_text: false,
+            alt_code: String::new(),
+            alt_code_echo: None,
             wheel: Default::default(),
             auto_scroll: Default::default(),
             scroll_offset: egui::Vec2::ZERO,
@@ -728,6 +735,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // While "Save changes?" is up, keys answer it rather than edit the document behind it.
     if app.canvas.focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
         crate::keys::canvas_events(app, ui.ctx());
+    } else {
+        // Alt+numpad entry doesn't survive the canvas losing the keyboard.
+        app.canvas.alt_code.clear();
     }
     crate::ink::replay_tick(app, ui.ctx());
     let layout = app.session.layout();

@@ -1421,6 +1421,7 @@
 	Demote	降级
 	Go Back	返回上次编辑位置
 	Toggle Unicode Character	切换 Unicode 字符
+	Type Character Code	输入字符代码
 	Toggle Field Codes	切换域代码
 	Edit Field Code	编辑域代码
 	Unlink Fields	取消域链接

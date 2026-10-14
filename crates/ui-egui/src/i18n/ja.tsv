@@ -1409,6 +1409,7 @@
 	Demote	レベル下げ
 	Go Back	前の編集位置に戻る
 	Toggle Unicode Character	Unicode 文字の切り替え
+	Type Character Code	文字コードの入力
 	Toggle Field Codes	フィールドコードの表示切り替え
 	Edit Field Code	フィールドコードの編集
 	Unlink Fields	フィールドのリンク解除
