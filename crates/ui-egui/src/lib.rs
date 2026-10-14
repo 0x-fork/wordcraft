@@ -2779,6 +2779,72 @@ mod tests {
         assert!(a.canvas.scale < zoomed, "Ctrl+wheel down zooms out");
     }
 
+    /// Issue #1223: Ctrl+wheel zoomed around the top of the scroll range, not the pointer, so the
+    /// page slid away under it while zooming; once the pages reflowed into rows the view glided
+    /// back to the caret. The place under the pointer stays put, rows or not. The events are the
+    /// ones egui-winit sends on Linux: Ctrl sets both `ctrl` and `command`.
+    #[test]
+    fn ctrl_wheel_zoom_keeps_the_place_under_the_pointer() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(4000)})).unwrap();
+        a.run("caret.docStart", json!({})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let pointer = a.canvas.canvas_rect.unwrap().center();
+        frame(&mut a, vec![egui::Event::PointerMoved(pointer)]);
+        let wheel = |y: f32, modifiers| egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, y),
+            phase: egui::TouchPhase::Move,
+            modifiers,
+        };
+        // Away from the caret, several pages down.
+        for _ in 0..60 {
+            frame(&mut a, vec![wheel(-1.0, egui::Modifiers::NONE)]);
+        }
+        for _ in 0..60 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.canvas.scroll_offset.y > 500.0, "scrolled down: {:?}", a.canvas.scroll_offset);
+        let page = canvas::nearest_page(&a.canvas.page_rects, pointer).unwrap();
+        assert!(page >= 3, "a few pages down: page {page}");
+        let under = |a: &WordApp| (pointer - a.canvas.page_rects[page].min) / a.canvas.scale;
+        let at = under(&a);
+        let linux_ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+        frame(&mut a, vec![egui::Event::ModifiersChanged(linux_ctrl)]);
+        let (cols, before) = (a.canvas.cols, a.canvas.scale);
+        for n in 0..40 {
+            let events = if n % 8 == 0 { vec![wheel(-1.0, linux_ctrl)] } else { Vec::new() };
+            frame(&mut a, events);
+            let now = under(&a);
+            // Across, the place can only be kept while the pages stay one per row: in rows they
+            // fit the window side by side and there is nothing to scroll sideways.
+            // Within a couple of screen pixels.
+            let off = (now - at) * a.canvas.scale;
+            let across = a.canvas.cols > cols || off.x.abs() < 2.0;
+            assert!(
+                across && off.y.abs() < 2.0,
+                "frame {n} at {:.0}%: {now:?} on page {page}, was {at:?}",
+                a.canvas.scale / canvas::PX_PER_PT * 100.0
+            );
+        }
+        assert!(a.canvas.scale < before * 0.6, "zoomed out: {before} -> {}", a.canvas.scale);
+        assert!(a.canvas.cols > cols, "the pages reflowed into rows on the way");
+    }
+
     /// Issue #67: View › Zoom In from a fit mode zoomed *out*: Page Width showed 163% but Zoom In
     /// stepped from the stale manual 100% to 110%.
     #[test]

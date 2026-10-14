@@ -789,8 +789,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let animate = app.animations_on();
     let opts = ui.ctx().options(|o| o.input_options);
     let zoom_delta = ui.input(|i| app.canvas.wheel.zoom(i, &opts, animate));
+    // The page point under the pointer before the zoom: it is kept under the pointer (#1223).
+    let mut zoom_anchor = None;
     if (zoom_delta - 1.0).abs() > 1e-3 && ui.rect_contains_pointer(area) {
         let reading = app.session.view.read_mode;
+        if !reading && let Some(p) = ui.input(|i| i.pointer.latest_pos()) {
+            zoom_anchor = page_at(&app.canvas.page_rects, &layout, app.canvas.scale, p).map(|at| (p, at));
+        }
         let pct = (app.canvas.scale / PX_PER_PT * zoom_delta * 100.0).clamp(if reading { 75.0 } else { 10.0 }, if reading { 150.0 } else { 500.0 });
         let id = if reading { "view.readTextSize" } else { "view.zoom" };
         let _ = app.run(id, json!({"value": pct}));
@@ -810,11 +815,25 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     app.canvas.scale = geo.scale;
     sync_fit_zoom(app, geo.scale);
+    // A pointer zoom scrolls so the same page point is under the pointer at the new scale, also
+    // when the pages reflow into rows. Without this the scroll offset stayed in pixels and the page
+    // slid away under the pointer.
+    let anchored = if let Some((p, (page, x, y))) = zoom_anchor
+        && let (Some(pr), Some(lp), Some(vp)) = (geo.rects.get(page), layout.pages.get(page), app.canvas.viewport)
+    {
+        let s = page_screen_scale(*pr, lp, geo.scale);
+        app.canvas.scroll_max = (geo.size - vp.size()).max(egui::Vec2::ZERO);
+        app.canvas.scroll_request = Some(pr.min.to_vec2() + vec2(x, y) * s - (p - vp.min));
+        true
+    } else {
+        false
+    };
     // Zooming or resizing reflowed the pages into a different number of columns: the caret's page
-    // moved, so bring it back into view rather than leave the reader somewhere else.
+    // moved, so bring it back into view rather than leave the reader somewhere else. A zoom at the
+    // pointer keeps the reader where the pointer is instead.
     if geo.cols != app.canvas.cols {
         app.canvas.cols = geo.cols;
-        if !app.session.view.read_mode {
+        if !app.session.view.read_mode && !anchored {
             app.canvas.scroll_to_caret = true;
         }
     }
