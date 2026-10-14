@@ -3153,6 +3153,60 @@ mod tests {
         assert!(!a.session.sel.is_collapsed(), "the drag left a selection");
     }
 
+    /// #1019: a double-click in the header area returned before the release ended the drag, so
+    /// a later press held on the ribbon edge-scrolled the document up.
+    #[test]
+    fn a_press_on_the_ribbon_after_a_header_double_click_does_not_scroll() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("insert.editHeader", json!({})).unwrap();
+        a.run("text.insert", json!({"text": "Header"})).unwrap();
+        a.run("insert.closeHeader", json!({})).unwrap();
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(1200)})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        a.run("caret.docStart", json!({})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let (Some(vp), Some(page)) = (a.canvas.viewport, a.canvas.page_rects.first().copied()) else { panic!("the canvas laid out") };
+        let header = egui::pos2(page.left() + 150.0, page.top() + 70.0);
+        assert!(vp.contains(header));
+        frame(&mut a, vec![egui::Event::PointerMoved(header)]);
+        for _ in 0..2 {
+            frame(&mut a, vec![btn(header, true)]);
+            frame(&mut a, vec![btn(header, false)]);
+        }
+        frame(&mut a, Vec::new());
+        assert!(!a.canvas.drag_selecting(), "the double-click's release ended the drag");
+        a.run("insert.closeHeader", json!({})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let ribbon = egui::pos2(vp.center().x, vp.min.y - 40.0);
+        let before = a.canvas.scroll_offset;
+        frame(&mut a, vec![egui::Event::PointerMoved(ribbon), btn(ribbon, true)]);
+        for _ in 0..30 {
+            frame(&mut a, vec![egui::Event::PointerMoved(ribbon)]);
+        }
+        assert_eq!(a.canvas.scroll_offset, before, "holding a press on the ribbon leaves the document where it is");
+        frame(&mut a, vec![btn(ribbon, false)]);
+    }
+
     /// The control channel's `ui.wheel` scrolls the canvas like a mouse wheel over it.
     #[test]
     fn control_wheel_scrolls_the_canvas() {
