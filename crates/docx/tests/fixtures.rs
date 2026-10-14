@@ -1734,6 +1734,28 @@ fn part_text_box(d: &Document) -> String {
     story.and_then(|id| d.parts.get(&id)).map(|p| p.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect()).unwrap_or_default()
 }
 
+/// #743: Word's cover pages place their shapes relative to the page's size, wrapped in
+/// `mc:AlternateContent` with an offset as the Fallback, and draw their freeforms back to the
+/// start without `a:close`. Both shapes are read: placed at the offset, and filled.
+#[test]
+fn cover_page_relative_position_and_freeform_drawn_back_to_its_start() {
+    let geom = r#"<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="0" y="90"/></a:lnTo><a:cubicBezTo><a:pt x="30" y="100"/><a:pt x="70" y="100"/><a:pt x="100" y="90"/></a:cubicBezTo><a:lnTo><a:pt x="100" y="0"/></a:lnTo><a:lnTo><a:pt x="0" y="0"/></a:lnTo></a:path><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="50"/></a:moveTo><a:lnTo><a:pt x="100" y="50"/></a:lnTo></a:path></a:pathLst></a:custGeom><a:solidFill><a:srgbClr val="0E2841"/></a:solidFill>"#;
+    let pct = r#"<mc:AlternateContent><mc:Choice Requires="wp14"><wp:positionV relativeFrom="page"><wp14:pctPosVOffset>4500</wp14:pctPosVOffset></wp:positionV></mc:Choice><mc:Fallback><wp:positionV relativeFrom="page"><wp:posOffset>480695</wp:posOffset></wp:positionV></mc:Fallback></mc:AlternateContent>"#;
+    let shape = anchored_wsp("Freeform 1", 5486400, 5334000, geom, "", "<wps:cNvSpPr/>")
+        .replace(r#"<wp:positionV relativeFrom="paragraph"><wp:posOffset>25400</wp:posOffset></wp:positionV>"#, pct);
+    let check = |d: &Document| {
+        let objs = &paras(d)[0].objects;
+        let InlineObject::Shape { kind, float, freeform: Some(f), .. } = &objs[0] else { panic!("{:?}", objs[0]) };
+        assert_eq!(*kind, ShapeKind::Freeform);
+        assert_eq!((float.v_rel, float.v_align, float.y), (Anchor::Page, None, 480695.0 / 12700.0), "the Fallback's offset");
+        let closed: Vec<bool> = f.paths.iter().map(|p| p.closed).collect();
+        assert_eq!(closed, [true, false], "a path back at its start is closed and filled; an open line isn't");
+    };
+    let d = read_body(&format!("<w:p>{shape}</w:p>"));
+    check(&d);
+    check(&wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap());
+}
+
 #[test]
 fn embedded_fonts_survive_a_round_trip() {
     let table = r#"<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:font w:name="Roboto"><w:embedRegular r:id="rId1"/><w:embedBold r:id="rId2"/></w:font></w:fonts>"#;

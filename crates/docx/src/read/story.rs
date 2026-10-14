@@ -1548,7 +1548,13 @@ fn nv_alt(p: Option<&El>) -> (String, AltText) {
 fn anchor_float(c: &El) -> Float {
     let mut f = Float { wrap: Wrap::Square, ..Float::default() };
     let behind = on_off_attr(c, "behindDoc");
-    for k in c.els() {
+    // Word wraps a position relative to the page's size (`wp14:pctPosVOffset`) in
+    // `mc:AlternateContent`; its Fallback gives the same position as an offset (#743).
+    let kids = c.els().flat_map(|k| match k.name.as_str() {
+        "mc:AlternateContent" => k.child("mc:Fallback").map(|f| f.els().collect()).unwrap_or_default(),
+        _ => vec![k],
+    });
+    for k in kids {
         match k.name.as_str() {
             "wp:wrapSquare" => {
                 f.wrap = Wrap::Square;
