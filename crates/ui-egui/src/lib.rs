@@ -1803,6 +1803,11 @@ impl WordApp {
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
+        // Focus (View › Immersive, the status bar) keeps only the title bar and the page; Escape
+        // brings the rest back, as in Word.
+        if self.session.view.focus_mode && self.dialog.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            let _ = self.run("view.focus", json!({"value": false}));
+        }
         if self.ui.backstage {
             backstage::show(self, ui);
         } else if !self.has_document() {
@@ -1813,9 +1818,11 @@ impl WordApp {
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
         } else {
             chrome::title_bar(self, ui);
-            ribbon::show(self, ui);
-            chrome::status_bar(self, ui);
-            panes::show(self, ui);
+            if !self.session.view.focus_mode {
+                ribbon::show(self, ui);
+                chrome::status_bar(self, ui);
+                panes::show(self, ui);
+            }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                 canvas::show(self, ui);
             });
@@ -5653,5 +5660,45 @@ mod tests {
         h.state_mut().run("edit.advancedFind", json!({})).unwrap();
         h.step();
         assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("find"));
+    }
+
+    /// #991: the status bar's Focus button leaves only the page (no ribbon, status bar or panes);
+    /// Escape brings them back.
+    #[test]
+    fn focus_hides_the_ribbon_and_escape_brings_it_back() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.ui.tab = "View".into();
+        a.session.view.nav_pane = true;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let shown = |h: &egui_kittest::Harness<WordApp>, label| h.query_by_label(label).is_some();
+        assert!(shown(&h, "Ruler"), "the View tab is showing");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Focus").click();
+        h.step();
+        h.step();
+        assert!(h.state().session.view.focus_mode);
+        assert!(!shown(&h, "Ruler") && !shown(&h, "Focus"), "the ribbon is hidden");
+        assert!(!shown(&h, "Navigation"), "and so is the Navigation pane");
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
+        h.step();
+        h.step();
+        assert!(!h.state().session.view.focus_mode, "Escape leaves Focus");
+        assert!(shown(&h, "Ruler"), "and the ribbon is back");
+        assert!(shown(&h, "Navigation"), "with the pane");
+        // Immersive Reader is Read Mode, not Focus: its status bar stays.
+        h.state_mut().run("view.immersive", json!({})).unwrap();
+        h.step();
+        h.step();
+        assert!(h.state().session.view.read_mode && shown(&h, "Focus"), "Immersive Reader keeps the status bar");
     }
 }

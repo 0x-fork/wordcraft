@@ -659,7 +659,6 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         CommandSpec::new("view.immersive", "Immersive Reader", "View › Immersive", |s, _| {
             s.view.read_mode = !s.view.read_mode;
-            s.view.focus_mode = s.view.read_mode;
             Ok(json!({"value": s.view.read_mode}))
         })
         .pure(),
