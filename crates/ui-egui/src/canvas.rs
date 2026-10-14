@@ -1241,9 +1241,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() && !in_balloon {
         deselect_balloon(app, ui.ctx());
     }
-    // Focus: the canvas takes keyboard focus on click and keeps Tab/arrows.
-    if resp.clicked() || resp.drag_started() || app.canvas.want_focus {
+    // Space and Enter also set `Response::clicked` on a focused click-sensing widget
+    // (egui's fake primary click). `request_focus` always interrupts IME; on X11 that
+    // destroys the XIM context and fcitx then drops every later key (#1169). A pointer
+    // click, an accessibility click, or a drag still takes focus, including a click on
+    // a canvas that already has it, so a composition commits. `want_focus` focuses only
+    // while the canvas does not, and does not interrupt an editor that already has it.
+    let keyboard_click = ui.memory(|m| m.has_focus(resp.id)) && ui.input(|i| i.key_pressed(egui::Key::Space) || i.key_pressed(egui::Key::Enter));
+    let pointer_click = resp.clicked_by(egui::PointerButton::Primary);
+    let accesskit_click = resp.clicked() && !pointer_click && !keyboard_click;
+    let focus_click = pointer_click || accesskit_click || resp.drag_started();
+    if focus_click || (app.canvas.want_focus && !resp.has_focus()) {
         resp.request_focus();
+    }
+    if focus_click || app.canvas.want_focus {
         app.canvas.want_focus = false;
     }
     if resp.has_focus() {
@@ -3766,6 +3777,52 @@ mod tests {
         // Hostile numbers never panic.
         let _ = collapse_white_space(&rects, &[(f32::NAN, f32::INFINITY), (-1e9, 1e9)], f32::NAN, f32::NAN);
         let _ = collapse_white_space(&[], &[], 1.0, 1.0);
+    }
+
+    /// #1169: Space and Enter count as `Response::clicked` on the focused canvas, and
+    /// `request_focus` always interrupts IME. On X11 that recreates the XIM context and
+    /// fcitx drops every later key. Those keys still type, and they must not set
+    /// `should_interrupt_composition`. A real pointer click still does, so a composition
+    /// commits when the caret moves.
+    #[test]
+    fn space_and_enter_on_the_canvas_do_not_interrupt_ime() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("document.setText", json!({"text": "The"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the canvas takes focus when the window opens");
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let ime_interrupted =
+            |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|ime| ime.should_interrupt_composition);
+        h.event(key(egui::Key::Space));
+        h.event(egui::Event::Text(" ".into()));
+        h.step();
+        assert_eq!(ime_interrupted(&h), Some(false), "space must not recreate the XIM context");
+        let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(text.contains("The") && text.contains(' '), "the space is still inserted: {text:?}");
+        assert!(h.state().canvas.focused, "the canvas keeps the keyboard");
+        h.event(key(egui::Key::Enter));
+        h.step();
+        assert_eq!(ime_interrupted(&h), Some(false), "enter must not recreate the XIM context");
+        assert!(h.state().canvas.focused, "enter leaves the canvas focused");
+
+        let at = h.state().canvas.page_rects.first().map(|r| r.center()).expect("a page");
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+        }
+        assert_eq!(ime_interrupted(&h), Some(true), "a click still interrupts composition");
     }
 
     fn page_at_index(rects: &[Rect], p: Pos2) -> Option<usize> {
