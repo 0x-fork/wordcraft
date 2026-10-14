@@ -1251,6 +1251,14 @@ impl Reader<'_> {
             part.body.auto_fit = bp.child("a:spAutoFit").is_some();
         }
         let mut extra = ShapeExtra::default();
+        // A rounded rectangle's own corner (`adj`, ECMA-376 §20.1.10.56); other presets drawn as
+        // rounded rectangles keep the default.
+        if prst == "roundRect" {
+            extra.corner = sppr
+                .and_then(|s| s.child("a:prstGeom"))
+                .and_then(|g| preset_adj(g, "adj"))
+                .and_then(|v| u32::try_from(v.clamp(0, i64::from(wordcraft_doc::connector::MAX_CORNER))).ok());
+        }
         // Arrowheads: any end type but `none` (ECMA-376 §20.1.10.33) is drawn as a triangle.
         let arrow = |tag: &str| ln.and_then(|l| l.child(tag)).and_then(|e| e.attr("type")).is_some_and(|t| t != "none");
         extra.arrow_start = arrow("a:headEnd");
@@ -1728,6 +1736,12 @@ fn text_warp(e: &El) -> Option<TextWarp> {
         }
     }
     Some(w)
+}
+
+/// A preset geometry's adjust value `name` (`a:avLst/a:gd` with `fmla="val N"`).
+fn preset_adj(geom: &El, name: &str) -> Option<i64> {
+    let gd = geom.child("a:avLst")?.children("a:gd").find(|g| g.attr("name") == Some(name))?;
+    gd.attr("fmla")?.trim().strip_prefix("val")?.trim().parse::<i64>().ok()
 }
 
 fn effect_list(l: &El) -> ShapeEffects {

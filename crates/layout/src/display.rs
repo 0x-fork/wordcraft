@@ -68,6 +68,8 @@ pub enum Draw {
         stroke_width: f32,
         /// Shadow, glow and soft edges (drawn with [`wordcraft_doc::effects::bands`]).
         effects: wordcraft_doc::effects::ShapeEffects,
+        /// A rounded rectangle's corner ([`wordcraft_doc::connector::ShapeExtra::corner`]).
+        corner: Option<u32>,
     },
     /// An ink stroke: a line through `pts` (page points) with round ends and joins, `width`
     /// wide, in `color` at opacity `alpha`.
@@ -1006,6 +1008,7 @@ fn lines(
                 stroke: Some(text_color(&st.rc.color, None)),
                 stroke_width: e.stroke,
                 effects: Default::default(),
+                corner: None,
             });
         }
         // Ruby (Phonetic Guide) text over its base text, in runs of one style.
@@ -1216,6 +1219,7 @@ fn graphic_draws(doc: &Document, g: &Graphic, rect: Rect, alpha: f32) -> Vec<Dra
                 stroke: *stroke,
                 stroke_width: stroke_width * k,
                 effects: Default::default(),
+                corner: None,
             }),
             GraphicItem::Path { segs, fill, stroke, stroke_width } => {
                 let segs = page_segs(segs, |x, y| (rect.x + x * sx, rect.y + y * sy));
@@ -1293,7 +1297,7 @@ fn shape_draws(
         return;
     }
     let Some(f) = freeform.filter(|_| kind == ShapeKind::Freeform) else {
-        out.push(Draw::Shape { rect, kind, fill, stroke, stroke_width, effects });
+        out.push(Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner: extra.corner });
         return;
     };
     if f.is_ink() && opts.hide_ink {
@@ -1347,7 +1351,7 @@ fn line_draws(
                 .collect();
             out.push(Draw::Path { segs, fill: None, stroke, stroke_width });
         }
-        None => out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects }),
+        None => out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects, corner: None }),
     }
     let Some(color) = stroke else { return };
     // Our line runs from the bottom-left corner to the top-right; connectors from the top-left
@@ -1523,7 +1527,15 @@ pub(crate) fn inline_rect(obj: Option<&InlineObject>, cx: f32, base: f32, adv: f
 
 /// A Drawing Canvas's background and outline over its frame `rect`.
 fn canvas_background(rect: Rect, c: &wordcraft_doc::para::CanvasStyle) -> Draw {
-    Draw::Shape { rect, kind: ShapeKind::Rectangle, fill: c.fill, stroke: c.stroke, stroke_width: c.stroke_width, effects: Default::default() }
+    Draw::Shape {
+        rect,
+        kind: ShapeKind::Rectangle,
+        fill: c.fill,
+        stroke: c.stroke,
+        stroke_width: c.stroke_width,
+        effects: Default::default(),
+        corner: None,
+    }
 }
 
 /// Whether `c` stands upright in top-to-bottom East Asian text (`tbRl`) rather than turning with

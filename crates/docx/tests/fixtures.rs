@@ -1520,6 +1520,49 @@ fn theme_styled_connectors_and_callout_boxes_keep_their_paint() {
     assert!(matches!(&paras(&again)[0].objects[0], InlineObject::Shape { stroke, extra, .. } if *stroke == Some(theme[7]) && extra.arrow_end));
 }
 
+/// A rounded rectangle's corner is its `adj` (100000ths of the shorter side), read, capped and
+/// written back; without one, and for presets only drawn as rounded rectangles, the default.
+#[test]
+fn rounded_rectangle_corners_are_read_and_saved() {
+    let geom = |prst: &str, av: &str| {
+        format!(r#"<a:prstGeom prst="{prst}"><a:avLst>{av}</a:avLst></a:prstGeom><a:solidFill><a:srgbClr val="D9D9D9"/></a:solidFill>"#)
+    };
+    let gd = |fmla: &str| format!(r#"<a:gd name="adj" fmla="{fmla}"/>"#);
+    let body = [
+        geom("roundRect", &gd("val 3565")),
+        geom("roundRect", ""),
+        geom("roundRect", &gd("val 90000")),
+        geom("roundRect", &gd("val -20")),
+        geom("roundRect", &gd("*/ 1 2 3")),
+        geom("roundRect", r#"<a:gd name="adj1" fmla="val 100"/>"#),
+        geom("wedgeRoundRectCallout", &gd("val 3565")),
+    ]
+    .iter()
+    .map(|sppr| anchored_wsp("Rounded", 2540000, 1270000, sppr, "", "<wps:cNvSpPr/>"))
+    .collect::<String>();
+    let corners = |d: &Document| -> Vec<(ShapeKind, Option<u32>)> {
+        paras(d)[0]
+            .objects
+            .iter()
+            .filter_map(|o| match o {
+                InlineObject::Shape { kind, extra, .. } => Some((*kind, extra.corner)),
+                _ => None,
+            })
+            .collect()
+    };
+    let rounded = ShapeKind::RoundedRectangle;
+    let expected =
+        vec![(rounded, Some(3565)), (rounded, None), (rounded, Some(50_000)), (rounded, Some(0)), (rounded, None), (rounded, None), (rounded, None)];
+    let d = read_body(&format!("<w:p>{body}</w:p>"));
+    assert_eq!(corners(&d), expected);
+    let bytes = wordcraft_docx::write(&d).unwrap();
+    let mut xml = String::new();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes.as_slice())).unwrap();
+    std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+    assert!(xml.contains(r#"<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 3565"/></a:avLst></a:prstGeom>"#), "{xml}");
+    assert_eq!(corners(&wordcraft_docx::read(&bytes).unwrap()), expected);
+}
+
 /// #611: legacy VML lines and rectangles (documents without DrawingML).
 #[test]
 fn vml_lines_and_rectangles() {

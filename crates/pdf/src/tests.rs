@@ -429,20 +429,20 @@ fn shapes_have_paths() {
         ShapeKind::Diamond,
         ShapeKind::Triangle,
     ] {
-        assert!(shape_path(k, &r).is_some(), "{k:?}");
+        assert!(shape_path(k, &r, None).is_some(), "{k:?}");
     }
     // A line or connector may be flat (horizontal or vertical); a closed shape may not.
     for k in [ShapeKind::Line, ShapeKind::StraightConnector] {
-        assert!(shape_path(k, &Rect::new(0.0, 5.0, 10.0, 0.0)).is_some(), "{k:?} horizontal");
-        assert!(shape_path(k, &Rect::new(5.0, 0.0, 0.0, 10.0)).is_some(), "{k:?} vertical");
-        assert!(shape_path(k, &Rect::new(5.0, 5.0, 0.0, 0.0)).is_none(), "{k:?} without length");
+        assert!(shape_path(k, &Rect::new(0.0, 5.0, 10.0, 0.0), None).is_some(), "{k:?} horizontal");
+        assert!(shape_path(k, &Rect::new(5.0, 0.0, 0.0, 10.0), None).is_some(), "{k:?} vertical");
+        assert!(shape_path(k, &Rect::new(5.0, 5.0, 0.0, 0.0), None).is_none(), "{k:?} without length");
         // Hostile sizes reach `shape_path` unclamped through the public fields.
         for (w, h) in [(f32::NAN, 0.0), (f32::INFINITY, 0.0), (10.0, f32::NEG_INFINITY), (-10.0, 0.0), (0.0, -10.0), (10.0, -1.0)] {
-            assert!(shape_path(k, &Rect { x: 0.0, y: 0.0, w, h }).is_none(), "{k:?} {w} x {h}");
+            assert!(shape_path(k, &Rect { x: 0.0, y: 0.0, w, h }, None).is_none(), "{k:?} {w} x {h}");
         }
     }
-    assert!(shape_path(ShapeKind::Rectangle, &Rect::new(0.0, 5.0, 10.0, 0.0)).is_none());
-    assert!(shape_path(ShapeKind::Ellipse, &Rect::new(0.0, 0.0, f32::NAN, 1.0)).is_none());
+    assert!(shape_path(ShapeKind::Rectangle, &Rect::new(0.0, 5.0, 10.0, 0.0), None).is_none());
+    assert!(shape_path(ShapeKind::Ellipse, &Rect::new(0.0, 0.0, f32::NAN, 1.0), None).is_none());
     assert_eq!(parse_iso("2024-02-03T04:05:06Z"), Some((2024, 2, 3, 4, 5, 6)));
     assert_eq!(parse_iso("garbage"), None);
     assert_eq!(civil(0), (1970, 1, 1, 0, 0, 0));
@@ -542,6 +542,79 @@ fn count_glyphs_and_paths(bytes: &[u8]) -> (usize, usize) {
         interpret_page(page, &mut ctx, &mut n);
     }
     (n.0, n.1)
+}
+
+/// The filled paths drawn, over every page, in page space.
+fn filled_paths(bytes: &[u8]) -> Vec<kurbo::BezPath> {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    struct Fills(Vec<kurbo::BezPath>);
+    impl Device<'_> for Fills {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, path: &kurbo::BezPath, transform: kurbo::Affine, _: &Paint<'_>, mode: &PathDrawMode) {
+            if matches!(mode, PathDrawMode::Fill(_)) {
+                self.0.push(transform * path.clone());
+            }
+        }
+        fn push_clip_path(&mut self, _: &ClipPath) {}
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, _: &Glyph<'_>, _: kurbo::Affine, _: kurbo::Affine, _: &Paint<'_>, _: &GlyphDrawMode) {}
+        fn draw_image(&mut self, _: Image<'_, '_>, _: kurbo::Affine) {}
+        fn pop_clip_path(&mut self) {}
+        fn pop_transparency_group(&mut self) {}
+    }
+    let pdf = Pdf::new(bytes.to_vec()).expect("parse");
+    let cache = InterpreterCache::new();
+    let mut fills = Fills(Vec::new());
+    for page in pdf.pages().iter() {
+        let mut ctx = Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+        interpret_page(page, &mut ctx, &mut fills);
+    }
+    fills.0
+}
+
+#[test]
+fn rounded_rectangle_corners_follow_their_radius() {
+    // `roundRect` with its own `adj`: Word's address boxes use small corners (adj 3565: 3.6% of
+    // the shorter side), which were drawn at 16%.
+    use kurbo::Shape;
+    use wordcraft_doc::para::{Anchor, Float, ShapeKind, Wrap};
+    let doc = |corner: Option<u32>| {
+        let float = Float { wrap: Wrap::InFrontOfText, h_rel: Anchor::Page, v_rel: Anchor::Page, x: 72.0, y: 200.0, ..Default::default() };
+        let shape = InlineObject::Shape {
+            kind: ShapeKind::RoundedRectangle,
+            w: 200.0,
+            h: 100.0,
+            fill: Some(wordcraft_doc::props::Rgb(0xD9, 0xD9, 0xD9)),
+            stroke: None,
+            stroke_width: 0.0,
+            float,
+            story: None,
+            freeform: None,
+            effects: Default::default(),
+            extra: wordcraft_doc::connector::ShapeExtra { corner, ..Default::default() },
+        };
+        let mut p = Paragraph::with_text("Anchor", CharProps::default());
+        p.insert_object(0, shape, &CharProps::default()).unwrap();
+        let mut d = Document::new();
+        d.body = vec![para_block(p)];
+        d
+    };
+    // Whether the shape covers the point `inset` points in from a corner of its frame.
+    let covers = |corner: Option<u32>, inset: f64| {
+        let fills = filled_paths(&export(&doc(corner), &PdfOptions { tagged: false, ..Default::default() }).unwrap());
+        let shape = fills.iter().find(|p| (p.bounding_box().width() - 200.0).abs() < 0.5).expect("the shape is filled");
+        let b = shape.bounding_box();
+        shape.contains((b.x0 + inset, b.y0 + inset).into())
+    };
+    assert!(covers(Some(0), 1.0), "square corner");
+    assert!(!covers(Some(3_565), 1.0) && covers(Some(3_565), 4.0), "3.565 pt corner");
+    assert!(!covers(None, 4.0), "16 pt corner by default");
 }
 
 #[test]
