@@ -2144,3 +2144,11 @@
 	Suggested	Предлози
 	Set Proofing Language…	Постави језик провере…
 	Language Preferences…	Језичке поставке…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Речници
+	Dictionaries folder:	Фасцикла речника:
+	Not set: the system's usual places	Није подешено: уобичајене локације у систему
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell .aff и .dic датотеке из ове фасцикле (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) користе се пре системских.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: речник није пронађен

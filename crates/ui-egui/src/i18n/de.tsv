@@ -2129,3 +2129,11 @@
 	Suggested	Vorschläge
 	Set Proofing Language…	Sprache für die Korrekturhilfen festlegen…
 	Language Preferences…	Spracheinstellungen…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Wörterbücher
+	Dictionaries folder:	Wörterbuchordner:
+	Not set: the system's usual places	Nicht festgelegt: die üblichen Orte des Systems
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell-Dateien (.aff und .dic) in diesem Ordner (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) haben Vorrang vor denen des Systems.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: kein Wörterbuch gefunden

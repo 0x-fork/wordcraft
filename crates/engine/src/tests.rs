@@ -4736,17 +4736,57 @@ fn note_options_per_section_and_convert_notes() {
 /// A tiny synthetic Polish Hunspell dictionary (written for these tests). Real dictionaries are
 /// installed on the system, never bundled; every Polish test installs this same one.
 fn polish_test_dictionary() {
-    let aff = "SET UTF-8\nTRY aioeznrwcyszżtkpdmłjlubąęgh\nMAP 2\nMAP oó\nMAP zż\nREP 2\nREP ż rz\nREP rz ż\n";
-    let dic = "12\npłynie\nrzeka\na\nto\nwiem\nże\ntak\nw\nogóle\nzażółć\ngęślą\njaźń\n";
-    wordcraft_proof::pl::install_dictionary(aff, dic).unwrap();
+    wordcraft_proof::pl::install_dictionary(POLISH_TEST_AFF, POLISH_TEST_DIC).unwrap();
 }
+
+const POLISH_TEST_AFF: &str = "SET UTF-8\nTRY aioeznrwcyszżtkpdmłjlubąęgh\nMAP 2\nMAP oó\nMAP zż\nREP 2\nREP ż rz\nREP rz ż\n";
+const POLISH_TEST_DIC: &str = "12\npłynie\nrzeka\na\nto\nwiem\nże\ntak\nw\nogóle\nzażółć\ngęślą\njaźń\n";
 
 /// A tiny synthetic Portuguese Hunspell dictionary (written for these tests). Real dictionaries
 /// are installed on the system, never bundled; every Portuguese test installs this same one.
 fn portuguese_test_dictionary() {
-    let aff = "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
-    let dic = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
-    wordcraft_proof::pt::install_dictionary(aff, dic).unwrap();
+    wordcraft_proof::pt::install_dictionary(PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC).unwrap();
+}
+
+const PORTUGUESE_TEST_AFF: &str =
+    "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
+const PORTUGUESE_TEST_DIC: &str = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
+
+/// #1063: File › Options › Proofing › Dictionaries folder. A folder of Hunspell files is saved,
+/// searched first and reported per language; a missing folder or a relative path is refused and
+/// changes nothing. The folder holds the same test dictionaries the other tests install, so tests
+/// running meanwhile see the same words; it stays set for the rest of the run for that reason.
+#[test]
+fn dictionaries_folder_option_is_saved_searched_and_reported() {
+    let dir = std::env::temp_dir().join(format!("wc-engine-dictionaries-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, aff, dic) in [("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC), ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC)] {
+        std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
+        std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
+    }
+    let mut s = s();
+    let missing = dir.join("no-such-folder");
+    assert!(s.run("file.options", &json!({"dictionariesFolder": missing.to_string_lossy()})).is_err());
+    assert!(s.run("file.options", &json!({"dictionariesFolder": "relative/dictionaries"})).is_err());
+    assert!(s.run("file.options", &json!({"dictionariesFolder": 7})).is_err());
+    assert_eq!(s.prefs.dictionaries_folder, None, "a refused folder changes nothing");
+    let r = run(&mut s, "file.options", json!({"dictionariesFolder": dir.to_string_lossy()}));
+    assert_eq!(s.prefs.dictionaries_folder.as_deref(), Some(dir.to_string_lossy().as_ref()));
+    assert_eq!(r["dictionariesFolder"], json!(dir.to_string_lossy()));
+    let dicts = r["dictionaries"].as_array().unwrap();
+    let file = |lang: &str| dicts.iter().find(|d| d["language"] == lang).map(|d| d["file"].clone());
+    assert_eq!(file("pl"), Some(json!(dir.join("pl_PL.dic").to_string_lossy())));
+    assert_eq!(file("pt"), Some(json!(dir.join("pt_BR.dic").to_string_lossy())));
+    // Polish text is checked against the folder's dictionary.
+    run(&mut s, "document.setText", json!({"text": "rzeka płynie żeka"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "pl-PL"}));
+    let issues = run(&mut s, "review.issues", json!({}));
+    let words: Vec<&str> = issues.as_array().unwrap().iter().filter(|i| i["kind"] == "spelling").filter_map(|i| i["text"].as_str()).collect();
+    assert_eq!(words, ["żeka"], "{issues}");
+    // Saved with the settings.
+    let prefs = serde_json::to_value(&s.prefs).unwrap();
+    assert_eq!(prefs["dictionariesFolder"], json!(dir.to_string_lossy()));
 }
 
 /// Review › Language and the proofing commands work in Portuguese end to end: the language makes

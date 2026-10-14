@@ -2130,3 +2130,11 @@
 	Suggested	おすすめ
 	Set Proofing Language…	校正言語の設定…
 	Language Preferences…	言語の設定…
+
+# Dictionaries folder (#1063)
+	Dictionaries	辞書
+	Dictionaries folder:	辞書フォルダー:
+	Not set: the system's usual places	未設定: システムの標準の場所
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	このフォルダーの Hunspell .aff と .dic ファイル (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) は、システムのものより優先して使われます。
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: 辞書が見つかりません

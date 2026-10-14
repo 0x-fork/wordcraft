@@ -508,6 +508,10 @@ pub struct Prefs {
     /// The region the user chose for new documents, units and the decimal separator (a locale
     /// tag like `pl-PL`, File › Options › Advanced › Region); `None` follows the system.
     pub region: Option<String>,
+    /// A folder searched for Hunspell dictionaries before the system locations (File › Options ›
+    /// Proofing, #1063): an app started from Finder or the Dock doesn't see
+    /// `WORDCRAFT_DICTIONARIES`. `None` searches the system locations only.
+    pub dictionaries_folder: Option<String>,
     /// Formatting marks shown even while Show/Hide ¶ is off.
     pub marks: wordcraft_layout::display::FormattingMarks,
     /// Mark grammar errors as you type (with Check spelling as you type on).
@@ -532,6 +536,7 @@ impl Default for Prefs {
             overtype: false,
             units: Default::default(),
             region: None,
+            dictionaries_folder: None,
             marks: Default::default(),
             mark_grammar: true,
             ignore_uppercase: true,

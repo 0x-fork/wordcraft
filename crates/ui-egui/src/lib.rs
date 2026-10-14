@@ -692,6 +692,10 @@ impl WordApp {
             }
         }
         self.session.prefs = std::mem::take(&mut self.ui.editing);
+        // The saved dictionaries folder (#1063) is searched from the start.
+        if let Some(f) = self.session.prefs.dictionaries_folder.as_deref() {
+            wordcraft_engine::cmd::options::use_dictionaries_folder(Some(f));
+        }
         self.session.read_aloud.set_rate(self.ui.read_aloud_rate);
         self.session.read_aloud.skip_citations = self.ui.read_aloud_skip_citations;
         self.session.view.dark_mode = self.ui.dark_page;

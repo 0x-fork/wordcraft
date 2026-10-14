@@ -2526,3 +2526,11 @@
 	Heading text	Címsor szövege
 	Insert reference to:	Hivatkozás beszúrása erre:
 	Reference type:	Hivatkozás típusa:
+
+# Dictionaries folder (#1063)
+	Dictionaries	Szótárak
+	Dictionaries folder:	Szótárak mappája:
+	Not set: the system's usual places	Nincs beállítva: a rendszer szokásos helyei
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Az ebben a mappában lévő Hunspell .aff és .dic fájlok (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) elsőbbséget élveznek a rendszer fájljaival szemben.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: nem található szótár

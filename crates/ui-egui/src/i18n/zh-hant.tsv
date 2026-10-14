@@ -2131,3 +2131,11 @@
 	Suggested	建議
 	Set Proofing Language…	設定校訂語言…
 	Language Preferences…	語言喜好設定…
+
+# Dictionaries folder (#1063)
+	Dictionaries	字典
+	Dictionaries folder:	字典資料夾：
+	Not set: the system's usual places	未設定：系統的一般位置
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	此資料夾中的 Hunspell .aff 與 .dic 檔案 (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) 優先於系統中的檔案。
+	{language}: {file}	{language}：{file}
+	{language}: no dictionary found	{language}：找不到字典

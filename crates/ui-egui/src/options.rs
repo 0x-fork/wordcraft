@@ -266,6 +266,76 @@ fn proofing(app: &mut WordApp, ui: &mut Ui) {
     ui.add_space(8.0);
     section(ui, "Custom dictionary");
     custom_dictionary(app, ui);
+    ui.add_space(8.0);
+    section(ui, "Dictionaries");
+    dictionaries(app, ui);
+}
+
+/// Where the spelling dictionaries come from (#1063): a folder searched before the system's
+/// usual places, saved with the settings, and the dictionary each language found. An app started
+/// from Finder or the Dock doesn't see `WORDCRAFT_DICTIONARIES`, so this is how it finds a
+/// dictionary kept in a folder of the user's own.
+fn dictionaries(app: &mut WordApp, ui: &mut Ui) {
+    let saved = app.session.prefs.dictionaries_folder.clone().unwrap_or_default();
+    let id = egui::Id::new("options_dictionaries_folder");
+    let mut folder = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone());
+    ui.label(tl!("Dictionaries folder:"));
+    ui.horizontal(|ui| {
+        let r = ui.add(egui::TextEdit::singleline(&mut folder).desired_width(320.0).hint_text(tl!("Not set: the system's usual places")));
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let changed = folder.trim() != saved;
+        if ui.add_enabled(changed, egui::Button::new(tl!("Apply"))).clicked() || (enter && changed) {
+            let value = if folder.trim().is_empty() { "auto" } else { folder.trim() };
+            match app.run("file.options", json!({"dictionariesFolder": value})) {
+                // Shown as saved (`~/` expanded).
+                Ok(_) => folder = app.session.prefs.dictionaries_folder.clone().unwrap_or_default(),
+                Err(e) => app.status(e),
+            }
+        }
+        if ui.add_enabled(!saved.is_empty(), egui::Button::new(tl!("Clear"))).clicked()
+            && app.run("file.options", json!({"dictionariesFolder": "auto"})).is_ok()
+        {
+            folder.clear();
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, folder));
+    note(ui, "Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.");
+    // The dictionary each language found, looked up again after the folder changes.
+    let found_id = egui::Id::new("options_dictionaries_found");
+    let generation = wordcraft_engine::proof::dictionary_generation();
+    let cached = ui.data(|d| d.get_temp::<(u64, Vec<(String, Option<String>)>)>(found_id)).filter(|(g, _)| *g == generation);
+    let found = match cached {
+        Some((_, f)) => f,
+        None => {
+            let f: Vec<(String, Option<String>)> = wordcraft_engine::proof::installed_dictionaries()
+                .into_iter()
+                .map(|(lang, dic)| (language_name(lang).to_string(), dic.map(|d| d.to_string_lossy().into_owned())))
+                .collect();
+            ui.data_mut(|d| d.insert_temp(found_id, (generation, f.clone())));
+            f
+        }
+    };
+    for (language, file) in found {
+        let line = match file {
+            Some(f) => crate::i18n::fmt(tl!("{language}: {file}"), &[("language", &language), ("file", &f)]),
+            None => crate::i18n::fmt(tl!("{language}: no dictionary found"), &[("language", &language)]),
+        };
+        ui.add(egui::Label::new(RichText::new(line).small()).truncate());
+    }
+}
+
+/// The interface name of a language with a Hunspell dictionary.
+fn language_name(lang: wordcraft_engine::proof::ProofLang) -> &'static str {
+    use wordcraft_engine::proof::ProofLang;
+    match lang {
+        ProofLang::Pl => tl!("Polish"),
+        ProofLang::Pt => tl!("Portuguese (Brazil)"),
+        ProofLang::It => tl!("Italian"),
+        ProofLang::Hr => tl!("Croatian"),
+        ProofLang::Tr => tl!("Turkish"),
+        // English uses its bundled word list; Bulgarian has no dictionary yet.
+        ProofLang::En | ProofLang::Bg | ProofLang::Other => "",
+    }
 }
 
 /// The custom dictionary: the words Add to Dictionary kept, each with a Remove button, and a
@@ -686,6 +756,22 @@ mod tests {
         assert!(UiState::from_json(b"[1, 2]").is_none() && UiState::from_json(b"not json").is_none());
     }
 
+    /// The dictionaries folder (#1063) is saved with the settings and searched again after a
+    /// restart, before any document is checked.
+    #[test]
+    fn the_dictionaries_folder_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("wc-ui-dictionaries-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut a = app();
+        a.run("file.options", json!({"dictionariesFolder": dir.to_string_lossy()})).unwrap();
+        let saved = serde_json::to_vec(&a.prefs()).unwrap();
+        wordcraft_engine::proof::hunspell::set_dictionary_dir(None);
+        let mut b = app();
+        b.apply_prefs(UiState::from_json(&saved).unwrap());
+        assert_eq!(b.session.prefs.dictionaries_folder.as_deref(), Some(dir.to_string_lossy().as_ref()));
+        assert_eq!(wordcraft_engine::proof::hunspell::search_dirs(None).first(), Some(&dir), "searched first");
+    }
+
     /// Settings saved before #838 kept the unit under `editing.units` (default inches): a unit
     /// the user chose carries over to `measurementUnits`; inches, junk or a newer value don't.
     #[test]
@@ -732,6 +818,9 @@ mod tests {
         h.get_by_label("Ignore words in capitals").click();
         h.run_steps(2);
         assert!(!h.state().session.prefs.ignore_uppercase);
+        // #1063: the dictionaries folder and the dictionary each language found.
+        assert!(h.query_by_label("Dictionaries folder:").is_some());
+        assert!(h.query_by_label_contains("Polish: ").is_some(), "the Polish dictionary's line");
         h.get_by_label("Advanced").click();
         h.run_steps(4);
         h.get_by_label("Typing replaces selected text").click();

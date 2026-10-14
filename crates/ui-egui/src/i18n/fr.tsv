@@ -2138,3 +2138,11 @@
 	Suggested	Suggestions
 	Set Proofing Language…	Définir la langue de vérification…
 	Language Preferences…	Préférences linguistiques…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Dictionnaires
+	Dictionaries folder:	Dossier des dictionnaires :
+	Not set: the system's usual places	Non défini : emplacements habituels du système
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Les fichiers Hunspell .aff et .dic de ce dossier (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) sont utilisés avant ceux du système.
+	{language}: {file}	{language} : {file}
+	{language}: no dictionary found	{language} : aucun dictionnaire trouvé

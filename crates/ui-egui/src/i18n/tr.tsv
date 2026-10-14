@@ -2526,3 +2526,11 @@ preview	Title	Örnek
 	Heading text	Başlık metni
 	Insert reference to:	Başvuru ekle:
 	Reference type:	Başvuru türü:
+
+# Dictionaries folder (#1063)
+	Dictionaries	Sözlükler
+	Dictionaries folder:	Sözlük klasörü:
+	Not set: the system's usual places	Ayarlanmadı: sistemin olağan konumları
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Bu klasördeki Hunspell .aff ve .dic dosyaları (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) sistemdekilerden önce kullanılır.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: sözlük bulunamadı

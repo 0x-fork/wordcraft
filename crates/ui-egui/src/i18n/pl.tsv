@@ -2521,3 +2521,9 @@ preview	Title	Tytuł
 	Heading text	Tekst nagłówka
 	Insert reference to:	Wstaw odwołanie do:
 	Reference type:	Typ odwołania:
+	Dictionaries	Słowniki
+	Dictionaries folder:	Folder słowników:
+	Not set: the system's usual places	Nie ustawiono: standardowe miejsca w systemie
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Pliki Hunspell .aff i .dic z tego folderu (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) mają pierwszeństwo przed systemowymi.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: nie znaleziono słownika
