@@ -29,7 +29,8 @@ pub(crate) fn preset_kind(prst: &str) -> ShapeKind {
         "ellipse" | "wedgeEllipseCallout" | "cloudCallout" | "cloud" | "flowChartConnector" | "donut" | "flowChartOnlineStorage" => {
             ShapeKind::Ellipse
         }
-        "triangle" | "rtTriangle" | "flowChartExtract" | "flowChartMerge" => ShapeKind::Triangle,
+        "triangle" | "flowChartExtract" | "flowChartMerge" => ShapeKind::Triangle,
+        "rtTriangle" => ShapeKind::RightTriangle,
         "diamond" | "flowChartDecision" => ShapeKind::Diamond,
         "line" | "lineInv" => ShapeKind::Line,
         "straightConnector1" => ShapeKind::StraightConnector,

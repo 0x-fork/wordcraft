@@ -558,6 +558,7 @@ fn shape_path(kind: ShapeKind, r: &Rect, corner: Option<u32>) -> Option<Path> {
         }
         ShapeKind::Ellipse => ellipse(&mut pb, cx, cy, r.w / 2.0, r.h / 2.0),
         ShapeKind::Triangle => poly(&mut pb, &[(cx, y0), (x1, y1), (x0, y1)]),
+        ShapeKind::RightTriangle => poly(&mut pb, &[(x0, y0), (x1, y1), (x0, y1)]),
         ShapeKind::Diamond => poly(&mut pb, &[(cx, y0), (x1, cy), (cx, y1), (x0, cy)]),
         // DrawingML's `line`: top-left to bottom-right (flips give the other directions).
         ShapeKind::Line => {

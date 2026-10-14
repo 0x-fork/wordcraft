@@ -289,6 +289,8 @@ pub enum ShapeKind {
     RoundedRectangle,
     Ellipse,
     Triangle,
+    /// A right triangle (DrawingML's `rtTriangle`): the right angle at the bottom left.
+    RightTriangle,
     Diamond,
     Line,
     Arrow,
