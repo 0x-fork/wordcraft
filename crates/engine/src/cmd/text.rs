@@ -527,7 +527,7 @@ fn sample_text(s: &Session) -> Option<String> {
     if args.contains(['(', ')']) {
         return None;
     }
-    let count = |arg: &str| arg.parse::<usize>().ok().filter(|n| (1..=200).contains(n));
+    let count = |arg: &str| arg.trim().parse::<usize>().ok().filter(|n| (1..=200).contains(n));
     let counts = if args.is_empty() {
         Some((5, 3))
     } else if let Some((p, s)) = args.split_once(',') {

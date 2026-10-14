@@ -52,7 +52,17 @@ fn typed(keys: &str) -> Session {
 #[test]
 fn sample_text_formulas_expand_on_enter() {
     for name in ["rand", "lorem"] {
-        for (args, paragraphs, sentences) in [("", 5, 3), ("2", 2, 3), ("2,4", 2, 4), ("1,1", 1, 1), ("200,1", 200, 1), ("1,200", 1, 200)] {
+        for (args, paragraphs, sentences) in [
+            ("", 5, 3),
+            ("2", 2, 3),
+            (" 2 ", 2, 3),
+            ("2,4", 2, 4),
+            ("2, 4", 2, 4),
+            (" 2 , 4 ", 2, 4),
+            ("1,1", 1, 1),
+            ("200,1", 200, 1),
+            ("1,200", 1, 200),
+        ] {
             let mut s = typed(&format!("={name}({args})"));
             let depth = s.undo_depth();
             typ(&mut s, "\n");
