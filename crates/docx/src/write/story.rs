@@ -369,8 +369,9 @@ impl Writer<'_> {
     fn rev_attrs(&mut self, idx: u32) -> (String, String, String) {
         self.next_rev_id += 1;
         let r = self.doc.revisions.get(idx as usize);
-        let author = r.map(|r| r.author.clone()).filter(|a| !a.is_empty()).unwrap_or_else(|| "Unknown".into());
-        let date = r.map(|r| r.date.clone()).unwrap_or_default();
+        let author = super::annotation_author(self.doc, r.map_or("", |r| r.author.as_str())).to_string();
+        // Remove date and time (§17.15.1.69): tracked changes are saved without `w:date`.
+        let date = if self.doc.settings.remove_date_time { String::new() } else { r.map(|r| r.date.clone()).unwrap_or_default() };
         (self.next_rev_id.to_string(), author, date)
     }
 

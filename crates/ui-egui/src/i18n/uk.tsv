@@ -2088,3 +2088,10 @@
 	Start-up	Запуск
 	Show the Start screen when WordCraft starts	Показувати початковий екран під час запуску WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Увімкнено: WordCraft відкривається на сторінці Файл › Основне з порожнім документом, шаблонами та нещодавніми документами. Вимкнено: відкривається порожній документ.
+	Privacy Options	Параметри конфіденційності
+	Trust Center	Центр безпеки
+	Privacy for this document	Конфіденційність цього документа
+	Remove my name from comments, changes and file properties when saving	Вилучати моє ім’я з приміток, змін і властивостей файлу під час збереження
+	Leave out the date and time of comments and tracked changes when saving	Не зберігати дату й час приміток і відстежуваних змін
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	Документ, який ви редагуєте, зберігає імена й дати; їх не буде лише у збереженому файлі.
+	Privacy Settings	Поточні налаштування конфіденційності

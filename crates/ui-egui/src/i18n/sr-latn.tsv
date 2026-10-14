@@ -2086,3 +2086,10 @@
 	Start-up	Pokretanje
 	Show the Start screen when WordCraft starts	Prikaži početni ekran pri pokretanju programa WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Uključeno: WordCraft se otvara na Fajl › Početak, sa praznim dokumentom, šablonima i nedavnim dokumentima. Isključeno: otvara prazan dokument.
+	Privacy Options	Opcije privatnosti
+	Trust Center	Centar za bezbednost
+	Privacy for this document	Privatnost ovog dokumenta
+	Remove my name from comments, changes and file properties when saving	Ukloni moje ime iz komentara, izmena i svojstava datoteke pri čuvanju
+	Leave out the date and time of comments and tracked changes when saving	Izostavi datum i vreme komentara i praćenih izmena pri čuvanju
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	Dokument koji uređujete zadržava imena i datume; izostavlja ih samo sačuvana datoteka.
+	Privacy Settings	Trenutna podešavanja privatnosti

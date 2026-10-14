@@ -2088,3 +2088,10 @@
 	Start-up	启动
 	Show the Start screen when WordCraft starts	启动 WordCraft 时显示开始屏幕
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	开：WordCraft 打开时显示“文件 › 开始”，其中有空白文档、模板和最近使用的文档。关：直接打开空白文档。
+	Privacy Options	隐私选项
+	Trust Center	信任中心
+	Privacy for this document	此文档的隐私
+	Remove my name from comments, changes and file properties when saving	保存时从批注、修订和文件属性中删除我的姓名
+	Leave out the date and time of comments and tracked changes when saving	保存时不包含批注和修订的日期与时间
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	正在编辑的文档保留姓名和日期；只有保存的文件中不包含它们。
+	Privacy Settings	当前隐私设置

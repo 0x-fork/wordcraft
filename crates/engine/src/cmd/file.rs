@@ -90,6 +90,28 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("file.setAuthor", "User Name", "File › Options › General", set_author)
             .params(r#"{"name": string (author of new tracked changes and comments)}"#)
             .pure(),
+        // Trust Center › Privacy Options: the document's `w:removePersonalInformation` and
+        // `w:removeDateAndTime` settings, honoured when it is saved as .docx (#1062).
+        // Changing them is a document change (undoable, refused on a protected document); reading
+        // them is `file.privacy`, which changes nothing.
+        CommandSpec::new("file.privacyOptions", "Privacy Options", "File › Options › Save", |s, v| {
+            let personal = p::bool(v, "removePersonalInfo");
+            let date_time = p::bool(v, "removeDateTime");
+            if personal.is_none() && date_time.is_none() {
+                return Err(CmdError::Params("give removePersonalInfo or removeDateTime (file.privacy reads them)".into()));
+            }
+            if let Some(on) = personal {
+                s.doc.settings.remove_personal_info = on;
+            }
+            if let Some(on) = date_time {
+                s.doc.settings.remove_date_time = on;
+            }
+            Ok(privacy(s))
+        })
+        .params(r#"{"removePersonalInfo"?: bool (save comment and revision authors as "Author", no creator or last-modified-by), "removeDateTime"?: bool (save comments and tracked changes without dates)} — at least one; the open document keeps its real names and dates"#),
+        CommandSpec::new("file.privacy", "Privacy Settings", "File › Options › Save", |s, _| Ok(privacy(s)))
+            .params(r#"{} → {"removePersonalInfo": bool, "removeDateTime": bool} (file.privacyOptions changes them)"#)
+            .pure(),
         CommandSpec::new("document.inspect", "Inspect Document", "Agents", inspect).params(r#"{"text"?: bool}"#).pure(),
         CommandSpec::new("document.text", "Document Text", "Agents", |s, v| {
             let story = super::story_param(s, v);
@@ -116,6 +138,11 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"text": string}"#),
     ]
+}
+
+/// The document's privacy settings, as `file.privacy` and `file.privacyOptions` return them.
+fn privacy(s: &Session) -> Value {
+    json!({"removePersonalInfo": s.doc.settings.remove_personal_info, "removeDateTime": s.doc.settings.remove_date_time})
 }
 
 fn new(s: &mut Session, v: &Value) -> CmdResult {

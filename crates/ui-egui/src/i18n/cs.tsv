@@ -2081,3 +2081,10 @@
 	Automatic ({region})	Automaticky ({region})
 	Search	Hledat
 	Title Bar	Záhlaví okna
+	Privacy Options	Možnosti ochrany osobních údajů
+	Trust Center	Centrum zabezpečení
+	Privacy for this document	Soukromí tohoto dokumentu
+	Remove my name from comments, changes and file properties when saving	Při ukládání odebrat mé jméno z komentářů, změn a vlastností souboru
+	Leave out the date and time of comments and tracked changes when saving	Při ukládání vynechat datum a čas komentářů a sledovaných změn
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	Upravovaný dokument si jména a data ponechá; vynechá je jen uložený soubor.
+	Privacy Settings	Aktuální nastavení soukromí
