@@ -10,6 +10,8 @@ use crate::{WordApp, widgets};
 
 /// Vertical gap between the bar and the selection's first line.
 const VGAP: f32 = 8.0;
+/// Least height of a selection rectangle (screen points) that counts as visible for anchoring.
+const MIN_VISIBLE_H: f32 = 1.0;
 /// Distance from the selection's left edge at which the bar is centred.
 const ANCHOR_INSET: f32 = 4.0;
 /// Padding inside the bar.
@@ -41,6 +43,31 @@ const COMBO_FONT_W: f32 = ROW2_W - (COMBO_SIZE_W + GAP + 2.0 * BTN_W + 3.0 * SPA
 pub const BAR_W: f32 = PAD_X * 2.0 + ROW2_W;
 pub const BAR_H: f32 = PAD_Y * 2.0 + ROW_H * 2.0 + ROW_GAP;
 
+/// The part of the selection the bar anchors to: the topmost selection rectangle that is actually
+/// visible inside `clip` (the scroll viewport), cut down to its visible portion. `None` when no
+/// usable part of the selection is on screen. Rectangles that only touch the clip's edge, or are
+/// not finite, are ignored. Pure geometry, unit tested without a window.
+pub fn visible_anchor(selection_rects: impl IntoIterator<Item = Rect>, clip: Rect) -> Option<Rect> {
+    if !clip.is_finite() || !clip.is_positive() {
+        return None;
+    }
+    let mut first: Option<Rect> = None;
+    for sr in selection_rects {
+        if !sr.is_finite() || !sr.intersects(clip) {
+            continue;
+        }
+        let visible = sr.intersect(clip);
+        // A sliver on the clip's edge is not a visible anchor (and could be zero-sized).
+        if visible.width() <= 0.0 || visible.height() < MIN_VISIBLE_H {
+            continue;
+        }
+        if first.is_none_or(|f| visible.min.y < f.min.y) {
+            first = Some(visible);
+        }
+    }
+    first
+}
+
 /// Where the bar sits for a selection line and viewport; `None` for degenerate inputs (NaN
 /// rects must never reach egui). Pure geometry, unit tested without a window.
 pub fn anchor_rect(selection_top: f32, selection_left: f32, viewport: Rect) -> Option<Rect> {
@@ -50,9 +77,22 @@ pub fn anchor_rect(selection_top: f32, selection_left: f32, viewport: Rect) -> O
     // Horizontal: centre on the selection's start (a few points in), clamped inside the viewport.
     let cx = (selection_left + ANCHOR_INSET).clamp(viewport.left(), viewport.right());
     let x = (cx - BAR_W / 2.0).clamp(viewport.left(), (viewport.right() - BAR_W).max(viewport.left()));
-    // Vertical: above the selection, unless there is no room, then below it.
+    // Vertical: prefer above, then below. Check both viewport edges: a selection can be
+    // partially scrolled out of view, so merely checking `above >= viewport.top()` is not enough.
     let above = selection_top - VGAP - BAR_H;
-    let y = if above >= viewport.top() { above } else { selection_top + VGAP };
+    let below = selection_top + VGAP;
+    let above_fits = above >= viewport.top() && above + BAR_H <= viewport.bottom();
+    let below_fits = below >= viewport.top() && below + BAR_H <= viewport.bottom();
+    let y = if above_fits {
+        above
+    } else if below_fits {
+        below
+    } else {
+        // Neither side has room (or the supplied anchor is outside the viewport). Keep the bar
+        // inside the visible area whenever the viewport can accommodate its height.
+        let desired = if above < viewport.top() { below } else { above };
+        desired.clamp(viewport.top(), (viewport.bottom() - BAR_H).max(viewport.top()))
+    };
     Some(Rect::from_min_size(pos2(x, y), Vec2::new(BAR_W, BAR_H)))
 }
 
@@ -294,6 +334,49 @@ mod tests {
     }
 
     #[test]
+    fn vertical_position_stays_inside_viewport_for_offscreen_anchor() {
+        let viewport = vp();
+        for selection_top in [viewport.top() - 500.0, viewport.bottom() + 500.0] {
+            let r = anchor_rect(selection_top, viewport.center().x, viewport).unwrap_or(Rect::EVERYTHING);
+            assert!(r.min.y >= viewport.top() - 1e-3, "bar top {} is above viewport {}", r.min.y, viewport.top());
+            assert!(r.max.y <= viewport.bottom() + 1e-3, "bar bottom {} exceeds viewport {}", r.max.y, viewport.bottom());
+        }
+    }
+
+    #[test]
+    fn anchor_skips_rects_scrolled_offscreen_and_clips_partial_ones() {
+        let clip = vp();
+        // Page 1's line is above the viewport, page 2's line is inside it.
+        let above = Rect::from_min_size(pos2(100.0, clip.top() - 300.0), Vec2::new(200.0, 20.0));
+        let inside = Rect::from_min_size(pos2(120.0, clip.top() + 50.0), Vec2::new(200.0, 20.0));
+        assert_eq!(visible_anchor([above, inside], clip), Some(inside));
+        // Partly scrolled off the top: anchored to the visible part, never above the viewport.
+        let partial = Rect::from_min_size(pos2(100.0, clip.top() - 10.0), Vec2::new(200.0, 20.0));
+        let a = visible_anchor([partial], clip).unwrap();
+        assert!((a.min.y - clip.top()).abs() < 1e-3 && (a.height() - 10.0).abs() < 1e-3);
+        // Entirely off either end, or only touching the edge: nothing to anchor to.
+        let below = Rect::from_min_size(pos2(100.0, clip.bottom() + 5.0), Vec2::new(200.0, 20.0));
+        let touching = Rect::from_min_size(pos2(100.0, clip.top() - 20.0), Vec2::new(200.0, 20.0));
+        assert_eq!(visible_anchor([above, below, touching], clip), None);
+        assert_eq!(visible_anchor([], clip), None);
+        // Input order does not matter: the topmost visible rectangle wins.
+        let lower = Rect::from_min_size(pos2(100.0, clip.top() + 200.0), Vec2::new(200.0, 20.0));
+        assert_eq!(visible_anchor([lower, inside], clip), Some(inside));
+        // Degenerate input is rejected, not propagated.
+        let nan = Rect::from_min_size(pos2(f32::NAN, 0.0), Vec2::new(10.0, 10.0));
+        assert_eq!(visible_anchor([nan], clip), None);
+    }
+
+    #[test]
+    fn bar_for_a_partly_hidden_selection_stays_clear_of_the_top_edge() {
+        let clip = vp();
+        let partial = Rect::from_min_size(pos2(100.0, clip.top() - 40.0), Vec2::new(200.0, 20.0 + 30.0));
+        let a = visible_anchor([partial], clip).unwrap();
+        let bar = anchor_rect(a.min.y, a.min.x, clip).unwrap();
+        assert!(bar.min.y >= clip.top() - 1e-3 && bar.max.y <= clip.bottom() + 1e-3);
+    }
+
+    #[test]
     fn degenerate_inputs_are_rejected_not_crashed() {
         assert!(anchor_rect(f32::NAN, 10.0, vp()).is_none());
         assert!(anchor_rect(10.0, f32::NAN, vp()).is_none());
@@ -332,6 +415,8 @@ mod tests {
             h.step();
         }
         let [bar, used] = h.ctx.data(|d| d.get_temp::<[Rect; 2]>(shown_id())).expect("the bar is shown over a selection");
+        let viewport = h.state().canvas.viewport.expect("the canvas exposes its actual scroll viewport");
+        assert!(viewport.contains_rect(bar), "toolbar {:?} must stay inside canvas viewport {:?}", bar, viewport);
         let inner = bar.shrink2(Vec2::new(PAD_X, PAD_Y));
         assert!(
             inner.expand(0.1).contains_rect(used),

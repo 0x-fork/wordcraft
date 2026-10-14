@@ -1094,19 +1094,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         } else {
             Vec::new()
         };
-        let mut first: Option<Rect> = None;
+        let visible_clip = ui.clip_rect();
+        let mut screen_rects: Vec<Rect> = Vec::with_capacity(selected.len());
         for (pi, r) in selected {
             if let Some(pr) = rects.get(pi) {
                 let scale = layout.pages.get(pi).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
                 let sr = Rect::from_min_size(pos2(pr.min.x + r.x * scale, pr.min.y + r.y * scale), vec2(r.w * scale, r.h * scale));
                 painter.rect_filled(sr, 0.0, t.selection);
-                // Track the topmost rect: the mini toolbar anchors on the selection's first line.
-                if first.is_none_or(|f| sr.min.y < f.min.y) {
-                    first = Some(sr);
-                }
+                screen_rects.push(sr);
             }
         }
-        app.canvas.mini_anchor = first;
+        // Anchor only to visible selection geometry. A selection can span pages, and its
+        // document-first line may be scrolled offscreen; using it would pin the toolbar to an
+        // old screen position unrelated to the visible selection.
+        app.canvas.mini_anchor = crate::mini_toolbar::visible_anchor(screen_rects, visible_clip);
         // Content controls: the frame of the one the caret is in (all of them in Design Mode).
         crate::content_controls::paint(app, &painter, &t, &layout, &rects, geo.scale);
         // Read Aloud: the sentence being spoken.
@@ -1383,7 +1384,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if let Some(sel) = app.canvas.mini_anchor
         && app.ui.mini_toolbar
     {
-        crate::mini_toolbar::show(app, ui.ctx(), sel, area);
+        crate::mini_toolbar::show(app, ui.ctx(), sel, out.inner_rect);
     }
     if app.session.view.read_mode {
         // Fixed navigation chrome, independent of the horizontally moving columns.
