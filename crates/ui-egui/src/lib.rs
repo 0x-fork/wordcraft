@@ -651,9 +651,14 @@ impl WordApp {
             return Ok(json!({"pending": name}));
         }
         if self.session.dirty && discards_document(id, &params) {
-            let name =
-                self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.title_stem());
-            self.dialog = Some(dialogs::Dialog::SaveChanges { name, then: id.to_string(), params, document: self.session.document_id() });
+            let name = self.prompt_name();
+            self.dialog = Some(dialogs::Dialog::SaveChanges {
+                name,
+                then: id.to_string(),
+                params,
+                document: self.session.document_id(),
+                message: String::new(),
+            });
             return Ok(json!({"pending": "saveChanges"}));
         }
         // The ribbon and context-menu Paste commands send no text: read the system clipboard's, as
@@ -843,7 +848,10 @@ impl WordApp {
                     file_dialogs::Asked::Busy => Ok(json!({"done": false})),
                 };
             }
-            SaveChoice::Save => self.save_for_prompt(),
+            SaveChoice::Save => match self.save_for_prompt() {
+                Ok(saved) => saved,
+                Err(error) => return Err(self.save_failed(&error, then, params, document)),
+            },
         };
         if !go {
             return Ok(json!({"done": false}));
@@ -870,13 +878,33 @@ impl WordApp {
     /// Save before New/Open/Close (and the mailings that replace the document): true once the
     /// document is safely written. A save in a format that doesn't keep everything (a page
     /// image, plain text) writes a copy and leaves the document unsaved, so it doesn't count:
-    /// the command is cancelled and the document stays.
-    fn save_for_prompt(&mut self) -> bool {
-        let saved = match self.execute("file.save", json!({})) {
-            Ok(v) => v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some(),
-            Err(_) => false,
-        };
-        self.safely_saved(saved)
+    /// the command is cancelled and the document stays. A save that fails (no permission, the
+    /// file locked by another app, a missing folder) is the save's error ([`Self::save_failed`]
+    /// tells the user).
+    fn save_for_prompt(&mut self) -> Result<bool, String> {
+        let v = self.execute("file.save", json!({}))?;
+        let saved = v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some();
+        Ok(self.safely_saved(saved))
+    }
+
+    /// The document's name as the Save Changes prompt shows it: its file's name, else its title.
+    fn prompt_name(&self) -> String {
+        self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.title_stem())
+    }
+
+    /// Save (or Save As) from the Save Changes prompt failed (#1445): say so plainly on the status
+    /// bar and in the prompt, which comes back for Save again, Don't Save or Cancel, with the
+    /// held-back command (`then`) still waiting. Nothing closes and nothing is discarded. Returns
+    /// the message, the prompt answer's error.
+    pub(crate) fn save_failed(&mut self, error: &str, then: String, params: Value, document: u64) -> String {
+        let name = self.prompt_name();
+        let message = i18n::fmt(tl!("Couldn't save {name}, so it is still open and nothing was lost: {error}"), &[("name", &name), ("error", error)]);
+        log::error!("save from the Save Changes prompt failed: {error}");
+        self.status(message.clone());
+        if document == self.session.document_id() {
+            self.dialog = Some(dialogs::Dialog::SaveChanges { name, then, params, document, message: message.clone() });
+        }
+        message
     }
 
     /// Whether a save before New/Open/Close counts: it happened, and kept everything.
@@ -2948,6 +2976,14 @@ mod tests {
         a.session.doc.plain_text(wordcraft_doc::StoryRef::Body)
     }
 
+    /// The reason the Save Changes prompt shows (a failed save), if that prompt is open.
+    fn prompt_message(a: &WordApp) -> Option<String> {
+        match &a.dialog {
+            Some(dialogs::Dialog::SaveChanges { message, .. }) => Some(message.clone()),
+            _ => None,
+        }
+    }
+
     fn prompt(a: &WordApp) -> Option<&'static str> {
         a.dialog.as_ref().map(|d| d.name())
     }
@@ -3089,6 +3125,114 @@ mod tests {
         assert!(a.quit_requested);
         assert!(a.close_requested(), "the close that follows goes ahead");
         assert!(body_text(&a).contains(UNSAVED), "nothing was replaced on the way out");
+    }
+
+    /// #1445: the window's X on an edited document with a file → Save writes the file and lets
+    /// the window close.
+    #[test]
+    fn window_close_save_writes_the_file_and_quits() {
+        let dir = scratch("close-save");
+        let path = docx_on_disk(&dir, "Draft");
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        assert!(!a.close_requested());
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        let on_disk = wordcraft_engine::io::open_path(&path).unwrap().plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(on_disk.contains("Revised Draft"), "the edit is on disk: {on_disk:?}");
+        assert!(a.quit_requested, "the app may close");
+        assert!(a.close_requested(), "the close that follows goes ahead");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1445: when Save in the close prompt can't write the file, the prompt's answer is an error
+    /// that says so plainly, the status bar shows it, and the document stays open, still edited.
+    #[test]
+    fn window_close_save_that_fails_says_so_and_keeps_the_document() {
+        let dir = scratch("close-save-fails");
+        let folder = dir.join("folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = docx_on_disk(&folder, "Draft");
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        // The document's folder is gone and a file has its name: nothing can be written there.
+        std::fs::remove_dir_all(&folder).unwrap();
+        std::fs::write(&folder, b"not a folder").unwrap();
+        assert!(!a.close_requested());
+        a.status_msg = None;
+        let err = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
+        assert!(err.contains("Couldn't save contract.docx") && err.contains("still open"), "{err}");
+        assert!(a.status_msg.as_ref().is_some_and(|(m, _)| *m == err), "the status bar says why: {:?}", a.status_msg);
+        assert!(!a.quit_requested, "nothing closes");
+        assert!(a.session.dirty && body_text(&a).contains("Revised Draft"), "nothing was discarded");
+        assert_eq!(a.session.path.as_deref(), Some(path.as_path()));
+        // The prompt comes back with the reason in it: Save again, Don't Save or Cancel.
+        assert_eq!(prompt(&a), Some("saveChanges"), "the prompt is open again");
+        assert_eq!(prompt_message(&a).as_deref(), Some(err.as_str()), "the prompt says why");
+        assert!(a.run("ui.saveChanges", json!({"answer": "save"})).is_err(), "Save again fails again");
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        a.run("ui.saveChanges", json!({"answer": "cancel"})).unwrap();
+        assert_eq!(prompt(&a), None);
+        assert!(!a.close_requested(), "the next close asks again");
+        assert_eq!(prompt_message(&a).as_deref(), Some(""), "a fresh prompt, no old reason");
+        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert!(a.quit_requested, "Don't Save still closes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1445: a new document → close → Save → Save As to a place that can't be written: the
+    /// same plain error, the prompt back with the reason, nothing closed or discarded.
+    #[test]
+    fn window_close_save_as_that_fails_says_so_and_keeps_the_document() {
+        let dir = scratch("close-save-as-fails");
+        let blocker = dir.join("folder");
+        std::fs::write(&blocker, b"not a folder").unwrap();
+        let picked = blocker.join("novel.docx").to_string_lossy().to_string();
+        let mut a = typed();
+        a.services.pick_save = Some(Box::new(move |_| Some(picked.clone())));
+        assert!(!a.close_requested());
+        a.status_msg = None;
+        let err = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
+        assert!(err.contains("Couldn't save") && err.contains("still open"), "{err}");
+        assert!(a.status_msg.as_ref().is_some_and(|(m, _)| *m == err), "the status bar says why: {:?}", a.status_msg);
+        assert!(!a.quit_requested, "nothing closes");
+        assert!(a.session.dirty && body_text(&a).contains(UNSAVED), "nothing was discarded");
+        assert_eq!(a.session.path, None);
+        assert_eq!(prompt(&a), Some("saveChanges"), "the prompt is open again");
+        assert_eq!(prompt_message(&a).as_deref(), Some(err.as_str()), "the prompt says why");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1445: the prompt that comes back after a failed save shows the reason on screen.
+    #[test]
+    fn save_prompt_shows_why_the_save_failed() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = typed();
+        a.run("file.close", json!({})).unwrap();
+        let reason = "Couldn't save Draft, so it is still open and nothing was lost: disk full";
+        if let Some(dialogs::Dialog::SaveChanges { message, .. }) = &mut a.dialog {
+            *message = reason.into();
+        }
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                if fonts {
+                    dialogs::show(app, &ctx);
+                } else {
+                    theme::install_fonts_for(&ctx, false);
+                    fonts = true;
+                }
+            },
+            a,
+        );
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(h.query_by_label(reason).is_some(), "the reason is in the prompt");
+        assert!(h.query_by_label("Save").is_some(), "Save again is offered");
     }
 
     /// Enter activates the focused prompt button; it means Save only when no button has focus.
@@ -3799,8 +3943,9 @@ mod tests {
 
         a.run("file.new", json!({})).unwrap();
         a.status_msg = None;
-        let r = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
-        assert_eq!(r["done"], false, "the New was cancelled");
+        // A failed save is an error, not a quiet Cancel (#1445); the New doesn't run.
+        let err = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
+        assert!(err.contains("still open") && err.contains("blocked by the browser"), "{err}");
         assert!(body_text(&a).contains(UNSAVED));
         assert!(a.session.dirty);
         let msg = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
