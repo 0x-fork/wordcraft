@@ -53,6 +53,8 @@ pub struct CanvasState {
     /// An animated column-turn destination; intermediate offsets are allowed during the motion.
     read_target_page: Option<usize>,
     pub caret_visible_since: f64,
+    /// The caret's colour and the fingerprint of where it was worked out ([`caret_color_at`]).
+    caret_bg: Option<(u64, Color32)>,
     dragging: bool,
     /// Alt+drag: where the column (block) selection started (page, x, y) and its last end.
     column_drag: Option<((usize, f32, f32), (usize, f32, f32))>,
@@ -162,6 +164,7 @@ impl Default for CanvasState {
             read_first_visible: None,
             read_target_page: None,
             caret_visible_since: 0.0,
+            caret_bg: None,
             dragging: false,
             column_drag: None,
             last_press: None,
@@ -735,9 +738,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.read_target_page = None;
         app.canvas.scroll_request = Some(vec2(page as f32 * step, 0.0));
     }
-    // View › Switch Modes: dark paper, inverted document colours, a white caret.
+    // View › Switch Modes: dark paper, inverted document colours.
     let dark_page = app.session.view.dark_mode;
-    let caret_color = if dark_page { Color32::WHITE } else { t.caret };
     let dark_paper = wordcraft_render::DARK_PAPER;
     let show_ruler = app.session.view.ruler && app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode;
     let (hruler, vruler, area) = if show_ruler {
@@ -938,18 +940,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // Render before placing the page: a page re-rendered in this frame (a zoom step, an
             // edit) then sits on the pixel grid in this frame too, rather than a frame later.
             if visible && !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
-                let mut opts = screen_render_options();
-                opts.display.marks = app.session.view.marks;
-                opts.display.always = app.session.prefs.marks;
-                opts.display.placeholders = true;
-                opts.display.markup = app.session.view.show_markup;
-                // Ink Replay draws the ink itself, stroke by stroke, over pages without it.
-                opts.display.hide_ink = app.session.view.hide_ink || app.session.view.draw.replay;
-                opts.display.revisions = app.session.prefs.markup.clone();
-                opts.dark = dark_page;
-                opts.dark_paper = dark_paper;
-                opts.display.dim_header = !dim_body;
-                opts.display.dim_body = dim_body;
+                let opts = page_render_options(app, dim_body);
                 let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
                 let px = img.to_straight();
                 let ci = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &px);
@@ -1141,7 +1132,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 let on = ((since / 530.0) as u64).is_multiple_of(2);
                 let look = crate::caret_glide::look(app, ui, content_origin, &geo, [pos2(x, y0), pos2(x, y1)], focused, since, on);
                 if look.opacity > 0.0 && focused {
-                    painter.line_segment(look.bar, Stroke::new(1.5, t.caret.gamma_multiply(look.opacity)));
+                    let caret_color = caret_color_at(app, &layout, pi, ex + slot.x, base - slot.y + (slot.d - slot.a) / 2.0, view, dim_body);
+                    painter.line_segment(look.bar, Stroke::new(1.5, caret_color.gamma_multiply(look.opacity)));
                 }
                 if focused {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
@@ -1167,6 +1159,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let y1 = y0 + c.height * scale;
             let since = crate::now_ms() - app.canvas.caret_visible_since;
             let on = ((since / 530.0) as u64).is_multiple_of(2);
+            // The caret contrasts with what lies under it, like Word's inverted caret (#299):
+            // worked out only when something is drawn in it.
+            let caret_color = |app: &mut WordApp| caret_color_at(app, &layout, c.page, c.x + c.width / 2.0, c.top + c.height / 2.0, view, dim_body);
             let bar = if c.width > 0.0 {
                 // Turned text (a table cell's text direction): the caret lies across the page.
                 [pos2(x, y0.round() + 0.5), pos2(x + c.width * scale, y0.round() + 0.5)]
@@ -1177,7 +1172,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let shown = app.session.sel.is_collapsed() && focused;
             let look = crate::caret_glide::look(app, ui, content_origin, &geo, bar, shown, since, on);
             if shown && look.opacity > 0.0 {
-                painter.line_segment(look.bar, Stroke::new(1.5, caret_color.gamma_multiply(look.opacity)));
+                painter.line_segment(look.bar, Stroke::new(1.5, caret_color(app).gamma_multiply(look.opacity)));
             }
             if focused {
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
@@ -1204,6 +1199,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     crate::theme::install_fonts_extra(ui.ctx(), app.fonts_hans, app.fonts_system_cjk, &app.canvas.ime_faces);
                     ui.ctx().request_repaint();
                 }
+                let caret_color = caret_color(app);
                 let g = painter.text(pos2(x, y1), egui::Align2::LEFT_BOTTOM, &app.canvas.ime_preedit, regular(c.height * scale * 0.8), caret_color);
                 painter.line_segment([pos2(g.min.x, g.max.y), pos2(g.max.x, g.max.y)], Stroke::new(1.0, caret_color));
             }
@@ -2637,6 +2633,55 @@ fn field_showing_code(app: &WordApp, pos: &wordcraft_doc::Pos) -> Option<wordcra
     })
 }
 
+/// Render options for this view's page rasters: marks, markup, dark page, header/body dimming.
+fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_render::RenderOptions {
+    let mut opts = screen_render_options();
+    opts.display.marks = app.session.view.marks;
+    opts.display.always = app.session.prefs.marks;
+    opts.display.placeholders = true;
+    opts.display.markup = app.session.view.show_markup;
+    // Ink Replay draws the ink itself, stroke by stroke, over pages without it.
+    opts.display.hide_ink = app.session.view.hide_ink || app.session.view.draw.replay;
+    opts.display.revisions = app.session.prefs.markup.clone();
+    opts.dark = app.session.view.dark_mode;
+    opts.dark_paper = wordcraft_render::DARK_PAPER;
+    opts.display.dim_header = !dim_body;
+    opts.display.dim_body = dim_body;
+    opts
+}
+
+/// The caret colour that shows against `bg`: black or white, whichever contrasts more (WCAG
+/// contrast ratio), as Word's caret inverts what lies under it (#299). A white caret on white
+/// paper, or a black one on a dark page colour or highlight, would vanish.
+pub(crate) fn caret_contrast(bg: wordcraft_doc::props::Rgb) -> Color32 {
+    let lin = |v: u8| {
+        let c = v as f32 / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let l = 0.2126 * lin(bg.0) + 0.7152 * lin(bg.1) + 0.0722 * lin(bg.2);
+    // Contrast with black (l + 0.05) / 0.05 against with white 1.05 / (l + 0.05).
+    if (l + 0.05) * (l + 0.05) >= 0.05 * 1.05 { Color32::BLACK } else { Color32::WHITE }
+}
+
+/// The caret colour at page point (`x`, `y`) of page `page`: [`caret_contrast`] of the paper,
+/// shading or highlight there. Cached until the layout, the view or the point changes, so the
+/// blink doesn't rebuild the page's draw list every frame.
+fn caret_color_at(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, page: usize, x: f32, y: f32, view: u64, dim_body: bool) -> Color32 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (std::sync::Arc::as_ptr(layout) as usize, page, x.to_bits(), y.to_bits(), view).hash(&mut h);
+    let key = h.finish();
+    if let Some((k, c)) = app.canvas.caret_bg
+        && k == key
+    {
+        return c;
+    }
+    let Some(p) = layout.pages.get(page) else { return Color32::BLACK };
+    let bg = wordcraft_render::background_at(&app.session.doc, p, &page_render_options(app, dim_body), x, y);
+    let c = caret_contrast(bg);
+    app.canvas.caret_bg = Some((key, c));
+    c
+}
+
 /// Render options for page rasters shown on screen: on macOS, text is darkened the way the system
 /// draws it, so a page looks as it does in other Mac apps (exports never are).
 pub(crate) fn screen_render_options() -> wordcraft_render::RenderOptions {
@@ -2702,6 +2747,59 @@ mod tests {
         let last_left = rects.last().unwrap().left();
         assert!((size.x - 1100.0 - (last_left - GAP)).abs() < 1.0, "last column aligns against the pane");
         assert!(reading_size(vec2(1440.0, 750.0), PX_PER_PT, Some(612.0)).0 <= 612.0);
+    }
+
+    /// #299: the caret is black on light backgrounds and white on dark ones, whatever the UI
+    /// theme: on white paper, a dark page colour, a dark page (Switch Modes) and a highlight.
+    #[test]
+    fn caret_contrasts_with_what_lies_under_it() {
+        use wordcraft_doc::props::Rgb;
+        assert_eq!(caret_contrast(Rgb::WHITE), Color32::BLACK);
+        assert_eq!(caret_contrast(Rgb::BLACK), Color32::WHITE);
+        assert_eq!(caret_contrast(Rgb(0xFF, 0xFF, 0x00)), Color32::BLACK, "yellow highlight");
+        assert_eq!(caret_contrast(Rgb(0x00, 0x00, 0x80)), Color32::WHITE, "dark blue");
+        assert_eq!(caret_contrast(Rgb(0x33, 0x33, 0x33)), Color32::WHITE, "dark paper");
+        assert_eq!(caret_contrast(Rgb(0xC0, 0xC0, 0xC0)), Color32::BLACK, "light grey");
+
+        let doc = wordcraft_doc::Document::from_text("Hello WordCraft");
+        let mut a = WordApp::new(wordcraft_engine::Session::new(doc), Default::default());
+        let at = |a: &mut WordApp, off: usize| {
+            let layout = a.session.layout();
+            let c = layout.caret_on(&Pos::body(0, off), 0).unwrap();
+            let view = view_key(a, false);
+            caret_color_at(a, &layout, c.page, c.x, c.top + c.height / 2.0, view, false)
+        };
+        assert_eq!(at(&mut a, 2), Color32::BLACK, "white paper");
+        a.run("design.pageColor", json!({"color": "#102040"})).unwrap();
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "dark page colour");
+        a.run("design.pageColor", json!({})).unwrap();
+        assert_eq!(at(&mut a, 2), Color32::BLACK, "page colour removed");
+        a.session.view.dark_mode = true;
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "dark page");
+        a.session.view.dark_mode = false;
+        a.run("select.text", json!({"text": "Hello"})).unwrap();
+        a.run("format.highlight", json!({"color": "black"})).unwrap();
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "inside a black highlight");
+        assert_eq!(at(&mut a, 9), Color32::BLACK, "past it");
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "again, from the cache");
+    }
+
+    /// #299: the caret's colour is worked out only when the caret is drawn: with text selected
+    /// there is no caret, so the page's draw list isn't built for it.
+    #[test]
+    fn caret_colour_is_not_worked_out_while_the_caret_is_hidden() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello WordCraft")), Default::default());
+        a.run("select.text", json!({"text": "Hello"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.state().canvas.caret_bg.is_none(), "no caret, no colour lookup");
     }
 
     /// #167: dragging a ruler's margin edge sets that margin, snapped, never negative, and
