@@ -389,6 +389,27 @@ impl Document {
                 }
             }
         }
+        // From the very start of a top-level table to a top-level paragraph (Select All in a
+        // document that starts with a table, #1198): the tables are covered whole and go too,
+        // and the paragraphs left between join.
+        if a.path.depth() > 0 && b.path.depth() == 0 && a.off == 0 {
+            let ta = a.path.0.first().copied().unwrap_or(0) as usize;
+            let first = self.para_paths(a.story).into_iter().find(|q| q.0.first().is_some_and(|t| *t as usize == ta));
+            if first.as_ref() == Some(&a.path) {
+                let ib = b.path.last();
+                let bl = self.container_mut(a.story, &b.path)?;
+                let mut removed = 0;
+                for i in (ta..ib).rev() {
+                    if matches!(bl.get(i).map(|b| &**b), Some(Block::Table(_))) {
+                        bl.remove(i);
+                        removed += 1;
+                    }
+                }
+                let at = Pos { story: a.story, path: Path::top(ta), off: 0 };
+                let end = Pos { story: a.story, path: Path::top(ib.saturating_sub(removed)), off: 0 };
+                return self.delete_range(&at, &end);
+            }
+        }
         Ok(a)
     }
 

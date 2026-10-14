@@ -2651,12 +2651,14 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
             item(ui, app, "Insert Rows Above", "table.insertRowAbove", json!({}));
             item(ui, app, "Insert Rows Below", "table.insertRowBelow", json!({}));
         });
-        match pick {
-            TablePick::Cell | TablePick::Cells => item(ui, app, "Delete Cells", "table.deleteCells", json!({})),
-            TablePick::Rows => item(ui, app, "Delete Rows", "table.deleteRow", json!({})),
-            TablePick::Columns => item(ui, app, "Delete Columns", "table.deleteColumn", json!({})),
-            TablePick::Table => item(ui, app, "Delete Table", "table.deleteTable", json!({})),
-        }
+        // Every Delete is there whatever is selected, as on Word's Delete button: with the caret
+        // in a cell, Delete Table is how the table goes (#1198).
+        ui.menu_button(tl!("Delete"), |ui| {
+            item(ui, app, "Delete Cells", "table.deleteCells", json!({}));
+            item(ui, app, "Delete Columns", "table.deleteColumn", json!({}));
+            item(ui, app, "Delete Rows", "table.deleteRow", json!({}));
+            item(ui, app, "Delete Table", "table.deleteTable", json!({}));
+        });
         if pick == TablePick::Cell {
             item(ui, app, "Split Cells", "table.split", json!({}));
         }
@@ -3658,9 +3660,9 @@ mod tests {
     }
 
     /// Right-clicking a table cell puts the caret there, and the table's items follow what is
-    /// selected, as in Word: with the caret in a cell, Delete Cells and Split Cells; with the
-    /// whole table, Delete Table, Distribute, AutoFit and Insert Caption… (never Select or Cell
-    /// Alignment).
+    /// selected, as in Word: with the caret in a cell, Split Cells; with the whole table,
+    /// Distribute, AutoFit and Insert Caption… (never Select or Cell Alignment). Delete is there
+    /// for both.
     #[test]
     fn the_context_menu_in_a_table_follows_the_selection() {
         let mut h = table_window();
@@ -3668,8 +3670,8 @@ mod tests {
         let at = screen(&mut h, b.x + b.w / 2.0, b.y + b.h / 2.0);
         right_click(&mut h, at);
         assert_eq!(h.state().session.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((1, 2)), "the caret moved to the cell");
-        assert_menu(&h, &["Insert", "Delete Cells", "Split Cells", "Text Direction", "Table Properties…"], true);
-        assert_menu(&h, &["Merge Cells", "Distribute Rows", "Delete Table", "AutoFit", "Select", "Cell Alignment"], false);
+        assert_menu(&h, &["Insert", "Delete", "Split Cells", "Text Direction", "Table Properties…"], true);
+        assert_menu(&h, &["Merge Cells", "Distribute Rows", "AutoFit", "Select", "Cell Alignment"], false);
         let depth = h.state().session.undo_depth();
         pick(&mut h, &["Insert", "Insert Rows Below"]);
         assert_eq!(h.state().session.doc.body.iter().find_map(|b| b.as_table()).map(|t| t.rows.len()), Some(3));
@@ -3677,14 +3679,29 @@ mod tests {
         h.state_mut().run("table.selectTable", json!({})).unwrap();
         right_click(&mut h, at);
         assert!(h.state().session.cell_range().is_some(), "a right-click on the selected table keeps it");
-        assert_menu(&h, &["Delete Table", "Distribute Rows", "Distribute Columns", "AutoFit", "Insert Caption…", "Table Properties…"], true);
-        assert_menu(&h, &["Delete Cells", "Split Cells", "Merge Cells"], false);
-        pick(&mut h, &["Delete Table"]);
+        assert_menu(&h, &["Delete", "Distribute Rows", "Distribute Columns", "AutoFit", "Insert Caption…", "Table Properties…"], true);
+        assert_menu(&h, &["Split Cells", "Merge Cells"], false);
+        pick(&mut h, &["Delete", "Delete Table"]);
         assert!(h.state().session.doc.body.iter().all(|b| b.as_table().is_none()));
     }
 
+    /// With just the caret in a cell, right-click › Delete › Delete Table removes the table, in
+    /// one undo step (#1198: the menu offered only Delete Cells there).
+    #[test]
+    fn a_right_click_in_a_cell_deletes_the_table() {
+        let mut h = table_window();
+        let b = cell(&mut h, 0, 1);
+        let at = screen(&mut h, b.x + b.w / 2.0, b.y + b.h / 2.0);
+        right_click(&mut h, at);
+        assert!(h.state().session.cell_range().is_none(), "just the caret");
+        let depth = h.state().session.undo_depth();
+        pick(&mut h, &["Delete", "Delete Table"]);
+        assert!(h.state().session.doc.body.iter().all(|b| b.as_table().is_none()));
+        assert_eq!(h.state().session.undo_depth(), depth + 1);
+    }
+
     /// With a column's cells selected, a right-click on one of them keeps them: the menu is a
-    /// column's (Delete Columns, Merge Cells, Distribute) and its Text Direction turns just the
+    /// column's (Merge Cells, Distribute) and its Text Direction turns just the
     /// column, in one undo step; one on a cell beside them drops them, though that cell lies
     /// between the selection's ends in the text, and the menu is a cell's again.
     #[test]
@@ -3697,8 +3714,8 @@ mod tests {
         let at = screen(&mut h, on.x + on.w / 2.0, on.y + on.h / 2.0);
         right_click(&mut h, at);
         assert_eq!(h.state().session.cell_range().map(|r| r.cols), Some((0, 0)), "still the column");
-        assert_menu(&h, &["Delete Columns", "Merge Cells", "Distribute Rows", "Distribute Columns", "Text Direction"], true);
-        assert_menu(&h, &["Delete Cells", "Split Cells", "AutoFit"], false);
+        assert_menu(&h, &["Merge Cells", "Distribute Rows", "Distribute Columns", "Text Direction"], true);
+        assert_menu(&h, &["Split Cells", "AutoFit"], false);
         let depth = h.state().session.undo_depth();
         pick(&mut h, &["Text Direction"]);
         assert_eq!(h.state().session.undo_depth(), depth + 1);
@@ -3714,7 +3731,7 @@ mod tests {
         assert!(h.state().session.cell_range().is_none(), "the column is no longer selected");
         assert_eq!(h.state().session.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((0, 2)));
         assert_menu(&h, &["Split Cells"], true);
-        assert_menu(&h, &["Delete Columns", "Merge Cells"], false);
+        assert_menu(&h, &["Merge Cells"], false);
     }
 
     /// Issue #123: zoomed out, pages sit side by side in rows when the width allows; at 100% a

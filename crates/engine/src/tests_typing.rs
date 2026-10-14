@@ -1067,6 +1067,32 @@ fn typing_rtl_letters_into_an_empty_paragraph_makes_it_rtl() {
     assert!(x < 300.0, "left-to-right paragraph: caret at {x}");
 }
 
+/// Select All then Delete or Backspace empties the document, tables included (Word, #1198):
+/// whether the text starts with a table or with a paragraph.
+#[test]
+fn select_all_then_delete_removes_tables() {
+    let tables = |s: &Session| s.doc.body.iter().filter(|b| b.as_table().is_some()).count();
+    for key in ["text.delete", "text.backspace"] {
+        let mut s = typed("");
+        run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+        typ(&mut s, "cell");
+        assert_eq!(tables(&s), 1);
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, key, json!({}));
+        assert_eq!(tables(&s), 0, "{key}: a table at the start of the document goes");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "", "{key}");
+
+        let mut s = typed("before\n");
+        run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+        typ(&mut s, "cell");
+        assert_eq!(tables(&s), 1);
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, key, json!({}));
+        assert_eq!(tables(&s), 0, "{key}: a table after text goes");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "", "{key}");
+    }
+}
+
 /// #898: a click just after a citation at the end of a paragraph puts the caret before the
 /// citation's hidden field end; what is typed there goes after the citation, as in Word, instead
 /// of into its result (Zotero then reports the citation as edited by hand).
