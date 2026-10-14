@@ -197,15 +197,42 @@ const MAC_LIGHTS_LEFT: f32 = 10.0;
 /// from the top of the window.
 pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT + (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
 
+/// The macOS title bar as laid out around the traffic lights: its height and where content starts
+/// after the lights. The app measures the real buttons (they grew in macOS 26); until then, or if it
+/// can't, the standard layout above.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MacTitleBar {
+    pub height: f32,
+    pub content_left: f32,
+}
+
+impl Default for MacTitleBar {
+    fn default() -> Self {
+        Self { height: MAC_TITLE_BAR, content_left: MAC_CONTENT_LEFT }
+    }
+}
+
+impl MacTitleBar {
+    /// The bar for traffic lights whose right edge is `lights_right` and whose centre is
+    /// `lights_centre_y` below the top of the window: the lights centred in it, and content the
+    /// same gap after them as they keep from the top. Never smaller than the standard layout.
+    pub fn around_lights(lights_right: f32, lights_centre_y: f32, light: f32) -> Self {
+        let height = (2.0 * lights_centre_y).max(MAC_TITLE_BAR);
+        let gap = (height - light) / 2.0;
+        Self { height, content_left: (lights_right + gap).clamp(MAC_CONTENT_LEFT, f32::from(i8::MAX)) }
+    }
+}
+
 pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
     // shrink to keep a margin above and below them.
     let mac = app.integrated_titlebar;
-    let left = if mac { MAC_CONTENT_LEFT as i8 } else { 8 };
+    let bar = app.mac_titlebar;
+    let left = if mac { bar.content_left as i8 } else { 8 };
     let control_h = if mac { 22.0 } else { 26.0 };
     egui::Panel::top("title_bar")
-        .exact_size(if mac { MAC_TITLE_BAR } else { 38.0 })
+        .exact_size(if mac { bar.height } else { 38.0 })
         .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
@@ -595,5 +622,18 @@ mod tests {
         assert_eq!(MAC_CONTENT_LEFT - lights_end, margin);
         // `egui::Margin` is in `i8`.
         assert!(MAC_CONTENT_LEFT <= f32::from(i8::MAX));
+    }
+
+    #[test]
+    fn mac_title_bar_follows_the_measured_lights() {
+        // The standard lights give the standard bar.
+        let lights_end = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT;
+        assert_eq!(MacTitleBar::around_lights(lights_end, MAC_TITLE_BAR / 2.0, MAC_LIGHT), MacTitleBar::default());
+        // Larger, lower lights (macOS 26): a taller bar, and content clear of the green button.
+        let bar = MacTitleBar::around_lights(78.0, 18.0, 14.0);
+        assert_eq!(bar.height, 36.0);
+        assert_eq!(bar.content_left, 89.0);
+        // Never tighter than the standard layout.
+        assert_eq!(MacTitleBar::around_lights(40.0, 10.0, 12.0), MacTitleBar::default());
     }
 }

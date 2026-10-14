@@ -21,6 +21,8 @@ mod graphics;
 mod logging;
 mod print;
 mod region;
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
@@ -330,6 +332,11 @@ fn main() -> eframe::Result {
             app.watch_desktop_theme(&cc.egui_ctx);
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");
+            #[cfg(target_os = "macos")]
+            if let Some(bar) = traffic_lights::title_bar() {
+                log::info!("title bar: {bar:?}");
+                app.mac_titlebar = bar;
+            }
             let mut key_file = None;
             if let Some(port) = control_port
                 && let Some((rx, file)) = control_server::start(port, cc.egui_ctx.clone(), wordcraft_control_key::settings_dir().as_deref())

@@ -435,6 +435,8 @@ pub struct WordApp {
     pub(crate) dialog_pick: Option<String>,
     /// macOS: the window has no title bar; leave room for the traffic lights.
     pub integrated_titlebar: bool,
+    /// macOS: the title bar's height and where its content starts, around the traffic lights.
+    pub mac_titlebar: chrome::MacTitleBar,
     control_rx: Option<std::sync::mpsc::Receiver<ControlRequest>>,
     shot_token: u64,
     queued_shots: Vec<(u64, f64, u32)>,
@@ -563,6 +565,7 @@ impl WordApp {
             status_msg: None,
             previews: previews::Previews::default(),
             integrated_titlebar: false,
+            mac_titlebar: chrome::MacTitleBar::default(),
             control_rx: None,
             shot_token: 0,
             queued_shots: Vec::new(),
