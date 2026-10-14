@@ -50,6 +50,12 @@ fn open(path: &str) -> Result<Session, String> {
     Ok(s)
 }
 
+/// The body text for `text`: the plain-text export, so list items keep their bullet or number label.
+fn listed_text(doc: &wordcraft_doc::Document) -> Result<String, String> {
+    let bytes = wordcraft_engine::io::save_bytes("out.txt", doc)?;
+    Ok(String::from_utf8_lossy(&bytes).replace("\r\n", "\n"))
+}
+
 /// `--author NAME`: the author recorded on tracked changes and comments (`file.setAuthor`).
 fn set_author(s: &mut Session, name: &str) -> Result<(), String> {
     s.run("file.setAuthor", &json!({"name": name})).map(|_| ()).map_err(|e| format!("--author: {e}"))
@@ -201,7 +207,8 @@ fn run(args: &[String]) -> Result<(), Failure> {
         "text" => {
             validate_options("text", &rest, NO_OPTIONS)?;
             let s = open(&pos(0)?)?;
-            write_stdout(|o| writeln!(o, "{}", s.doc.plain_text(wordcraft_doc::StoryRef::Body)))
+            let text = listed_text(&s.doc)?;
+            write_stdout(|o| writeln!(o, "{text}"))
         }
         "inspect" => {
             validate_options("inspect", &rest, NO_OPTIONS)?;
@@ -457,6 +464,12 @@ mod tests {
         assert_eq!(run(&args(&["info", "missing.docx", "--passwrod", "x"])), Err("info: unknown option --passwrod".into()));
         assert_eq!(run(&args(&["render", "missing.docx", "out.png", "--sclae", "2"])), Err("render: unknown option --sclae".into()));
         assert_eq!(run(&args(&["zotero", "refresh", "missing.docx", "--prot", "1"])), Err("zotero: unknown option --prot".into()));
+    }
+
+    #[test]
+    fn text_keeps_bullet_and_number_labels() {
+        let doc = wordcraft_engine::io::open_bytes("lists.md", b"- alpha\n- beta\n\n1. first\n2. second\n").unwrap();
+        assert_eq!(listed_text(&doc).unwrap(), "\u{2022}\talpha\n\u{2022}\tbeta\n1.\tfirst\n2.\tsecond");
     }
 
     #[test]
