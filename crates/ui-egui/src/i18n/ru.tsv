@@ -2202,6 +2202,7 @@ preview	Title	Пример
 	Print to PDF	Печать в PDF
 # Word XML Document (#548).
 	Word XML Document (*.xml)	Документ Word XML (*.xml)
+	Word 2003 XML Document (*.xml)	Документ Word 2003 XML (*.xml)
 # Find and Replace special characters and wildcards (#543).
 	Use wildcards	Подстановочные знаки
 	Special	Специальный

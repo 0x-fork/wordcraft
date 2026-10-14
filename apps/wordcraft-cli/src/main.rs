@@ -14,8 +14,10 @@ const USAGE: &str = "\
 wordcraft-cli — WordCraft from the command line
 
 USAGE:
-  wordcraft-cli convert <in> <out> [--markup]
-                                              convert between formats (docx, doc [read], pdf, odt, rtf, html, md, tex, txt, json, png);
+  wordcraft-cli convert <in> <out> [--markup] [--format wordml2003|flatopc]
+                                              convert between formats (docx, doc [read], pdf, odt, rtf, html, md, tex, txt, json, png,
+                                              xml); an .xml file is a Word XML Document (Flat OPC), or with
+                                              --format wordml2003 a Word 2003 XML Document;
                                               --markup (Print Markup): comments beside each page and
                                               tracked changes in pdf/png, a comment list in html/md/txt
   wordcraft-cli info <file>                   pages, words, paragraphs, properties (JSON)
@@ -111,7 +113,7 @@ fn automation_roots(
 }
 
 const NO_OPTIONS: &[OptionSpec] = &[];
-const CONVERT_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--markup", takes_value: false }];
+const CONVERT_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--markup", takes_value: false }, OptionSpec { name: "--format", takes_value: true }];
 const RENDER_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--page", takes_value: true }, OptionSpec { name: "--scale", takes_value: true }];
 const RUN_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--file", takes_value: true },
@@ -186,13 +188,26 @@ fn run(args: &[String]) -> Result<(), Failure> {
     match cmd {
         "convert" => {
             validate_options("convert", &rest, CONVERT_OPTIONS)?;
-            let (i, o) = (pos(0)?, pos(1)?);
+            // `--format wordml2003` (or `flatopc`) picks the kind of `.xml` file; its value isn't a path.
+            let format = arg_value(&rest, "--format");
+            let paths: Vec<&String> = rest
+                .iter()
+                .enumerate()
+                .filter(|(n, a)| !a.starts_with("--") && !(*n > 0 && rest.get(n - 1).is_some_and(|p| p == "--format")))
+                .map(|(_, a)| a)
+                .collect();
+            let missing = || format!("missing argument\n\n{USAGE}");
+            let (i, o) = (paths.first().ok_or_else(missing)?.to_string(), paths.get(1).ok_or_else(missing)?.to_string());
             let markup = rest.iter().any(|a| a == "--markup");
             let mut s = open(&i)?;
             let r = if o.to_ascii_lowercase().ends_with(".png") {
                 s.run("file.exportPng", &json!({"path": o, "page": 1, "markup": markup}))
             } else {
-                s.run("file.save", &json!({"path": o, "markup": markup}))
+                let mut params = json!({"path": o, "markup": markup});
+                if let Some(f) = format {
+                    params["format"] = json!(f);
+                }
+                s.run("file.save", &params)
             };
             r.map_err(|e| e.to_string())?;
             eprintln!("wrote {o}");

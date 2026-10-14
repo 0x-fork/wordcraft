@@ -950,6 +950,7 @@
 	Word Count	文字カウント
 	Word document (*.docx)	Word 文書 (*.docx)
 	Word XML Document (*.xml)	Word XML ドキュメント (*.xml)
+	Word 2003 XML Document (*.xml)	Word 2003 XML ドキュメント (*.xml)
 	Word Left	前の単語へ
 	Word Right	次の単語へ
 	WordArt	ワードアート

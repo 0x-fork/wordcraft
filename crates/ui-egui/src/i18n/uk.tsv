@@ -978,6 +978,7 @@
 	Word Count	Кількість слів
 	Word document (*.docx)	Документ Word (*.docx)
 	Word XML Document (*.xml)	Документ Word XML (*.xml)
+	Word 2003 XML Document (*.xml)	Документ Word 2003 XML (*.xml)
 	Word Left	На слово ліворуч
 	Word Right	На слово праворуч
 	WordArt	WordArt

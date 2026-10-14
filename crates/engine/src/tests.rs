@@ -3558,6 +3558,33 @@ fn word_xml_saves_and_opens_through_io() {
     assert!(err.contains("not a Word XML document"), "{err}");
 }
 
+/// #1081: `format: "wordml2003"` saves an `.xml` file as a Word 2003 XML Document, a plain save
+/// over such a file keeps that format, and `format: "flatopc"` converts it back.
+#[test]
+fn word_2003_xml_saves_through_the_save_commands() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Kept for old readers"}));
+    let dir = std::env::temp_dir().join(format!("wordcraft-2003-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("old.xml").to_string_lossy().to_string();
+    let kind = |p: &str| wordcraft_docx::sniff_xml(&std::fs::read(p).unwrap());
+    run(&mut s, "file.saveAs", json!({"path": path, "format": "wordml2003"}));
+    assert_eq!(kind(&path), wordcraft_docx::XmlKind::WordMl2003);
+    assert!(crate::io::open_path(std::path::Path::new(&path)).unwrap().plain_text(wordcraft_doc::StoryRef::Body).contains("Kept for old readers"));
+    run(&mut s, "file.save", json!({}));
+    assert_eq!(kind(&path), wordcraft_docx::XmlKind::WordMl2003);
+    run(&mut s, "file.save", json!({"path": path, "format": "flatopc"}));
+    assert_eq!(kind(&path), wordcraft_docx::XmlKind::FlatOpc);
+    for bad in [
+        json!({"path": dir.join("a.docx").to_string_lossy(), "format": "wordml2003"}),
+        json!({"path": path, "format": "bogus"}),
+        json!({"path": path, "format": 7}),
+    ] {
+        assert!(s.run("file.save", &bad).is_err(), "{bad}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// #146: the first/last column, total row and banded column regions apply in layout (later
 /// regions win: the total row's fill beats the first column's) and round-trip through .docx.
 #[test]

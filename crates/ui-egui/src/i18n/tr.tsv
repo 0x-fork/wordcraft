@@ -2201,6 +2201,7 @@ preview	Title	Örnek
 	Print to PDF	PDF'ye yazdır
 # Word XML Document (#548).
 	Word XML Document (*.xml)	Word XML Belgesi (*.xml)
+	Word 2003 XML Document (*.xml)	Word 2003 XML Belgesi (*.xml)
 # Find and Replace special characters and wildcards (#543).
 	Use wildcards	Joker karakter kullan
 	Special	Özel

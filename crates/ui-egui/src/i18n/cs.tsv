@@ -1876,6 +1876,7 @@
 	Animate the caret (it glides and fades)	Animovat kurzor (plynule se přesouvá a prolíná)
 	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	Zapnuto: kurzor se při psaní nebo použití kláves se šipkami plynule přesune na nové místo a jeho blikání se prolíná. Vypnuto: kurzor přeskakuje a blikání se ostře zapíná a vypíná.
 	Word XML Document (*.xml)	Dokument Word XML (*.xml)
+	Word 2003 XML Document (*.xml)	Dokument Word 2003 XML (*.xml)
 	Deleted	Odstraněno
 	Resize Table by Dragging	Změnit velikost tabulky přetažením
 	Select Column	Vybrat sloupec

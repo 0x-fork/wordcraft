@@ -1459,6 +1459,7 @@
 	Animate the caret (it glides and fades)	Einfügemarke animieren (sie gleitet und blendet aus)
 	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	Ein: Die Einfügemarke gleitet beim Tippen oder mit den Pfeiltasten an ihre neue Stelle, und ihr Blinken blendet weich. Aus: Sie springt und blinkt hart an und aus.
 	Word XML Document (*.xml)	Word-XML-Dokument (*.xml)
+	Word 2003 XML Document (*.xml)	Word-2003-XML-Dokument (*.xml)
 	Choose the sheet that holds the recipients.	Wählen Sie das Tabellenblatt mit den Empfängern.
 	First row of data contains column headers	Erste Datenzeile enthält Spaltenüberschriften
 	Deleted	Gelöscht

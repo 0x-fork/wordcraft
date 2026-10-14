@@ -877,6 +877,7 @@
 	Word Right	Sõna paremale
 	Word document (*.docx)	Wordi dokument (*.docx)
 	Word XML Document (*.xml)	Wordi XML-dokument (*.xml)
+	Word 2003 XML Document (*.xml)	Word 2003 XML-dokument (*.xml)
 	WordArt	WordArt
 	WordCraft	WordCraft
 	Words	Sõnad

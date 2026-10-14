@@ -1908,6 +1908,7 @@
 	Animate the caret (it glides and fades)	Animer le curseur (il glisse et s’estompe)
 	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	Activé : le curseur glisse jusqu’à sa nouvelle position lorsque vous tapez ou utilisez les touches fléchées, et son clignotement s’estompe en douceur. Désactivé : il saute et clignote de façon nette.
 	Word XML Document (*.xml)	Document XML Word (*.xml)
+	Word 2003 XML Document (*.xml)	Document XML Word 2003 (*.xml)
 	Deleted	Supprimé
 	Resize Table by Dragging	Redimensionner le tableau en le faisant glisser
 	Print Markup	Imprimer les marques de révision

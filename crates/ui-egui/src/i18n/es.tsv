@@ -999,6 +999,7 @@
 	Word Right	Palabra a la derecha
 	Word document (*.docx)	Documento de Word (*.docx)
 	Word XML Document (*.xml)	Documento XML de Word (*.xml)
+	Word 2003 XML Document (*.xml)	Documento XML de Word 2003 (*.xml)
 	WordArt	WordArt
 	WordCraft	WordCraft
 	WordCraft is now the default app for Word documents.	WordCraft es ahora la aplicación predeterminada para los documentos de Word.

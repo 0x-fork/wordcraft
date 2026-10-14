@@ -7,6 +7,11 @@ use super::{pos_json, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Session, p};
 
 /// Longest user name kept, in characters; longer names are cut, not refused.
+/// `format` of the save commands for an `.xml` file: Word 2003 XML Document (WordprocessingML 2003).
+pub const FORMAT_WORD_2003: &str = "wordml2003";
+/// `format` for an `.xml` file as a Word XML Document (Flat OPC), the default.
+pub const FORMAT_FLAT_OPC: &str = "flatopc";
+
 pub const MAX_AUTHOR_CHARS: usize = 255;
 
 /// Sets the user name that new tracked changes and comments are recorded under. The name is
@@ -35,9 +40,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .pure(),
         CommandSpec::new("file.save", "Save", "File", save)
             .key("Mod+S / Shift+F12")
-            .params(r#"{"path"?: string, "password"?: string (encrypt this and later saves with it, as file.encrypt does), "markup"?: bool (Print Markup for a PDF, PNG, HTML, Markdown or text copy: comments shown; default file.printMarkup)}"#)
+            .params(r#"{"path"?: string, "password"?: string (encrypt this and later saves with it, as file.encrypt does), "markup"?: bool (Print Markup for a PDF, PNG, HTML, Markdown or text copy: comments shown; default file.printMarkup), "format"?: "wordml2003" (an .xml file as a Word 2003 XML Document) | "flatopc" (as a Word XML Document, the default; saving over a Word 2003 XML file keeps that format)}"#)
             .pure(),
-        CommandSpec::new("file.saveAs", "Save As", "File", save_as).key("F12").params(r#"{"path": string, "password"?: string, "markup"?: bool (as file.save)}"#).pure(),
+        CommandSpec::new("file.saveAs", "Save As", "File", save_as).key("F12").params(r#"{"path": string, "password"?: string, "markup"?: bool, "format"?: string (as file.save)}"#).pure(),
         // Pure: the password must not land in Repeat or a recorded macro, and it isn't an edit
         // to undo; it marks the document as changed itself.
         CommandSpec::new("file.encrypt", "Encrypt with Password", "File › Info › Protect Document", encrypt)
@@ -199,16 +204,48 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
         wordcraft_docx::check_password(pw).map_err(|e| CmdError::Params(e.to_string()))?;
         s.password = Some(crate::io::Password::new(pw));
     }
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let mut opts = export_options(s, v);
+    match v.get("format").filter(|f| !f.is_null()) {
+        None => {
+            // Saving over a Word 2003 XML file (one opened as such, say) keeps its format.
+            opts.word2003 = ext == "xml" && is_word_2003_file(&path);
+        }
+        Some(f) if matches!(f.as_str(), Some(FORMAT_WORD_2003 | FORMAT_FLAT_OPC)) && ext == "xml" => {}
+        Some(_) => {
+            return Err(CmdError::Params(format!("`format` is \"{FORMAT_WORD_2003}\" or \"{FORMAT_FLAT_OPC}\", and only for an .xml file")));
+        }
+    }
     s.stamp_save();
     let password = s.password.as_ref().map(crate::io::Password::as_str);
-    crate::io::save_path_with(&path, &s.doc, password, &export_options(s, v)).map_err(CmdError::Failed)?;
+    crate::io::save_path_with(&path, &s.doc, password, &opts).map_err(CmdError::Failed)?;
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     if ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
         s.path = Some(path.clone());
         s.dirty = false;
     }
     Ok(json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted}))
+}
+
+/// Does `path` hold a Word 2003 XML Document already (so a plain save keeps that format)?
+#[cfg(not(target_arch = "wasm32"))]
+fn is_word_2003_file(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    if crate::file_access::check_read(&path.to_string_lossy()).is_err() {
+        return false;
+    }
+    let Ok(f) = std::fs::File::open(path) else { return false };
+    let mut head = Vec::new();
+    // The root element and its namespaces come first.
+    if f.take(64 * 1024).read_to_end(&mut head).is_err() {
+        return false;
+    }
+    wordcraft_docx::sniff_xml(&head) == wordcraft_docx::XmlKind::WordMl2003
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_word_2003_file(_path: &std::path::Path) -> bool {
+    false
 }
 
 fn save_as(s: &mut Session, v: &Value) -> CmdResult {
@@ -223,7 +260,7 @@ fn save_as(s: &mut Session, v: &Value) -> CmdResult {
 /// setting (`file.printMarkup`); comments as Track Changes Options show them.
 pub fn export_options(s: &Session, v: &Value) -> crate::io::ExportOptions {
     let markup = p::bool(v, "markup").unwrap_or(s.prefs.print_markup);
-    crate::io::ExportOptions { markup, comments: markup && s.prefs.markup.comments }
+    crate::io::ExportOptions { markup, comments: markup && s.prefs.markup.comments, word2003: p::str(v, "format") == Some(FORMAT_WORD_2003) }
 }
 
 fn export_png(s: &mut Session, v: &Value) -> CmdResult {

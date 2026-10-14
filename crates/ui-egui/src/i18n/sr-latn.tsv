@@ -1010,6 +1010,7 @@
 	Word Count	Broj reči
 	Word document (*.docx)	Word dokument (*.docx)
 	Word XML Document (*.xml)	Word XML dokument (*.xml)
+	Word 2003 XML Document (*.xml)	Word 2003 XML dokument (*.xml)
 	Word Left	Reč levo
 	Word Right	Reč desno
 	WordArt	WordArt
