@@ -656,6 +656,7 @@ impl Reader<'_> {
         };
         let rels = self.pkg.rels(path);
         let mut sc = StoryCtx::default();
+        sc.in_hf = true;
         let mut blocks = Blocks::new();
         self.read_blocks(&mut sc, &root, &rels, &mut blocks, 0);
         self.flush_pending(&mut sc, &mut blocks);

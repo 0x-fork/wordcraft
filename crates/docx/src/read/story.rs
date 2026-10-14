@@ -125,6 +125,8 @@ pub struct StoryCtx {
     pending: Vec<InlineObject>,
     /// Text-box nesting depth.
     pub story_depth: usize,
+    /// Reading a header or footer (not a text box inside one): where Word keeps its watermark.
+    pub in_hf: bool,
 }
 
 /// Paragraph content under construction.
@@ -1366,6 +1368,13 @@ impl Reader<'_> {
     /// Legacy VML pictures, text boxes, lines, rectangles and ovals (best effort).
     fn read_vml(&mut self, sc: &mut StoryCtx, pict: &El, rels: &Rels) -> Option<InlineObject> {
         let shape = pict.els().find(|e| e.name.starts_with("v:") && e.local() != "shapetype")?;
+        if sc.in_hf
+            && let Some(wm) = vml_watermark(shape)
+        {
+            // The document's watermark (the first one found); drawn on every page, not as a shape.
+            self.doc.settings.watermark.get_or_insert(wm);
+            return None;
+        }
         let style = shape.attr("style").unwrap_or("");
         let len = |k: &str| vml_style(style, k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0).clamp(0.0, crate::units::MAX_LEN_PT);
         let (mut w, mut h) = (len("width"), len("height"));
@@ -1770,6 +1779,54 @@ fn vml_float(shape: &El, style: &str) -> Float {
     };
     f.set_spin(vml_spin(style));
     f
+}
+
+/// Word's text watermark (Design › Watermark): a VML shape in a header whose `v:textpath` draws
+/// its `string` as text (ECMA-376 Part 4, VML `textpath`), in the textpath's `font-family`, filled
+/// with the shape's `fillcolor`, semitransparent when its `v:fill` has an `opacity` below 1, and
+/// diagonal when the shape is turned. Only Word's watermark shape counts (its `id`), or text
+/// placed absolutely and centred both ways; other header WordArt (a logo or a title) is None.
+fn vml_watermark(shape: &El) -> Option<wordcraft_doc::Watermark> {
+    let tp = shape.child("v:textpath")?;
+    if tp.attr("on").is_some_and(|v| matches!(v, "f" | "false" | "0")) {
+        return None;
+    }
+    let style = shape.attr("style").unwrap_or("");
+    let centred = |k: &str| vml_style(style, k).is_some_and(|v| v.eq_ignore_ascii_case("center"));
+    let word = shape.attr("id").is_some_and(|id| id.starts_with("PowerPlusWaterMarkObject"));
+    let placed = vml_style(style, "position").is_some_and(|p| p.eq_ignore_ascii_case("absolute"))
+        && centred("mso-position-horizontal")
+        && centred("mso-position-vertical");
+    if !word && !placed {
+        return None;
+    }
+    let text: String = tp.attr("string")?.chars().take(200).collect();
+    if text.trim().is_empty() {
+        return None;
+    }
+    let default = wordcraft_doc::Watermark::default();
+    let font = tp
+        .attr("style")
+        .and_then(|s| vml_style(s, "font-family"))
+        .map(|f| f.trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()).chars().take(100).collect::<String>())
+        .filter(|f| !f.is_empty())
+        .unwrap_or(default.font);
+    let color = shape.attr("fillcolor").and_then(vml_color).unwrap_or(default.color);
+    let opacity = shape.child("v:fill").and_then(|f| f.attr("opacity")).and_then(vml_fraction).unwrap_or(1.0);
+    Some(wordcraft_doc::Watermark { text, font, color, diagonal: vml_spin(style).deg != 0.0, semitransparent: opacity < 1.0 })
+}
+
+/// A VML fraction (`opacity`): a number, a percentage, or 65536ths with an `f` suffix; 0..=1.
+fn vml_fraction(v: &str) -> Option<f32> {
+    let v = v.trim();
+    let f = if let Some(n) = v.strip_suffix('f') {
+        n.trim().parse::<f32>().ok()? / 65_536.0
+    } else if let Some(n) = v.strip_suffix('%') {
+        n.trim().parse::<f32>().ok()? / 100.0
+    } else {
+        v.parse::<f32>().ok()?
+    };
+    f.is_finite().then(|| f.clamp(0.0, 1.0))
 }
 
 /// A VML shape's turn: `rotation` in degrees, or 65536ths of one with an `fd` suffix; `flip`: `x`
