@@ -95,6 +95,7 @@
 	Ignore web and file addresses	忽略網址和檔案路徑
 	Ignore words in capitals	忽略全部大寫的單字
 	Ignore words with numbers	忽略包含數字的單字
+	In the margin	在頁邊
 	Inches	英寸
 	Formatting exceptions	格式例外
 	Include level number from:	包含的層級編號來自：
@@ -128,6 +129,7 @@
 	Number alignment:	編號對齊方式：
 	Number format	編號格式
 	Number style for this level:	此層級的編號樣式：
+	Only for the selected text	僅針對所選文字
 	Outside border	外側框線
 	Make WordCraft the default for Word documents…	將 WordCraft 設為 Word 文件的預設應用程式…
 	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	今後以 WordCraft 開啟 .docx、.doc、.rtf、.odt 檔案和 Word 範本。

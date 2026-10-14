@@ -94,6 +94,7 @@
 	Ignore web and file addresses	Web アドレスとファイル パスを無視する
 	Ignore words in capitals	すべて大文字の単語を無視する
 	Ignore words with numbers	数字を含む単語を無視する
+	In the margin	余白に表示
 	Inches	インチ
 	Formatting exceptions	書式の例外
 	Include level number from:	含めるレベルの番号:
@@ -127,6 +128,7 @@
 	Number alignment:	番号の配置:
 	Number format	番号書式
 	Number style for this level:	このレベルの番号の種類:
+	Only for the selected text	選択したテキストのみ
 	Outside border	外側の罫線
 	Make WordCraft the default for Word documents…	WordCraft を Word 文書の既定のアプリにする…
 	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	今後、.docx、.doc、.rtf、.odt ファイルと Word テンプレートを WordCraft で開きます。

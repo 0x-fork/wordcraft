@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 use egui::{Color32, Pos2, Rect, Sense, Stroke, TextureHandle, Ui, pos2, vec2};
 use serde_json::json;
 use wordcraft_doc::{PartKind, Pos, StoryRef};
+use wordcraft_layout::display::CommentDisplay;
 use wordcraft_layout::{DocLayout, Page, Placed};
 
 use crate::WordApp;
@@ -317,6 +318,23 @@ fn on_page_gap(rects: &[Rect], bands: &[(f32, f32)], p: Pos2) -> bool {
     })
 }
 
+/// Width of the card that floats beside a page when comments show only for the selected text (points).
+const FLOAT_WIDTH: f32 = 216.0;
+
+/// Comments show as a floating card rather than in a margin column (#1055): the option is on,
+/// balloons are shown at all, and no other markup needs the column.
+fn floating_comments(app: &WordApp) -> bool {
+    let s = &app.session;
+    let m = &s.prefs.markup;
+    s.balloons_shown() && m.comments && m.comment_display == CommentDisplay::Selected && !s.doc.comments.is_empty() && markup_width(app) <= 0.0
+}
+
+/// The comment shown when only the selected one is: the clicked balloon, else the comment whose
+/// range holds the caret.
+fn shown_comment(app: &WordApp) -> Option<u32> {
+    app.canvas.balloon.or_else(|| wordcraft_engine::cmd::review::comment_range_at_caret(&app.session))
+}
+
 /// Width of the markup area beside each page for comment and revision balloons (points), or 0.
 pub fn markup_width(app: &WordApp) -> f32 {
     // Word shows comments either in balloons (contextual) or in the Comments pane (list); Track
@@ -326,7 +344,7 @@ pub fn markup_width(app: &WordApp) -> f32 {
         return 0.0;
     }
     let m = &s.prefs.markup;
-    let comments = m.comments && !s.doc.comments.is_empty();
+    let comments = m.comments && !s.doc.comments.is_empty() && m.comment_display == CommentDisplay::Margin;
     let [has_formats, has_moves, has_deletions] = match app.canvas.markup_facts.get() {
         Some((rev, facts)) if rev == (s.document_id(), s.rev()) => facts,
         _ => {
@@ -1078,7 +1096,21 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let near = clip.expand2(vec2(clip.width(), clip.height() * TEXTURE_KEEP_SCREENS));
         app.canvas.textures.retain(|k, _| *k < n && geo.rects.get(*k).is_some_and(|r| r.translate(content_origin.to_vec2()).intersects(near)));
         app.canvas.page_rects = rects.clone();
-        balloons(app, ui, &painter, &rects, &layout, geo.scale);
+        let view_rect = ui.clip_rect();
+        if floating_comments(app) {
+            // Its own layer, so presses on the card never reach the canvas under it.
+            let ctx = ui.ctx().clone();
+            egui::Area::new(egui::Id::new("floating_comment")).order(egui::Order::Foreground).fixed_pos(Pos2::ZERO).sense(Sense::hover()).show(
+                &ctx,
+                |aui| {
+                    aui.set_clip_rect(view_rect);
+                    let ap = aui.painter().clone();
+                    balloons(app, aui, &ap, &rects, &layout, geo.scale, view_rect);
+                },
+            );
+        } else {
+            balloons(app, ui, &painter, &rects, &layout, geo.scale, view_rect);
+        }
         // Find › Reading Highlight.
         let marks: Vec<(Pos, Pos)> = app.session.find_highlights().iter().take(5000).cloned().collect();
         for (a, b) in &marks {
@@ -1435,17 +1467,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 /// Comment balloons in the markup area right of each page, joined to their anchors, with each
 /// comment's replies under it. Clicking a balloon selects it, like Word: its text becomes editable
 /// in place, with Reply, Resolve and Delete (the same commands as the Comments pane).
-fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32) {
+fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32, view: Rect) {
     app.canvas.balloon_rects.clear();
     let mw = markup_width(app);
-    if app.canvas.balloon.is_some_and(|id| mw <= 0.0 || !app.session.doc.comments.contains_key(&id)) {
+    let float = floating_comments(app);
+    if app.canvas.balloon.is_some_and(|id| (mw <= 0.0 && !float) || !app.session.doc.comments.contains_key(&id)) {
         deselect_balloon(app, ui.ctx());
     }
-    if mw <= 0.0 {
+    if mw <= 0.0 && !float {
         return;
     }
     let t = Tokens::get(ui.ctx());
-    let clip = ui.clip_rect();
+    let clip = view;
+    let only_shown = app.session.prefs.markup.comment_display == CommentDisplay::Selected;
+    let shown = shown_comment(app);
     // Replies hang under the comment they answer rather than getting balloons of their own.
     let is_reply = |c: &wordcraft_doc::Comment| c.parent.is_some_and(|p| app.session.doc.comments.contains_key(&p));
     let mut replies: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -1462,7 +1497,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     let comments = if m.comments { wordcraft_engine::cmd::review::comment_list(&app.session) } else { Vec::new() };
     for (id, pos) in comments {
         let Some(pos) = pos else { continue };
-        if app.session.doc.comments.get(&id).is_some_and(is_reply) {
+        if app.session.doc.comments.get(&id).is_some_and(is_reply) || (only_shown && shown != Some(id)) {
             continue;
         }
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
@@ -1496,7 +1531,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     for (pi, pr) in rects.iter().enumerate() {
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
         let area = Rect::from_min_max(pos2(pr.max.x, pr.min.y), pos2(pr.max.x + mw * page_scale, pr.max.y));
-        if area.intersects(clip) {
+        if mw > 0.0 && area.intersects(clip) {
             painter.rect_filled(area, 0.0, Color32::from_rgb(0xF3, 0xF3, 0xF3));
             painter.line_segment([area.left_top(), area.left_bottom()], Stroke::new(1.0, Color32::from_rgb(0xE0, 0xE0, 0xE0)));
         }
@@ -1511,8 +1546,14 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
         }
         list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
-        let x0 = pr.max.x + 10.0;
-        let w = (mw * page_scale - 20.0).max(60.0);
+        // Beside the page in the column; floating, beside it when the view has room, else over its edge.
+        let (x0, w, over_page) = if mw > 0.0 {
+            (pr.max.x + 10.0, (mw * page_scale - 20.0).max(60.0), false)
+        } else {
+            let w = (FLOAT_WIDTH * page_scale - 20.0).max(60.0);
+            let beside = pr.max.x + 10.0;
+            if beside + w <= view.max.x - 8.0 { (beside, w, false) } else { ((view.max.x - w - 8.0).max(view.min.x + 8.0), w, true) }
+        };
         let mut next_y = pr.min.y;
         for (ax, ay, item, pos) in list.iter() {
             let id = match item {
@@ -1557,7 +1598,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             let fs = (11.0 * page_scale / PX_PER_PT).clamp(8.0, 16.0);
             let thread: Vec<u32> = replies.get(id).cloned().unwrap_or_default();
             let anchor = pos2(pr.min.x + ax * page_scale, pr.min.y + ay * page_scale);
-            let top = (anchor.y - 12.0).max(next_y);
+            // Over the page the card goes under the commented line, not on it.
+            let top = (anchor.y + if over_page { 4.0 } else { -12.0 }).max(next_y);
             let active = app.canvas.balloon == Some(*id);
             // Lay out a read-only balloon's text: the comment, then each reply under a rule.
             let mut lines: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
@@ -1584,8 +1626,10 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             let selected = active || (app.session.sel.focus.path == pos.path && app.session.sel.focus.story == pos.story);
             // Leader: from the anchor along the text to the page edge, then to the card.
             let lead = Stroke::new(if selected { 1.5 } else { 1.0 }, color.linear_multiply(if selected { 1.0 } else { 0.7 }));
-            dashed(painter, anchor, pos2(pr.max.x, anchor.y), lead);
-            painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
+            if !over_page {
+                dashed(painter, anchor, pos2(pr.max.x, anchor.y), lead);
+                painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
+            }
             let card = if active {
                 active_balloon(app, ui, painter, *id, &thread, card, fs, color)
             } else {

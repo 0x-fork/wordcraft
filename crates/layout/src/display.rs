@@ -259,6 +259,17 @@ named! {
     }
 }
 
+named! {
+    /// How comments are shown beside the page.
+    CommentDisplay {
+        /// Every comment in the margin, as in Word.
+        #[default]
+        Margin = "margin",
+        /// Only the comment of the text under the caret (or the clicked one) floats beside the page.
+        Selected = "selected",
+    }
+}
+
 /// Track Changes Options: what markup shows and how revisions are drawn. A per-user preference,
 /// as in Word (saved with the interface settings, not the document).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -269,6 +280,7 @@ pub struct MarkupOptions {
     pub insertions_deletions: bool,
     pub formatting: bool,
     pub balloons: BalloonMode,
+    pub comment_display: CommentDisplay,
     pub insert_mark: InsertMark,
     /// `None` = by author.
     pub insert_color: Option<Rgb>,
@@ -290,6 +302,7 @@ impl Default for MarkupOptions {
             insertions_deletions: true,
             formatting: true,
             balloons: BalloonMode::default(),
+            comment_display: CommentDisplay::default(),
             insert_mark: InsertMark::default(),
             insert_color: None,
             delete_mark: DeleteMark::default(),

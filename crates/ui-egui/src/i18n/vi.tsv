@@ -2556,3 +2556,7 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Các tệp Hunspell .aff và .dic trong thư mục này (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) được dùng trước các tệp của hệ thống.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: không tìm thấy từ điển
+
+# Show only the selected text's comment (#1066)
+	In the margin	Trong lề
+	Only for the selected text	Chỉ cho văn bản được chọn

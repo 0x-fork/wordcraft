@@ -92,6 +92,7 @@
 	Enter formatting for number:	Formatierung für die Nummer eingeben:
 	Follow number with:	Der Nummer folgt:
 	Formatting	Formatierung
+	In the margin	Am Rand
 	Include level number from:	Ebenennummer übernehmen aus:
 	Ink	Freihand
 	Insertions and Deletions	Einfügungen und Löschungen
@@ -110,6 +111,7 @@
 	Number alignment:	Nummernausrichtung:
 	Number format	Nummernformat
 	Number style for this level:	Nummernstil für diese Ebene:
+	Only for the selected text	Nur für den ausgewählten Text
 	Outside border	Äußere Rahmenlinie
 	Reopen	Erneut öffnen
 	Restart list after:	Liste neu starten nach:

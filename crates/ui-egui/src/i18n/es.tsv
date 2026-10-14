@@ -96,6 +96,7 @@
 	Ignore web and file addresses	Omitir direcciones web y de archivo
 	Ignore words in capitals	Omitir palabras en mayúsculas
 	Ignore words with numbers	Omitir palabras con números
+	In the margin	En el margen
 	Inches	Pulgadas
 	Formatting exceptions	Excepciones de formato
 	Include level number from:	Incluir número de nivel de:
@@ -123,6 +124,7 @@
 	Number alignment:	Alineación del número:
 	Number format	Formato de número
 	Number style for this level:	Estilo de número para este nivel:
+	Only for the selected text	Solo para el texto seleccionado
 	Outside border	Borde exterior
 	Overtype	Sobrescribir
 	Overtype (typing replaces the characters after the caret)	Sobrescribir (lo que escribes reemplaza los caracteres tras el cursor)

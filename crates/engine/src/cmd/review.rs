@@ -43,7 +43,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("review.trackingOptions", "Track Changes Options", "Review › Tracking", tracking_options)
             .params(
-                r#"{"comments"?: bool, "ink"?: bool, "insertionsDeletions"?: bool, "formatting"?: bool, "balloons"?: "revisions|inline|commentsAndFormatting", "insertMark"?: "underline|doubleUnderline|bold|italic|strikethrough|colorOnly|none", "insertColor"?: "byAuthor" | "RRGGBB", "deleteMark"?: "strikethrough|doubleStrikethrough|hidden|caret|hash|underline|colorOnly", "deleteColor"?: "byAuthor" | "RRGGBB", "changedLines"?: "outside|left|right|none", "changedLinesColor"?: "auto" | "RRGGBB", "trackFormatting"?: bool} → the options (omit all to read them)"#,
+                r#"{"comments"?: bool, "ink"?: bool, "insertionsDeletions"?: bool, "formatting"?: bool, "balloons"?: "revisions|inline|commentsAndFormatting", "commentDisplay"?: "margin|selected", "insertMark"?: "underline|doubleUnderline|bold|italic|strikethrough|colorOnly|none", "insertColor"?: "byAuthor" | "RRGGBB", "deleteMark"?: "strikethrough|doubleStrikethrough|hidden|caret|hash|underline|colorOnly", "deleteColor"?: "byAuthor" | "RRGGBB", "changedLines"?: "outside|left|right|none", "changedLinesColor"?: "auto" | "RRGGBB", "trackFormatting"?: bool} → the options (omit all to read them)"#,
             )
             .pure(),
         CommandSpec::new("review.wordCount", "Word Count", "Review › Proofing", word_count)
@@ -166,8 +166,8 @@ fn edit_comment(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"id": id}))
 }
 
-/// Comment anchored around the caret.
-fn comment_at_caret(s: &Session) -> Option<u32> {
+/// The innermost comment whose range holds the caret.
+pub fn comment_range_at_caret(s: &Session) -> Option<u32> {
     let f = &s.sel.focus;
     let p = s.doc.para_at(f)?;
     let mut open: Vec<u32> = Vec::new();
@@ -181,7 +181,14 @@ fn comment_at_caret(s: &Session) -> Option<u32> {
             _ => {}
         }
     }
-    open.last().copied().or_else(|| {
+    open.last().copied()
+}
+
+/// Comment anchored around the caret, else the first one in its paragraph.
+fn comment_at_caret(s: &Session) -> Option<u32> {
+    let f = &s.sel.focus;
+    let p = s.doc.para_at(f)?;
+    comment_range_at_caret(s).or_else(|| {
         p.object_offsets().into_iter().find_map(|o| match p.object_at(o) {
             Some(InlineObject::CommentStart { id }) | Some(InlineObject::CommentEnd { id }) => Some(*id),
             _ => None,
@@ -909,7 +916,7 @@ fn thesaurus(s: &mut Session, v: &Value) -> CmdResult {
 /// Track Changes Options: change the fields given, return them all. A per-user preference.
 fn tracking_options(s: &mut Session, v: &Value) -> CmdResult {
     use wordcraft_doc::Rgb;
-    use wordcraft_layout::display::{BalloonMode, ChangeBar, DeleteMark, InsertMark};
+    use wordcraft_layout::display::{BalloonMode, ChangeBar, CommentDisplay, DeleteMark, InsertMark};
     let mut m = s.prefs.markup.clone();
     let color = |k: &str, auto: &str, cur: Option<Rgb>| -> Result<Option<Rgb>, CmdError> {
         match p::str(v, k) {
@@ -932,6 +939,9 @@ fn tracking_options(s: &mut Session, v: &Value) -> CmdResult {
     }
     if let Some(x) = pick("balloons") {
         m.balloons = BalloonMode::parse(x).ok_or_else(|| CmdError::Params("`balloons`: revisions|inline|commentsAndFormatting".into()))?;
+    }
+    if let Some(x) = pick("commentDisplay") {
+        m.comment_display = CommentDisplay::parse(x).ok_or_else(|| CmdError::Params("`commentDisplay`: margin|selected".into()))?;
     }
     if let Some(x) = pick("insertMark") {
         m.insert_mark = InsertMark::parse(x).ok_or_else(|| CmdError::Params("unknown `insertMark`".into()))?;
@@ -962,6 +972,7 @@ pub fn tracking_json(m: &wordcraft_layout::display::MarkupOptions) -> Value {
         "insertionsDeletions": m.insertions_deletions,
         "formatting": m.formatting,
         "balloons": m.balloons.name(),
+        "commentDisplay": m.comment_display.name(),
         "insertMark": m.insert_mark.name(),
         "insertColor": hex(m.insert_color, "byAuthor"),
         "deleteMark": m.delete_mark.name(),
@@ -1037,6 +1048,31 @@ mod tests {
         // Unknown choices are refused; reading changes nothing.
         assert!(s.run("review.trackingOptions", &json!({"deleteMark": "sparkles"})).is_err());
         assert_eq!(s.run("review.trackingOptions", &json!({})).unwrap()["insertColor"], "00AA00");
+    }
+
+    /// #1055: comments show in the margin as in Word unless the option says otherwise.
+    #[test]
+    fn comment_display_defaults_to_margin_and_is_validated() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        assert_eq!(s.run("review.trackingOptions", &json!({})).unwrap()["commentDisplay"], "margin");
+        assert_eq!(s.run("review.trackingOptions", &json!({"commentDisplay": "selected"})).unwrap()["commentDisplay"], "selected");
+        assert_eq!(s.run("review.trackingOptions", &json!({})).unwrap()["commentDisplay"], "selected");
+        assert!(s.run("review.trackingOptions", &json!({"commentDisplay": "never"})).is_err());
+        assert_eq!(s.run("review.trackingOptions", &json!({"commentDisplay": "margin"})).unwrap()["commentDisplay"], "margin");
+    }
+
+    /// #1055: the caret's own comment is the one whose range holds it, not any in its paragraph.
+    #[test]
+    fn comment_range_at_caret_needs_the_caret_inside_the_range() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("one two three"));
+        s.run("select.text", &json!({"text": "two"})).unwrap();
+        let id = s.run("review.newComment", &json!({"text": "note"})).unwrap()["id"].as_u64().unwrap() as u32;
+        s.run("select.text", &json!({"text": "two"})).unwrap();
+        s.run("caret.left", &json!({})).unwrap();
+        assert_eq!(super::comment_range_at_caret(&s), Some(id), "inside the commented text");
+        s.run("select.text", &json!({"text": "three"})).unwrap();
+        assert_eq!(super::comment_range_at_caret(&s), None, "elsewhere in the paragraph");
+        assert_eq!(super::comment_at_caret(&s), Some(id), "the older lookup still falls back to the paragraph's comment");
     }
 
     fn glyph_text(d: &[Draw]) -> String {

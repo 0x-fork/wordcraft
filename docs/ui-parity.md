@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (Ctrl+drag copies a picture, shape or text box, #1014; previously trivial: the mini toolbar scrolls under the ribbon, not over it; previously trivial: the mini toolbar steps aside for the ribbon; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (Track Changes Options › Comments: show only the selected text's comment, beyond Word, #1055; previously trivial: Ctrl+drag copies a picture, shape or text box, #1014; previously trivial: the mini toolbar scrolls under the ribbon, not over it; previously trivial: the mini toolbar steps aside for the ribbon; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -51,6 +51,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | trivial | Track Changes Options › Comments: "In the margin" (default, as in Word) or "Only for the selected text", an option Word doesn't have (#1055). In the second mode the margin column is gone and only the comment under the caret, or the clicked one, floats beside the page (over its edge in a narrow window); comment ranges stay shaded in the text. `review.trackingOptions {"commentDisplay": "margin"\|"selected"}` |
 | 2026-10-12 | trivial | On-canvas objects: Ctrl+drag copies a picture, shape or text box (`arrange.copyTo`, #1014) |
 | 2026-10-12 | trivial | Cross-reference dialog: reference type (heading, bookmark, equation, figure, table), what to insert and the item; the ribbon button opened nothing before (#916); modal dialog count 55 |
 | 2026-10-12 | trivial | Document title opens Rename Document; the account badge opens Options › General for user name and initials. |
