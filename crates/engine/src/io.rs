@@ -107,6 +107,22 @@ pub fn open_bytes(name: &str, bytes: &[u8]) -> Result<Document, String> {
 /// whether the file was encrypted. Without the password needed the error satisfies
 /// [`needs_password`]; with a wrong one, [`wrong_password`].
 pub fn open_bytes_with(name: &str, bytes: &[u8], password: Option<&str>) -> Result<(Document, bool), String> {
+    let (doc, encrypted) = read_bytes(name, bytes, password)?;
+    load_embedded_fonts(&doc);
+    Ok((doc, encrypted))
+}
+
+/// Load the fonts `doc` embeds (#1171) for this run, in memory only: text set in a font that isn't
+/// installed then lays out and exports with it instead of a fallback. Faces already available
+/// stay as they are.
+fn load_embedded_fonts(doc: &Document) {
+    let files: Vec<Vec<u8>> = wordcraft_docx::embedded_fonts(doc).iter().filter_map(|f| wordcraft_fonts::decode_font_file(f).ok()).collect();
+    if !files.is_empty() {
+        wordcraft_fonts::FontDb::global().add_document_fonts(files);
+    }
+}
+
+fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>) -> Result<(Document, bool), String> {
     let ext = ext_of(name);
     if matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm" | "doc" | "dot") && wordcraft_docx::is_encrypted(bytes) {
         let mut doc = wordcraft_docx::read_with_password(bytes, password).map_err(|e| e.to_string())?;
