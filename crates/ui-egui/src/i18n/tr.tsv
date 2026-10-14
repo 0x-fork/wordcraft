@@ -2471,6 +2471,12 @@ preview	Title	Örnek
 	Level 7	Düzey 7
 	Level 8	Düzey 8
 	Level 9	Düzey 9
+
+# Document naming and account controls.
+	Rename Document	Belgeyi yeniden adlandır
+	Document name	Belge adı
+	Rename	Yeniden adlandır
+	Account	Hesap
 	Privacy Options	Gizlilik Seçenekleri
 	Trust Center	Güven Merkezi
 	Privacy for this document	Bu belgenin gizliliği

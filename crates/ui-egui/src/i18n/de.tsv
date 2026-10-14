@@ -2081,6 +2081,12 @@
 	Automatic ({region})	Automatisch ({region})
 	Search	Suchen
 	Title Bar	Titelleiste
+
+# Document naming and account controls.
+	Rename Document	Dokument umbenennen
+	Document name	Dokumentname
+	Rename	Umbenennen
+	Account	Konto
 	Privacy Options	Datenschutzoptionen
 	Trust Center	Sicherheitscenter
 	Privacy for this document	Datenschutz für dieses Dokument

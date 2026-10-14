@@ -838,6 +838,7 @@ impl WordApp {
             return Ok(json!({"downloaded": name, "bytes": bytes.len()}));
         }
         let document = self.session.document_id();
+        let old_path = self.session.path.clone();
         let r = self.session.run(id, &params).map_err(|e| e.to_string());
         // When the document has been replaced (not when Open only showed its picker), a pending
         // "Save changes?" and AutoSave's go-ahead were both about the old one.
@@ -855,6 +856,17 @@ impl WordApp {
             && v.get("path").and_then(Value::as_str).map(std::path::Path::new) == self.session.path.as_deref()
         {
             self.autosave_path = self.session.path.clone();
+        }
+        // A renamed file is the same file: AutoSave keeps covering it, and Recent drops the old name.
+        if r.is_ok()
+            && id == "file.rename"
+            && let Some(old) = old_path.filter(|old| self.session.path.as_ref() != Some(old))
+        {
+            if self.autosave_path.as_ref() == Some(&old) {
+                self.autosave_path = self.session.path.clone();
+            }
+            let old = old.to_string_lossy();
+            self.ui.recent.retain(|r| *r != old);
         }
         if let Ok(v) = &r {
             self.keep_web_font(id, &params, v);
@@ -1557,13 +1569,11 @@ impl WordApp {
     pub fn title_stem(&self) -> String {
         match &self.session.path {
             Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
-            None => {
-                if self.session.doc.core.title.is_empty() {
-                    tl!("Document1").into()
-                } else {
-                    self.session.doc.core.title.clone()
-                }
-            }
+            None => match &self.session.file_name {
+                Some(name) => name.clone(),
+                None if self.session.doc.core.title.is_empty() => tl!("Document1").into(),
+                None => self.session.doc.core.title.clone(),
+            },
         }
     }
 
@@ -2075,6 +2085,7 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
     let has = |k: &str| params.get(k).is_some_and(|v| !v.is_null());
     let rule = params.get("rule").and_then(Value::as_str).map(str::to_ascii_uppercase);
     match id {
+        "file.rename" if !has("name") => Some("renameDocument"),
         "mailings.rules" if !has("field") => match rule.as_deref() {
             None | Some("IF") => Some("ruleIf"),
             Some("SKIPIF") => Some("ruleSkipIf"),
@@ -2304,6 +2315,63 @@ mod tests {
 
     fn app() -> WordApp {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    #[test]
+    fn title_and_account_buttons_work() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        h.run_steps(6);
+        h.get_by_label("Document1 — Not saved").click();
+        h.run_steps(2);
+        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("renameDocument"));
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Rename").click();
+        h.run_steps(2);
+        assert!(h.state().dialog.is_none());
+        assert!(h.state().session.file_name.is_none());
+        assert!(!h.state().session.dirty);
+        h.get_by_label("Document1 — Not saved").click();
+        h.run_steps(2);
+        h.event(egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers { command: true, ..Default::default() },
+        });
+        h.event(egui::Event::Text("Project notes".into()));
+        h.run_steps(2);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Rename").click();
+        h.run_steps(2);
+        assert!(h.state().dialog.is_none());
+        assert_eq!(h.state().title_stem(), "Project notes");
+        assert_eq!(h.state().default_save_name(), "Project notes.docx");
+        assert!(h.state().session.doc.core.title.is_empty());
+        assert!(!h.state().session.dirty);
+        // A long name remains clickable, and Escape leaves it unchanged.
+        let long_name = "Notes ".repeat(25);
+        h.state_mut().run("file.rename", json!({"name": long_name})).unwrap();
+        h.run_steps(2);
+        h.get_by_label(&format!("{} — Not saved", long_name.trim())).click();
+        h.run_steps(2);
+        assert!(h.state().dialog.is_some());
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+        h.run_steps(2);
+        assert!(h.state().dialog.is_none());
+        assert_eq!(h.state().title_stem(), long_name.trim());
+        h.get_by_label("Account").click();
+        h.run_steps(2);
+        assert!(h.state().ui.backstage);
+        assert_eq!(h.state().ui.backstage_page, "options");
+        assert_eq!(h.state().ui.options_pane, "general");
+        assert!(h.query_by_label("User name:").is_some());
     }
 
     /// File › Options › Advanced › Editing: alignment guides are a UI command, on by default and
@@ -4159,6 +4227,35 @@ mod tests {
             assert!(saved.plain_text(wordcraft_doc::StoryRef::Body).contains("More "), "{ext}");
             let _ = std::fs::remove_dir_all(&dir);
         }
+    }
+
+    #[test]
+    fn renaming_a_saved_file_keeps_autosave_and_replaces_its_recent_entry() {
+        let dir = scratch("rename-autosave");
+        let path = dir.join("notes.docx");
+        let renamed = dir.join("Notes v2.docx");
+        let mut a = typed();
+        a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
+        assert!(a.autosaves());
+        a.run("file.rename", json!({"name": "Notes v2"})).unwrap();
+        assert_eq!(a.session.path.as_deref(), Some(renamed.as_path()));
+        assert!(a.autosaves(), "AutoSave still covers the renamed file");
+        assert_eq!(a.ui.recent.first(), Some(&renamed.to_string_lossy().to_string()));
+        assert!(!a.ui.recent.contains(&path.to_string_lossy().to_string()), "{:?}", a.ui.recent);
+        a.run("text.insert", json!({"text": "More "})).unwrap();
+        a.autosave_tick(now_ms() + 10_000.0);
+        assert!(!a.session.dirty, "AutoSave wrote the renamed file");
+        let saved = wordcraft_engine::io::open_path(&renamed).unwrap();
+        assert!(saved.plain_text(wordcraft_doc::StoryRef::Body).contains("More "));
+        assert!(!path.exists());
+
+        // A file opened but not saved in this session doesn't gain AutoSave by being renamed.
+        let mut b = app();
+        b.run("file.open", json!({"path": renamed.to_string_lossy()})).unwrap();
+        assert!(!b.saved_here());
+        b.run("file.rename", json!({"name": "Notes v3"})).unwrap();
+        assert!(!b.saved_here() && !b.autosaves());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Web: the download callback couldn't report a failure, so Save marked the document saved

@@ -449,6 +449,40 @@ pub fn read_file_capped(path: &str, max: u64, what: &str) -> Result<Vec<u8>, Str
     std::fs::read(path).map_err(|e| format!("{path}: {e}"))
 }
 
+/// Rename without replacing another file, respecting both automation access roots.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn rename_file(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+    crate::file_access::check_read(&source.to_string_lossy())?;
+    crate::file_access::check_write(&source.to_string_lossy())?;
+    crate::file_access::check_write(&destination.to_string_lossy())?;
+    // Creating a sibling hard link refuses collisions atomically and keeps the original bytes.
+    if let Err(e) = std::fs::hard_link(source, destination) {
+        if e.kind() == std::io::ErrorKind::AlreadyExists && only_case_differs(source, destination) {
+            return std::fs::rename(source, destination).map_err(|e| format!("Could not rename document: {e}"));
+        }
+        return Err(format!("Could not rename document: {e}"));
+    }
+    if let Err(e) = std::fs::remove_file(source) {
+        let _ = std::fs::remove_file(destination);
+        return Err(format!("Could not rename document: {e}"));
+    }
+    Ok(())
+}
+
+/// Whether `destination` names `source` in the same directory spelled with different case, and
+/// the directory holds no entry spelled exactly as `destination`.
+#[cfg(not(target_arch = "wasm32"))]
+fn only_case_differs(source: &std::path::Path, destination: &std::path::Path) -> bool {
+    let (Some(dir), Some(from), Some(to)) = (source.parent(), source.file_name(), destination.file_name()) else {
+        return false;
+    };
+    if destination.parent() != Some(dir) || from == to || from.to_string_lossy().to_lowercase() != to.to_string_lossy().to_lowercase() {
+        return false;
+    }
+    let dir = if dir.as_os_str().is_empty() { std::path::Path::new(".") } else { dir };
+    std::fs::read_dir(dir).is_ok_and(|entries| entries.filter_map(Result::ok).all(|entry| entry.file_name() != to))
+}
+
 /// The first `max` bytes of the file at `path` (fewer when it is shorter), inside the automation
 /// read root when there is one: enough to tell a file's format by its start.
 #[cfg(not(target_arch = "wasm32"))]

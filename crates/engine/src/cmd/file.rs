@@ -31,8 +31,39 @@ pub(crate) fn set_author(s: &mut Session, v: &Value) -> CmdResult {
     Ok(r)
 }
 
+/// Rename the current file in its directory, or name a document before its first save.
+fn rename(s: &mut Session, v: &Value) -> CmdResult {
+    let name = p::req_str(v, "name")?.trim();
+    if name.is_empty()
+        || name.chars().count() > 200
+        || name.ends_with(['.', ' '])
+        || name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        || matches!(name, "." | "..")
+    {
+        return Err(CmdError::Params("Enter a valid document name (up to 200 characters, without path separators).".into()));
+    }
+    if let Some(path) = &s.path {
+        let mut destination = path.with_file_name(name);
+        // The field edits the stem; retain the original format, including macro/template files.
+        if let Some(ext) = path.extension() {
+            destination.set_file_name(format!("{name}.{}", ext.to_string_lossy()));
+        }
+        if destination != *path {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::io::rename_file(path, &destination).map_err(CmdError::Failed)?;
+            }
+            s.path = Some(destination);
+        }
+    } else {
+        s.file_name = Some(name.to_string());
+    }
+    Ok(json!({"name": name, "path": s.path}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name without its extension)}"#).pure(),
         CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report"}"#).pure(),
         CommandSpec::new("file.open", "Open", "File", open)
             .key("Mod+O / Mod+F12")

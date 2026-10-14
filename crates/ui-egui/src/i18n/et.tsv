@@ -2116,6 +2116,12 @@
 	Start-up	Käivitamine
 	Show the Start screen when WordCraft starts	Näita WordCrafti käivitamisel avakuva
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Sees: WordCraft avaneb vaates Fail › Avaleht, kus on tühi dokument, mallid ja hiljutised dokumendid. Väljas: avaneb tühi dokument.
+
+# Document naming and account controls.
+	Rename Document	Nimeta dokument ümber
+	Document name	Dokumendi nimi
+	Rename	Nimeta ümber
+	Account	Konto
 	Privacy Options	Privaatsussuvandid
 	Trust Center	Usalduskeskus
 	Privacy for this document	Selle dokumendi privaatsus

@@ -2457,6 +2457,12 @@ preview	Title	Esempio
 	Automatic ({region})	Automatico ({region})
 	Search	Cerca
 	Title Bar	Barra del titolo
+
+# Document naming and account controls.
+	Rename Document	Rinomina documento
+	Document name	Nome del documento
+	Rename	Rinomina
+	Account	Account
 	Privacy Options	Opzioni di privacy
 	Trust Center	Centro protezione
 	Privacy for this document	Privacy di questo documento

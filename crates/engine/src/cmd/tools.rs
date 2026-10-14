@@ -1114,6 +1114,7 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
     if show_in != "original" || p::str(v, "original").is_some() {
         // The result is a new, untitled document: saving it never overwrites either file.
         s.path = None;
+        s.file_name = None;
     }
     s.sel = Selection::caret(s.doc.start_of(StoryRef::Body));
     Ok(json!({"changes": changes, "author": author, "notHonoured": not_honoured}))

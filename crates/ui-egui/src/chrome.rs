@@ -286,9 +286,12 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     // Account / community.
                     let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
                     ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Account")));
                     let initials: String = app.session.user_initials().chars().take(2).collect();
                     ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                    resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author));
+                    if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
+                        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+                    }
                     ui.add_space(8.0);
                     if app.ui.show_discord {
                         let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
@@ -360,14 +363,29 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
             };
             let font = TypeRung::Chrome.semibold();
             let track = TypeRung::Chrome.tracking();
-            let w = text_width(ui.painter(), &title, &font, track, t.text);
             let cx = full.center().x;
-            if cx - w / 2.0 > qat_end + 10.0 && cx + w / 2.0 < right_start - 10.0 {
+            let available = 2.0 * (cx - qat_end - 10.0).min(right_start - 10.0 - cx);
+            let mut shown: String = title.chars().take(240).collect();
+            if text_width(ui.painter(), &shown, &font, track, t.text) > available {
+                while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
+                    shown.pop();
+                }
+                shown.push('…');
+            }
+            let w = text_width(ui.painter(), &shown, &font, track, t.text);
+            if available > 24.0 {
+                let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
+                let response = ui.interact(rect, ui.id().with("document_name"), Sense::click()).on_hover_text(tl!("Rename Document"));
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+                if response.clicked() {
+                    let _ = app.run("file.rename", json!({}));
+                }
+
                 paint_text(
                     ui.painter(),
                     pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
                     Align2::LEFT_TOP,
-                    &title,
+                    &shown,
                     &font,
                     track,
                     t.text,
