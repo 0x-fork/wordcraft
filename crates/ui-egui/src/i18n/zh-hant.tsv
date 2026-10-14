@@ -2084,12 +2084,6 @@
 	Automatic ({region})	自動（{region}）
 	Text of the nearest paragraph with a given style (running headers)	具有指定樣式的最近段落文字（書眉）
 	Style name:	樣式名稱：
-	Search from bottom of page to top	從頁面底部往頂端搜尋
-	Insert paragraph number	插入段落編號
-	Insert paragraph number in relative context	以相對內容插入段落編號
-	Insert paragraph number in full context	以完整內容插入段落編號
-	Suppress all non-delimiter characters	隱藏分隔字元以外的所有字元
-	Insert position (above or below)	插入位置（上方或下方）
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	篩選收件者
 	Sort Recipients	排序收件者
@@ -2115,6 +2109,12 @@
 	Contains	包含
 	Does not contain	不包含
 	{count} of {total} recipients will be merged.	將合併 {total} 位收件者中的 {count} 位。
+	Take the last match on the page	取本頁最後一個相符項目
+	Show its list number	顯示其清單編號
+	Show its number relative to this field	顯示相對於此欄位的編號
+	Show its number with all higher levels	顯示含所有上層層級的編號
+	Number only, without the label's words	只要編號，不要標籤中的文字
+	Add whether it is above or below	註明位於上方還是下方
 	Start-up	啟動
 	Show the Start screen when WordCraft starts	啟動 WordCraft 時顯示開始畫面
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	開：WordCraft 開啟時顯示「檔案 › 常用」，其中有空白文件、範本和最近使用的文件。關：直接開啟空白文件。

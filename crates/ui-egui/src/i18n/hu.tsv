@@ -2490,12 +2490,12 @@
 	Pastes the clipboard's picture.	Beilleszti a vágólapon lévő képet.
 	Text of the nearest paragraph with a given style (running headers)	Az adott stílusú legközelebbi bekezdés szövege (élőfejek)
 	Style name:	Stílus neve:
-	Search from bottom of page to top	Keresés a lap aljától felfelé
-	Insert paragraph number	Bekezdésszám beszúrása
-	Insert paragraph number in relative context	Bekezdésszám beszúrása relatív környezetben
-	Insert paragraph number in full context	Bekezdésszám beszúrása teljes környezetben
-	Suppress all non-delimiter characters	Az elválasztókon kívüli összes karakter elhagyása
-	Insert position (above or below)	Pozíció beszúrása (fent vagy lent)
+	Take the last match on the page	A lap utolsó találatának használata
+	Show its list number	A listaszámának megjelenítése
+	Show its number relative to this field	A számának megjelenítése ehhez a mezőhöz képest
+	Show its number with all higher levels	A számának megjelenítése az összes felső szinttel
+	Number only, without the label's words	Csak a szám, a címke szavai nélkül
+	Add whether it is above or below	Annak jelzése, hogy feljebb vagy lejjebb van
 	Select Column	Oszlop kijelölése
 	Select Table Cells by Clicking	Táblázatcellák kijelölése kattintással
 	Insert Row or Column by Clicking	Sor vagy oszlop beszúrása kattintással

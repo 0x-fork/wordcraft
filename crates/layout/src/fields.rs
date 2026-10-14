@@ -66,16 +66,20 @@ impl FieldCtx {
     pub fn page_key(&self) -> (u32, u32, u32, u32, u64) {
         (self.page, self.pages, self.section_pages, self.section, self.bookmarks_key)
     }
-    /// A key for caches of paragraphs with STYLEREF fields (0 when they show their stored result).
-    pub fn styleref_key(&self) -> u64 {
-        match &self.styleref {
-            Some((ix, at)) => {
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                std::hash::Hash::hash(&(ix.hash(), at), &mut h);
-                std::hash::Hasher::finish(&h).max(1)
+    /// A key for caches of paragraph `p` with STYLEREF fields (0 when they show their stored
+    /// result): a hash of the results its STYLEREF fields have on this page, so an edit to body
+    /// text that no STYLEREF shows leaves header paragraphs cached.
+    pub fn styleref_key(&self, p: &wordcraft_doc::Paragraph) -> u64 {
+        let Some((ix, at)) = &self.styleref else { return 0 };
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for o in &p.objects {
+            if let wordcraft_doc::para::InlineObject::Field { instr, .. } = o
+                && field_name(instr) == "STYLEREF"
+            {
+                std::hash::Hash::hash(&ix.eval(instr, *at), &mut h);
             }
-            None => 0,
         }
+        std::hash::Hasher::finish(&h).max(1)
     }
 }
 

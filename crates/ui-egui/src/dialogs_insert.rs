@@ -953,12 +953,12 @@ pub const FIELDS: &[(&str, &str, &str)] = &[
 
 /// STYLEREF's options (ECMA-376 §17.16.5.59): switch letter and label.
 pub const STYLEREF_SWITCHES: &[(char, &str)] = &[
-    ('l', "Search from bottom of page to top"),
-    ('n', "Insert paragraph number"),
-    ('r', "Insert paragraph number in relative context"),
-    ('w', "Insert paragraph number in full context"),
-    ('t', "Suppress all non-delimiter characters"),
-    ('p', "Insert position (above or below)"),
+    ('l', "Take the last match on the page"),
+    ('n', "Show its list number"),
+    ('r', "Show its number relative to this field"),
+    ('w', "Show its number with all higher levels"),
+    ('t', "Number only, without the label's words"),
+    ('p', "Add whether it is above or below"),
 ];
 
 /// The categories, in list order ("(All)" first).

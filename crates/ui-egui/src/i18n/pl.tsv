@@ -2150,12 +2150,12 @@
 	Automatic ({region})	Automatycznie ({region})
 	Text of the nearest paragraph with a given style (running headers)	Tekst najbliższego akapitu o danym stylu (żywa pagina)
 	Style name:	Nazwa stylu:
-	Search from bottom of page to top	Szukaj od dołu strony do góry
-	Insert paragraph number	Wstaw numer akapitu
-	Insert paragraph number in relative context	Wstaw numer akapitu w kontekście względnym
-	Insert paragraph number in full context	Wstaw numer akapitu w pełnym kontekście
-	Suppress all non-delimiter characters	Pomiń wszystkie znaki niebędące ogranicznikami
-	Insert position (above or below)	Wstaw położenie (powyżej lub poniżej)
+	Take the last match on the page	Weź ostatnie dopasowanie na stronie
+	Show its list number	Pokaż jego numer na liście
+	Show its number relative to this field	Pokaż jego numer względem tego pola
+	Show its number with all higher levels	Pokaż jego numer ze wszystkimi wyższymi poziomami
+	Number only, without the label's words	Tylko numer, bez słów etykiety
+	Add whether it is above or below	Dodaj, czy jest wyżej, czy niżej
 
 # Style, table style, watermark, paper size and equation gallery names, from #750 by @olekkut
 	AaBbCcDd	AaBbCcDd

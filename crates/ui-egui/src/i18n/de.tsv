@@ -2108,12 +2108,12 @@
 	Automatic ({region})	Automatisch ({region})
 	Text of the nearest paragraph with a given style (running headers)	Text des nächsten Absatzes mit einer bestimmten Formatvorlage (lebende Kolumnentitel)
 	Style name:	Formatvorlagenname:
-	Search from bottom of page to top	Seite von unten nach oben durchsuchen
-	Insert paragraph number	Absatznummer einfügen
-	Insert paragraph number in relative context	Absatznummer in relativem Kontext einfügen
-	Insert paragraph number in full context	Absatznummer in vollständigem Kontext einfügen
-	Suppress all non-delimiter characters	Alle Zeichen außer Trennzeichen unterdrücken
-	Insert position (above or below)	Position einfügen (oberhalb oder unterhalb)
+	Take the last match on the page	Letzten Treffer auf der Seite nehmen
+	Show its list number	Seine Listennummer zeigen
+	Show its number relative to this field	Seine Nummer bezogen auf dieses Feld zeigen
+	Show its number with all higher levels	Seine Nummer mit allen höheren Ebenen zeigen
+	Number only, without the label's words	Nur die Nummer, ohne die Wörter der Beschriftung
+	Add whether it is above or below	Angeben, ob er darüber oder darunter steht
 	Search	Suchen
 	Title Bar	Titelleiste
 	Copy to	Kopieren nach

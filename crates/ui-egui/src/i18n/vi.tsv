@@ -2562,13 +2562,7 @@
 	Only for the selected text	Chỉ cho văn bản được chọn
 
 # STYLEREF field (#882)
-	Insert paragraph number	Chèn số đoạn văn
-	Insert paragraph number in full context	Chèn số đoạn văn trong ngữ cảnh đầy đủ
-	Insert paragraph number in relative context	Chèn số đoạn văn trong ngữ cảnh tương đối
-	Insert position (above or below)	Chèn vị trí (phía trên hoặc phía dưới)
-	Search from bottom of page to top	Tìm từ cuối trang lên đầu
 	Style name:	Tên kiểu:
-	Suppress all non-delimiter characters	Bỏ mọi ký tự không phải dấu phân cách
 	Text of the nearest paragraph with a given style (running headers)	Văn bản của đoạn gần nhất có kiểu đã cho (đầu trang chạy)
 
 # Mail merge Filter and Sort (#885)
@@ -2599,3 +2593,11 @@
 
 # Backstage › Recover (#586)
 	Recover	Khôi phục
+
+# STYLEREF switch labels (#1294)
+	Add whether it is above or below	Thêm là ở phía trên hay phía dưới
+	Number only, without the label's words	Chỉ số, không kèm chữ của nhãn
+	Show its list number	Hiện số danh sách của nó
+	Show its number relative to this field	Hiện số của nó tương đối với trường này
+	Show its number with all higher levels	Hiện số của nó kèm mọi cấp cao hơn
+	Take the last match on the page	Lấy kết quả khớp cuối cùng trên trang

@@ -2484,12 +2484,12 @@ preview	Title	Esempio
 	Automatic ({region})	Automatico ({region})
 	Text of the nearest paragraph with a given style (running headers)	Testo del paragrafo più vicino con uno stile specificato (intestazioni correnti)
 	Style name:	Nome stile:
-	Search from bottom of page to top	Cerca dal fondo della pagina verso l'alto
-	Insert paragraph number	Inserisci numero di paragrafo
-	Insert paragraph number in relative context	Inserisci numero di paragrafo in contesto relativo
-	Insert paragraph number in full context	Inserisci numero di paragrafo in contesto completo
-	Suppress all non-delimiter characters	Elimina tutti i caratteri diversi dai delimitatori
-	Insert position (above or below)	Inserisci posizione (sopra o sotto)
+	Take the last match on the page	Prendi l'ultima corrispondenza della pagina
+	Show its list number	Mostra il suo numero di elenco
+	Show its number relative to this field	Mostra il suo numero rispetto a questo campo
+	Show its number with all higher levels	Mostra il suo numero con tutti i livelli superiori
+	Number only, without the label's words	Solo il numero, senza le parole dell'etichetta
+	Add whether it is above or below	Aggiungi se si trova più in alto o più in basso
 	Search	Cerca
 	Title Bar	Barra del titolo
 	Copy to	Copia in

@@ -2109,12 +2109,12 @@
 	Pastes the clipboard's picture.	Colle l'image du Presse-papiers.
 	Text of the nearest paragraph with a given style (running headers)	Texte du paragraphe le plus proche ayant un style donné (titres courants)
 	Style name:	Nom du style :
-	Search from bottom of page to top	Rechercher du bas vers le haut de la page
-	Insert paragraph number	Insérer le numéro de paragraphe
-	Insert paragraph number in relative context	Insérer le numéro de paragraphe en contexte relatif
-	Insert paragraph number in full context	Insérer le numéro de paragraphe en contexte complet
-	Suppress all non-delimiter characters	Supprimer tous les caractères autres que les séparateurs
-	Insert position (above or below)	Insérer la position (au-dessus ou au-dessous)
+	Take the last match on the page	Prendre la dernière correspondance de la page
+	Show its list number	Afficher son numéro de liste
+	Show its number relative to this field	Afficher son numéro par rapport à ce champ
+	Show its number with all higher levels	Afficher son numéro avec tous les niveaux supérieurs
+	Number only, without the label's words	Le numéro seul, sans les mots de l'étiquette
+	Add whether it is above or below	Indiquer s'il se trouve plus haut ou plus bas
 	Select Column	Sélectionner la colonne
 	Select Table Cells by Clicking	Sélectionner des cellules du tableau en cliquant
 	Insert Row or Column by Clicking	Insérer une ligne ou une colonne en cliquant

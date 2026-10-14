@@ -13,7 +13,6 @@
 //! the number; `\p` adds "above" / "below".
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
 use wordcraft_doc::numbering::Counters;
 use wordcraft_doc::para::InlineObject;
@@ -110,14 +109,14 @@ pub fn parse(instr: &str) -> StyleRefCode {
 }
 
 /// What the search looks for.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Target {
     Para(String),
     Char(String),
 }
 
 /// A body paragraph, as STYLEREF sees it.
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug)]
 struct Entry {
     path: Path,
     style: String,
@@ -150,7 +149,6 @@ pub struct StyleIndex {
     by_path: HashMap<Path, usize>,
     /// Lower-cased style id or name → (id, character style).
     styles: HashMap<String, (String, bool)>,
-    hash: u64,
 }
 
 fn clean(s: &str) -> String {
@@ -211,17 +209,7 @@ impl StyleIndex {
             by_path.insert(path.clone(), entries.len());
             entries.push(Entry { path, style, text: clean(&p.plain_text()), runs, label, levels, ordinal });
         }
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        entries.hash(&mut h);
-        let mut keys: Vec<_> = styles.iter().collect();
-        keys.sort();
-        keys.hash(&mut h);
-        StyleIndex { entries, by_path, styles, hash: h.finish() }
-    }
-
-    /// A hash of everything a STYLEREF result can depend on (for layout caches).
-    pub fn hash(&self) -> u64 {
-        self.hash
+        StyleIndex { entries, by_path, styles }
     }
 
     /// The entry of the body paragraph at `path`.
@@ -251,7 +239,14 @@ impl StyleIndex {
             if !(1..=9).contains(&n) {
                 return None;
             }
-            let id = self.styles.get(&format!("heading{n}")).map(|s| s.0.clone()).unwrap_or_else(|| format!("Heading{n}"));
+            // The built-in style is named `heading N` whatever its id (localized Word writes
+            // ids like `berschrift1`); else an id `HeadingN`.
+            let id = self
+                .styles
+                .get(&format!("heading {n}"))
+                .or_else(|| self.styles.get(&format!("heading{n}")))
+                .map(|s| s.0.clone())
+                .unwrap_or_else(|| format!("Heading{n}"));
             return Some(Target::Para(id));
         }
         let (id, chr) = self.styles.get(&style.to_lowercase())?;
@@ -271,19 +266,19 @@ impl StyleIndex {
         let code = parse(instr);
         let Some(target) = self.target(&code.style) else { return NO_TEXT.to_string() };
         let n = self.entries.len();
-        // Candidates in search order, with whether each one counts as below the field.
-        let order: Vec<(usize, bool)> = match at {
+        // Candidates in search order, with whether each one counts as below the field (lazy:
+        // headers evaluate this for every page on every pass).
+        let order: Box<dyn Iterator<Item = (usize, bool)>> = match at {
             At::Page { first, last } => {
-                let on: Vec<usize> = match last {
-                    Some(l) if first <= l => (first..=l.min(n.saturating_sub(1))).collect(),
-                    _ => Vec::new(),
+                let on = match last {
+                    Some(l) if first <= l => first..l.min(n.saturating_sub(1)).saturating_add(1),
+                    _ => 0..0,
                 };
                 let after = last.map_or(first, |l| l.saturating_add(1));
-                let page: Vec<(usize, bool)> =
-                    if code.last { on.iter().rev().map(|i| (*i, true)).collect() } else { on.iter().map(|i| (*i, true)).collect() };
-                page.into_iter().chain((0..first.min(n)).rev().map(|i| (i, false))).chain((after..n).map(|i| (i, true))).collect()
+                let page: Box<dyn Iterator<Item = usize>> = if code.last { Box::new(on.rev()) } else { Box::new(on) };
+                Box::new(page.map(|i| (i, true)).chain((0..first.min(n)).rev().map(|i| (i, false))).chain((after..n).map(|i| (i, true))))
             }
-            At::Body(i) => (0..=i.min(n.saturating_sub(1))).rev().map(|k| (k, false)).chain((i.saturating_add(1)..n).map(|k| (k, true))).collect(),
+            At::Body(i) => Box::new((0..=i.min(n.saturating_sub(1))).rev().map(|k| (k, false)).chain((i.saturating_add(1)..n).map(|k| (k, true)))),
         };
         let Some((i, text, below)) = order.into_iter().find_map(|(i, below)| self.text_of(i, &target).map(|t| (i, t, below))) else {
             return NO_TEXT.to_string();

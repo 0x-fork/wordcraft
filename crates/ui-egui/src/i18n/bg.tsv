@@ -2443,12 +2443,6 @@
 	Automatic ({region})	Автоматично ({region})
 	Text of the nearest paragraph with a given style (running headers)	Текст на най-близкия абзац с даден стил (текущи колонтитули)
 	Style name:	Име на стил:
-	Search from bottom of page to top	Търсене от долния към горния край на страницата
-	Insert paragraph number	Вмъкване на номер на абзац
-	Insert paragraph number in relative context	Вмъкване на номер на абзац в относителен контекст
-	Insert paragraph number in full context	Вмъкване на номер на абзац в пълен контекст
-	Suppress all non-delimiter characters	Премахване на всички знаци освен разделителите
-	Insert position (above or below)	Вмъкване на позиция (над или под)
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Филтриране на получателите
 	Sort Recipients	Сортиране на получателите
@@ -2474,6 +2468,12 @@
 	Contains	Съдържа
 	Does not contain	Не съдържа
 	{count} of {total} recipients will be merged.	Ще бъдат обединени {count} от {total} получатели.
+	Take the last match on the page	Взимай последното съвпадение на страницата
+	Show its list number	Показвай номера му в списъка
+	Show its number relative to this field	Показвай номера му спрямо това поле
+	Show its number with all higher levels	Показвай номера му с всички по-горни нива
+	Number only, without the label's words	Само номерът, без думите от етикета
+	Add whether it is above or below	Добавяй дали е отгоре или отдолу
 	Undo 1 Action	Отмяна на 1 действие
 	Undo Actions	Отмяна на действия
 	Undo History	История на отмяната

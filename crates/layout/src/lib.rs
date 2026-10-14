@@ -807,7 +807,7 @@ impl Ctx<'_> {
             grid: self.grid.key(),
             fit: self.boxes.inside(),
             hide_deleted: self.hide_deleted,
-            sref: if self.fields.styleref.is_some() && styleref::has_styleref(p) { self.fields.styleref_key() } else { 0 },
+            sref: if self.fields.styleref.is_some() && styleref::has_styleref(p) { self.fields.styleref_key(p) } else { 0 },
         };
         (key, eq_number)
     }

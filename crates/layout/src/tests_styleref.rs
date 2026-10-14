@@ -139,3 +139,39 @@ fn style_index_is_reused_until_the_body_or_styles_change() {
     let _ = pages(&d, &mut c);
     assert!(!Arc::ptr_eq(&second, &index(&c)), "a style change rebuilds it");
 }
+
+/// `STYLEREF 1` finds the style named `heading 1` when its id is localized (#1286).
+#[test]
+fn heading_level_matches_a_localized_style_id() {
+    let paras: Vec<(&str, &str, bool)> = CHAPTERS.iter().map(|(s, t, b)| (if *s == "Heading1" { "berschrift1" } else { *s }, *t, *b)).collect();
+    let mut d = doc(&paras, &["STYLEREF 1"]);
+    let st = d.styles.styles.iter_mut().find(|s| s.id == "Heading1").unwrap();
+    st.id = "berschrift1".into();
+    st.name = "heading 1".into();
+    let h = headers(&d);
+    assert_eq!(h[0], ["Beginnings"]);
+    assert_eq!(h[3], ["Endings"]);
+}
+
+/// Typing in body text that no STYLEREF shows keeps every header paragraph cached (#1286); an
+/// edited heading still updates the headers that show it.
+#[test]
+fn body_edits_keep_styleref_headers_cached() {
+    let mut d = doc(CHAPTERS, &[r#"STYLEREF "Heading 1""#, r#"STYLEREF "Heading 1" \p"#]);
+    let mut c = LayoutCache::new();
+    let opts = LayoutOptions::default();
+    let _ = layout(&d, &mut c, &opts);
+    // Type in a body paragraph: only that paragraph is laid out again.
+    d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().insert_text(0, "More ", &CharProps::default()).unwrap();
+    let misses = c.misses;
+    let again = layout(&d, &mut c, &opts);
+    assert_eq!(c.misses, misses + 1, "only the edited body paragraph misses the cache");
+    assert_eq!(shown(&again.pages[1].header), ["Middles", "below"]);
+    // Edit a heading: the headers showing it change.
+    d.para_mut(StoryRef::Body, &Path::top(2)).unwrap().insert_text(0, "The ", &CharProps::default()).unwrap();
+    let edited = layout(&d, &mut c, &opts);
+    assert_eq!(shown(&edited.pages[1].header), ["The Middles", "below"]);
+    // Page 3 has no heading: the one before it shows, above the header.
+    assert_eq!(shown(&edited.pages[2].header), ["The Middles", "above"]);
+    assert_eq!(shown(&edited.pages[0].header), ["Beginnings", "below"]);
+}

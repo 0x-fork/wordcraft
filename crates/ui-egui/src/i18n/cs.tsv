@@ -2493,12 +2493,12 @@ preview	Title	Ukázka
 	Automatic ({region})	Automaticky ({region})
 	Text of the nearest paragraph with a given style (running headers)	Text nejbližšího odstavce s daným stylem (živá záhlaví)
 	Style name:	Název stylu:
-	Search from bottom of page to top	Hledat od konce stránky k začátku
-	Insert paragraph number	Vložit číslo odstavce
-	Insert paragraph number in relative context	Vložit číslo odstavce v relativním kontextu
-	Insert paragraph number in full context	Vložit číslo odstavce v úplném kontextu
-	Suppress all non-delimiter characters	Potlačit všechny znaky kromě oddělovačů
-	Insert position (above or below)	Vložit pozici (nad nebo pod)
+	Take the last match on the page	Vzít poslední shodu na stránce
+	Show its list number	Zobrazit jeho číslo v seznamu
+	Show its number relative to this field	Zobrazit jeho číslo vzhledem k tomuto poli
+	Show its number with all higher levels	Zobrazit jeho číslo se všemi vyššími úrovněmi
+	Number only, without the label's words	Jen číslo, bez slov popisku
+	Add whether it is above or below	Doplnit, zda je výše, nebo níže
 	Search	Hledat
 	Title Bar	Záhlaví okna
 	Copy to	Kopírovat do
