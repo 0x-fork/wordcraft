@@ -3288,6 +3288,53 @@ mod tests {
         }
     }
 
+    /// #1156: the Print page's preview fills the pane beside the settings, zooms from its own
+    /// bar, scrolls both ways once the page outgrows the pane, and One Page fits it again.
+    #[test]
+    fn the_print_preview_fills_the_pane_zooms_and_scrolls_both_ways() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{By, Queryable};
+        let mut a = app();
+        a.run("file.print", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let page = |h: &egui_kittest::Harness<'_, WordApp>| h.get(By::new().role(Role::Image)).rect();
+        let fit = page(&h);
+        assert!(fit.height() > 650.0, "the page fills the pane's height: {fit:?}");
+        assert!(h.query(By::new().role(Role::Label).label("Page 1 of 1")).is_some(), "the page indicator stays");
+
+        for _ in 0..5 {
+            h.get_by_label("Zoom In").click();
+            h.run_steps(2);
+        }
+        let zoomed = page(&h);
+        assert!(zoomed.width() > fit.width() * 1.4 && zoomed.height() > 900.0, "zoomed in: {zoomed:?}");
+
+        h.input_mut().events.push(egui::Event::PointerMoved(zoomed.center()));
+        h.input_mut().events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(-120.0, -120.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(20);
+        let moved = page(&h);
+        assert!(moved.min.x < zoomed.min.x - 50.0, "scrolls sideways: {zoomed:?} -> {moved:?}");
+        assert!(moved.min.y < zoomed.min.y - 50.0, "scrolls down: {zoomed:?} -> {moved:?}");
+
+        h.get_by_label("One Page").click();
+        h.run_steps(4);
+        let again = page(&h);
+        assert!((again.height() - fit.height()).abs() < 1.0, "One Page fits the page again: {fit:?} vs {again:?}");
+    }
+
     /// File › Options shows Make WordCraft the default… only when the host can do it (#295), and
     /// the button runs the host's hook.
     #[test]
