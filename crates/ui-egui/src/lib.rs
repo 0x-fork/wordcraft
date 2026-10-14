@@ -853,6 +853,16 @@ impl WordApp {
         let document = self.session.document_id();
         let old_path = self.session.path.clone();
         let r = self.session.run(id, &params).map_err(|e| e.to_string());
+        // Copy and Cut put what they took on the system clipboard, whichever control ran them
+        // (the ribbon, a context menu, the native menu, or the Cmd+C/X event). Only the key event
+        // used to write it, so a Cut button deleted the words without copying them.
+        if matches!(id, "edit.copy" | "edit.cut")
+            && let Ok(v) = &r
+            && let Some(ctx) = &ctx
+        {
+            // Its HTML too when it has some (an equation as MathML, #816).
+            crate::system_clipboard::put_result(self, ctx, v);
+        }
         // When the document has been replaced (not when Open only showed its picker), a pending
         // "Save changes?" and AutoSave's go-ahead were both about the old one.
         if self.session.document_id() != document {
@@ -3638,6 +3648,94 @@ mod tests {
 
     fn prompt(a: &WordApp) -> Option<&'static str> {
         a.dialog.as_ref().map(|d| d.name())
+    }
+
+    /// Cut and Copy reach the system clipboard however they are run — the ribbon, a context menu,
+    /// the native menu or Cmd+C/X — not only the key event, which used to be the sole writer.
+    #[test]
+    fn cut_and_copy_reach_the_system_clipboard() {
+        let copied = |ctx: &egui::Context| -> Vec<String> {
+            ctx.output(|o| {
+                o.commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+        };
+        let ctx = egui::Context::default();
+        let mut a = typed();
+        a.ctx = Some(ctx.clone());
+        a.run("select.all", json!({})).unwrap();
+        let text = a.session.selected_text();
+        assert!(!text.is_empty());
+        a.run("edit.cut", json!({})).unwrap();
+        assert!(body_text(&a).is_empty(), "cut deleted the selection");
+        assert!(copied(&ctx).contains(&text), "cut put {text:?} on the clipboard: {:?}", copied(&ctx));
+
+        a.run("edit.undo", json!({})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("edit.copy", json!({})).unwrap();
+        assert_eq!(body_text(&a), text, "copy kept the text");
+        assert!(copied(&ctx).contains(&text), "copy put {text:?} on the clipboard: {:?}", copied(&ctx));
+    }
+
+    /// #1265: every user entry point publishes Cut to the one clipboard sink — the ribbon's button
+    /// and a real Cmd/Ctrl+X key event, not only the generic command dispatch the sink sits behind.
+    #[test]
+    fn every_cut_entry_point_publishes_to_the_clipboard() {
+        let copied = |ctx: &egui::Context| -> Vec<String> {
+            ctx.output(|o| {
+                o.commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+        };
+
+        // The ribbon's Cut button goes through `run_from_ribbon`, like every ribbon control.
+        let ctx = egui::Context::default();
+        let mut a = typed();
+        a.ctx = Some(ctx.clone());
+        a.run("select.all", json!({})).unwrap();
+        let text = a.session.selected_text();
+        crate::widgets::run_from_ribbon(&mut a, "edit.cut", json!({}));
+        assert!(body_text(&a).is_empty(), "ribbon Cut deleted the selection");
+        assert!(copied(&ctx).contains(&text), "ribbon Cut published {text:?}: {:?}", copied(&ctx));
+
+        // A real Cut key event through the app's key handling.
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            typed(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.state_mut().canvas.focused = true;
+        h.state_mut().run("select.all", json!({})).unwrap();
+        h.step();
+        h.event(egui::Event::Cut);
+        h.step();
+        let via_key: Vec<String> = h
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(via_key.iter().any(|t| t.contains("My unsaved novel")), "key event Cut: {via_key:?} body={:?}", body_text(h.state()));
     }
 
     /// A fresh scratch folder for one test.

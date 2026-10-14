@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-13 | Cut copies to the system clipboard however it is run (#1265): the ribbon, the context menu and the native menu cut deleted the words without copying them (only the Cmd+X event wrote the clipboard, so Paste re-inserted the previous copy); Copy/Cut publication is centralised in one sink and every entry point is tested |
 | 2026-10-12 | Password-protected Word 97-2003 `.doc` files open after a password prompt (XOR obfuscation, RC4, RC4 CryptoAPI; wrong passwords are rejected by the stored verifier, #1079); written from the public specs and tested on synthetic files only, AES-encrypted `.doc` files are still refused |
 | 2026-10-12 | Comments can show only for the selected text (#1055): Track Changes Options › Comments › "Only for the selected text" drops the margin column, and the comment under the caret, or the clicked one, floats beside the page (over its edge in a narrow window). The default stays "In the margin", as in Word; `review.trackingOptions {"commentDisplay"}` for agents |
 | 2026-10-12 | Clicking inside a selected comment's balloon moves the caret in its text (#1013); the click used to leave the balloon, so the caret could only be moved with the arrow keys. A press on any balloon now belongs to the balloon, not the page behind it |
