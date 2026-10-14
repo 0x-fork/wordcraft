@@ -84,8 +84,10 @@ display_name = "cyril265"
 [people.webdevtodayjason]
 display_name = "Jason Brashear"
 sync_github_name = false
-[people.Nael-Nathanael]
+
+[people.lupant]
 sync_github_name = true
+[people.Nael-Nathanael]
 
 
 [people.Losminek]
