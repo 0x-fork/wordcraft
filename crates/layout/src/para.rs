@@ -2111,14 +2111,11 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     }
                     xs.push(x);
                     if ptab.is_none() && stop.pos > right_edge + 0.01 && j > c0 && stop.align == TabAlign::Left {
-                        // Tab past the right indent wraps (Word moves it to the next line).
-                        if let Some(c) = pl.clusters.get_mut(j) {
-                            c.adv = 0.0;
-                        }
-                        x = right_edge.max(x);
-                        last_break = Some(j);
-                        j += 1;
-                        continue;
+                        // Tab past the right indent wraps: like Word, it starts the next line and
+                        // goes to the first stop there (a TOC entry's leader and page number).
+                        xs.pop();
+                        end = LineEnd::Wrap;
+                        break;
                     }
                     match stop.align {
                         TabAlign::Left | TabAlign::Bar | TabAlign::Clear => {
@@ -2178,6 +2175,17 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     && right_edge - px <= zone
                 {
                     last_break = Some(pj);
+                }
+                // The text after a right, centre or decimal tab doesn't fit: like Word, the tab
+                // goes to the next line with its text (a TOC entry's page number stays at the
+                // right margin, after a leader) instead of ending this line.
+                if let Some((tj, ..)) = pending_tab
+                    && last_break == Some(tj)
+                    && tj > c0
+                {
+                    last_break = Some(tj - 1);
+                    pending_tab = None;
+                    leaders.retain(|(k, _)| *k < tj);
                 }
                 if let Some(bk) = last_break.filter(|bk| *bk >= c0) {
                     xs.truncate(bk + 1 - c0);

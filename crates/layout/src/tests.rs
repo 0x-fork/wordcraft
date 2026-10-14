@@ -1053,6 +1053,42 @@ fn narrow_cells_keep_their_width() {
 }
 
 #[test]
+fn right_tab_whose_text_does_not_fit_moves_to_the_next_line_with_it() {
+    // A TOC-like entry: text, then a right tab with a dot leader and a page number. Whatever the
+    // text's length, the number is on the tab's line and ends at the stop (or past it, inside the
+    // margin). With the stop short of the margin, text can also end past the stop, where the next
+    // default stop is past the margin: then the tab wraps too.
+    use wordcraft_doc::props::{TabAlign, TabLeader, TabStop};
+    for pos in [468.0, 400.0] {
+        for m in 20..40 {
+            for r in 0..4 {
+                let text = format!("{}{}\t63", "abc ".repeat(m), "y".repeat(r));
+                let n = text.chars().count();
+                let mut d = Document::from_text(&text);
+                d.settings.default_tab = 100.0;
+                d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| {
+                    p.tabs = Some(vec![TabStop { pos, align: TabAlign::Right, leader: TabLeader::Dot }])
+                })
+                .unwrap();
+                let l = lay(&d);
+                let end = l.caret(&Pos::body(0, n)).unwrap().x;
+                // At the stop, or (when the text before the tab already reaches it) right after the text,
+                // inside the margin.
+                assert!(end > 72.0 + pos - 1.0 && end < 541.0, "stop {pos}, {m} words + {r}: number ends at {end}");
+                let Some(para) = l.pages[0].items.iter().find_map(|i| if let Placed::Lines { para, .. } = i { Some(para.clone()) } else { None })
+                else {
+                    panic!("no lines")
+                };
+                let tab = n - 3;
+                let line = para.lines.iter().find(|l| l.c0 <= tab && tab < l.c1).unwrap();
+                assert!(line.c1 >= n, "stop {pos}, {m} words + {r}: the tab and its number are on different lines");
+                assert!(line.leaders.iter().any(|(k, _)| *k == tab), "stop {pos}, {m} words + {r}: no leader");
+            }
+        }
+    }
+}
+
+#[test]
 fn lists_get_labels_and_indent() {
     let mut d = Document::from_text("one\ntwo\nthree");
     let id = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
