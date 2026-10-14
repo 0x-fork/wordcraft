@@ -16,6 +16,7 @@ use wordcraft_layout::display::{DisplayOptions, Draw, Stroke, page_display};
 use wordcraft_layout::wordart::ArtPaint;
 use wordcraft_metafile::{Item, Picture, PlacedItem, Seg};
 
+mod color_glyph;
 pub mod icon_lib;
 
 /// Worker threads for rasterising (0 on the web, where there are no threads).
@@ -545,10 +546,16 @@ pub fn render_text_line(face: &wordcraft_fonts::FontFace, text: &str, size: f32,
     let ascent = if face.ascent.is_finite() { face.ascent.clamp(0.0, upem * 4.0) } else { upem * 0.8 };
     let baseline = margin + ascent * k;
     let mut x = margin;
+    let colour = face.has_color_glyphs();
     for g in wordcraft_fonts::shape(face, text, &[], |c| c) {
-        let o = face.glyph_outline(g.gid);
-        ctx.set_transform(view * Affine::translate((x + g.x_offset as f64 * k, baseline - g.y_offset as f64 * k)) * Affine::scale(k));
-        ctx.fill_path(&o);
+        let at = view * Affine::translate((x + g.x_offset as f64 * k, baseline - g.y_offset as f64 * k)) * Affine::scale(k);
+        if colour && let Some(d) = color_glyph::drawable(face, g.gid, size * scale as f64, false) {
+            color_glyph::draw(&mut ctx, &d, at, upem, color(Rgb(0, 0, 0), 1.0), 1.0);
+            ctx.set_paint(color(Rgb(0, 0, 0), 1.0));
+        } else {
+            ctx.set_transform(at);
+            ctx.fill_path(&face.glyph_outline(g.gid));
+        }
         x += g.x_advance as f64 * k;
         if x > w as f64 {
             break;
@@ -696,11 +703,20 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 let join = if darken > 0.0 { kurbo::Join::Round } else { kurbo::Join::Miter };
                 ctx.set_stroke(kurbo::Stroke::new(outline_stroke).with_join(join));
             }
+            // Emoji and other colour glyphs (#1269) are drawn from the font's colour data.
+            let colour = face.has_color_glyphs();
+            let ppem = *size as f64 * px_per_pt;
             for (gid, x, y) in glyphs {
                 let (gx, gy) = (*x as f64, *y as f64);
                 // Written so a NaN position is skipped too.
                 let near = gx >= visible.x0 - 100.0 && gx <= visible.x1 && gy >= visible.y0 && gy <= visible.y1 + 200.0;
                 if !near {
+                    continue;
+                }
+                if colour && let Some(d) = color_glyph::drawable(face, *gid, ppem, true) {
+                    let at = view * Affine::translate((gx, gy)) * skew * Affine::scale(k);
+                    color_glyph::draw(ctx, &d, at, face.upem, color(opts.ink(*c), 1.0), *alpha);
+                    ctx.set_paint(color(opts.ink(*c), *alpha));
                     continue;
                 }
                 let o = db.outline(face, *gid);
@@ -1601,3 +1617,5 @@ mod tests {
 
 #[cfg(test)]
 mod cache_tests;
+#[cfg(test)]
+mod tests_color_glyphs;
