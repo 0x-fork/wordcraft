@@ -3333,10 +3333,12 @@ fn space_after_kept(ctx: &Ctx, block: usize, rp: &wordcraft_doc::resolve::Resolv
     after
 }
 
-/// Height of the first line of the block after `block` (for keep-with-next).
-/// The room the paragraphs after `block` need on its page for keep with next: the next one's
-/// first line, or all of it and what it keeps with in turn when it is kept with the next too
-/// (a chain moves together in Word).
+/// The room the paragraphs after `block` need on the page for keep with next: enough of the
+/// next one to start there — its first line, two of its lines with widow/orphan control (it
+/// doesn't leave a single line at the bottom of a page; it moves over whole instead), or all
+/// of it under keep lines together — or all of it and what it keeps with in turn when it is
+/// kept with the next too (a chain moves together in Word). Word carries a kept heading over
+/// when the paragraph after it cannot start on the page (#966).
 fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32 {
     match ctx.doc.body.get(block + 1).map(|b| &**b) {
         Some(Block::Para(p)) => {
@@ -3364,7 +3366,20 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32
             if pl.rp.keep_next && depth < 8 {
                 pl.rp.space_before + pl.height + pl.rp.space_after + next_first_line(ctx, block + 1, width, depth + 1)
             } else {
-                pl.rp.space_before + pl.lines.first().map(|l| l.height).unwrap_or(0.0)
+                // The room this one needs to start on the page with the kept paragraph before
+                // it (#966).
+                let to = |k: usize| match (pl.lines.first(), pl.lines.get(k)) {
+                    (Some(first), Some(last)) => last.top + last.height - first.top,
+                    _ => 0.0,
+                };
+                pl.rp.space_before
+                    + if pl.rp.keep_lines {
+                        pl.height
+                    } else if pl.rp.widow_control && pl.lines.len() >= 2 {
+                        to(1)
+                    } else {
+                        to(0)
+                    }
             }
         }
         Some(Block::Table(_)) => 24.0,

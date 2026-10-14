@@ -5038,6 +5038,135 @@ fn keep_with_next_moves_a_paragraph_only_when_it_would_fit() {
     assert_eq!(pages(fit - 1, kn.clone(), kn.clone()), [1, 1, 1, 1, 1, 1], "a kept chain moves together");
 }
 
+/// A kept heading goes with the paragraph after it when that paragraph cannot start on its
+/// page (#966): with widow/orphan control on, one line of it at the bottom of the page moves
+/// over with the rest, so only two lines below the heading hold it there. Word and LibreOffice
+/// both move the heading; WordCraft left it alone. With the control off the single line stays,
+/// and the heading keeps it company.
+#[test]
+fn keep_with_next_carries_the_heading_when_widow_control_moves_the_next_paragraph() {
+    // Page of the heading, then of the next paragraph's lines at "Bb", "Bc" and "Be".
+    let pages = |fillers: usize, widow: bool| -> [usize; 4] {
+        let mut d = Document::new();
+        let plain = ParaProps {
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            line_spacing: Some(wordcraft_doc::props::LineSpacing::Multiple(1.0)),
+            widow_control: Some(widow),
+            ..Default::default()
+        };
+        let para = |text: &str, p: &ParaProps| {
+            let mut x = wordcraft_doc::Paragraph::with_text(text, Default::default());
+            x.props = p.clone();
+            wordcraft_doc::para_block(x)
+        };
+        d.body = (0..fillers).map(|i| para(&format!("F{i}"), &plain)).collect();
+        let mut heading = wordcraft_doc::Paragraph::with_text("HEADING", Default::default());
+        heading.props = ParaProps { keep_next: Some(true), ..plain.clone() };
+        d.body.push(wordcraft_doc::para_block(heading));
+        d.body.push(para("Bb\nBc\nBd\nBe\nBf", &plain));
+        let l = lay(&d);
+        [
+            l.caret(&Pos::body(fillers, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 3)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 9)).unwrap().page,
+        ]
+    };
+    // Find the page edge that leaves the heading room for exactly one line of the paragraph
+    // after it: with the control off it starts there and the rest goes over.
+    let fit = (20..100).find(|n| pages(*n, false) == [0, 0, 1, 1]).expect("a filler count that leaves room for one line after the heading");
+    assert_eq!(pages(fit, false), [0, 0, 1, 1], "without the control one line stays: {fit}");
+    // With widow/orphan control the paragraph moves over whole, and the heading goes with it.
+    assert_eq!(pages(fit, true), [1, 1, 1, 1], "the heading follows the paragraph: {fit}");
+    // One line more of room holds both of its first lines below the heading, under either
+    // setting.
+    assert_eq!(pages(fit - 1, true), [0, 0, 0, 1], "two lines below the heading hold it");
+    assert_eq!(pages(fit - 1, false), [0, 0, 0, 1]);
+}
+
+/// The chain case of #966: a kept heading before a kept paragraph before a long one all move
+/// over when the last one cannot start on the page, and all stay when it can.
+#[test]
+fn keep_with_next_chain_carries_over_when_the_last_paragraph_cannot_start() {
+    let pages = |fillers: usize, widow: bool| -> Vec<usize> {
+        let mut d = Document::new();
+        let plain = ParaProps {
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            line_spacing: Some(wordcraft_doc::props::LineSpacing::Multiple(1.0)),
+            widow_control: Some(widow),
+            ..Default::default()
+        };
+        let para = |text: &str, p: &ParaProps| {
+            let mut x = wordcraft_doc::Paragraph::with_text(text, Default::default());
+            x.props = p.clone();
+            wordcraft_doc::para_block(x)
+        };
+        d.body = (0..fillers).map(|i| para(&format!("F{i}"), &plain)).collect();
+        let kept = ParaProps { keep_next: Some(true), ..plain.clone() };
+        d.body.push(para("HEADING", &kept));
+        d.body.push(para("MID", &kept));
+        d.body.push(para("Bb\nBc\nBd\nBe\nBf", &plain));
+        let l = lay(&d);
+        // Pages of the heading, the kept middle, and the long paragraph's first two lines.
+        vec![
+            l.caret(&Pos::body(fillers, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 2, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 2, 3)).unwrap().page,
+        ]
+    };
+    // The page edge that leaves the heading and the kept middle room for one line of the long
+    // paragraph after them.
+    let fit = (20..100).find(|n| pages(*n, false) == [0, 0, 0, 1]).expect("a filler count that leaves room for one line after the chain");
+    // With widow/orphan control the long paragraph cannot start there, so the whole chain
+    // moves over.
+    assert_eq!(pages(fit, true), [1, 1, 1, 1], "the chain follows the paragraph: {fit}");
+    assert_eq!(pages(fit, false), [0, 0, 0, 1], "without the control one line stays: {fit}");
+}
+
+/// Keep lines together on the paragraph after a kept heading: when the whole paragraph does
+/// not fit below the heading, both move over. Word does not leave a kept heading holding part
+/// of a paragraph that keep lines together will not split (#966).
+#[test]
+fn keep_with_next_carries_the_heading_when_keep_lines_moves_the_next_paragraph() {
+    let pages = |fillers: usize, kept_lines: bool| -> Vec<usize> {
+        let mut d = Document::new();
+        let plain = ParaProps {
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            line_spacing: Some(wordcraft_doc::props::LineSpacing::Multiple(1.0)),
+            widow_control: Some(false),
+            ..Default::default()
+        };
+        let para = |text: &str, p: &ParaProps| {
+            let mut x = wordcraft_doc::Paragraph::with_text(text, Default::default());
+            x.props = p.clone();
+            wordcraft_doc::para_block(x)
+        };
+        d.body = (0..fillers).map(|i| para(&format!("F{i}"), &plain)).collect();
+        let mut heading = wordcraft_doc::Paragraph::with_text("HEADING", Default::default());
+        heading.props = ParaProps { keep_next: Some(true), ..plain.clone() };
+        d.body.push(wordcraft_doc::para_block(heading));
+        let body = ParaProps { keep_lines: Some(kept_lines), ..plain.clone() };
+        d.body.push(para("Bb\nBc\nBd", &body));
+        let l = lay(&d);
+        // Pages of the heading and of the paragraph's first two lines.
+        vec![
+            l.caret(&Pos::body(fillers, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 3)).unwrap().page,
+        ]
+    };
+    // The page edge that leaves the heading room for exactly one line of the three-line
+    // paragraph after it.
+    let fit = (20..100).find(|n| pages(*n, false) == [0, 0, 1]).expect("a filler count that leaves room for one line after the heading");
+    // With keep lines together the paragraph moves over whole, and the heading goes with it.
+    assert_eq!(pages(fit, true), [1, 1, 1], "the heading follows the paragraph: {fit}");
+    assert_eq!(pages(fit, false), [0, 0, 1], "without it the paragraph splits: {fit}");
+}
+
 /// An empty paragraph that only carries a section break before a continuous section takes no
 /// room, measured in Word for Windows (`plan/word` R21, 10 cases): the text after it follows right
 /// on, and columns balanced above it don't count it (two one-line paragraphs in two columns sit
