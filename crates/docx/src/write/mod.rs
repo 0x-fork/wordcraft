@@ -1,6 +1,8 @@
 //! [`Document`] → DOCX.
 
 mod embed;
+mod settings_merge;
+pub(crate) use settings_merge::has_unowned as settings_has_unowned;
 mod math;
 mod props;
 mod sdt;
@@ -376,7 +378,13 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         &mut entries,
         &mut overrides,
         "word/settings.xml",
-        settings_xml(doc, notes_part(doc, &wr, true), notes_part(doc, &wr, false), template_rel.as_deref()),
+        {
+            let generated = settings_xml(doc, notes_part(doc, &wr, true), notes_part(doc, &wr, false), template_rel.as_deref());
+            match doc.passthrough.get(crate::package::SETTINGS_ORIG) {
+                Some(orig) => settings_merge::merge(orig, &generated).unwrap_or(generated),
+                None => generated,
+            }
+        },
         &format!("{CT_WML}settings+xml"),
         settings_rels,
     );

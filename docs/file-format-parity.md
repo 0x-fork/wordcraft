@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: ODT tracked changes read and written, gap 19; previously trivial: RTF tracked insertions and deletions read and written, gap 19; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** minor (All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: DOCX save keeps unmodelled settings, #1034; previously trivial: VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: equations as MathML in HTML export, copy and paste, #816; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -72,7 +72,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Native Word ink (`w14:contentPart`, InkML) | 🟡 | 🟡 | Drawing-level ink kept opaque with its InkML part, relationship and content type; direct run-level `w:contentPart` and run-level `mc:AlternateContent` keep the native branch and VML picture fallback. Direct content parts remain direct through repeated save/reopen cycles, without a native rendering. Drawing-level ink shows the preview or a missing-picture box. No native stroke rendering, eraser, conversion or replay; ink nested in groups/canvases remains unsupported |
 | 3D models | ❌ | ❌ | Dropped on read, not preserved on save |
 | Equations (OMML `m:oMath`) | ✅ | ✅ | #191; manual breaks (`m:brk`) and the settings' `m:mathPr` wrapping options (#326) |
-| Themes, font table, settings, compatibility mode | ✅ | ✅ | Embedded fonts (`w:embedRegular`) not used for rendering, but the font table, its relationships and the embedded font parts are written back unchanged (#770); attached template (`w:attachedTemplate` and its external relationship) and `w:linkStyles` round-trip (#377). `w:removePersonalInformation` and `w:removeDateAndTime` round-trip and are honoured on save (#1062): comment and revision authors written as "Author" (initials "A"), no `dc:creator`/`cp:lastModifiedBy`, no annotation dates; the open document keeps its values (`file.privacyOptions` sets them, `file.privacy` reads them; File › Options › Save › Privacy for this document). The template path comes from the file, so opening never reads it: styles update from it only on an explicit Update Styles |
+| Themes, font table, settings, compatibility mode | ✅ | ✅ | Embedded fonts (`w:embedRegular`) not used for rendering, but the font table, its relationships and the embedded font parts are written back unchanged (#770); attached template (`w:attachedTemplate` and its external relationship) and `w:linkStyles` round-trip (#377). `w:removePersonalInformation` and `w:removeDateAndTime` round-trip and are honoured on save (#1062): comment and revision authors written as "Author" (initials "A"), no `dc:creator`/`cp:lastModifiedBy`, no annotation dates; the open document keeps its values (`file.privacyOptions` sets them, `file.privacy` reads them; File › Options › Save › Privacy for this document). The template path comes from the file, so opening never reads it: styles update from it only on an explicit Update Styles. Settings the model doesn't hold (other `w:compatSetting`s, rsids, document variables, proofing state, colour scheme mapping…) survive a save: the writer merges into the file's own `settings.xml` ([below](#settings-preservation)) |
 | Custom XML parts, document properties, bibliography sources | 🟡 | 🟡 | Custom XML stores reached from the package/main document preserve opaque data, properties and relationships; binding evaluation remains absent. Custom properties round-trip; bibliography model I/O remains separate (#532 open) |
 | Section text direction (`w:textDirection` in `w:sectPr`, §17.6.20) | ✅ | ✅ | `tbRl`, `btLr` (and `tbRlV`/`tbLrV`, read as `tbRl`); `lrTbV` and unknown values read as horizontal (#491) |
 | Ruby (`w:ruby`: `w:rubyPr`, `w:rt`, `w:rubyBase`) | ✅ | ✅ | #288; base and ruby text with their run formatting, alignment, sizes, raise, language |
@@ -160,6 +160,17 @@ Preservation is separate from field evaluation. Native Word reopening and
 refresh, full schema validation and company documents remain untested. Synthetic checks do not
 raise readiness estimates. No Word-derived files are fixtures.
 
+## Settings preservation
+
+A save used to regenerate `settings.xml` from the model alone, so every setting the model doesn't
+hold was dropped without a warning (on 18 real-world Word documents: compatibility settings in 18
+of 18; the privacy options are modelled since #1062). Now the writer merges into the
+file's original (`crates/docx/src/write/settings_merge.rs`): the original root and every child
+the model doesn't own stay byte for byte; owned children follow the model, in CT_Settings order;
+in `w:compat` only `compatibilityMode` is replaced. Kept children that point at a relationship
+(a mail-merge data source) are dropped. Files WordCraft wrote itself keep nothing extra. Tests:
+`crates/docx/tests/settings_merge.rs`.
+
 ## Revision history
 
 | Date | Change | Summary |
@@ -179,6 +190,7 @@ raise readiness estimates. No Word-derived files are fixtures.
 | 2026-10-13 | trivial | PDF export draws horizontal and vertical lines inside groups (#1474) |
 | 2026-10-14 | trivial | RTF import keeps sections: page size and orientation, margins, columns, break type, page numbering and each section's headers and footers (#1378) |
 | 2026-10-14 | trivial | `.doc` tables: cell shading read from every SHD record (`sprmTDefTableShd`/`ShdRaw` and their 2nd/3rd ranges for cells 22-62; Word 97 `Shd80` clear fills now show their background colour; exact colours win over the palette fallback), the row-end mark no longer becomes an extra empty column, and a table no longer inherits the previous table's grid, borders, alignment or indent (#1380). Horizontally merged rows (a row of fewer, wider cells) come with #1123 |
+| 2026-10-14 | minor | DOCX save merges `settings.xml` into the file's original: unmodelled settings (compatibility options, rsids, document variables, proofing state…) survive (#1034) |
 | 2026-10-12 | trivial | Paste keeps the formatting of HTML and RTF on the system clipboard; Paste Special lists them and pictures (#687, #833) |
 | 2026-10-12 | trivial | ODT page size, orientation and margins read back from `styles.xml` on open, so they survive a save and reopen (#810) |
 | 2026-10-12 | minor | RTF reads 8-bit text in the document's or the font's code page (`\ansicpg`, `\fcharset`, `\cpg`) instead of always Windows-1252; a `.doc`/`.docx`/`.rtf` whose content is another of these formats opens by signature. Found on a private corpus of real Russian documents: 38 of 44 `.doc` files were RTF, all now open with their Cyrillic text |
