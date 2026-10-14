@@ -135,6 +135,30 @@ pub fn resolve_tab<'a>(current: &'a str, available: &[&str]) -> &'a str {
     if available.contains(&current) { current } else { "Home" }
 }
 
+/// Width of the » button that holds the tabs the strip has no room for.
+const MORE_TABS_W: f32 = 24.0;
+
+/// Which tabs fit on a strip `avail` points wide (#897), from each tab's width and whether it must
+/// stay. The others give way from the end, leaving `more` points for the » menu that holds them
+/// (pure, tested).
+pub fn fit_tabs(tabs: &[(f32, bool)], avail: f32, more: f32) -> Vec<bool> {
+    let mut fits = vec![true; tabs.len()];
+    let mut total: f32 = tabs.iter().map(|(w, _)| w).sum();
+    if total <= avail {
+        return fits;
+    }
+    for (fit, (w, keep)) in fits.iter_mut().zip(tabs).rev() {
+        if total + more <= avail {
+            break;
+        }
+        if !keep {
+            *fit = false;
+            total -= w;
+        }
+    }
+    fits
+}
+
 /// Whether the caret is inside a table (so the contextual tabs and their badges are shown).
 pub fn in_table_public(app: &WordApp) -> bool {
     app.session.sel.focus.path.cell().is_some()
@@ -196,41 +220,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
-                for (tab, custom) in &tabs {
-                    let (tab, custom) = (tab.as_str(), *custom);
-                    let contextual = !custom && wordcraft_engine::ribbon::CONTEXTUAL_TABS.contains(&tab);
-                    // A custom tab's name is the user's own text: shown as typed.
-                    let shown = if custom { tab } else { tl!(tab) };
-                    let w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(shown.to_string(), medium(12.5), t.text).size().x) + 18.0;
-                    let (r, resp) = ui.allocate_exact_size(vec2(w, 30.0), Sense::click());
-                    if app.ui.keytips == crate::keytips::Phase::Tabs && app.ui.keytip_prefix.is_empty() {
-                        crate::keytips::record_tab(r, tab, &mut app.keytip_rects);
-                    }
-                    let active = app.ui.tab == tab && !app.ui.backstage;
-                    if resp.hovered() && !active {
-                        ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), 4.0, t.hover);
-                    }
-                    let color = if contextual || active { t.accent_text } else { t.text };
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, shown, if active { semibold(12.5) } else { medium(12.5) }, color);
-                    if active {
-                        let u = Rect::from_center_size(pos2(r.center().x, r.max.y - 2.0), vec2(w - 16.0, 3.0));
-                        ui.painter().rect_filled(u, 2.0, t.accent);
-                    }
-                    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, shown));
-                    if resp.clicked() {
-                        let _ = app.run("ui.tab", json!({"tab": tab}));
-                    }
-                    if resp.double_clicked() && tab != "File" {
-                        let _ = app.run("ui.collapseRibbon", json!({}));
-                    }
-                    resp.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // No document open (#1129): nothing to share, edit or comment on.
                     if !app.has_document() {
                         ui.disable();
                     }
-                    // Share, Editing mode, Comments.
+                    // Share, Editing mode, Comments, drawn first so the tabs get only the room
+                    // left of them (#897).
                     let share = tl!("Share");
                     let share_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(share.to_string(), medium(12.0), t.text).size().x);
                     let (r, resp) = ui.allocate_exact_size(vec2((share_w + 36.0).max(74.0), 24.0), Sense::click());
@@ -264,6 +260,73 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     if crate::widgets::icon_text_button(ui, "comment", tl!("Comments"), regular(12.0)).clicked() {
                         let _ = app.run("view.commentsPane", json!({}));
                     }
+                    ui.add_space(8.0);
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        // The tabs that don't fit go into a » menu at the end of the strip. File, the
+                        // active tab and the contextual tabs (appended last) stay on the strip (#897).
+                        let labels: Vec<&str> = tabs.iter().map(|(tab, custom)| if *custom { tab.as_str() } else { tl!(tab) }).collect();
+                        let widths: Vec<(f32, bool)> = tabs
+                            .iter()
+                            .zip(&labels)
+                            .map(|((tab, custom), shown)| {
+                                let w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(shown.to_string(), medium(12.5), t.text).size().x) + 18.0;
+                                let contextual = !custom && wordcraft_engine::ribbon::CONTEXTUAL_TABS.contains(&tab.as_str());
+                                (w + 2.0, tab == "File" || *tab == app.ui.tab || contextual)
+                            })
+                            .collect();
+                        let fits = fit_tabs(&widths, ui.available_width(), MORE_TABS_W + 2.0);
+                        for ((tab, custom), _) in tabs.iter().zip(&fits).filter(|(_, fits)| **fits) {
+                            let (tab, custom) = (tab.as_str(), *custom);
+                            let contextual = !custom && wordcraft_engine::ribbon::CONTEXTUAL_TABS.contains(&tab);
+                            // A custom tab's name is the user's own text: shown as typed.
+                            let shown = if custom { tab } else { tl!(tab) };
+                            let w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(shown.to_string(), medium(12.5), t.text).size().x) + 18.0;
+                            let (r, resp) = ui.allocate_exact_size(vec2(w, 30.0), Sense::click());
+                            if app.ui.keytips == crate::keytips::Phase::Tabs && app.ui.keytip_prefix.is_empty() {
+                                crate::keytips::record_tab(r, tab, &mut app.keytip_rects);
+                            }
+                            let active = app.ui.tab == tab && !app.ui.backstage;
+                            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, shown));
+                            if resp.hovered() && !active {
+                                ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), 4.0, t.hover);
+                            }
+                            let color = if contextual || active { t.accent_text } else { t.text };
+                            ui.painter().text(r.center(), Align2::CENTER_CENTER, shown, if active { semibold(12.5) } else { medium(12.5) }, color);
+                            if active {
+                                let u = Rect::from_center_size(pos2(r.center().x, r.max.y - 2.0), vec2(w - 16.0, 3.0));
+                                ui.painter().rect_filled(u, 2.0, t.accent);
+                            }
+                            if resp.clicked() {
+                                let _ = app.run("ui.tab", json!({"tab": tab}));
+                            }
+                            if resp.double_clicked() && tab != "File" {
+                                let _ = app.run("ui.collapseRibbon", json!({}));
+                            }
+                            resp.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
+                        }
+                        let left_out: Vec<(&str, &str)> = tabs
+                            .iter()
+                            .zip(&labels)
+                            .zip(&fits)
+                            .filter(|(_, fits)| !**fits)
+                            .map(|(((tab, _), shown), _)| (tab.as_str(), *shown))
+                            .collect();
+                        if !left_out.is_empty() {
+                            let (r, resp) = ui.allocate_exact_size(vec2(MORE_TABS_W, 30.0), Sense::click());
+                            if resp.hovered() {
+                                ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), 4.0, t.hover);
+                            }
+                            ui.painter().text(r.center(), Align2::CENTER_CENTER, "»", medium(12.5), t.text);
+                            egui::Popup::menu(&resp).show(|ui| {
+                                for (tab, shown) in left_out {
+                                    if ui.selectable_label(false, shown).clicked() {
+                                        let _ = app.run("ui.tab", json!({"tab": tab}));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        }
+                    });
                 });
             });
         });
@@ -2770,6 +2833,48 @@ mod tests {
         tall.sort();
         tall.dedup();
         assert!(tall.is_empty(), "groups taller than the ribbon: {tall:#?}");
+    }
+
+    /// #897: the tabs that didn't fit were drawn under Comments / Editing / Share, so at 1280 pt
+    /// in Polish the table tabs were out of reach. They stay on the strip and a click opens them.
+    #[test]
+    fn table_tabs_stay_clickable_when_the_tab_strip_overflows() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        app.run("insert.table", json!({"rows": 3, "cols": 3})).unwrap();
+        app.run("ui.language", json!({"value": "pl"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1280.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        let buttons = [tl!("Comments"), tl!("Editing")].map(|b| h.get_by_label(b).rect());
+        for tab in ["Table Design", "Table Layout"] {
+            let r = h.get_by_label(tl!(tab)).rect();
+            assert!(r.right() <= 1280.0 && buttons.iter().all(|b| !b.intersects(r)), "{tab} {r:?} under {buttons:?}");
+            h.get_by_label(tl!(tab)).click();
+            h.run_steps(2);
+            assert_eq!(h.state().ui.tab, tab);
+        }
+    }
+
+    #[test]
+    fn fit_tabs_keeps_the_kept_tabs_and_drops_from_the_end() {
+        let tabs = [(40.0, true), (50.0, false), (50.0, false), (50.0, false), (60.0, true)];
+        assert_eq!(fit_tabs(&tabs, 250.0, 20.0), [true; 5]);
+        // 250 doesn't fit 240 with room for »: the last plain tabs give way, the kept ones stay.
+        assert_eq!(fit_tabs(&tabs, 240.0, 20.0), [true, true, true, false, true]);
+        // 200 would fit 210, but not with the » button too.
+        assert_eq!(fit_tabs(&tabs, 210.0, 20.0), [true, true, false, false, true]);
+        assert_eq!(fit_tabs(&tabs, 150.0, 20.0), [true, false, false, false, true]);
+        // Nothing but the kept tabs fits: they stay anyway.
+        assert_eq!(fit_tabs(&tabs, 10.0, 20.0), [true, false, false, false, true]);
+        // Hostile numbers don't panic.
+        let _ = fit_tabs(&[(f32::NAN, false), (f32::INFINITY, false)], f32::NAN, 20.0);
     }
 
     /// #860: Review › Language (and the status bar) reach every proofing language, not just the
