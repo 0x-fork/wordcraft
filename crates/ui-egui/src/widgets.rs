@@ -298,6 +298,7 @@ pub fn menu_button(
         resp
     };
     let resp = resp.on_hover_text(tip);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
     if !on {
         return;
     }
