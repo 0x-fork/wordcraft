@@ -4747,6 +4747,34 @@ fn table_texts(s: &Session) -> Vec<Vec<String>> {
 }
 
 #[test]
+fn convert_text_to_table_refuses_to_drop_content() {
+    // Issue #1318: a 64th field and a table between the selected paragraphs were silently lost.
+    {
+        let wide = (0..64).map(|i| i.to_string()).collect::<Vec<_>>().join("\t");
+        let mut s = s();
+        run(&mut s, "document.setText", json!({"text": wide}));
+        run(&mut s, "select.all", json!({}));
+        let depth = s.undo_depth();
+        assert!(s.run("table.fromText", &json!({})).is_err());
+        assert_eq!(s.doc.body.len(), 1);
+        assert!(s.doc.body.iter().all(|b| b.as_table().is_none()));
+        assert_eq!(s.undo_depth(), depth);
+    }
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x\ny\nz"}));
+    let at = |i: u32| json!({"story": "body", "path": [i], "off": 0});
+    run(&mut s, "select.range", json!({"anchor": at(1), "focus": at(1)}));
+    run(&mut s, "table.fromText", json!({}));
+    assert!(s.doc.body.get(1).and_then(|b| b.as_table()).is_some());
+    run(&mut s, "select.range", json!({"anchor": at(0), "focus": at(2)}));
+    let depth = s.undo_depth();
+    assert!(s.run("table.fromText", &json!({})).is_err());
+    assert_eq!(s.doc.body.len(), 3);
+    assert!(s.doc.body.get(1).and_then(|b| b.as_table()).is_some());
+    assert_eq!(s.undo_depth(), depth);
+}
+
+#[test]
 fn delete_columns_deletes_every_selected_column() {
     // Issue #431: only the selection's focus column went.
     let cell = |r: u32, c: u32, off: usize| json!({"story": "body", "path": [0, r, c, 0], "off": off});
