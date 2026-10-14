@@ -2645,6 +2645,60 @@ fn square_wrap_flows_text_on_both_sides() {
     assert!(para.lines.iter().all(|ln| !ln.beside && ink_end(para, ln) <= (r2.x - x).max(ln.right) + 0.01));
 }
 
+/// #1376: a word too long for the strip beside a square-wrapped object moves on whole (to the
+/// row's next strip, or the next row) instead of being split across the strip; words that fit
+/// still use it, and a word wider than the whole line still breaks where it is.
+#[test]
+fn a_word_too_wide_for_the_strip_beside_a_float_moves_on_whole() {
+    use wordcraft_doc::para::{Anchor, Float, ShapeKind, Wrap};
+    // A `w` x 150pt square at `x` in the 468pt column, leaving a 32pt strip on its right. Each
+    // line: (top, left, beside the object's far side, ends inside a word, where its text ends).
+    let lines = |text: &str, x: f32, w: f32| {
+        let mut d = Document::from_text(&text.repeat(6));
+        let float = Float { wrap: Wrap::Square, h_rel: Anchor::Column, v_rel: Anchor::Paragraph, x, ..Default::default() };
+        let shape = InlineObject::Shape {
+            kind: ShapeKind::Rectangle,
+            w,
+            h: 150.0,
+            fill: None,
+            stroke: None,
+            stroke_width: 1.0,
+            float,
+            story: None,
+            effects: Default::default(),
+            freeform: None,
+            extra: Default::default(),
+        };
+        d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
+        let l = lay(&d);
+        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { story: StoryRef::Body, .. })) else {
+            panic!()
+        };
+        let split = |ln: &para::Line| ln.end == para::LineEnd::Wrap && ln.c1 > ln.c0 && !para.clusters[ln.c1 - 1].break_after;
+        para.lines.iter().map(|ln| (ln.top, ln.left, ln.beside, split(ln), ink_end(para, ln))).collect::<Vec<_>>()
+    };
+    let long = "La presente procedura descrive le modalità della documentazione sanitaria del reparto e delle responsabilità degli operatori. ";
+    // The strip right of the object, after the text on its left.
+    let right = lines(long, 468.0 - 150.0 - 32.0, 150.0);
+    assert!(right.iter().all(|l| !l.3 && l.4 <= 468.01), "{right:?}");
+    let short = lines("It is so, as it is to be, if we go on. ", 468.0 - 150.0 - 32.0, 150.0);
+    assert!(short.iter().any(|l| l.2) && short.iter().all(|l| !l.3), "{short:?}");
+    // The strip is the row's only span: long words go below the object.
+    let only = lines(long, 0.0, 468.0 - 32.0);
+    assert!(only.iter().all(|l| !l.3 && (l.0 >= 150.0 - 0.01 || l.1 >= 468.0 - 32.0 - 0.01)), "{only:?}");
+    assert!(only.iter().any(|l| l.0 >= 150.0 - 0.01 && l.1 < 1.0), "{only:?}");
+    // A word wider than the whole line breaks where it is, beside the object.
+    let huge = lines(&format!("{} ", "x".repeat(120)), 468.0 - 150.0 - 32.0, 150.0);
+    assert!(huge[0].0 < 1.0 && huge.iter().any(|l| l.3), "{huge:?}");
+    // The strip left of the object: a skipped strip leaves the row's other span its first line.
+    let left = lines(long, 32.0, 150.0);
+    assert!(left.iter().all(|l| !l.3) && left.iter().any(|l| l.0 < 150.0 && l.1 >= 182.0 - 0.01 && !l.2), "{left:?}");
+    // Rows go down the page, and a line beside the object shares its row with the line before it.
+    for ls in [&right, &short, &only, &huge, &left] {
+        assert!(ls.windows(2).all(|w| if w[1].2 { w[1].0 == w[0].0 } else { w[1].0 > w[0].0 }), "{ls:?}");
+    }
+}
+
 /// Where a line's text ends (its last non-space cluster's right edge; trailing spaces may hang
 /// past the margin), relative to the column.
 fn ink_end(pl: &ParaLayout, ln: &para::Line) -> f32 {
