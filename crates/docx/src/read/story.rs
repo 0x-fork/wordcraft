@@ -21,6 +21,8 @@ use wordcraft_doc::wordart::TextWarp;
 
 const INK_URI: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingInk";
 const INK_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml";
+/// The `a:graphicData` URI of an Office 2016 chart (`cx:chart`).
+const CHARTEX_URI: &str = "http://schemas.microsoft.com/office/drawing/2014/chartex";
 
 /// Deepest table nesting we build (deeper tables become plain paragraphs).
 const MAX_TABLE_DEPTH: usize = 24;
@@ -518,7 +520,7 @@ impl Reader<'_> {
                 }
             }
             "mc:AlternateContent" => {
-                if let Some(o) = self.read_ink_alternate(sc, k, rels) {
+                if let Some(o) = self.read_ink_alternate(sc, k, rels).or_else(|| self.read_chartex_alternate(sc, k, rels)) {
                     let props = self.run_props_none(ctx);
                     self.emit_obj(sc, pb, o, &props);
                 } else if let Some(c) = children_of_choice(k) {
@@ -687,7 +689,7 @@ impl Reader<'_> {
             }
             "w:ruby" => self.read_ruby(sc, pb, k, props),
             "mc:AlternateContent" => {
-                if let Some(o) = self.read_ink_alternate(sc, k, rels) {
+                if let Some(o) = self.read_ink_alternate(sc, k, rels).or_else(|| self.read_chartex_alternate(sc, k, rels)) {
                     self.emit_obj(sc, pb, o, props);
                 } else if let Some(c) = children_of_choice(k) {
                     for x in c.els() {
@@ -1009,6 +1011,29 @@ impl Reader<'_> {
             }
         }
         Some(object)
+    }
+
+    /// An Office 2016 chart (`cx:chart`: waterfall, sunburst, box & whisker…) drawn from its
+    /// fallback picture, keeping both branches so saving writes the chart back rather than only
+    /// the picture. `None` (read the fallback alone) when it can't be kept whole.
+    fn read_chartex_alternate(&mut self, sc: &mut StoryCtx, ac: &El, rels: &Rels) -> Option<InlineObject> {
+        let choice = ac
+            .children("mc:Choice")
+            .find(|c| c.child("w:drawing").and_then(|d| d.find("a:graphicData")).and_then(|g| g.attr("uri")) == Some(CHARTEX_URI))?;
+        // A requirement in a namespace we can't name couldn't be written back.
+        let requires = choice.attr("Requires").unwrap_or("");
+        if requires.split_whitespace().next().is_none() || requires.split_whitespace().any(|p| p == "?") {
+            return None;
+        }
+        let fallback = ac.child("mc:Fallback")?;
+        let kept = El { name: "mc:AlternateContent".into(), attrs: Vec::new(), kids: vec![Node::El(choice.clone()), Node::El(fallback.clone())] };
+        let source = self.keep_embedded(&kept, rels, &[])?;
+        let Some(InlineObject::Image { media, w, h, alt, float, .. }) = self.read_drawing(sc, fallback.child("w:drawing")?, rels) else {
+            return None;
+        };
+        let items = vec![GraphicItem::Image { rect: [0.0, 0.0, w, h], media }];
+        let graphic = Arc::new(Graphic { kind: GraphicKind::Chart, items, w, h, source: Some(source), ..Default::default() });
+        Some(InlineObject::Graphic { w, h, alt, float, graphic })
     }
 
     fn read_ink_content_part(&mut self, content: &El, rels: &Rels) -> Option<InlineObject> {

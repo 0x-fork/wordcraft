@@ -544,12 +544,16 @@ impl Writer<'_> {
                 if ink && !direct_ink {
                     Self::ink_transform(&mut root, (graphic.w, graphic.h), (*gw, *gh), float, 0);
                 }
-                let alternate = (ink && root.name == "mc:AlternateContent").then_some(&root);
+                // Native ink, or an Office 2016 chart (`cx:chart`) with its fallback picture.
+                let alternate = (root.name == "mc:AlternateContent").then_some(&root);
                 let fallback = alternate.and_then(|e| e.child("mc:Fallback"));
-                let native = alternate.and_then(|e| e.child("mc:Choice")).and_then(|e| e.find("a:graphic"));
+                let choice = alternate.and_then(|e| e.child("mc:Choice"));
+                let native = choice.and_then(|e| e.find("a:graphic"));
                 if alternate.is_some() && native.is_none() {
                     return;
                 }
+                // A chart's picture gets the chart's current frame too; ink's VML preview is resized in place.
+                let picture = if ink { None } else { fallback.and_then(|e| e.find("a:graphic")) };
                 self.rev_open(w, props);
                 w.open("w:r", &[]);
                 self.rpr(w, props);
@@ -557,24 +561,30 @@ impl Writer<'_> {
                     w.raw(&root.to_xml());
                 } else {
                     if fallback.is_some() {
+                        let requires = if ink { "wpi" } else { choice.and_then(|c| c.attr("Requires")).unwrap_or_default() };
                         w.open("mc:AlternateContent", &[]);
-                        w.open("mc:Choice", &[("Requires", "wpi")]);
+                        w.open("mc:Choice", &[("Requires", requires)]);
                     }
-                    w.open("w:drawing", &[]);
                     let docpr = self.next_docpr();
                     let name = match graphic.kind {
                         wordcraft_doc::graphic::GraphicKind::Chart => format!("Chart {docpr}"),
                         wordcraft_doc::graphic::GraphicKind::Diagram => format!("Diagram {docpr}"),
                         wordcraft_doc::graphic::GraphicKind::Ink => format!("Ink {docpr}"),
                     };
-                    self.drawing_open(w, float, *gw, *gh, &docpr, &name, alt);
-                    w.empty("wp:cNvGraphicFramePr", &[]);
-                    w.raw(&native.unwrap_or(&root).to_xml());
-                    w.close(if float.wrap == Wrap::Inline { "wp:inline" } else { "wp:anchor" });
-                    w.close("w:drawing");
+                    let z = self.z;
+                    self.graphic_frame(w, float, (*gw, *gh), &docpr, &name, alt, native.unwrap_or(&root));
                     if let Some(fallback) = fallback {
                         w.close("mc:Choice");
-                        w.raw(&fallback.to_xml());
+                        match picture {
+                            Some(picture) => {
+                                // Both branches are one object: same id and stacking order.
+                                self.z = z;
+                                w.open("mc:Fallback", &[]);
+                                self.graphic_frame(w, float, (*gw, *gh), &docpr, &name, alt, picture);
+                                w.close("mc:Fallback");
+                            }
+                            None => w.raw(&fallback.to_xml()),
+                        }
                         w.close("mc:AlternateContent");
                     }
                 }
@@ -1073,6 +1083,17 @@ impl Writer<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// A `w:drawing` holding `graphic` (an `a:graphic`) in a frame of the object's size and place.
+    #[allow(clippy::too_many_arguments)]
+    fn graphic_frame(&mut self, w: &mut W, float: &Float, (gw, gh): (f32, f32), docpr: &str, name: &str, alt: &str, graphic: &crate::xml::El) {
+        w.open("w:drawing", &[]);
+        self.drawing_open(w, float, gw, gh, docpr, name, alt);
+        w.empty("wp:cNvGraphicFramePr", &[]);
+        w.raw(&graphic.to_xml());
+        w.close(if float.wrap == Wrap::Inline { "wp:inline" } else { "wp:anchor" });
+        w.close("w:drawing");
+    }
+
     fn drawing_open(&mut self, w: &mut W, float: &Float, iw: f32, ih: f32, docpr: &str, name: &str, alt: &str) {
         let (cx, cy) = (emu(iw.max(0.0)), emu(ih.max(0.0)));
         if float.wrap == Wrap::Inline {

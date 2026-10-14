@@ -928,6 +928,88 @@ fn chart_round_trips_with_its_parts() {
     check_chart(&again, &ids[0]);
 }
 
+// ---- Office 2016 charts (cx:chart) written back with their fallback picture (#997) ----
+
+const CHARTEX_NS: &str = "http://schemas.microsoft.com/office/drawing/2014/chartex";
+const CHARTEX_XML: &str = r#"<cx:chartSpace xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><cx:chartData><cx:externalData r:id="rId1" cx:autoUpdate="0"/></cx:chartData><cx:chart><cx:plotArea><cx:plotAreaRegion><cx:series layoutId="boxWhisker"/></cx:plotAreaRegion></cx:plotArea></cx:chart></cx:chartSpace>"#;
+const CT_CHARTEX: &str = "application/vnd.ms-office.chartex+xml";
+
+/// A package holding one box & whisker chart the way Word writes it: the `cx:chart` in an
+/// `mc:Choice` requiring `requires` (bound to `requires_ns`), a picture of it in the `mc:Fallback`.
+fn chartex_docx(requires: &str, requires_ns: &str) -> Vec<u8> {
+    let frame = r#"<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="2743200" cy="1371600"/><wp:docPr id="1" name="Chart 1"/><wp:cNvGraphicFramePr/>"#;
+    let body = format!(
+        r#"<w:p><w:r><w:t>Spread</w:t></w:r><w:r><mc:AlternateContent><mc:Choice xmlns:{requires}="{requires_ns}" Requires="{requires}"><w:drawing>{frame}<a:graphic><a:graphicData uri="{CHARTEX_NS}"><cx:chart xmlns:cx="{CHARTEX_NS}" r:id="rIdCx"/></a:graphicData></a:graphic></wp:inline></w:drawing></mc:Choice><mc:Fallback><w:drawing>{frame}<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="Chart 1"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdPic"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="2743200" cy="1371600"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></mc:Fallback></mc:AlternateContent></w:r></w:p>"#
+    );
+    let doc = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {W_NS}><w:body>{body}</w:body></w:document>"#);
+    let doc_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdCx" Type="http://schemas.microsoft.com/office/2014/relationships/chartEx" Target="charts/chartEx1.xml"/><Relationship Id="rIdPic" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>"#;
+    let chart_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/Microsoft_Excel_Worksheet.xlsx"/><Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2011/relationships/chartColorStyle" Target="colors1.xml"/></Relationships>"#;
+    let types = format!(
+        r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="xlsx" ContentType="{CT_XLSX}"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/charts/chartEx1.xml" ContentType="{CT_CHARTEX}"/><Override PartName="/word/charts/colors1.xml" ContentType="application/vnd.ms-office.chartcolorstyle+xml"/></Types>"#
+    );
+    zip(&[
+        ("[Content_Types].xml", types.as_bytes()),
+        ("_rels/.rels", ROOT_RELS.as_bytes()),
+        ("word/document.xml", doc.as_bytes()),
+        ("word/_rels/document.xml.rels", doc_rels.as_bytes()),
+        ("word/charts/chartEx1.xml", CHARTEX_XML.as_bytes()),
+        ("word/charts/_rels/chartEx1.xml.rels", chart_rels.as_bytes()),
+        ("word/charts/colors1.xml", COLORS_XML.as_bytes()),
+        ("word/embeddings/Microsoft_Excel_Worksheet.xlsx", WORKBOOK.as_bytes()),
+        ("word/media/image1.png", b"fallback picture bytes"),
+    ])
+}
+
+#[test]
+fn office_2016_chart_keeps_its_chart_part_and_fallback_through_saves() {
+    // Word binds `cx1`… to the chart type's own namespace; Apache POI's sample binds `cx`.
+    for (requires, requires_ns) in [("cx1", "http://schemas.microsoft.com/office/drawing/2015/9/8/chartex"), ("cx", CHARTEX_NS)] {
+        let mut d = wordcraft_docx::read(&chartex_docx(requires, requires_ns)).unwrap();
+        for _ in 0..2 {
+            let g = graphics(&d);
+            let [InlineObject::Graphic { w, graphic, .. }] = g.as_slice() else { panic!("{requires}: {g:?}") };
+            assert_eq!(*w, 216.0);
+            assert!(
+                graphic.items.iter().any(|i| matches!(i, wordcraft_doc::graphic::GraphicItem::Image { media, .. } if d.media.contains_key(media))),
+                "{requires}: the chart shows its fallback picture"
+            );
+            let files = unzip(&wordcraft_docx::write(&d).unwrap());
+            let body = text(&files, "word/document.xml");
+            assert_eq!(attr_values(&body, "mc:Choice", "Requires"), [requires], "{body}");
+            assert!(body.contains(&format!(r#"xmlns:{requires}="{requires_ns}""#)), "{requires} is declared: {body}");
+            let doc_rels = text(&files, "word/_rels/document.xml.rels");
+            let [cx_id] = attr_values(&body, "cx:chart", "r:id").try_into().unwrap_or_else(|_| panic!("chart lost: {body}"));
+            let (kind, target) = rel(&doc_rels, &cx_id);
+            assert!(kind.ends_with("/chartEx"), "{kind}");
+            let chart = part_at("word", &target);
+            assert_eq!(text(&files, &chart), CHARTEX_XML);
+            let types = text(&files, "[Content_Types].xml");
+            assert!(types.contains(&format!(r#"PartName="/{chart}" ContentType="{CT_CHARTEX}""#)), "{types}");
+            let (dir, file) = chart.rsplit_once('/').unwrap();
+            let (_, wb) = rel(&text(&files, &format!("{dir}/_rels/{file}.rels")), "rId1");
+            assert_eq!(files.get(&part_at(dir, &wb)).map(Vec::as_slice), Some(WORKBOOK.as_bytes()));
+            let fallback = body.split("<mc:Fallback>").nth(1).unwrap_or_else(|| panic!("no fallback: {body}"));
+            let [pic_id] = attr_values(fallback, "a:blip", "r:embed").try_into().unwrap_or_else(|_| panic!("fallback picture lost: {body}"));
+            assert_eq!(files.get(&part_at("word", &rel(&doc_rels, &pic_id).1)).map(Vec::as_slice), Some(&b"fallback picture bytes"[..]));
+            assert!(attr_values(&body, "wp:docPr", "name").iter().all(|n| n.starts_with("Chart ")), "{body}");
+            let entries: Vec<_> = files.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+            d = wordcraft_docx::read(&zip(&entries)).unwrap();
+        }
+    }
+}
+
+#[test]
+fn resized_office_2016_chart_resizes_its_fallback_too() {
+    let mut d = wordcraft_docx::read(&chartex_docx("cx1", "http://schemas.microsoft.com/office/drawing/2015/9/8/chartex")).unwrap();
+    if let Some(Block::Para(p)) = d.body.first_mut().map(std::sync::Arc::make_mut)
+        && let Some(InlineObject::Graphic { w, h, .. }) = p.objects.first_mut()
+    {
+        (*w, *h) = (288.0, 144.0);
+    }
+    let body = text(&unzip(&wordcraft_docx::write(&d).unwrap()), "word/document.xml");
+    assert_eq!(attr_values(&body, "wp:extent", "cx"), ["3657600", "3657600"], "{body}");
+}
+
 #[test]
 fn moved_and_copied_chart_keeps_its_parts() {
     let d = wordcraft_docx::read(&chart_docx()).unwrap();
