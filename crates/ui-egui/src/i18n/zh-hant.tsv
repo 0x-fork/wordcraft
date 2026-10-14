@@ -2088,6 +2088,11 @@
 	Leave out the date and time of comments and tracked changes when saving	儲存時不包含註解和追蹤修訂的日期與時間
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	正在編輯的文件會保留名稱和日期；只有儲存的檔案不包含它們。
 	Privacy Settings	目前的隱私設定
+	Paper	紙張
+	Paper size:	紙張大小：
+	Custom size	自訂大小
+	More Paper Sizes…	其他紙張大小…
+	The margins don't fit on a page this size; make the margins smaller first.	邊界放不進此大小的頁面；請先縮小邊界。
 	Full Screen	全螢幕
 	Full\nScreen	全螢幕
 	Use the browser's full screen (F11)	請使用瀏覽器的全螢幕模式 (F11)

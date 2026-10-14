@@ -2092,6 +2092,11 @@
 	Leave out the date and time of comments and tracked changes when saving	Při ukládání vynechat datum a čas komentářů a sledovaných změn
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Upravovaný dokument si jména a data ponechá; vynechá je jen uložený soubor.
 	Privacy Settings	Aktuální nastavení soukromí
+	Paper	Papír
+	Paper size:	Velikost papíru:
+	Custom size	Vlastní velikost
+	More Paper Sizes…	Další velikosti papíru…
+	The margins don't fit on a page this size; make the margins smaller first.	Okraje se na stránku této velikosti nevejdou; nejprve okraje zmenšete.
 	Full Screen	Celá obrazovka
 	Full\nScreen	Celá\nobrazovka
 	Use the browser's full screen (F11)	Použijte celou obrazovku prohlížeče (F11)

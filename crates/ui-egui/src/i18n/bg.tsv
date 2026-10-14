@@ -2467,6 +2467,11 @@
 	Leave out the date and time of comments and tracked changes when saving	Без дата и час на коментарите и проследените промени при запазване
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Документът, който редактирате, запазва имената и датите; само записаният файл ги пропуска.
 	Privacy Settings	Текущи настройки за поверителност
+	Paper	Хартия
+	Paper size:	Размер на хартията:
+	Custom size	Потребителски размер
+	More Paper Sizes…	Още размери на хартията…
+	The margins don't fit on a page this size; make the margins smaller first.	Полетата не се побират на страница с този размер; първо намалете полетата.
 	Full Screen	Цял екран
 	Full\nScreen	Цял\nекран
 	Use the browser's full screen (F11)	Използвайте режима на цял екран на браузъра (F11)

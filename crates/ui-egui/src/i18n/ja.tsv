@@ -2087,6 +2087,11 @@
 	Leave out the date and time of comments and tracked changes when saving	保存時にコメントと変更履歴の日時を含めない
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	編集中のドキュメントには名前と日時が残ります。保存したファイルにだけ含まれません。
 	Privacy Settings	現在のプライバシー設定
+	Paper	用紙
+	Paper size:	用紙サイズ:
+	Custom size	ユーザー定義サイズ
+	More Paper Sizes…	その他の用紙サイズ…
+	The margins don't fit on a page this size; make the margins smaller first.	この用紙サイズには余白が収まりません。先に余白を小さくしてください。
 	Full Screen	全画面表示
 	Full\nScreen	全画面\n表示
 	Use the browser's full screen (F11)	ブラウザーの全画面表示を使用してください (F11)

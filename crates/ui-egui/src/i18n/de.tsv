@@ -2086,6 +2086,11 @@
 	Leave out the date and time of comments and tracked changes when saving	Beim Speichern Datum und Uhrzeit von Kommentaren und nachverfolgten Änderungen weglassen
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Das bearbeitete Dokument behält Namen und Daten; nur die gespeicherte Datei lässt sie weg.
 	Privacy Settings	Aktuelle Datenschutzeinstellungen
+	Paper	Papier
+	Paper size:	Papierformat:
+	Custom size	Benutzerdefiniertes Format
+	More Paper Sizes…	Weitere Papierformate…
+	The margins don't fit on a page this size; make the margins smaller first.	Die Ränder passen nicht auf eine Seite dieser Größe; verkleinern Sie zuerst die Ränder.
 	Full Screen	Vollbild
 	Full\nScreen	Voll-\nbild
 	Use the browser's full screen (F11)	Verwenden Sie den Vollbildmodus des Browsers (F11)

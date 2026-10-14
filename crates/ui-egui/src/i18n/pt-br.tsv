@@ -2099,6 +2099,11 @@
 	Leave out the date and time of comments and tracked changes when saving	Omitir a data e a hora dos comentários e das alterações controladas ao salvar
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	O documento que você está editando mantém os nomes e as datas; só o arquivo salvo os omite.
 	Privacy Settings	Configurações de privacidade atuais
+	Paper	Papel
+	Paper size:	Tamanho do papel:
+	Custom size	Tamanho personalizado
+	More Paper Sizes…	Mais tamanhos de papel…
+	The margins don't fit on a page this size; make the margins smaller first.	As margens não cabem em uma página deste tamanho; reduza as margens primeiro.
 	Full Screen	Tela inteira
 	Full\nScreen	Tela\ninteira
 	Use the browser's full screen (F11)	Use a tela inteira do navegador (F11)

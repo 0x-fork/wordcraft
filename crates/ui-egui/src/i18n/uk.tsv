@@ -2099,6 +2099,11 @@
 	Leave out the date and time of comments and tracked changes when saving	Не зберігати дату й час приміток і відстежуваних змін
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Документ, який ви редагуєте, зберігає імена й дати; їх не буде лише у збереженому файлі.
 	Privacy Settings	Поточні налаштування конфіденційності
+	Paper	Папір
+	Paper size:	Розмір паперу:
+	Custom size	Власний розмір
+	More Paper Sizes…	Інші розміри паперу…
+	The margins don't fit on a page this size; make the margins smaller first.	Поля не вміщуються на сторінці такого розміру; спершу зменште поля.
 	Full Screen	На весь екран
 	Full\nScreen	На весь\nекран
 	Use the browser's full screen (F11)	Скористайтеся повноекранним режимом браузера (F11)

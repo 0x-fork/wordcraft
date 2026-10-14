@@ -1512,6 +1512,71 @@ fn page_setup_and_breaks() {
     assert!(s.run("layout.margins", &json!({"left": 1000.0})).is_err());
 }
 
+/// #1433: a custom page size (More Paper Sizes…) sets the section in its orientation, and
+/// out-of-range sizes clamp to Word's 0.1"–22" instead of failing or reaching the layout.
+#[test]
+fn layout_size_takes_a_custom_size_and_clamps_it() {
+    let mut s = s();
+    let size = |s: &Session| (s.doc.last_section.page_w, s.doc.last_section.page_h);
+    run(&mut s, "layout.size", json!({"width": 300.0, "height": 500.0}));
+    assert_eq!(size(&s), (300.0, 500.0));
+    run(&mut s, "layout.margins", json!({"top": 0.0, "bottom": 0.0, "left": 0.0, "right": 0.0}));
+    run(&mut s, "layout.size", json!({"width": 40.0, "height": 5000.0}));
+    assert_eq!(size(&s), (40.0, 1584.0), "clamped to 22\"");
+    for junk in [
+        json!({"width": 1e300, "height": 400.0}),
+        json!({"width": "NaN", "height": 400.0}),
+        json!({"width": null}),
+        json!({}),
+        // Clamped to 0.1", still less than the 36 pt of text room the margins need.
+        json!({"width": -50.0, "height": 400.0}),
+        json!({"width": 1.0, "height": 400.0}),
+    ] {
+        assert!(s.run("layout.size", &junk).is_err(), "{junk}");
+        assert_eq!(size(&s), (40.0, 1584.0), "{junk} leaves the size alone");
+    }
+    // A landscape section keeps its orientation: the long side goes across.
+    run(&mut s, "layout.orientation", json!({"value": "landscape"}));
+    run(&mut s, "layout.size", json!({"width": 300.0, "height": 500.0}));
+    assert_eq!(size(&s), (500.0, 300.0));
+    assert!(s.doc.last_section.landscape);
+}
+
+/// #1433: `layout.size` refuses a page its margins don't fit, by the rule `layout.margins` uses
+/// (36 pt of text room each way), and changes nothing.
+#[test]
+fn layout_size_refuses_a_page_its_margins_dont_fit() {
+    let mut s = s();
+    run(&mut s, "layout.margins", json!({"preset": "normal"}));
+    let before = s.doc.last_section.clone();
+    for (w, h) in [(100.0, 500.0), (500.0, 100.0), (179.0, 500.0)] {
+        let e = s.run("layout.size", &json!({"width": w, "height": h})).unwrap_err().to_string();
+        assert!(e.contains("margins don't fit"), "{w}×{h}: {e}");
+        assert_eq!(s.doc.last_section, before, "{w}×{h} changes nothing");
+    }
+    run(&mut s, "layout.size", json!({"width": 180.0, "height": 180.0}));
+    assert_eq!((s.doc.last_section.page_w, s.doc.last_section.page_h), (180.0, 180.0), "exactly 36 pt of room is enough");
+}
+
+/// #1433: the smallest page there can be (0.1" wide, no margins, set straight through Page
+/// Setup's section) still lays out and exports text, a table and two columns.
+#[test]
+fn a_tiny_page_lays_out_and_exports() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "A paragraph of text that cannot fit on so small a page."}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+    run(&mut s, "text.insert", json!({"text": "cell"}));
+    run(&mut s, "layout.columns", json!({"count": 2}));
+    let mut sect = s.doc.last_section.clone();
+    (sect.page_w, sect.page_h) = (7.2, 40.0);
+    (sect.margin_top, sect.margin_bottom, sect.margin_left, sect.margin_right, sect.gutter) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    run(&mut s, "layout.pageSetup", json!({"section": serde_json::to_value(&sect).unwrap()}));
+    assert_eq!((s.doc.last_section.page_w, s.doc.last_section.page_h), (7.2, 40.0));
+    assert!(!s.layout().pages.is_empty());
+    let pdf = crate::io::save_bytes("tiny.pdf", &s.doc).unwrap();
+    assert!(pdf.starts_with(b"%PDF"));
+}
+
 #[test]
 fn track_changes_and_accept() {
     let mut s = s();
@@ -2141,6 +2206,7 @@ fn hostile_params_never_panic() {
         json!({}),
         json!({"text": 5, "size": "x", "path": [], "pos": {"block": 9999, "off": 99999}}),
         json!({"value": -1e308, "rows": 1e9}),
+        json!({"width": 1e-9, "height": 1e30, "top": -1e9, "left": 1e9}),
     ];
     for spec in reg.all() {
         // These reach outside the session (files). Read Aloud (`review.readAloud`, `readAloud.*`)

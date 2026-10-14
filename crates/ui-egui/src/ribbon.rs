@@ -403,6 +403,22 @@ fn stack(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     });
 }
 
+/// Layout › Size: the named paper sizes, then More Paper Sizes… for a custom size in Page
+/// Setup (#1433).
+pub(crate) fn size_menu(ui: &mut Ui, app: &mut WordApp) {
+    for (n, w, h) in wordcraft_geom::PAPER_SIZES {
+        // Paper names are the industry's (Letter, A4, B5 (JIS)) and stay as they are; the
+        // envelopes say what they are. Sizes in the measurement unit, written the region's
+        // way (`21 cm × 29,7 cm`, #838).
+        let name = if n.starts_with("Envelope ") { tl!(n) } else { n };
+        let (width, height) = (crate::options::length(*w), crate::options::length(*h));
+        let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name), ("width", &width), ("height", &height)]);
+        mi_text(ui, app, &label, "layout.size", json!({"name": n}));
+    }
+    ui.separator();
+    mi(ui, app, crate::dialogs::PAPER_LABELS.more, "ui.dialog", json!({"name": "pageSetup"}));
+}
+
 pub(crate) fn mi(ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: Value) {
     mi_text(ui, app, tl!(label), id, params);
 }
@@ -1286,17 +1302,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
             mi(ui, app, "Portrait", "layout.orientation", json!({"value": "portrait"}));
             mi(ui, app, "Landscape", "layout.orientation", json!({"value": "landscape"}));
         });
-        menu_button(ui, app, "size", Some("Size"), "Size", true, "layout.size", |ui, app| {
-            for (n, w, h) in wordcraft_geom::PAPER_SIZES {
-                // Paper names are the industry's (Letter, A4, B5 (JIS)) and stay as they are; the
-                // envelopes say what they are. Sizes in the measurement unit, written the region's
-                // way (`21 cm × 29,7 cm`, #838).
-                let name = if n.starts_with("Envelope ") { tl!(n) } else { n };
-                let (width, height) = (crate::options::length(*w), crate::options::length(*h));
-                let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name), ("width", &width), ("height", &height)]);
-                mi_text(ui, app, &label, "layout.size", json!({"name": n}));
-            }
-        });
+        menu_button(ui, app, "size", Some("Size"), "Size", true, "layout.size", size_menu);
         menu_button(ui, app, "columns", Some("Columns"), "Columns", true, "layout.columns", |ui, app| {
             mi(ui, app, "One", "layout.columns", json!({"count": 1}));
             mi(ui, app, "Two", "layout.columns", json!({"count": 2}));

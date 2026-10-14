@@ -2477,6 +2477,11 @@ preview	Title	Пример
 	Leave out the date and time of comments and tracked changes when saving	Не сохранять дату и время примечаний и отслеживаемых изменений
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Редактируемый документ сохраняет имена и даты; их не будет только в сохранённом файле.
 	Privacy Settings	Текущие параметры конфиденциальности
+	Paper	Бумага
+	Paper size:	Размер бумаги:
+	Custom size	Другой размер
+	More Paper Sizes…	Другие размеры бумаги…
+	The margins don't fit on a page this size; make the margins smaller first.	Поля не помещаются на странице такого размера; сначала уменьшите поля.
 	Full Screen	Во весь экран
 	Full\nScreen	Во весь\nэкран
 	Use the browser's full screen (F11)	Используйте полноэкранный режим браузера (F11)
