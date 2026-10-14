@@ -2051,6 +2051,51 @@ fn read_entry(z: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<Vec<
     Some(out)
 }
 
+/// The pictures a package's frames point at, within one byte budget. Each entry is inflated
+/// at most once, and only when the size it declares fits in what is left; the bytes inflated
+/// (even from an entry bigger than it declares) and every later copy are charged, so repeated
+/// references and lying entries can't go past the budget, and nothing is inflated after it.
+struct Pictures {
+    /// Entry name → its bytes (`None`: missing, unreadable or over the budget; not retried).
+    seen: HashMap<String, Option<Vec<u8>>>,
+    /// Bytes still allowed.
+    room: u64,
+}
+
+impl Pictures {
+    fn new(budget: u64) -> Self {
+        Pictures { seen: HashMap::new(), room: budget }
+    }
+
+    /// The bytes of entry `name`, or `None` when it can't be read or doesn't fit.
+    fn get(&mut self, z: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<Vec<u8>> {
+        if let Some(hit) = self.seen.get(name) {
+            let d = hit.as_ref().filter(|d| d.len() as u64 <= self.room)?;
+            self.room = self.room.saturating_sub(d.len() as u64);
+            return Some(d.clone());
+        }
+        let d = self.inflate(z, name);
+        self.seen.insert(name.to_string(), d.clone());
+        d
+    }
+
+    /// Inflate entry `name`, charging the bytes inflated; `None` when it doesn't fit or fails.
+    fn inflate(&mut self, z: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<Vec<u8>> {
+        let room = self.room;
+        if room == 0 {
+            return None;
+        }
+        let f = z.by_name(name).ok()?;
+        if f.size() > room {
+            return None;
+        }
+        let mut out = Vec::new();
+        let read = f.take(room.saturating_add(1)).read_to_end(&mut out);
+        self.room = room.saturating_sub(out.len() as u64);
+        (read.is_ok() && out.len() as u64 <= room).then_some(out)
+    }
+}
+
 fn read_meta(xml: &[u8]) -> Meta {
     let mut m = Meta::default();
     let mut cur: Option<String> = None;
@@ -2106,11 +2151,10 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
     let page = pages.first.clone().unwrap_or_default();
     styles.read(&content, true);
     let meta = read_entry(&mut z, "meta.xml").map(|m| read_meta(&m)).unwrap_or_default();
-    let mut total = 0u64;
+    let mut pictures = Pictures::new(MAX_ENTRY);
     let mut fetch = |path: &str| -> Option<Vec<u8>> {
-        let d = read_entry(&mut z, path)?;
-        total += d.len() as u64;
-        (total <= MAX_ENTRY).then_some(d)
+        // A frame may point at any entry, as often as it likes: `Pictures` keeps that bounded.
+        pictures.get(&mut z, path)
     };
     let mut body = Body {
         styles: &styles,
@@ -2314,6 +2358,84 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert!(parse(b"not a zip").is_err());
+    }
+
+    /// A package holding `entries`, deflated.
+    fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, data) in entries {
+            z.start_file(*name, o).unwrap();
+            z.write_all(data).unwrap();
+        }
+        z.finish().unwrap().into_inner()
+    }
+
+    /// `bytes` (a package) with the size its central directory declares for `name` set to `size`.
+    fn declare_size(mut bytes: Vec<u8>, name: &str, size: u32) -> Vec<u8> {
+        let at = (0..bytes.len())
+            .find(|&i| bytes[i..].starts_with(b"PK\x01\x02") && bytes.get(i + 46..).is_some_and(|r| r.starts_with(name.as_bytes())))
+            .unwrap();
+        bytes[at + 24..at + 28].copy_from_slice(&size.to_le_bytes());
+        bytes
+    }
+
+    fn archive(bytes: &[u8]) -> zip::ZipArchive<Cursor<&[u8]>> {
+        zip::ZipArchive::new(Cursor::new(bytes)).unwrap()
+    }
+
+    #[test]
+    fn pictures_are_inflated_once_and_every_use_is_charged() {
+        // Every frame on a picture inflated it again, even once the budget was used up.
+        let a = zip_of(&[("p.png", &[1u8; 300])]);
+        let b = zip_of(&[("p.png", &[2u8; 300]), ("q.png", &[3u8; 10])]);
+        let (mut za, mut zb) = (archive(&a), archive(&b));
+        let mut pics = Pictures::new(1000);
+        assert_eq!(pics.get(&mut za, "p.png"), Some(vec![1u8; 300]));
+        // Kept from the first read: the entry isn't read again (another package's would differ).
+        assert_eq!(pics.get(&mut zb, "p.png"), Some(vec![1u8; 300]));
+        assert_eq!(pics.get(&mut zb, "p.png"), Some(vec![1u8; 300]));
+        assert_eq!(pics.room, 100);
+        // A fourth copy doesn't fit; an entry that couldn't be read isn't looked up again.
+        assert_eq!(pics.get(&mut za, "p.png"), None);
+        assert_eq!(pics.get(&mut za, "q.png"), None);
+        assert_eq!(pics.get(&mut zb, "q.png"), None);
+        assert_eq!(pics.room, 100);
+    }
+
+    #[test]
+    fn pictures_over_the_budget_are_not_inflated() {
+        // An entry declaring more than is left is refused before inflating, and costs nothing.
+        let pkg = zip_of(&[("big.png", &[0u8; 1200]), ("ok.png", &[5u8; 300])]);
+        let mut z = archive(&pkg);
+        let mut pics = Pictures::new(1000);
+        assert_eq!(pics.get(&mut z, "big.png"), None);
+        assert_eq!(pics.room, 1000);
+        assert_eq!(pics.get(&mut z, "ok.png").map(|d| d.len()), Some(300));
+        // One inflating to more than it declares stops a byte past the budget and uses it up:
+        // nothing is inflated after it.
+        let liar = declare_size(zip_of(&[("liar.png", &[0u8; 5000]), ("ok.png", &[5u8; 10])]), "liar.png", 10);
+        let mut z = archive(&liar);
+        let mut pics = Pictures::new(1000);
+        assert_eq!(pics.get(&mut z, "liar.png"), None);
+        assert_eq!(pics.room, 0);
+        assert_eq!(pics.get(&mut z, "ok.png"), None);
+    }
+
+    #[test]
+    fn frames_sharing_a_picture_all_show_it() {
+        let png = [b"\x89PNG\r\n\x1a\n".as_slice(), &[7u8; 300]].concat();
+        let frames = r#"<draw:frame svg:width="1in" svg:height="1in"><draw:image xlink:href="Pictures/a.png"/></draw:frame>"#.repeat(3);
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>{frames}</text:p></office:text></office:body></office:document-content>"#
+        );
+        let pkg = zip_of(&[("content.xml", content.as_bytes()), ("Pictures/a.png", &png)]);
+        let flow = parse(&pkg).unwrap();
+        let imgs: Vec<&model::Img> =
+            paras(&flow).into_iter().flat_map(|p| &p.inlines).filter_map(|i| if let Inline::Image(img) = i { Some(img) } else { None }).collect();
+        assert_eq!(imgs.len(), 3);
+        assert!(imgs.iter().all(|i| i.data.as_slice() == png.as_slice()));
+        assert_eq!(import(&pkg).unwrap().media.len(), 1);
     }
 
     const NS_T: &str = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0""#;

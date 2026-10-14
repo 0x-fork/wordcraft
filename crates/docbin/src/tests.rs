@@ -1638,6 +1638,31 @@ fn picture_bytes_are_capped_per_document() {
 }
 
 #[test]
+fn rejected_inline_pictures_are_not_read_again() {
+    // A picture over the cap was located and copied again for every anchor on it.
+    let big = picf_with_png(1200);
+    let small = picf_with_png(300);
+    let data: Vec<u8> = [big.clone(), small.clone()].concat();
+    let mut pics = crate::media::Pictures::default();
+    pics.limit = 1000;
+    assert!(pics.get(&data, 0).is_none(), "over the cap");
+    // The failure is remembered: that place isn't read again, whatever it holds now.
+    assert!(pics.get(&small, 0).is_none());
+    // The rejected picture took nothing off the cap, and anchors sharing a picture share it.
+    let at = big.len() as u32;
+    let fits = pics.get(&data, at).expect("fits");
+    assert_eq!(pics.get(&data, at).map(|p| p.key), Some(fits.key));
+    assert_eq!(pics.media.len(), 1);
+    // Filling the cap exactly works; after that, a place never tried before isn't read.
+    let rest = picf_with_png(700);
+    let rest_at = data.len() as u32;
+    let tail: Vec<u8> = [data, rest.clone(), small].concat();
+    assert!(pics.get(&tail, rest_at).is_some(), "700 more bytes fill the cap");
+    assert!(pics.get(&tail, rest_at + rest.len() as u32).is_none(), "the cap is used up");
+    assert_eq!(pics.media.len(), 2);
+}
+
+#[test]
 fn row_height_of_i16_min_does_not_overflow() {
     // sprmTDyaRowHeight = -32768: negating the i16 overflowed (a debug-build panic).
     let papx = grpprl(&[(0x9407, &i16::MIN.to_le_bytes())]);
