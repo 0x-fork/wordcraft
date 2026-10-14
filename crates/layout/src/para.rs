@@ -192,6 +192,10 @@ impl VisCl {
     }
 }
 
+/// Width of a paragraph mark's box, points: what a selection running past the paragraph's end
+/// highlights, and how much room the mark takes for assistive technology.
+pub const PARA_MARK_WIDTH: f32 = 5.0;
+
 impl Line {
     /// Left edge of cluster `k` (a paragraph cluster index on this line).
     pub fn cl_left(&self, k: usize) -> Option<f32> {
@@ -223,6 +227,13 @@ impl Line {
     pub fn visual_end_x(&self) -> f32 {
         let end = self.end_x();
         if self.rtl { self.vis.iter().map(|v| v.x).fold(end, f32::min) } else { self.vis.iter().map(|v| v.x + v.w).fold(end, f32::max) }
+    }
+    /// The box of the mark ending the line (its paragraph mark or line break) as its left edge and
+    /// width: [`PARA_MARK_WIDTH`] at the line's visual end, past the text in a left-to-right
+    /// paragraph and before it in a right-to-left one.
+    pub fn mark_box(&self) -> (f32, f32) {
+        let x = self.visual_end_x();
+        (if self.rtl { x - PARA_MARK_WIDTH } else { x }, PARA_MARK_WIDTH)
     }
     /// x where the hyphen of a hyphenated line (advance `adv`) is drawn.
     pub fn hyphen_x(&self, adv: f32) -> f32 {
