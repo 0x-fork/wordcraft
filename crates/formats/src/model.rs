@@ -48,6 +48,10 @@ pub struct Fmt {
 pub struct RevMark {
     pub author: String,
     pub date: String,
+    /// The source's identity of the change, when it has one (an ODT changed region; the
+    /// revision index in [`from_doc_tracked`]): marks with different ids stay separate
+    /// revisions. `None` (RTF) = one revision per kind, author and date.
+    pub id: Option<u32>,
 }
 
 /// An embedded picture.
@@ -125,6 +129,11 @@ pub struct Para {
     pub borders: Option<wordcraft_doc::props::Borders>,
     /// The section this paragraph ends (RTF `\sect`), as the document's last paragraph of it.
     pub section: Option<Box<wordcraft_doc::SectionProps>>,
+    /// Tracked insertion of the paragraph mark.
+    pub mark_ins: Option<Box<RevMark>>,
+    /// Tracked deletion of the paragraph mark (only [`from_doc_tracked`] and formats that keep
+    /// revisions set it).
+    pub mark_del: Option<Box<RevMark>>,
 }
 
 impl Para {
@@ -414,7 +423,7 @@ impl<'a> Builder<'a> {
         let mut revs = std::collections::HashMap::new();
         for (i, r) in doc.revisions.iter().enumerate() {
             if r.move_name.is_none() {
-                let mark = RevMark { author: r.author.clone(), date: r.date.clone() };
+                let mark = RevMark { author: r.author.clone(), date: r.date.clone(), id: None };
                 revs.entry((rev_key(r.kind), mark)).or_insert(i as u32);
             }
         }
@@ -500,6 +509,8 @@ impl<'a> Builder<'a> {
                 }
             }
         }
+        out.mark.ins = p.mark_ins.as_deref().map(|m| self.revision(RevisionKind::Insert, m));
+        out.mark.del = p.mark_del.as_deref().map(|m| self.revision(RevisionKind::Delete, m));
         out.normalize();
         out.touch();
         out
@@ -744,7 +755,7 @@ fn fmt_of(doc: &Document, cp: &CharProps, in_code: bool) -> Fmt {
 /// The insertion and deletion `cp` tracks, as flow marks.
 fn rev_marks(doc: &Document, cp: &CharProps) -> (Option<RevMark>, Option<RevMark>) {
     let mark = |i: Option<u32>| {
-        i.map(|i| doc.revisions.get(i as usize).map(|r| RevMark { author: r.author.clone(), date: r.date.clone() }).unwrap_or_default())
+        i.map(|i| doc.revisions.get(i as usize).map(|r| RevMark { author: r.author.clone(), date: r.date.clone(), id: Some(i) }).unwrap_or_default())
     };
     (mark(cp.ins), mark(cp.del))
 }
@@ -807,6 +818,8 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         spacing: Spacing::default(),
         borders: None,
         section: None,
+        mark_ins: None,
+        mark_del: None,
     };
     let in_code = kind == Kind::Code;
     let mut k = 0usize;
@@ -833,6 +846,8 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         spacing: Spacing::default(),
                         borders: None,
                         section: None,
+                        mark_ins: None,
+                        mark_del: None,
                     };
                     let prev = std::mem::replace(&mut out, next);
                     if prev.inlines.is_empty() {
@@ -897,6 +912,10 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         if !hidden_text {
             out.push_text(&buf, &f);
         }
+    }
+    if tracked {
+        let (ins, del) = rev_marks(doc, &p.mark);
+        (out.mark_ins, out.mark_del) = (ins.map(Box::new), del.map(Box::new));
     }
     done.push(out);
     done

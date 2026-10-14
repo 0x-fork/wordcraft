@@ -1066,7 +1066,7 @@ impl Reader {
     /// the table is "Unknown".
     fn rev_mark(&self, i: i32, dttm: u32) -> model::RevMark {
         let author = usize::try_from(i).ok().and_then(|i| self.rev_authors.get(i)).cloned().unwrap_or_else(|| "Unknown".to_string());
-        model::RevMark { author, date: dttm_to_iso(dttm).unwrap_or_default() }
+        model::RevMark { author, date: dttm_to_iso(dttm).unwrap_or_default(), id: None }
     }
 
     fn commit_font(&mut self) {

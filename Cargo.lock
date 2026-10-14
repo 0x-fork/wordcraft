@@ -5238,6 +5238,7 @@ name = "wordcraft-formats"
 version = "0.7.0"
 dependencies = [
  "image",
+ "js-sys",
  "log",
  "proptest",
  "quick-xml",
