@@ -717,6 +717,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.read_first_visible = None;
         app.canvas.read_target_page = None;
     }
+    // Keys first, so this frame lays out and paints what was typed (handled after painting, a
+    // keystroke showed one frame later). Focus is the canvas's from the last frame.
+    // While "Save changes?" is up, keys answer it rather than edit the document behind it.
+    if app.canvas.focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
+        crate::keys::canvas_events(app, ui.ctx());
+    }
     crate::ink::replay_tick(app, ui.ctx());
     let layout = app.session.layout();
     if let Some(anchor) = reflow_anchor
@@ -1333,10 +1339,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     crate::table_resize::cursor(app, ui, &resp, &layout, &rects, geo.scale);
     crate::table_mouse::cursor(app, ui, &resp, &layout, &rects, geo.scale);
     crate::table_pen::cursor(app, ui, &resp);
-    // While "Save changes?" is up, keys answer it rather than edit the document behind it.
-    if app.canvas.focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
-        crate::keys::canvas_events(app, ui.ctx());
-    }
     let _ = origin;
     if let (Some(h), Some(v)) = (hruler, vruler) {
         rulers(app, ui, h, v, &rects, &layout, geo.scale);
@@ -2917,6 +2919,33 @@ mod tests {
         h.event(Event::PointerMoved(at));
         h.step();
         assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default);
+    }
+
+    /// A typed character is laid out and painted in the frame that delivers the key, not the next
+    /// one: keys are handled before the canvas takes the layout it paints.
+    #[test]
+    fn a_keystroke_is_painted_in_its_own_frame() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Some text"})).unwrap();
+        a.canvas.want_focus = true;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the canvas has the keyboard focus");
+        h.event(egui::Event::Text("x".into()));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "Some textx");
+        let latest = h.state_mut().session.layout();
+        let painted = h.state().canvas.page_keys.layout.clone();
+        assert!(painted.is_some_and(|l| std::sync::Arc::ptr_eq(&l, &latest)), "the frame painted the layout with the typed character");
     }
 
     /// #167: a comment balloon edits in place like Word's: click it, type, leave it, and the
