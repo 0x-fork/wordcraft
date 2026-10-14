@@ -1,6 +1,7 @@
 # Control protocol
 
 Start the app with a control port: `wordcraft --control 7981` (or `WORDCRAFT_CONTROL_PORT=7981`).
+A missing or invalid port after `--control` (not 1–65535) prints an error and exits with status 2.
 It listens on `127.0.0.1` only. Send one JSON object per line, with the window's key (see
 [Keys](#keys)); each gets one reply line:
 
