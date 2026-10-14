@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (progress log: justified vertical page alignment, #1320; previously trivial: progress log: the save prompt takes the keyboard from the page, #1597; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (progress log: comment deletion leaves no dangling anchors or replies, #1345; previously trivial: progress log: justified vertical page alignment, #1320; previously trivial: progress log: the save prompt takes the keyboard from the page, #1597; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-14 | Deleting a comment removes its anchors from headers, footers, notes and text boxes too, not just the body, and deletes the whole thread below it, replies to replies included; no anchor or reply is left pointing at a deleted comment (#1345) |
 | 2026-10-13 | Justified vertical page alignment (#1320): a section set to Justified spreads each page's paragraphs and tables from the top margin to the bottom one, as Word does, including the last page and pages ending in a manual page break. DOCX `w:vAlign="both"` opens as Justified (it showed centred) and saves back; `layout.verticalAlign` takes `justify`, and Page Setup has a Vertical alignment box |
 | 2026-10-13 | macOS shortcuts as in Word for Mac: ⌘⇧S Save As, ⌘⌥E Insert Endnote, ⌘⌥A New Comment, ⌃H Replace, ⌘⌥R collapse the ribbon |
 | 2026-10-13 | The status bar flags a proofing language whose Hunspell dictionary isn't installed (Polish, Portuguese): "Polish (no dictionary)", with a tooltip naming the dictionary and where it is looked up (#1167) |
@@ -377,6 +378,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | trivial | Progress log: deleting a comment leaves no dangling anchors or replies (#1345) |
 | 2026-10-13 | trivial | Progress log: justified vertical page alignment (#1320) |
 | 2026-10-14 | trivial | Progress log: file names that aren't valid Unicode (#1440) |
 | 2026-10-13 | trivial | Behind Text pictures and shapes drag over overlapping text in the body and headers, selected or not, while ordinary clicks keep editing text; In Front of Text drag covered too |
