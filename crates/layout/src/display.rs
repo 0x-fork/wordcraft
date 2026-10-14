@@ -38,11 +38,17 @@ pub enum Draw {
         /// Byte range of `text` each glyph shows (one per glyph; a ligature's range covers all
         /// its characters). Empty when unknown: the PDF writer then guesses from the font.
         ranges: Vec<std::ops::Range<usize>>,
+        /// The text background (highlight or character shading) these glyphs are drawn on, if
+        /// any: a dark page dims it, so it picks the text colour against the dimmed colour.
+        text_bg: Option<Rgb>,
     },
     Fill {
         rect: Rect,
         color: Rgb,
         alpha: f32,
+        /// A text background (highlight or character shading), which a dark page dims instead
+        /// of inverting so the text on it stays readable. Other fills (paragraph, cell, page) don't.
+        text_bg: bool,
     },
     Line {
         x0: f32,
@@ -53,6 +59,9 @@ pub enum Draw {
         color: Rgb,
         stroke: Stroke,
         alpha: f32,
+        /// The text background this line (an underline or strikethrough) is drawn on, as for
+        /// [`Draw::Glyphs`]; `None` for every other line.
+        text_bg: Option<Rgb>,
     },
     Image {
         rect: Rect,
@@ -506,7 +515,17 @@ fn change_bars(doc: &Document, page: &Page, m: &MarkupOptions, alpha: f32, out: 
                 || (mark_rev && line.end == LineEnd::Para);
             if changed {
                 let top = y + (line.top - first.top);
-                out.push(Draw::Line { x0: bx, y0: top, x1: bx, y1: top + line.height, width: 0.75, color, stroke: Stroke::Solid, alpha });
+                out.push(Draw::Line {
+                    x0: bx,
+                    y0: top,
+                    x1: bx,
+                    y1: top + line.height,
+                    width: 0.75,
+                    color,
+                    stroke: Stroke::Solid,
+                    alpha,
+                    text_bg: None,
+                });
             }
         }
     }
@@ -533,6 +552,7 @@ fn rule(x0: f32, y0: f32, x1: f32, y1: f32, b: &Border, alpha: f32) -> Draw {
         color: b.color.unwrap_or(Rgb::BLACK),
         stroke: border_stroke(b.style),
         alpha,
+        text_bg: None,
     }
 }
 
@@ -554,7 +574,7 @@ fn item(doc: &Document, it: &Placed, opts: &DisplayOptions, alpha: f32, out: &mu
 /// effects follow all the turns it is drawn inside.
 fn item_in(doc: &Document, it: &Placed, opts: &DisplayOptions, alpha: f32, outer: Spin, out: &mut Vec<Draw>) {
     match it {
-        Placed::Fill { rect, color } => out.push(Draw::Fill { rect: *rect, color: *color, alpha }),
+        Placed::Fill { rect, color } => out.push(Draw::Fill { rect: *rect, color: *color, alpha, text_bg: false }),
         Placed::Rule { x0, y0, x1, y1, border } => out.push(rule(*x0, *y0, *x1, *y1, border, alpha)),
         Placed::Image { rect, media, crop, spin, .. } => {
             spun(*spin, *rect, vec![Draw::Image { rect: *rect, media: media.clone(), crop: *crop, alpha }], out)
@@ -637,7 +657,12 @@ fn lines(
                 }
                 for (x0, x1) in pl.x_spans(li, a.max(line.start), b.min(line.stop)) {
                     if x1 > x0 {
-                        out.push(Draw::Fill { rect: Rect::new(x + x0, top, x1 - x0, line.height), color: Rgb(0xEF, 0xE3, 0xF7), alpha });
+                        out.push(Draw::Fill {
+                            rect: Rect::new(x + x0, top, x1 - x0, line.height),
+                            color: Rgb(0xEF, 0xE3, 0xF7),
+                            alpha,
+                            text_bg: false,
+                        });
                     }
                 }
             }
@@ -651,7 +676,7 @@ fn lines(
                 continue;
             }
             if let Some(h) = st.rc.highlight.or(st.rc.shading) {
-                out.push(Draw::Fill { rect: Rect::new(x + cx, top, (nx - cx).max(0.0), line.height), color: h, alpha });
+                out.push(Draw::Fill { rect: Rect::new(x + cx, top, (nx - cx).max(0.0), line.height), color: h, alpha, text_bg: true });
             }
             let b = st.rc.border;
             if let Some((ob, x0, x1)) = open.as_mut()
@@ -689,6 +714,7 @@ fn lines(
                     text: run.text.clone(),
                     link: None,
                     ranges: Vec::new(),
+                    text_bg: None,
                 });
             }
         }
@@ -708,6 +734,7 @@ fn lines(
                 text: "-".into(),
                 link: None,
                 ranges: Vec::new(),
+                text_bg: None,
             });
         }
         // Glyph runs grouped by style.
@@ -809,6 +836,8 @@ fn lines(
                 (None, Some(r)) => m.delete_color.unwrap_or_else(|| author(r)),
                 _ => text_color(&rc.color, rc.shading.or(rc.highlight)),
             };
+            // The highlight or shading drawn under this run (as filled in the backgrounds pass).
+            let text_bg = rc.highlight.or(rc.shading);
             let ins_mark = ins.map(|_| if moved_to { InsertMark::DoubleUnderline } else { m.insert_mark });
             let del_mark = del.map(|_| if moved_from { DeleteMark::DoubleStrikethrough } else { m.delete_mark });
             if del_mark == Some(DeleteMark::Caret) {
@@ -825,6 +854,7 @@ fn lines(
                         color,
                         stroke: Stroke::Solid,
                         alpha,
+                        text_bg,
                     });
                     out.push(Draw::Line {
                         x0: cx,
@@ -835,6 +865,7 @@ fn lines(
                         color,
                         stroke: Stroke::Solid,
                         alpha,
+                        text_bg,
                     });
                 }
                 continue;
@@ -865,6 +896,7 @@ fn lines(
                     text,
                     link: rc.link.clone(),
                     ranges,
+                    text_bg,
                 });
             }
             // Decorations across the run (underline skips trailing spaces of the line). Right-to-left
@@ -900,17 +932,17 @@ fn lines(
                             if a < x0 - 0.01 || b > x1 + 0.01 {
                                 continue; // drawn with its own span
                             }
-                            out.push(Draw::Line { x0: a, y0: uy, x1: b, y1: uy, width: thick, color: ucolor, stroke: Stroke::Solid, alpha });
+                            out.push(Draw::Line { x0: a, y0: uy, x1: b, y1: uy, width: thick, color: ucolor, stroke: Stroke::Solid, alpha, text_bg });
                         }
                     } else {
                         let w = if underline == Underline::Thick { thick * 2.0 } else { thick };
-                        out.push(Draw::Line { x0, y0: uy, x1, y1: uy, width: w, color: ucolor, stroke: stroke_of(underline), alpha });
+                        out.push(Draw::Line { x0, y0: uy, x1, y1: uy, width: w, color: ucolor, stroke: stroke_of(underline), alpha, text_bg });
                     }
                 }
                 if struck {
                     let sy = base - st.shift - st.size * 0.28;
                     let stroke = if double { Stroke::Double } else { Stroke::Solid };
-                    out.push(Draw::Line { x0, y0: sy, x1, y1: sy, width: thick, color, stroke, alpha });
+                    out.push(Draw::Line { x0, y0: sy, x1, y1: sy, width: thick, color, stroke, alpha, text_bg });
                 }
             }
         }
@@ -934,6 +966,7 @@ fn lines(
                     color,
                     stroke: if *grammar { Stroke::Double } else { Stroke::Wave },
                     alpha,
+                    text_bg: None,
                 });
             }
         }
@@ -963,6 +996,7 @@ fn lines(
                 text: String::new(),
                 link: None,
                 ranges: Vec::new(),
+                text_bg: None,
             });
         }
         // Inline objects.
@@ -1037,6 +1071,7 @@ fn lines(
                     text: r.text.clone(),
                     link: None,
                     ranges,
+                    text_bg: st.rc.highlight.or(st.rc.shading),
                 });
             }
         }
@@ -1069,6 +1104,7 @@ fn lines(
                             color: Rgb(0x60, 0x60, 0x60),
                             stroke: Stroke::Dotted,
                             alpha,
+                            text_bg: None,
                         });
                         out.push(Draw::Mark { x: cx + 1.0, baseline: base, size, ch: label, color: None });
                     }
@@ -1159,7 +1195,7 @@ fn section_break_mark(start: SectionStart, x0: f32, x1: f32, base: f32, size: f3
     let tx = (x0 + x1 - w) / 2.0;
     for (a, b) in [(x0, tx - gap), (tx + w + gap, x1)] {
         for y in [mid - 1.2, mid + 1.2] {
-            out.push(Draw::Line { x0: a, y0: y, x1: b, y1: y, width: 0.5, color, stroke: Stroke::Dotted, alpha });
+            out.push(Draw::Line { x0: a, y0: y, x1: b, y1: y, width: 0.5, color, stroke: Stroke::Dotted, alpha, text_bg: None });
         }
     }
     out.push(Draw::MarkText { x: tx, baseline: mid + lsize * 0.33, size: lsize, text: text.into() });
@@ -1181,8 +1217,11 @@ fn equation(items: &[MItem], x: f32, base: f32, alpha: f32, screen: bool, out: &
                 link: None,
                 // Equation text maps back through the font (no per-glyph ranges from the math layout).
                 ranges: Vec::new(),
+                text_bg: None,
             }),
-            MItem::Rect { x: rx, y, w, h, color } => out.push(Draw::Fill { rect: Rect::new(x + rx, base - y - h, *w, *h), color: *color, alpha }),
+            MItem::Rect { x: rx, y, w, h, color } => {
+                out.push(Draw::Fill { rect: Rect::new(x + rx, base - y - h, *w, *h), color: *color, alpha, text_bg: false })
+            }
             MItem::Line { x0, y0, x1, y1, width, color, dotted } => out.push(Draw::Line {
                 x0: x + x0,
                 y0: base - y0,
@@ -1192,6 +1231,7 @@ fn equation(items: &[MItem], x: f32, base: f32, alpha: f32, screen: bool, out: &
                 color: *color,
                 stroke: if *dotted { Stroke::Dotted } else { Stroke::Solid },
                 alpha,
+                text_bg: None,
             }),
             MItem::ScreenOnly(inner) => {
                 if screen {
@@ -1428,6 +1468,7 @@ fn text_glyphs(doc: &Document, r: Rect, it: &GraphicItem, alpha: f32, k: f32) ->
         text: text.clone(),
         link: None,
         ranges: Vec::new(),
+        text_bg: None,
     })
 }
 
@@ -1575,13 +1616,13 @@ pub fn upright_in_vertical(c: char) -> bool {
 fn upright_east_asian(items: Vec<Draw>) -> Vec<Draw> {
     let mut out = Vec::with_capacity(items.len());
     for d in items {
-        let Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges } = d else {
+        let Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg } = d else {
             out.push(d);
             continue;
         };
         let up = |k: usize| ranges.get(k).and_then(|r| text.get(r.clone())).and_then(|t| t.chars().next()).is_some_and(upright_in_vertical);
         if ranges.len() != glyphs.len() || !(0..glyphs.len()).any(up) {
-            out.push(Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges });
+            out.push(Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg });
             continue;
         }
         let piece = |k0: usize, k1: usize| -> Draw {
@@ -1590,7 +1631,7 @@ fn upright_east_asian(items: Vec<Draw>) -> Vec<Draw> {
             let (b0, b1) = (rs.iter().map(|r| r.start).min().unwrap_or(0), rs.iter().map(|r| r.end).max().unwrap_or(0));
             let t = text.get(b0..b1).unwrap_or("").to_string();
             let rs = rs.iter().map(|r| r.start.saturating_sub(b0)..r.end.saturating_sub(b0)).collect();
-            Draw::Glyphs { face, size, glyphs: gs, color, alpha, synth_bold, synth_italic, text: t, link: link.clone(), ranges: rs }
+            Draw::Glyphs { face, size, glyphs: gs, color, alpha, synth_bold, synth_italic, text: t, link: link.clone(), ranges: rs, text_bg }
         };
         let mut k0 = 0;
         while k0 < glyphs.len() {

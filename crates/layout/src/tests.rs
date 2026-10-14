@@ -5397,6 +5397,48 @@ fn automatic_spacing_drops_between_list_items() {
     }
 }
 
+/// #1252: highlight and character-shading fills are marked as text backgrounds (a dark page dims
+/// them), and so is the text drawn on them; a paragraph's shading is an ordinary fill.
+#[test]
+fn highlight_fill_is_marked_as_a_text_background() {
+    use wordcraft_doc::props::Highlight;
+    let cp = wordcraft_doc::CharProps { highlight: Some(Highlight::Yellow), ..Default::default() };
+    let mut p = wordcraft_doc::Paragraph::with_text("Marked", cp);
+    p.props.shading = Some(wordcraft_doc::Rgb(0xDD, 0xEE, 0xFF));
+    let plain = wordcraft_doc::Paragraph::with_text("Plain", Default::default());
+    let mut d = Document::from_text("x");
+    d.body = vec![wordcraft_doc::para_block(p), wordcraft_doc::para_block(plain)];
+    let l = lay(&d);
+    let items = display::page_display(&d, &l.pages[0], &display::DisplayOptions::default());
+    let fills: Vec<(wordcraft_doc::Rgb, bool)> =
+        items.iter().filter_map(|i| if let display::Draw::Fill { color, text_bg, .. } = i { Some((*color, *text_bg)) } else { None }).collect();
+    assert!(fills.contains(&(wordcraft_doc::Rgb(255, 255, 0), true)), "highlight is a text background: {fills:?}");
+    assert!(fills.contains(&(wordcraft_doc::Rgb(0xDD, 0xEE, 0xFF), false)), "paragraph shading is not: {fills:?}");
+    let yellow = Some(wordcraft_doc::Rgb(255, 255, 0));
+    let glyphs: Vec<(String, Option<wordcraft_doc::Rgb>)> = items
+        .iter()
+        .filter_map(|i| if let display::Draw::Glyphs { text, text_bg, .. } = i { Some((text.clone(), *text_bg)) } else { None })
+        .collect();
+    assert!(glyphs.iter().any(|(t, bg)| t.contains("Marked") && *bg == yellow), "{glyphs:?}");
+    assert!(glyphs.iter().any(|(t, bg)| t.contains("Plain") && bg.is_none()), "{glyphs:?}");
+}
+
+/// #1252 review: an underline and strikethrough on a highlighted run carry the highlight, like
+/// its glyphs; other lines (here a paragraph border) don't.
+#[test]
+fn underline_on_a_highlight_carries_the_text_background() {
+    use wordcraft_doc::props::{Highlight, Underline};
+    let cp =
+        wordcraft_doc::CharProps { highlight: Some(Highlight::Teal), underline: Some(Underline::Single), strike: Some(true), ..Default::default() };
+    let mut d = Document::from_text("x");
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Marked", cp))];
+    let l = lay(&d);
+    let items = display::page_display(&d, &l.pages[0], &display::DisplayOptions::default());
+    let lines: Vec<Option<wordcraft_doc::Rgb>> =
+        items.iter().filter_map(|i| if let display::Draw::Line { text_bg, .. } = i { Some(*text_bg) } else { None }).collect();
+    assert_eq!(lines, vec![Some(wordcraft_doc::Rgb(0, 128, 128)); 2], "underline and strikethrough");
+}
+
 /// #1352 helpers: a body paragraph with a PAGE field after each piece of `pieces` (a piece may
 /// hold a page break), after `before` paragraphs that each start a new page.
 fn page_field_doc(before: usize, pieces: &[&str]) -> Document {

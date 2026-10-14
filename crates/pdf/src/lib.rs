@@ -787,13 +787,13 @@ impl Exporter<'_> {
                     self.draw(s, d);
                 }
             }
-            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges } => {
+            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, .. } => {
                 self.glyphs(s, face, *size, glyphs, *color, *alpha, *synth_bold, *synth_italic, text, ranges);
                 if let Some(l) = link {
                     self.link_rect(face, *size, glyphs, l);
                 }
             }
-            Draw::Fill { rect, color, alpha } => {
+            Draw::Fill { rect, color, alpha, .. } => {
                 if let Some(p) = rect_path(rect) {
                     s.set_stroke(None);
                     s.set_fill(Some(fill(*color, *alpha)));
@@ -801,7 +801,7 @@ impl Exporter<'_> {
                     s.set_fill(None);
                 }
             }
-            Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
+            Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
             Draw::Image { rect, media, crop, alpha } => self.picture(s, rect, media, crop, *alpha),
             Draw::Path { segs, fill: f, stroke, stroke_width } => {
                 let mut pb = PathBuilder::new();
