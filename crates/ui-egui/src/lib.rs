@@ -22,6 +22,7 @@ macro_rules! tl {
 
 pub mod a11y;
 pub mod a11y_pane;
+pub mod autoscroll;
 pub mod backstage;
 pub mod canvas;
 pub mod caret_glide;
