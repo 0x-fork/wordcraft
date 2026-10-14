@@ -168,7 +168,7 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
             return Ok((doc, encrypted));
         }
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
-        "txt" | "text" | "" => wordcraft_formats::txt::import_on(bytes, page),
+        "txt" | "text" => wordcraft_formats::txt::import_on(bytes, page),
         "json" => serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?,
         other => match crate::io_ext::open(other, bytes, page) {
             Some(r) => r?,
