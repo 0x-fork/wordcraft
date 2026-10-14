@@ -720,6 +720,34 @@ fn alt_shift_left_and_right_promote_and_demote_headings_and_list_items() {
 }
 
 #[test]
+fn down_and_up_from_a_line_start_beside_a_table_go_into_it() {
+    let mut s = typed("Intro line\n");
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let (table, _, _) = s.sel.focus.path.cell().unwrap();
+    typ(&mut s, "a");
+    let cell = |r: u32, c: u32| {
+        let mut p = table.0.clone();
+        p.extend([r, c, 0]);
+        wordcraft_doc::Path(p)
+    };
+    // From the start of the line above, left of the cells' text: the first cell, then the one
+    // below, not the paragraph after the table.
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "caret.down", json!({}));
+    assert_eq!(s.sel.focus.path, cell(0, 0));
+    run(&mut s, "caret.down", json!({}));
+    assert_eq!(s.sel.focus.path, cell(1, 0), "then the cell below");
+    // Up from the start of the paragraph after it: the last row's first cell.
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "caret.up", json!({}));
+    assert_eq!(s.sel.focus.path, cell(1, 0));
+    // Shift+Down from the line above takes the first row, not the whole table.
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "caret.down", json!({"extend": true}));
+    assert_eq!(s.sel.focus.path, cell(0, 1));
+}
+
+#[test]
 fn alt_x_toggles_between_a_character_and_its_code() {
     if !cfg!(target_os = "macos") {
         assert_eq!(s().registry.by_shortcut("Alt+X").map(|c| c.id), Some("text.toggleUnicode"));
