@@ -535,7 +535,8 @@ pub fn read_file_head(path: &str, max: u64) -> Result<Vec<u8>, String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write_file(path: &str, bytes: &[u8]) -> Result<(), String> {
     crate::file_access::check_write(path)?;
-    std::fs::write(path, bytes).map_err(|e| format!("{path}: {e}"))
+    // Like a document save: the old file is replaced only once the new bytes are fully written.
+    safe_save::write(std::path::Path::new(path), bytes).map_err(|e| format!("{path}: {e}"))
 }
 
 #[cfg(target_arch = "wasm32")]
