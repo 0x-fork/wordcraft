@@ -454,7 +454,7 @@ fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResult {
                 para.props.align = Some(Align::Center);
                 para.insert_object(
                     0,
-                    InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false },
+                    InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
                     &CharProps::default(),
                 )?;
             }
@@ -619,7 +619,7 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
         _ => Align::Center,
     };
     let x_of_y = p::str(v, "format").is_some_and(|f| f.contains("of"));
-    let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false };
+    let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() };
     if position == "current" {
         let props = s.typing_props();
         let at = delete_selection(s)?;
@@ -638,7 +638,7 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
         let end = para.len();
         para.insert_object(
             end,
-            InlineObject::Field { instr: "NUMPAGES".into(), result: "1".into(), locked: false, code: false },
+            InlineObject::Field { instr: "NUMPAGES".into(), result: "1".into(), locked: false, code: false, form: String::new() },
             &CharProps { bold: Some(true), ..Default::default() },
         )?;
     } else {
@@ -656,7 +656,7 @@ fn date_time(s: &mut Session, v: &Value) -> CmdResult {
         let at = delete_selection(s)?;
         let end = s.doc.insert_object(
             &at,
-            InlineObject::Field { instr: format!("DATE \\@ \"{fmt}\""), result: text, locked: false, code: false },
+            InlineObject::Field { instr: format!("DATE \\@ \"{fmt}\""), result: text, locked: false, code: false, form: String::new() },
             &props,
         )?;
         s.sel = Selection::caret(end);
@@ -764,7 +764,7 @@ fn field(s: &mut Session, v: &Value) -> CmdResult {
     let result = p::str(v, "result").unwrap_or("").to_string();
     let props = s.typing_props();
     let at = delete_selection(s)?;
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, code: false }, &props)?;
+    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, code: false, form: String::new() }, &props)?;
     s.sel = Selection::caret(end);
     let _ = super::references::update_fields(s);
     sel_result(s)
