@@ -256,7 +256,7 @@ impl NumFormat {
         NumFormat::ALL.into_iter().find(|f| f.ooxml() == s).unwrap_or(NumFormat::Decimal)
     }
     /// Format `n` (1-based). Formats WordCraft doesn't draw yet (Hebrew, Arabic, Hindi, Thai,
-    /// Vietnamese, Russian, text amounts) show decimal, as do values past a sequence's end
+    /// Vietnamese, text amounts) show decimal, as do values past a sequence's end
     /// (the 21st item of ①…⑳).
     pub fn format(self, n: u32) -> String {
         use crate::cjk_numbers as cjk;
@@ -266,6 +266,8 @@ impl NumFormat {
             NumFormat::LowerRoman => roman(n),
             NumFormat::UpperLetter => letters(n).to_uppercase(),
             NumFormat::LowerLetter => letters(n),
+            NumFormat::RussianUpper => russian_letters(n).to_uppercase(),
+            NumFormat::RussianLower => russian_letters(n),
             NumFormat::Ordinal => format!("{n}{}", ordinal_suffix(n)),
             NumFormat::CardinalText => cardinal_text(n),
             NumFormat::OrdinalText => ordinal_text(n),
@@ -304,8 +306,6 @@ impl NumFormat {
             | NumFormat::DecimalHalfWidth
             | NumFormat::Hex
             | NumFormat::VietnameseCounting
-            | NumFormat::RussianLower
-            | NumFormat::RussianUpper
             | NumFormat::Hebrew1
             | NumFormat::Hebrew2
             | NumFormat::ArabicAlpha
@@ -380,6 +380,22 @@ pub fn letters(n: u32) -> String {
     let n = n.min(780);
     let k = (n - 1) / 26 + 1;
     let c = (b'a' + ((n - 1) % 26) as u8) as char;
+    std::iter::repeat_n(c, k as usize).collect()
+}
+
+/// The 29 letters Word counts Russian lists with: а..я without ё, й, ъ and ь (ы stays).
+const RUSSIAN_LETTERS: [char; 29] =
+    ['а', 'б', 'в', 'г', 'д', 'е', 'ж', 'з', 'и', 'к', 'л', 'м', 'н', 'о', 'п', 'р', 'с', 'т', 'у', 'ф', 'х', 'ц', 'ч', 'ш', 'щ', 'ы', 'э', 'ю', 'я'];
+
+/// Word-style Russian letters: а..я, аа..яя, ааа.. (repeated letter, as [`letters`]).
+pub fn russian_letters(n: u32) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    let len = RUSSIAN_LETTERS.len() as u32;
+    let n = n.min(len * 30);
+    let k = (n - 1) / len + 1;
+    let c = RUSSIAN_LETTERS.get(((n - 1) % len) as usize).copied().unwrap_or('а');
     std::iter::repeat_n(c, k as usize).collect()
 }
 
@@ -860,11 +876,24 @@ mod tests {
         assert_eq!(NumFormat::ChineseCountingThousand.format(101), "一百零一");
         assert_eq!(NumFormat::DecimalEnclosedCircle.format(3), "③");
         assert_eq!(NumFormat::Hebrew1.format(3), "3", "formats not drawn yet show decimal");
+        assert_eq!(NumFormat::RussianLower.format(0), "");
+        assert_eq!(NumFormat::RussianUpper.format(u32::MAX).chars().count(), 30);
         for f in NumFormat::ALL {
             assert_eq!(NumFormat::from_ooxml(f.ooxml()), f, "{f:?} round-trips");
             assert!(f == NumFormat::Bullet || f == NumFormat::None || !f.format(u32::MAX).is_empty(), "{f:?}");
         }
         assert_eq!(NumFormat::from_ooxml("klingon"), NumFormat::Decimal, "unknown formats are decimal");
+    }
+
+    #[test]
+    fn russian_letters_follow_word() {
+        // Word's own labels for a russianLower list: no ё, й, ъ or ь, then doubled letters.
+        let labels: Vec<String> = (1..=31).map(|n| NumFormat::RussianLower.format(n)).collect();
+        assert_eq!(labels.join(" "), "а б в г д е ж з и к л м н о п р с т у ф х ц ч ш щ ы э ю я аа бб");
+        assert_eq!(NumFormat::RussianLower.format(59), "ааа");
+        assert_eq!(NumFormat::RussianLower.format(100), "нннн");
+        assert_eq!(NumFormat::RussianUpper.format(26), "Ы");
+        assert_eq!(NumFormat::RussianUpper.format(36), "ЖЖ");
     }
 
     #[test]

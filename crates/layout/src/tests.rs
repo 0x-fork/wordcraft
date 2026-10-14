@@ -739,6 +739,37 @@ fn lists_get_labels_and_indent() {
 }
 
 #[test]
+fn russian_letter_list_labels_draw_cyrillic() {
+    // russianLower labelled items 1, 2, 3 instead of а), б), в).
+    use wordcraft_doc::section::NumFormat;
+    let mut d = Document::from_text("один\nдва\nтри");
+    let id = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    for a in &mut d.numbering.abstracts {
+        if let Some(l) = a.levels.first_mut() {
+            l.format = NumFormat::RussianLower;
+            l.text = "%1)".into();
+        }
+    }
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(2, 3), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
+    let l = lay(&d);
+    let labels: Vec<(String, bool)> = l.pages[0]
+        .items
+        .iter()
+        .filter_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None })
+        .filter_map(|pl| {
+            let lab = pl.label.as_ref()?;
+            let drawn = lab.runs.iter().all(|r| {
+                let face = &pl.styles[r.style as usize].face;
+                let gids: Vec<u32> = lab.glyphs[r.glyphs.clone()].iter().map(|g| g.gid).collect();
+                r.text.chars().all(|c| gids.contains(&face.glyph_for(c)) && face.glyph_for(c) != 0)
+            });
+            Some((lab.text.clone(), drawn))
+        })
+        .collect();
+    assert_eq!(labels, [("а)".to_string(), true), ("б)".to_string(), true), ("в)".to_string(), true)]);
+}
+
+#[test]
 fn chinese_counting_list_labels_and_their_font_runs() {
     // Issue #534: a "一、" list showed digits, drawn with glyph ids of another font.
     use wordcraft_doc::section::NumFormat;
