@@ -1127,6 +1127,9 @@ preview	Title	Пример
 	Version	Версия
 	% of all commits	% всех коммитов
 	pt	пт
+	cm	см
+	mm	мм
+	pi	пик
 	Save the document to turn on AutoSave	Сохраните документ, чтобы включить автосохранение
 	Contributors	Участники
 	Models	Модели
