@@ -454,6 +454,8 @@
 	Labels	Etichette
 	Landscape	Orizzontale
 	Language	Lingua
+	{language} (no dictionary)	{language} (nessun dizionario)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Non è installato alcun dizionario ortografico per {language}, quindi non viene controllata. WordCraft cerca il dizionario Hunspell {name} nella cartella WORDCRAFT_DICTIONARIES e nelle posizioni di sistema abituali.
 	Lasso	Lazo
 	Last Column	Ultima colonna
 	Last commit	Ultimo commit
