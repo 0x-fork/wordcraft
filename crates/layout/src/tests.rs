@@ -3262,6 +3262,25 @@ fn floats_in_headers_and_table_cells_are_drawn() {
 }
 
 #[test]
+fn a_centred_float_in_a_cell_is_not_pushed_above_its_anchor_line() {
+    use wordcraft_doc::para::{Anchor, Float, FloatAlign, Wrap};
+    for align in [FloatAlign::Center, FloatAlign::End] {
+        let mut d = Document::from_text("Before.");
+        let mut t = Table::new(1, 1, 468.0);
+        let mut cp = wordcraft_doc::Paragraph::with_text("cell", Default::default());
+        let f = Float { wrap: Wrap::Square, h_rel: Anchor::Column, v_rel: Anchor::Margin, v_align: Some(align), ..Default::default() };
+        cp.insert_object(0, rect_shape(100.0, 200.0, f), &Default::default()).unwrap();
+        t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(cp)];
+        d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let c = shapes(&l.pages[0].items);
+        assert_eq!(c.len(), 1, "cell float drawn");
+        // The first line sits at the top margin (72 pt); the table is below the "Before." line.
+        assert!(c[0].y >= 72.0 + 10.0, "{align:?}: float not above the anchor line: {:?}", c[0]);
+    }
+}
+
+#[test]
 fn wrap_area_uses_each_distance() {
     use wordcraft_doc::para::{Float, Wrap};
     let f = Float { wrap: Wrap::Square, dist: 9.0, dist_top: 0.0, dist_bottom: 4.0, ..Default::default() };

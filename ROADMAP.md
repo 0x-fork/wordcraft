@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-15 | A floating picture or shape in a table cell set to align centre or bottom no longer lands half its height above its line (#1887); it starts at the anchor line |
 | 2026-10-13 | A picture (or shape) set to Behind Text can be dragged over the text it overlaps, whether or not it was selected first, in the body and in a header/footer. The press becomes an object drag only after the pointer moves, so an ordinary click still places the text caret in the overlapping text. The UI regression tests cover In Front of Text too |
 | 2026-10-13 | Saving to DOCX keeps the watermark: it is written as Word's own text-watermark shape in every header, and a document without headers gains one to hold it (#1290) |
 | 2026-10-13 | DOCX files with Word's text watermark (Design › Watermark, a VML text shape in the headers) show it on every page on screen and in the PDF (#1290) |
