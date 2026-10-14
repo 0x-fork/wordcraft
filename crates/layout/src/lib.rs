@@ -3239,8 +3239,12 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         if forced_break.is_none() && l1 < n && pl.rp.widow_control && n >= 2 {
             if l1 - l0 == 1 && l0 == 0 && !pb.at_top() {
                 l1 = l0; // orphan: move the first line to the next page
-            } else if n - l1 == 1 && l1 - l0 >= 3 {
+            } else if n - l1 == 1 && (l1 - l0 >= 3 || (l0 > 0 && l1 - l0 >= 2)) {
                 l1 -= 1; // widow: take one more line along
+            } else if n - l1 == 1 && l0 == 0 && l1 - l0 == 2 && !pb.at_top() {
+                // Neither split of a three-line paragraph is allowed (two and a widow, or an
+                // orphan and two): it moves whole, as in Word.
+                l1 = l0;
             }
         }
         // A row (text both sides of a floating object) stays together.
