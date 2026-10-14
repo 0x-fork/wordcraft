@@ -442,6 +442,8 @@ pub struct WordApp {
     queued_shots: Vec<(u64, f64, u32)>,
     pending_shots: Vec<(u64, Option<String>, std::sync::mpsc::Sender<Value>, f64)>,
     pub(crate) synthetic: Vec<egui::Event>,
+    /// macOS: the primary button went down with Control, so it is being read as the secondary.
+    control_click: bool,
     /// Badge rects recorded during layout for the current keytip phase (cleared by `logic`, painted by `show`).
     pub(crate) keytip_rects: Vec<(egui::Rect, String)>,
     /// The Navigation pane's search box takes the keyboard on its next frame (Ctrl+F, #712).
@@ -571,6 +573,7 @@ impl WordApp {
             queued_shots: Vec::new(),
             pending_shots: Vec::new(),
             synthetic: Vec::new(),
+            control_click: false,
             keytip_rects: Vec::new(),
             nav_search_focus: false,
             styled: false,
@@ -1776,8 +1779,12 @@ impl WordApp {
         }
     }
 
-    /// Inject synthetic input events from the control channel (one pointer event per frame).
+    /// Read a Control-click as the right-click on macOS, then inject synthetic input events from
+    /// the control channel (one pointer event per frame).
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
+        if cfg!(target_os = "macos") {
+            control_click_as_secondary(&mut raw.events, &mut self.control_click);
+        }
         if self.synthetic.is_empty() {
             return;
         }
@@ -2224,6 +2231,25 @@ pub fn now_ms() -> f64 {
     {
         let ms = js_sys::Date::now();
         if ms.is_finite() && ms > 0.0 { ms } else { 0.0 }
+    }
+}
+
+/// macOS reads a Control-click as the right-click (winit reports the primary button with Control
+/// held), so menus open on it as on a two-finger click. The release follows its press even if
+/// Control was let go in between.
+fn control_click_as_secondary(events: &mut [egui::Event], held: &mut bool) {
+    for e in events {
+        if let egui::Event::PointerButton { button: button @ egui::PointerButton::Primary, pressed, modifiers, .. } = e {
+            if *pressed {
+                *held = modifiers.ctrl && !modifiers.mac_cmd;
+            }
+            if *held {
+                *button = egui::PointerButton::Secondary;
+            }
+            if !*pressed {
+                *held = false;
+            }
+        }
     }
 }
 
