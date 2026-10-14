@@ -13,7 +13,7 @@ use wordcraft_doc::{Block, Blocks, InlineObject, Paragraph, PartKind, RevisionKi
 
 use super::Reader;
 use super::props::{sectpr, tcpr, trpr};
-use super::shape_style::{preset_kind, shape_paint, vml_color};
+use super::shape_style::{preset_kind, shape_paint, vml_color, vml_preset_kind};
 use crate::package::{ContentTypes, Rels, rt};
 use crate::units::{int, measure, u32_of};
 use crate::xml::{El, Node};
@@ -1365,7 +1365,7 @@ impl Reader<'_> {
         self.doc.add_part(PartKind::TextBox, blocks)
     }
 
-    /// Legacy VML pictures, text boxes, lines, rectangles and ovals (best effort).
+    /// Legacy VML pictures, text boxes, lines, rectangles, ovals and preset shapes (best effort).
     fn read_vml(&mut self, sc: &mut StoryCtx, pict: &El, rels: &Rels) -> Option<InlineObject> {
         let shape = pict.els().find(|e| e.name.starts_with("v:") && e.local() != "shapetype")?;
         if sc.in_hf
@@ -1385,10 +1385,26 @@ impl Reader<'_> {
             let alt = shape.attr("alt").or_else(|| img.attr("o:title")).unwrap_or("").to_string();
             return Some(InlineObject::Image { media, w, h, alt, float, crop: [0.0; 4], ole: None });
         }
-        let on = |name: &str| shape.attr(name).is_none_or(|v| !matches!(v, "f" | "false" | "0"));
-        let stroke = on("stroked").then(|| shape.attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
-        let stroke_width = shape.attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
-        let fill = on("filled").then(|| shape.attr("fillcolor").map_or(Some(Rgb::WHITE), vml_color)).flatten();
+        // The shapetype the shape is drawn from (its `type`, ECMA-376 Part 4 VML), when written in
+        // the same picture: what the shape leaves out, it takes from there.
+        let type_id = shape.attr("type").map(|t| t.trim().trim_start_matches('#'));
+        let shapetype = type_id.and_then(|id| pict.els().find(|e| e.name == "v:shapetype" && e.attr("id") == Some(id)));
+        let attr = |name: &str| shape.attr(name).or_else(|| shapetype.and_then(|t| t.attr(name)));
+        let on = |name: &str| attr(name).is_none_or(|v| !matches!(v, "f" | "false" | "0"));
+        let stroke = on("stroked").then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
+        let stroke_width = attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
+        let fill = on("filled").then(|| attr("fillcolor").map_or(Some(Rgb::WHITE), vml_color)).flatten();
+        let kind = match shape.local() {
+            "line" => Some(ShapeKind::Line),
+            "rect" => Some(ShapeKind::Rectangle),
+            "roundrect" => Some(ShapeKind::RoundedRectangle),
+            "oval" => Some(ShapeKind::Ellipse),
+            // A preset, unless the shape's own path replaces its shapetype's geometry.
+            "shape" if shape.attr("path").is_none() && shape.child("v:path").and_then(|p| p.attr("v")).is_none() => {
+                vml_spt(shape, shapetype, type_id).and_then(vml_preset_kind)
+            }
+            _ => None,
+        };
         if let Some((tb, t)) = vml_textbox(shape, 0)
             && sc.story_depth < MAX_STORY_DEPTH
         {
@@ -1418,8 +1434,10 @@ impl Reader<'_> {
                 }
             }
             let story = Some(id);
+            // Text in a preset shape keeps the shape around it; otherwise it is a text box.
+            let kind = kind.filter(|k| *k != ShapeKind::Rectangle && !k.is_open()).unwrap_or(ShapeKind::TextBox);
             return Some(InlineObject::Shape {
-                kind: ShapeKind::TextBox,
+                kind,
                 w,
                 h,
                 fill,
@@ -1432,16 +1450,17 @@ impl Reader<'_> {
                 extra: Default::default(),
             });
         }
-        let kind = match shape.local() {
-            "line" => ShapeKind::Line,
-            "rect" => ShapeKind::Rectangle,
-            "roundrect" => ShapeKind::RoundedRectangle,
-            "oval" => ShapeKind::Ellipse,
-            _ => return None,
-        };
+        let kind = kind?;
         let mut extra = ShapeExtra::default();
         if kind == ShapeKind::Line {
-            // A line runs `from` → `to` (points, offsets from where its style places it).
+            // Arrowheads (`v:stroke` startarrow / endarrow): any but `none` is drawn.
+            let arrow = |name: &str| shape.child("v:stroke").and_then(|s| s.attr(name)).is_some_and(|v| v != "none");
+            extra.arrow_start = arrow("startarrow");
+            extra.arrow_end = arrow("endarrow");
+        }
+        if shape.local() == "line" {
+            // A line runs `from` → `to` (points, offsets from where its style places it). A preset
+            // line (`v:shape`) runs corner to corner of the box its style gives it.
             let pt = |name: &str| -> (f32, f32) {
                 let v = shape.attr(name).unwrap_or("0,0");
                 let (x, y) = v.split_once(',').unwrap_or((v, "0"));
@@ -1456,10 +1475,6 @@ impl Reader<'_> {
             // Drawn top-left to bottom-right; flipped for the other directions.
             float.flip_h ^= x1 < x0;
             float.flip_v ^= y1 < y0;
-            // Arrowheads (`v:stroke` startarrow / endarrow): any but `none` is drawn.
-            let arrow = |name: &str| shape.child("v:stroke").and_then(|s| s.attr(name)).is_some_and(|v| v != "none");
-            extra.arrow_start = arrow("startarrow");
-            extra.arrow_end = arrow("endarrow");
         }
         if stroke.is_none() && (fill.is_none() || kind == ShapeKind::Line) {
             return None;
@@ -1697,6 +1712,17 @@ fn wrap_polygon(e: &El) -> Option<wordcraft_doc::wrap::WrapPolygon> {
         return None;
     }
     wordcraft_doc::wrap::WrapPolygon::new(edited, pts)
+}
+
+/// A VML shape's preset type (`o:spt`): its own, its shapetype's, or the number in Word's
+/// shapetype id `_x0000_tNN` (`type_id`), Word writing each shapetype only at its first use.
+fn vml_spt(shape: &El, shapetype: Option<&El>, type_id: Option<&str>) -> Option<u32> {
+    let num = |v: &str| v.trim().parse::<u32>().ok();
+    shape
+        .attr("o:spt")
+        .and_then(num)
+        .or_else(|| shapetype.and_then(|t| t.attr("o:spt")).and_then(num))
+        .or_else(|| type_id?.strip_prefix("_x0000_t").and_then(num))
 }
 
 /// The value of property `key` in a VML `style` attribute (CSS declarations; the last one wins).
