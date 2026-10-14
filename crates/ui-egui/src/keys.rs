@@ -106,11 +106,13 @@ pub fn combo(m: Modifiers, key: &str, with_shift: bool) -> String {
 
 /// Shortcuts for interface commands (`ui.*`), which aren't in the engine's keymap: Alt+Q moves
 /// to "Tell me" command search, as in Word for Windows (#819). Not on macOS, where Option+Q types
-/// a character.
+/// a character. On macOS ⌘⌥R collapses or expands the ribbon, as in Word for Mac.
 fn ui_shortcut(key: Key, m: Modifiers) -> Option<(&'static str, Value)> {
     let alt_only = m.alt && !m.command && !m.ctrl && !m.mac_cmd && !m.shift;
+    let mac_cmd_alt = cfg!(target_os = "macos") && m.mac_cmd && m.alt && !m.ctrl && !m.shift;
     match key {
         Key::Q if alt_only && !cfg!(target_os = "macos") => Some(("ui.dialog", json!({"name": "commands"}))),
+        Key::R if mac_cmd_alt => Some(("ui.collapseRibbon", json!({}))),
         _ => None,
     }
 }
@@ -590,6 +592,16 @@ mod tests {
         assert_eq!(ui_shortcut(Key::Q, m(true, false, true)), None, "Mod+Alt+Q");
         assert_eq!(ui_shortcut(Key::Q, m(false, false, false)), None, "a plain Q");
         assert_eq!(ui_shortcut(Key::W, m(true, false, false)), None);
+    }
+
+    #[test]
+    fn cmd_option_r_collapses_the_ribbon_on_macos() {
+        let m = |mac_cmd, alt, shift| egui::Modifiers { mac_cmd, command: mac_cmd, alt, shift, ..Default::default() };
+        let collapse = Some(("ui.collapseRibbon", json!({})));
+        assert_eq!(ui_shortcut(Key::R, m(true, true, false)), if cfg!(target_os = "macos") { collapse } else { None });
+        assert_eq!(ui_shortcut(Key::R, m(true, false, false)), None, "Mod+R aligns right");
+        assert_eq!(ui_shortcut(Key::R, m(false, true, false)), None, "Option+R types a character");
+        assert_eq!(ui_shortcut(Key::R, m(true, true, true)), None, "Mod+Alt+Shift+R");
     }
 
     #[test]

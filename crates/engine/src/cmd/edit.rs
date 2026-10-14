@@ -125,7 +125,8 @@ pub fn specs() -> Vec<CommandSpec> {
             s.ui_requests.push(json!({"open": tab}));
             Ok(json!({"open": tab}))
         })
-        .key("Mod+H")
+        // Word for Mac's own key is ⌃H.
+        .key(super::mac_or("Mod+H / Ctrl+H", "Mod+H"))
         .params(r#"{"tab"?: "find|replace|goto" (default replace)}"#)
         .pure(),
         CommandSpec::new("edit.replaceAll", "Replace All", "Home › Editing › Replace", replace_all)

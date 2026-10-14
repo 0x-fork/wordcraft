@@ -119,12 +119,24 @@ fn word_default_shortcuts_resolve() {
     assert_eq!(id(cmd::mac_or("Ctrl+Shift+D", "Alt+Shift+D")), Some("insert.dateField"));
     if cfg!(target_os = "macos") {
         assert_eq!(id("Mod+Shift+G"), Some("edit.findPrevious"));
+        // Word for Mac's own keys: ⌘⇧S Save As, ⌘⌥E endnote (⌘⌥D hides the Dock), ⌘⌥A comment, ⌃H Replace.
+        assert_eq!(id("Mod+Shift+S"), Some("file.saveAs"));
+        assert_eq!(id("Mod+Alt+E"), Some("references.endnote"));
+        assert_eq!(id("Mod+Alt+D"), None);
+        assert_eq!(id("Mod+Alt+A"), Some("review.newComment"));
+        assert_eq!(id("Ctrl+H"), Some("edit.findReplace"));
     } else {
+        assert_eq!(id("Mod+Shift+S"), Some("styles.apply"));
+        assert_eq!(id("Mod+Alt+D"), Some("references.endnote"));
+        assert_eq!(id("Mod+Alt+A"), None);
         assert_eq!(id("Mod+Shift+G"), Some("review.wordCount"));
         assert_eq!(id("Mod+Alt+C"), Some("text.copyright"));
         assert_eq!(id("Mod+Alt+H"), Some("format.highlight"));
     }
     assert_eq!(id("Mod+PageUp"), Some("edit.findPrevious"));
+    assert_eq!(id("F12"), Some("file.saveAs"));
+    assert_eq!(id("Mod+Alt+M"), Some("review.newComment"));
+    assert_eq!(id("Mod+H"), Some("edit.findReplace"));
 }
 
 #[test]
