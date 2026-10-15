@@ -4658,6 +4658,33 @@ mod tests {
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
     }
 
+    /// #1538: inserting WordArt leaves its text selected, so Delete erased only the text and the
+    /// empty box stayed. Escape now selects the box itself, Delete removes it, and a second Escape
+    /// is back to a caret in the body.
+    #[test]
+    fn escape_selects_a_wordart_box_and_delete_removes_it() {
+        let mut a = app();
+        let id = a.run("insert.wordArt", json!({})).unwrap()["story"].as_u64().unwrap() as u32;
+        assert!(canvas::in_text_box(&a), "the WordArt's text is selected after inserting it");
+        let mut h = harness(a);
+        h.run_steps(4);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(wordcraft_engine::cmd::objects::object_selection(&h.state().session).is_some(), "Escape selects the box");
+        h.key_press(egui::Key::Delete);
+        h.run_steps(2);
+        assert_eq!(h.state().session.doc.text_box_anchor(id), None, "Delete removed the WordArt");
+        assert!(h.state_mut().session.undo(), "one undo brings it back");
+        assert!(h.state().session.doc.text_box_anchor(id).is_some());
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        let s = &h.state().session;
+        assert!(s.sel.is_collapsed() && s.sel.focus.story == wordcraft_doc::StoryRef::Body, "a second Escape leaves a caret in the body");
+    }
+
     /// #1218: Ctrl+Q resets the paragraph formatting and nothing else; it also closed the window
     /// (asking to save) on Windows and Linux. ⌘Q still quits on the Mac.
     #[test]
