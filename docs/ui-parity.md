@@ -52,6 +52,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | trivial | Tables on the page: one selected cell (Select Cell, or a click along its left edge) is a cell selection when its border is dragged: the border moves in its row only (#962) |
 | 2026-10-12 | minor | Default keyboard shortcuts expanded to 140 commands on macOS (169 combinations) and 158 on Linux/Windows (188 combinations): Style Inspector (Shift+F1), Macros (Alt+F8), Strikethrough (Mod+Shift+X), Find Next (Shift+F4), Copy/Paste Insert keys (Mod+Insert, Shift+Insert), Go Back (Mod+Alt+Z), File Open/Save/Save As/Print (Mod+Alt+F2, Alt+Shift+F2, Alt+F2, Mod+Alt+I), Field navigation (Alt+F1, Alt+Shift+F1), Outline show first line (Alt+Shift+L), Next Footnote (Alt+Shift+>), Link to Previous (Alt+Shift+R), AutoText (Alt+F3), Spelling on Mac (Mod+Alt+L) |
 | 2026-10-13 | trivial | Web/Draft Layout long-page blur fixed using visible full-resolution raster tiles, tested against a 440-paragraph document |
 | 2026-10-14 | trivial | A click on the ribbon's chrome that isn't a command button (a Styles gallery tile, a tab name, empty ribbon space, a View check box, a status-bar item) hands the keyboard to the page in the same frame, as a ribbon command button does: typing right after the click reaches the document instead of being swallowed (#1093 follow-up) |
