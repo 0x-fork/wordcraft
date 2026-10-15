@@ -36,7 +36,10 @@ pub fn specs() -> Vec<CommandSpec> {
                 matches!(s.sel.focus.story, StoryRef::Part(id) if s.doc.parts.get(&id).is_some_and(|p| p.kind == PartKind::TextBox))
                     .then_some("text boxes can't go inside a text box")
             }),
-        CommandSpec::new("insert.link", "Link", "Insert › Links", link).key("Mod+K").params(r#"{"url": string, "text"?: string}"#),
+        CommandSpec::new("insert.link", "Link", "Insert › Links", link).key("Mod+K").params(
+            r#"{"url": string} | {"bookmark": name} | {"heading": block (see link.targets)} | {"top": true}, "text"?: string (Place in This Document: a bookmark, a heading or the top of the document)"#,
+        ),
+        CommandSpec::new("link.targets", "Link", "Insert › Links", link_targets).pure(),
         CommandSpec::new("insert.removeLink", "Remove Hyperlink", "Insert › Links", |s, _| super::format::apply(s, &|c| {
             c.link = None;
             if c.style.as_deref() == Some("Hyperlink") {
@@ -219,22 +222,31 @@ pub(crate) fn picture(s: &mut Session, v: &Value) -> CmdResult {
     place_picture(s, bytes, p::f32(v, "width"), p::str(v, "alt").unwrap_or(""))
 }
 
+/// The media extension of an encoded image by its magic bytes, as `image_size` accepted it
+/// (TIFF included: the `image` crate decodes it).
+pub(crate) fn image_ext(bytes: &[u8]) -> &'static str {
+    match bytes.get(..4) {
+        Some([0x89, b'P', b'N', b'G']) => "png",
+        Some([0xFF, 0xD8, ..]) => "jpeg",
+        Some([b'G', b'I', b'F', _]) => "gif",
+        Some([b'R', b'I', b'F', b'F']) => "webp",
+        Some([b'B', b'M', ..]) => "bmp",
+        Some([b'I', b'I', 0x2A, 0x00]) | Some([b'M', b'M', 0x00, 0x2A]) => "tiff",
+        _ => "png",
+    }
+}
+
 /// Insert an encoded image at the selection as an inline picture, `width` points wide (default:
-/// its natural size at 96 ppi), never wider than the text column.
+/// its natural size at 96 ppi), never wider than the text column. The caret ends after it, so a
+/// script's next typing doesn't replace it (#965); Picture Format commands still act on it. The
+/// app selects a picture the person inserts (`WordApp::run`).
 fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str) -> CmdResult {
     if bytes.len() > 200 << 20 {
         return Err(CmdError::Failed("image is larger than 200 MB".into()));
     }
     // Natural size: pixels at 96 ppi, or a metafile's own frame (WMF, EMF: #802).
     let (natural_w, natural_h, ext) = if let Some((pw, ph)) = wordcraft_render::image_size(&bytes) {
-        let ext = match bytes.get(..4) {
-            Some([0x89, b'P', b'N', b'G']) => "png",
-            Some([0xFF, 0xD8, ..]) => "jpeg",
-            Some([b'G', b'I', b'F', _]) => "gif",
-            Some([b'R', b'I', b'F', b'F']) => "webp",
-            Some([b'B', b'M', ..]) => "bmp",
-            _ => "png",
-        };
+        let ext = image_ext(&bytes);
         (pw as f32 * 0.75, ph as f32 * 0.75, ext)
     } else if let Some(size) = wordcraft_render::metafile_size(&bytes) {
         size
@@ -262,7 +274,7 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
     let props = s.typing_props();
     let at = delete_selection(s)?;
     let end = s.doc.insert_object(&at, obj, &props)?;
-    s.sel = Selection { anchor: at, focus: end };
+    s.sel = Selection::caret(end);
     Ok(json!({"media": key, "width": w, "height": h}))
 }
 
@@ -342,7 +354,7 @@ fn text_box(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::str(v, "text").unwrap_or("").to_string();
     let w = p::f32(v, "width").unwrap_or(144.0).clamp(18.0, 2000.0);
     let h = p::f32(v, "height").unwrap_or(72.0).clamp(18.0, 2000.0);
-    let id = s.doc.add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))]);
+    let id = s.doc.try_add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))])?;
     let obj = InlineObject::Shape {
         kind: ShapeKind::TextBox,
         w,
@@ -367,17 +379,60 @@ fn text_box(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"story": id}))
 }
 
+/// What a link can point to inside the document (Insert › Link › Place in This Document): the top
+/// of the document, its headings (body block, level, text) and its bookmarks, without the hidden
+/// ones (names starting with `_`).
+fn link_targets(s: &mut Session, _: &Value) -> CmdResult {
+    let headings: Vec<Value> =
+        super::references::headings(s).into_iter().map(|(block, level, text, _)| json!({"block": block, "level": level, "text": text})).collect();
+    let mut bookmarks: Vec<String> = Vec::new();
+    for (name, _) in s.doc.bookmarks() {
+        if !name.starts_with('_') && !bookmarks.contains(&name) {
+            bookmarks.push(name);
+        }
+    }
+    Ok(json!({"top": true, "headings": headings, "bookmarks": bookmarks}))
+}
+
+/// The address and the default text of a link to a place in this document, from `top`, `bookmark`
+/// or `heading` (a heading gets a hidden `_Toc` bookmark, as in Word); None when none is given.
+fn place_target(s: &mut Session, v: &Value) -> Result<Option<(String, String)>, CmdError> {
+    if p::bool(v, "top") == Some(true) {
+        return Ok(Some(("#_top".into(), "Top of the Document".into())));
+    }
+    if let Some(name) = p::str(v, "bookmark") {
+        if !s.doc.bookmarks().iter().any(|(n, _)| n == name) {
+            return Err(CmdError::Params(format!("no bookmark `{name}`")));
+        }
+        return Ok(Some((format!("#{name}"), name.to_string())));
+    }
+    if let Some(block) = p::u64(v, "heading") {
+        let Some((i, _, text, lead)) = super::references::headings(s).into_iter().find(|h| h.0 as u64 == block) else {
+            return Err(CmdError::Params(format!("block {block} is not a heading")));
+        };
+        let name = super::references::toc_bookmark(s, i, lead)?;
+        return Ok(Some((format!("#{name}"), text)));
+    }
+    Ok(None)
+}
+
 fn link(s: &mut Session, v: &Value) -> CmdResult {
-    let Some(url) = p::str(v, "url").map(str::to_string) else {
-        s.ui_requests.push(json!({"open": "link"}));
-        return sel_result(s);
+    let (url, label) = match p::str(v, "url") {
+        Some(url) => (url.to_string(), url.to_string()),
+        None => match place_target(s, v)? {
+            Some(t) => t,
+            None => {
+                s.ui_requests.push(json!({"open": "link"}));
+                return sel_result(s);
+            }
+        },
     };
     if url.is_empty() || url.len() > 4096 {
         return Err(CmdError::Params("bad url".into()));
     }
     let style = Some("Hyperlink".to_string());
     if s.sel.is_collapsed() {
-        let text = p::str(v, "text").unwrap_or(&url).to_string();
+        let text = p::str(v, "text").unwrap_or(&label).to_string();
         let mut props = s.typing_props();
         props.link = Some(url.clone());
         props.style = style;
@@ -520,7 +575,7 @@ fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResult {
                 para.props.align = Some(Align::Center);
                 para.insert_object(
                     0,
-                    InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+                    InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
                     &CharProps::default(),
                 )?;
             }
@@ -685,7 +740,7 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
         _ => Align::Center,
     };
     let x_of_y = p::str(v, "format").is_some_and(|f| f.contains("of"));
-    let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() };
+    let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() };
     if position == "current" {
         let props = s.typing_props();
         let at = delete_selection(s)?;
@@ -704,7 +759,7 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
         let end = para.len();
         para.insert_object(
             end,
-            InlineObject::Field { instr: "NUMPAGES".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "NUMPAGES".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps { bold: Some(true), ..Default::default() },
         )?;
     } else {
@@ -722,7 +777,7 @@ fn date_time(s: &mut Session, v: &Value) -> CmdResult {
         let at = delete_selection(s)?;
         let end = s.doc.insert_object(
             &at,
-            InlineObject::Field { instr: format!("DATE \\@ \"{fmt}\""), result: text, locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: format!("DATE \\@ \"{fmt}\""), result: text, locked: false, dirty: false, code: false, form: String::new() },
             &props,
         )?;
         s.sel = Selection::caret(end);
@@ -830,7 +885,8 @@ fn field(s: &mut Session, v: &Value) -> CmdResult {
     let result = p::str(v, "result").unwrap_or("").to_string();
     let props = s.typing_props();
     let at = delete_selection(s)?;
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, code: false, form: String::new() }, &props)?;
+    let end =
+        s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, dirty: false, code: false, form: String::new() }, &props)?;
     s.sel = Selection::caret(end);
     let _ = super::references::update_fields(s);
     sel_result(s)

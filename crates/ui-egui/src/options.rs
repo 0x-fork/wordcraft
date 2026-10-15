@@ -86,6 +86,9 @@ pub(crate) fn sync(app: &WordApp) {
 /// centimetre field).
 pub trait MeasureExt {
     fn measure(self, unit: Unit) -> Self;
+    /// The same field showing nothing, not even the unit, until a length is typed in: a value
+    /// the selected paragraphs differ in.
+    fn measure_blank(self, unit: Unit) -> Self;
 }
 
 impl MeasureExt for egui::DragValue<'_> {
@@ -97,6 +100,9 @@ impl MeasureExt for egui::DragValue<'_> {
                 if sep == '.' { s } else { s.replace('.', &sep.to_string()) }
             })
             .custom_parser(move |text| parse_length(text, unit))
+    }
+    fn measure_blank(self, unit: Unit) -> Self {
+        self.custom_formatter(|_, _| String::new()).custom_parser(move |text| parse_length(text, unit))
     }
 }
 
@@ -367,6 +373,7 @@ fn language_name(lang: wordcraft_engine::proof::ProofLang) -> &'static str {
         ProofLang::Hr => tl!("Croatian"),
         ProofLang::Tr => tl!("Turkish"),
         ProofLang::Ru => tl!("Russian"),
+        ProofLang::Cs => tl!("Czech"),
         // English uses its bundled word list; Bulgarian has no dictionary yet.
         ProofLang::En | ProofLang::Bg | ProofLang::Other => "",
     }
