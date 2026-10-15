@@ -2474,6 +2474,32 @@ fn repeated_header_is_followed_by_the_next_row_even_when_it_overflows() {
     assert!(pages.iter().all(|p| p.first() == Some(&0)), "{pages:?}");
 }
 
+#[test]
+fn repeated_header_moves_with_the_first_row_that_does_not_fit() {
+    // A paragraph that leaves `room` points of the letter page's 648 pt body, then a table with a
+    // 20 pt header row and 40 pt one-line rows. Returns the table rows on each page.
+    let rows_per_page = |room: f32| -> Vec<Vec<usize>> {
+        let mut d = Document::from_text("Text above the table");
+        d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().props.space_after = Some(648.0 - room - 14.0);
+        let mut t = Table::new(3, 1, 468.0);
+        t.rows[0].props.header = true;
+        for (row, h) in t.rows.iter_mut().zip([20.0, 40.0, 40.0]) {
+            row.props.height = Some(h);
+            row.props.height_rule = wordcraft_doc::props::HeightRule::AtLeast;
+        }
+        d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+        lay(&d)
+            .pages
+            .iter()
+            .map(|p| p.items.iter().filter_map(|i| if let Placed::Cell { row, cell: 0, .. } = i { Some(*row) } else { None }).collect())
+            .collect()
+    };
+    // Header and first row fit: the table starts on the first page.
+    assert_eq!(rows_per_page(80.0)[0], vec![0, 1]);
+    // Only the header fits: it goes to the next page with the first row instead of staying alone.
+    assert_eq!(rows_per_page(40.0), vec![vec![], vec![0, 1, 2]]);
+}
+
 /// A drop-cap paragraph in a font larger than 1000 pt used to panic in layout (`clamp` with min > max).
 #[test]
 fn drop_cap_with_a_huge_font_lays_out() {

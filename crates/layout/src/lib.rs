@@ -3678,6 +3678,19 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
         pb.y += row.height;
         pb.content_bottom = pb.content_bottom.max(pb.y);
     };
+    // Like Word, repeated header rows don't stay alone at the bottom of a page: when the first row
+    // after them can't start under them there, the table starts on the next page.
+    let first = header_rows.len();
+    if !header_rows.is_empty()
+        && !pb.at_top()
+        && let Some(row) = tl.rows.get(first)
+    {
+        let room = pb.bottom - pb.y - tl.rows.iter().take(first).map(|r| r.height).sum::<f32>();
+        let splittable = !t.rows.get(first).is_some_and(|r| r.props.cant_split);
+        if row.height > room + 0.01 && !(splittable && table::split_row(row, room).is_some()) {
+            pb.advance(block, body_top);
+        }
+    }
     for (ri, row) in tl.rows.iter().enumerate() {
         // Word never splits a row of an exact height: it moves on whole.
         let splittable = !header_rows.contains(&ri)
