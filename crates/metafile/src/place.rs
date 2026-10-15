@@ -3,7 +3,7 @@
 
 use kurbo::{Affine, BezPath, Rect, Shape};
 
-use crate::{Item, Picture, Seg};
+use crate::{HAlign, Item, Picture, Seg, Text, VAlign};
 
 /// Largest bitmap side the renderers draw: within the PDF image limit and the rasteriser's 16-bit sides.
 pub const MAX_BITMAP_SIDE: u32 = 30_000;
@@ -19,6 +19,72 @@ pub enum PlacedItem {
     Path { path: BezPath, fill: Option<[u8; 4]>, stroke: Option<([u8; 4], f64)>, even_odd: bool },
     /// `Picture::items[index]`, a bitmap, stretched into `rect`.
     Bitmap { index: usize, rect: Rect },
+    /// `Picture::items[index]`, a text run. `tf` maps the run's own space (picture units, the
+    /// reference point at the origin, the baseline along +x, y down) to the target.
+    Text { index: usize, tf: Affine },
+}
+
+/// A text run laid out with a font's metrics: the em size (in the run's own units, see
+/// [`PlacedItem::Text`]), the baseline's y and each glyph's (x, y), alignment included.
+pub struct TextLayout {
+    pub em: f64,
+    pub baseline: f64,
+    pub glyphs: Vec<(f64, f64)>,
+}
+
+impl Text {
+    /// Lays out shaped glyphs, given as (cluster byte offset, x advance, x offset, y offset) in font
+    /// units of a font with `upem` units per em, `ascent` above and `descent` below the baseline.
+    /// The per-character advances `dx` place each cluster when there is one per character.
+    pub fn layout(&self, upem: f64, ascent: f64, descent: f64, glyphs: &[(usize, f64, f64, f64)]) -> Option<TextLayout> {
+        let upem = if upem.is_finite() && upem > 0.0 { upem } else { 1000.0 };
+        let cell = ascent + descent;
+        let size = f64::from(self.size);
+        let em = if self.cell && cell.is_finite() && cell > 0.0 { size * upem / cell } else { size };
+        if !em.is_finite() || em <= 0.0 {
+            return None;
+        }
+        let k = em / upem;
+        let starts: Vec<usize> = self.text.char_indices().map(|(i, _)| i).collect();
+        let dx = (self.dx.len() == starts.len() && !starts.is_empty()).then(|| {
+            let mut cum = Vec::with_capacity(self.dx.len() + 1);
+            let mut x = 0.0;
+            cum.push(x);
+            for d in &self.dx {
+                x += f64::from(*d);
+                cum.push(x);
+            }
+            cum
+        });
+        let mut out = Vec::with_capacity(glyphs.len());
+        let (mut pen, mut cluster_pen, mut last) = (0.0, 0.0, None);
+        for &(cluster, adv, xo, yo) in glyphs {
+            let ci = starts.partition_point(|&b| b <= cluster).saturating_sub(1);
+            if last != Some(ci) {
+                cluster_pen = pen;
+                last = Some(ci);
+            }
+            let x = match &dx {
+                Some(cum) => cum.get(ci).copied().unwrap_or(0.0) + pen - cluster_pen,
+                None => pen,
+            };
+            out.push((x + xo * k, -yo * k));
+            pen += adv * k;
+        }
+        let width = dx.as_ref().and_then(|c| c.last().copied()).unwrap_or(pen);
+        let hoff = match self.halign {
+            HAlign::Left => 0.0,
+            HAlign::Center => -width / 2.0,
+            HAlign::Right => -width,
+        };
+        let baseline = match self.valign {
+            VAlign::Top => ascent * k,
+            VAlign::Baseline => 0.0,
+            VAlign::Bottom => -descent * k,
+        };
+        let glyphs = out.into_iter().map(|(x, y)| (x + hoff, y + baseline)).collect();
+        Some(TextLayout { em, baseline, glyphs })
+    }
 }
 
 impl Picture {
@@ -61,6 +127,14 @@ impl Picture {
                     let rect = tf.transform_rect_bbox(Rect::new(x0, y0, x0 + f64::from(*w), y0 + f64::from(*h)));
                     if in_range(rect) && rect.width() > MIN_BITMAP_SIDE && rect.height() > MIN_BITMAP_SIDE {
                         out.push(PlacedItem::Bitmap { index, rect });
+                    }
+                }
+                Item::Text(t) => {
+                    let (x, y) = (f64::from(t.x), f64::from(t.y));
+                    let at = tf * kurbo::Point::new(x, y);
+                    if in_range(Rect::new(at.x, at.y, at.x, at.y)) {
+                        let tf = tf * Affine::translate((x, y)) * Affine::rotate(f64::from(t.angle));
+                        out.push(PlacedItem::Text { index, tf });
                     }
                 }
             }

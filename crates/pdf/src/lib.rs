@@ -1175,7 +1175,7 @@ impl Exporter<'_> {
     fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {
         let Some(clip) = rect_path(rect) else { return };
         if let Some(v) = self.vector(media) {
-            vector_picture(s, &v, rect, crop, &clip, alpha);
+            vector_picture(self, s, &v, rect, crop, &clip, alpha);
             return;
         }
         let Some(img) = self.image(media) else {
@@ -1496,6 +1496,58 @@ impl Exporter<'_> {
         Some(o)
     }
 
+    /// Draws a metafile text run as PDF text (outlines when the font cannot be embedded). `tf` maps
+    /// the run's own space (see [`PlacedItem::Text`]) to the page.
+    fn vector_text(&mut self, s: &mut Surface, t: &wordcraft_metafile::Text, tf: kurbo::Affine) {
+        let face = wordcraft_fonts::word::resolve(&t.font, t.bold, t.italic).face;
+        let shaped = wordcraft_fonts::shape(&face, &t.text, &[], |c| c);
+        let glyphs: Vec<_> = shaped.iter().map(|g| (g.cluster, f64::from(g.x_advance), f64::from(g.x_offset), f64::from(g.y_offset))).collect();
+        let Some(lay) = t.layout(face.upem, face.ascent, face.descent, &glyphs) else { return };
+        let font = self.font(&face);
+        if font.is_none() && !self.outlined.contains(&face.id()) {
+            return;
+        }
+        let em = lay.em as f32;
+        let c = tf.as_coeffs().map(|v| v as f32);
+        if !c.iter().all(|v| v.is_finite()) || !em.is_finite() {
+            return;
+        }
+        let (paint, opacity) = paint_of(t.color);
+        s.push_transform(&Transform::from_row(c[0], c[1], c[2], c[3], c[4], c[5]));
+        s.set_stroke(None);
+        s.set_fill(Some(Fill { paint: paint.into(), opacity, rule: FillRule::NonZero }));
+        match font {
+            Some(font) => {
+                let upem = face.upem.max(1.0) as f32;
+                let kg: Vec<KrillaGlyph> = shaped
+                    .iter()
+                    .enumerate()
+                    .map(|(i, g)| {
+                        let end = shaped.iter().skip(i + 1).map(|n| n.cluster).find(|cl| *cl > g.cluster).unwrap_or(t.text.len());
+                        let start = g.cluster.min(end);
+                        let x = lay.glyphs.get(i).map_or(0.0, |p| p.0);
+                        let adv = match lay.glyphs.get(i + 1) {
+                            Some(n) => ((n.0 - x) / lay.em) as f32,
+                            None => g.x_advance as f32 / upem,
+                        };
+                        let dy = lay.glyphs.get(i).map_or(0.0, |p| ((lay.baseline - p.1) / lay.em) as f32);
+                        KrillaGlyph::new(GlyphId::new(g.gid), adv, 0.0, dy, 0.0, start..end, None)
+                    })
+                    .collect();
+                let x0 = lay.glyphs.first().map_or(0.0, |p| p.0) as f32;
+                s.draw_glyphs(Point::from_xy(x0, lay.baseline as f32), &kg, font, &t.text, em, false);
+            }
+            None => {
+                let pen: Vec<(u32, f32, f32)> = shaped.iter().zip(&lay.glyphs).map(|(g, (x, y))| (g.gid, *x as f32, *y as f32)).collect();
+                if let Some(path) = glyph_outlines(&face, em, &pen) {
+                    s.draw_path(&path);
+                }
+            }
+        }
+        s.set_fill(None);
+        s.pop();
+    }
+
     fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32) {
         let r = wordcraft_fonts::word::resolve(&wm.font, false, false);
         let face = r.face;
@@ -1588,8 +1640,9 @@ const HAIRLINE: f64 = 0.25;
 
 /// Draws a metafile picture into the clip (the picture frame): paths are filled and stroked in page
 /// space (strokes keep their width under non-uniform scaling), bitmaps stretched, all faded by `alpha`.
-/// Every path sets its fill and stroke, so none carries over; strokes have round caps and joins.
-fn vector_picture(s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: &Path, alpha: f32) {
+/// Every path sets its fill and stroke, so none carries over; strokes have round caps and joins. Text
+/// runs are drawn as text.
+fn vector_picture(ex: &mut Exporter, s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: &Path, alpha: f32) {
     let target = kurbo::Rect::new(f64::from(r.x), f64::from(r.y), f64::from(r.x + r.w), f64::from(r.y + r.h));
     let fade = alpha < 0.999;
     if fade {
@@ -1626,6 +1679,11 @@ fn vector_picture(s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: 
                 s.push_transform(&Transform::from_translate(rect.x0 as f32, rect.y0 as f32));
                 s.draw_image(img.clone(), size);
                 s.pop();
+            }
+            PlacedItem::Text { index, tf } => {
+                if let Some(wordcraft_metafile::Item::Text(t)) = v.pic.items.get(index) {
+                    ex.vector_text(s, t, tf);
+                }
             }
         }
     }

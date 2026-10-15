@@ -248,6 +248,7 @@ impl Vector {
             .map(|it| match it {
                 Item::Path { segs, .. } => segs.len() * std::mem::size_of::<Seg>(),
                 Item::Bitmap { .. } => 0,
+                Item::Text(t) => t.text.len() + t.dx.len() * 4,
             })
             .sum();
         px + segs
@@ -326,12 +327,34 @@ fn draw_vector(ctx: &mut RenderContext, v: &Vector, r: &kurbo::Rect, crop: &[f32
                 ctx.fill_rect(&rect);
                 ctx.reset_paint_transform();
             }
+            PlacedItem::Text { index, tf } => {
+                if let Some(Item::Text(t)) = v.pic.items.get(index) {
+                    draw_vector_text(ctx, t, view * tf);
+                }
+                ctx.set_transform(view);
+            }
         }
     }
     ctx.set_fill_rule(peniko::Fill::NonZero);
     ctx.pop_layer();
     if faded {
         ctx.pop_layer();
+    }
+}
+
+/// Draws a metafile text run: `tf` maps the run's own space (see [`PlacedItem::Text`]) to the device.
+fn draw_vector_text(ctx: &mut RenderContext, t: &wordcraft_metafile::Text, tf: Affine) {
+    let face = wordcraft_fonts::word::resolve(&t.font, t.bold, t.italic).face;
+    let shaped = wordcraft_fonts::shape(&face, &t.text, &[], |c| c);
+    let glyphs: Vec<_> = shaped.iter().map(|g| (g.cluster, f64::from(g.x_advance), f64::from(g.x_offset), f64::from(g.y_offset))).collect();
+    let Some(lay) = t.layout(face.upem, face.ascent, face.descent, &glyphs) else { return };
+    let k = lay.em / face.upem.max(1.0);
+    ctx.set_paint(rgba_color(t.color));
+    let db = FontDb::global();
+    for (g, (x, y)) in shaped.iter().zip(&lay.glyphs) {
+        let o = db.outline(&face, g.gid);
+        ctx.set_transform(tf * Affine::translate((*x, *y)) * Affine::scale(k));
+        ctx.fill_path(&o);
     }
 }
 
@@ -1580,6 +1603,52 @@ mod tests {
         let darkest = (y - 3..=y + 3).map(|y| img.pixel(x, y)[0]).min().unwrap_or(255);
         // A 0.1 pt line would cover a fifth of a pixel (about 204); one device pixel covers at least half of one.
         assert!(darkest < 140, "the hairline should be clearly visible: {darkest}");
+    }
+
+    /// #1764: an EMF picture's text (EXTCREATEFONTINDIRECTW, SELECTOBJECT, SETTEXTCOLOR, EXTTEXTOUTW)
+    /// is painted, not dropped.
+    #[test]
+    fn metafile_text_records_are_painted() {
+        let mut font = emf_rec(82, &le32(&[1, -20, 0, 0, 0, 700, 0, 0]));
+        let mut name: Vec<u8> = "Arial".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        name.resize(64, 0);
+        font.extend(name);
+        font[4..8].copy_from_slice(&104u32.to_le_bytes());
+        // "WWWW" at (5, 40), top-aligned, no dx array.
+        let mut text = emf_rec(84, &le32(&[0, 0, 100, 100, 1, 0, 0, 5, 40, 4, 76, 0, 0, 0, 0, 0, 0]));
+        text.extend("WWWW".encode_utf16().flat_map(|u| u.to_le_bytes()));
+        text[4..8].copy_from_slice(&84u32.to_le_bytes());
+        let mut emf = red_right_half_emf()[..88].to_vec();
+        emf.extend([font, emf_rec(37, &le32(&[1])), emf_rec(24, &le32(&[0])), text, emf_rec(14, &[0; 12])].concat());
+        let mut d = Document::new();
+        let media = d.add_media(emf, "emf");
+        let mut p = wordcraft_doc::Paragraph::new();
+        let obj = wordcraft_doc::para::InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            ole: None,
+        };
+        p.insert_object(0, obj, &Default::default()).unwrap();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let opts = RenderOptions::default();
+        let rect = page_display(&d, &l.pages[0], &opts.display)
+            .iter()
+            .find_map(|i| match i {
+                Draw::Image { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("a picture on the page");
+        let scale = 2.0;
+        let img = render_page(&d, &l.pages[0], scale, &opts);
+        let (x0, y0) = ((rect.x * scale) as u32, (rect.y * scale) as u32);
+        let (x1, y1) = (((rect.x + rect.w) * scale) as u32, ((rect.y + rect.h) * scale) as u32);
+        let dark = (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).filter(|&(x, y)| img.pixel(x, y)[0] < 100).count();
+        assert!(dark > 50, "the text is painted inside the picture: {dark} dark pixels");
     }
 
     #[test]
