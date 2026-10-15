@@ -14,6 +14,8 @@ const MAX_BYTES: u64 = 256 << 20;
 const MAX_RECORDS: usize = 128;
 const MAX_FILES: usize = 16;
 const DISK_BUDGET: u64 = 2 << 30;
+/// Times a record lock held for a moment (by a process being started) is tried again.
+const LOCK_RETRIES: u32 = 10;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,11 +129,21 @@ impl Store {
         paths.sort_by_key(|p| std::cmp::Reverse(generation(p)));
         Ok(paths)
     }
+    /// Locks a record's `owner.lock`, retrying [`LOCK_RETRIES`] times 10 ms apart.
     fn lock(&self, id: &str) -> Result<File, String> {
         if !id_ok(id) {
             return Err("invalid recovery id".into());
         }
         let file = private_file(&self.root.join(id).join("owner.lock"), false).map_err(|e| e.to_string())?;
+        // A process another part of the app (or a test) is starting holds the lock for a moment
+        // (a forked child shares it until it execs): wait that out, but not a live owner.
+        for _ in 0..LOCK_RETRIES {
+            match file.try_lock() {
+                Ok(()) => return Ok(file),
+                Err(std::fs::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(10)),
+                Err(e) => return Err(format!("recovery copy is in use or cannot be locked: {e}")),
+            }
+        }
         file.try_lock().map_err(|e| format!("recovery copy is in use or cannot be locked: {e}"))?;
         Ok(file)
     }
