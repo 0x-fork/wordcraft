@@ -126,6 +126,11 @@ fn dispatch(app: &mut WordApp, key: Key, m: Modifiers) -> bool {
     let Some(name) = key_name(key) else { return false };
     let reg = app.session.registry.clone();
     if let Some(spec) = app.session.keymap.resolve(&reg, &combo(m, name, true)) {
+        // Option+Shift+- types an em dash on macOS; Word's Alt+Shift+- (Collapse) only works in
+        // Outline view, so elsewhere the key stays typing (#1933).
+        if m.alt && !crate::widgets::enabled(app, spec.id) {
+            return false;
+        }
         let _ = app.run(spec.id, json!({}));
         return true;
     }
@@ -724,6 +729,17 @@ mod tests {
 
     fn alt_key(key: Key, pressed: bool, repeat: bool) -> egui::Event {
         egui::Event::Key { key, physical_key: Some(key), pressed, repeat, modifiers: Modifiers { alt: true, ..Default::default() } }
+    }
+
+    /// Option+Shift+- types an em dash outside Outline view, where Word's Alt+Shift+- (Collapse)
+    /// can't run, so its shortcut doesn't swallow the character (#1933).
+    #[test]
+    fn disabled_alt_shortcut_leaves_the_typed_character() {
+        let (ctx, mut a) = alt_frame_app();
+        let alt_shift = Modifiers { alt: true, shift: true, ..Default::default() };
+        let key = |pressed| egui::Event::Key { key: Key::Minus, physical_key: Some(Key::Minus), pressed, repeat: false, modifiers: alt_shift };
+        alt_frame(&ctx, &mut a, vec![key(true), egui::Event::Text("\u{2014}".into()), key(false)]);
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "\u{2014}");
     }
 
     /// Holding a digit with Alt adds it once: its auto-repeat presses don't (#961).
