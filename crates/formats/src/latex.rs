@@ -339,8 +339,17 @@ impl Writer {
             vec![LINE_WIDTH / cols as f32; cols]
         };
         let col = |w: f32| format!("p{{{}pt}}", num((w - 2.0 * TABCOLSEP).max(12.0)));
-        let spec: String = widths.iter().map(|w| format!("{}|", col(*w))).collect();
-        let mut o = format!("\\noindent\\begin{{tabular}}{{|{spec}}}\n\\hline\n");
+        let spec: String = if t.borderless {
+            widths.iter().map(|w| col(*w)).collect::<Vec<_>>().join(" ")
+        } else {
+            let s: String = widths.iter().map(|w| format!("{}|", col(*w))).collect();
+            format!("|{s}")
+        };
+        let mut o = if t.borderless {
+            format!("\\noindent\\begin{{tabular}}{{{spec}}}\n")
+        } else {
+            format!("\\noindent\\begin{{tabular}}{{{spec}}}\n\\hline\n")
+        };
         for row in &t.rows {
             let mut cells = Vec::new();
             let mut g = 0usize;
@@ -357,8 +366,13 @@ impl Writer {
                     body = format!("\\cellcolor[HTML]{{{}}}{body}", hex(sh));
                 }
                 if span > 1 {
-                    let left = if g == 0 { "|" } else { "" };
-                    body = format!("\\multicolumn{{{span}}}{{{left}{}|}}{{{body}}}", col(w));
+                    let col_spec = if t.borderless {
+                        col(w)
+                    } else {
+                        let left = if g == 0 { "|" } else { "" };
+                        format!("{left}{}|", col(w))
+                    };
+                    body = format!("\\multicolumn{{{span}}}{{{col_spec}}}{{{body}}}");
                 }
                 cells.push(body);
                 g += span;
@@ -367,7 +381,11 @@ impl Writer {
                 continue;
             }
             o.push_str(&cells.join(" & "));
-            o.push_str(" \\\\\n\\hline\n");
+            if t.borderless {
+                o.push_str(" \\\\\n");
+            } else {
+                o.push_str(" \\\\\n\\hline\n");
+            }
         }
         o.push_str("\\end{tabular}\n");
         self.out.push_str(&o);
@@ -2578,6 +2596,7 @@ fn source_text(toks: &[Tok]) -> String {
 /// A `tabular` body as a table.
 fn table(toks: &[Tok], spec: &str, depth: usize) -> FTable {
     let (spec_cols, widths) = spec_widths(spec);
+    let mut has_rules = spec.contains('|');
     // Split rows at `\\` and cells at `&`, outside braces and nested environments.
     let mut rows: Vec<Vec<&[Tok]>> = Vec::new();
     let mut row: Vec<&[Tok]> = Vec::new();
@@ -2590,6 +2609,9 @@ fn table(toks: &[Tok], spec: &str, depth: usize) -> FTable {
             Tok::Close => brace = brace.saturating_sub(1),
             Tok::Begin(_) => env += 1,
             Tok::End(_) => env = env.saturating_sub(1),
+            Tok::Cmd(c) if brace == 0 && env == 0 && matches!(c.as_str(), "hline" | "cline" | "toprule" | "midrule" | "bottomrule") => {
+                has_rules = true;
+            }
             Tok::Amp if brace == 0 && env == 0 => {
                 row.push(toks.get(start..i).unwrap_or_default());
                 start = i + 1;
@@ -2611,7 +2633,7 @@ fn table(toks: &[Tok], spec: &str, depth: usize) -> FTable {
     if !row.is_empty() {
         rows.push(row);
     }
-    let mut out = FTable { rows: Vec::new(), widths: Vec::new(), borderless: false };
+    let mut out = FTable { rows: Vec::new(), widths: Vec::new(), borderless: !has_rules };
     // Rows still covered by a `\multirow` above, per grid column.
     let mut covering: Vec<u32> = Vec::new();
     for r in rows {
@@ -3074,5 +3096,68 @@ Caf\'e na\"ive \c{c}a \v{s}\'{e} and {\bfseries grouped bold} after.
         let FBlock::Table(bt) = &back.blocks[0] else { panic!() };
         assert_eq!(bt.widths, vec![100.0, 200.0]);
         assert_eq!(bt.rows[1][0].colspan, 2);
+    }
+
+    #[test]
+    fn exported_borderless_tables_omit_rules() {
+        let mut t = FTable { rows: Vec::new(), widths: vec![100.0, 200.0], borderless: true };
+        let cell = |s: &str| Cell {
+            blocks: vec![FBlock::Para({
+                let mut p = Para::default();
+                p.push_text(s, &Fmt::default());
+                p
+            })],
+            ..Default::default()
+        };
+        t.rows.push(vec![cell("a"), cell("b")]);
+        t.rows.push(vec![Cell { colspan: 2, ..cell("wide") }]);
+        let mut w = Writer::default();
+        w.table(&t);
+        assert!(w.out.contains("\\begin{tabular}{p{88pt} p{188pt}}"), "{}", w.out);
+        assert!(!w.out.contains("\\hline"), "{}", w.out);
+        assert!(w.out.contains("\\multicolumn{2}{p{288pt}}{wide}"), "{}", w.out);
+        let back = parse(&w.out);
+        let FBlock::Table(bt) = &back.blocks[0] else { panic!() };
+        assert!(bt.borderless, "parsed table should be borderless");
+        assert_eq!(bt.widths, vec![100.0, 200.0]);
+        assert_eq!(bt.rows[1][0].colspan, 2);
+    }
+
+    #[test]
+    fn table_borders_and_borderless_round_trip() {
+        use std::sync::Arc;
+        use wordcraft_doc::{Block, CharProps, Paragraph, Table, para_block};
+
+        // 1. Borderless table.
+        let mut doc = Document::new();
+        let mut t_borderless = Table::new(2, 2, 400.0);
+        t_borderless.props.style = None;
+        for r in 0..2 {
+            for c in 0..2 {
+                t_borderless.rows[r].cells[c].blocks = vec![para_block(Paragraph::with_text("cell", CharProps::default()))];
+            }
+        }
+        doc.body = vec![Arc::new(Block::Table(t_borderless))];
+        let tex = export(&doc);
+        assert!(!tex.contains("\\hline"));
+        let back = import(tex.as_bytes());
+        let Some(Block::Table(bt)) = back.body.first().map(|b| &**b) else { panic!() };
+        assert!(bt.props.style.is_none(), "imported table should remain borderless");
+
+        // 2. Bordered table.
+        let mut doc_bordered = Document::new();
+        let mut t_bordered = Table::new(2, 2, 400.0);
+        t_bordered.props.style = Some("TableGrid".to_string());
+        for r in 0..2 {
+            for c in 0..2 {
+                t_bordered.rows[r].cells[c].blocks = vec![para_block(Paragraph::with_text("cell", CharProps::default()))];
+            }
+        }
+        doc_bordered.body = vec![Arc::new(Block::Table(t_bordered))];
+        let tex_bordered = export(&doc_bordered);
+        assert!(tex_bordered.contains("\\hline"));
+        let back_bordered = import(tex_bordered.as_bytes());
+        let Some(Block::Table(bt_bordered)) = back_bordered.body.first().map(|b| &**b) else { panic!() };
+        assert!(bt_bordered.props.style.is_some(), "imported table should remain bordered");
     }
 }
