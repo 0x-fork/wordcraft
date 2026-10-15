@@ -2381,6 +2381,67 @@ fn imported_range_toc_is_refreshed_in_place() {
     }
 }
 
+/// Updating a TOC field that had a non-empty result (placeholder from an external generator, #878)
+/// clears the old result so the exported DOCX nests entries inside the field rather than leaving
+/// them after the field's end marker.
+#[test]
+fn update_toc_clears_stale_field_result_for_docx_span() {
+    use wordcraft_doc::para::InlineObject;
+    use wordcraft_doc::props::CharProps;
+    let mut d = wordcraft_doc::Document::from_text("\nAlpha\nBeta");
+    {
+        let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap();
+        p.insert_object(
+            0,
+            InlineObject::Field {
+                instr: r#"TOC \o "1-3" \h \z \u"#.into(),
+                result: "Placeholder: update fields (F9).".into(),
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+            },
+            &CharProps::default(),
+        )
+        .unwrap();
+    }
+    let mut s = Session::new(d);
+    for (i, style) in [(1, "Heading 1"), (2, "Heading 2")] {
+        run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
+        run(&mut s, "styles.apply", json!({"style": style}));
+    }
+    // Before update: the field result is present in plain text.
+    assert!(text(&s).contains("Placeholder: update fields (F9)."));
+
+    run(&mut s, "references.updateToc", json!({}));
+
+    // After update: the placeholder is gone, replaced by regenerated entries.
+    let refreshed = text(&s);
+    assert!(!refreshed.contains("Placeholder"), "{refreshed}");
+    assert!(refreshed.contains("Alpha\t"), "{refreshed}");
+    assert!(refreshed.contains("Beta\t"), "{refreshed}");
+
+    // DOCX round-trip: entries must be enclosed within the TOC field rather than outside it.
+    let bytes = wordcraft_docx::write(&s.doc).unwrap();
+    let xml = {
+        let cursor = std::io::Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(cursor).unwrap();
+        let mut file = archive.by_name("word/document.xml").unwrap();
+        let mut s = String::new();
+        std::io::Read::read_to_string(&mut file, &mut s).unwrap();
+        s
+    };
+    let b = xml.find(r#"w:fldCharType="begin""#).expect("TOC begin marker present");
+    let e = xml.find(r#"w:fldCharType="end""#).expect("TOC end marker present");
+    assert!(b < e, "begin marker precedes end marker");
+    let inside_field = &xml[b..e];
+    let after_field = &xml[e..];
+    assert!(inside_field.contains("Alpha"), "Alpha entry is inside TOC field");
+    assert!(inside_field.contains("Beta"), "Beta entry is inside TOC field");
+    assert!(!inside_field.contains("Placeholder"), "Placeholder is not inside TOC field");
+    assert!(!after_field.contains(r#"w:val="TOC1""#), "no TOC1 styles after the field end marker");
+}
+
 /// #877: computing a field's result clears `w:dirty` — the result is no longer stale, like
 /// Word's F9. A field WordCraft can't compute keeps the flag so Word refreshes it on open.
 #[test]

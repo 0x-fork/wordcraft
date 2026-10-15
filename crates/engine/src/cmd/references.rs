@@ -502,6 +502,19 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
     range_toc_to_field(s)?;
     let Some((start, end)) = toc_range(s) else { return Ok(()) };
     let Some(instr) = s.doc.body.get(start).and_then(|b| b.as_para()).and_then(toc_field) else { return Ok(()) };
+    // A TOC field imported with an inline placeholder/cached result must have its result cleared so
+    // that the engine's TOC shape matches `toc_span` and the DOCX writer spans the field across entries.
+    if let Ok(p) = s.doc.para_mut(StoryRef::Body, &Path::top(start)) {
+        for o in &mut p.objects {
+            if let InlineObject::Field { instr, result, .. } = o {
+                let f = FieldCode::parse(instr);
+                if f.name == "TOC" && !f.has('c') {
+                    result.clear();
+                }
+            }
+        }
+        p.touch();
+    }
     let f = FieldCode::parse(&instr);
     let leader = leader.unwrap_or_else(|| {
         s.doc
