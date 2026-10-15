@@ -131,6 +131,3 @@ sync_github_name = false
 
 [people.rbr48]
 sync_github_name = true
-
-[people.finwarman]
-real_name = "Fin Warman"
