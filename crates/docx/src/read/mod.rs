@@ -726,6 +726,9 @@ impl Reader<'_> {
             if let Some(f) = face("a:minorFont") {
                 self.doc.settings.minor_font = f;
             }
+            let cs = |n: &str| fs.child(n).and_then(|f| f.child("a:cs")).and_then(|c| c.attr("typeface")).unwrap_or_default().to_string();
+            self.pc.major_cs = cs("a:majorFont");
+            self.pc.minor_cs = cs("a:minorFont");
         }
         self.pc.major_font = self.doc.settings.major_font.clone();
         self.pc.minor_font = self.doc.settings.minor_font.clone();
