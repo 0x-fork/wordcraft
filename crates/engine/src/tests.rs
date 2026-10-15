@@ -561,6 +561,25 @@ fn backspace_and_delete() {
     assert_eq!(text(&s), "");
 }
 
+/// Backspace at the start of the paragraph after a table nested in a cell goes into the nested
+/// table's last cell, not into the last cell of the table around it.
+#[test]
+fn backspace_after_a_nested_table_stays_in_its_cell() {
+    let mut s = s();
+    run(&mut s, "table.quick", json!({"kind": "matrix"}));
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 1, 1, 0], "off": 0}}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let outer = s.doc.body.get(1).and_then(|b| b.as_table()).expect("the outer table");
+    let blocks = &outer.rows[1].cells[1].blocks;
+    let nested = blocks.iter().position(|b| b.as_table().is_some()).expect("a nested table");
+    assert!(nested + 1 < blocks.len(), "a paragraph follows the nested table");
+    let after = nested as u32 + 1;
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 1, 1, after], "off": 0}}));
+    run(&mut s, "text.backspace", json!({}));
+    // The nested table's last cell: row 1, cell 1, its first paragraph.
+    assert_eq!(s.sel.focus.path.0, vec![1, 1, 1, after - 1, 1, 1, 0]);
+}
+
 #[test]
 fn bold_toggles_selection_and_caret_word() {
     let mut s = s();
