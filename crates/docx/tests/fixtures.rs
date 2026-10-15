@@ -2830,3 +2830,27 @@ fn row_table_borders_round_trip() {
     let again = wordcraft_docx::read(&saved).unwrap();
     assert_eq!(d.body, again.body);
 }
+
+#[test]
+fn vml_shape_wrap_side_and_anchor_case_insensitivity() {
+    let body = r##"<w:p>
+        <w:r>
+            <w:pict xmlns:w10="urn:schemas-microsoft-com:office:word">
+                <v:rect style="position:absolute;width:100pt;height:50pt;mso-position-horizontal-relative:Page;mso-position-vertical-relative:Margin" filled="False" stroked="t">
+                    <w10:wrap type="Square" side="left"/>
+                </v:rect>
+            </w:pict>
+        </w:r>
+    </w:p>"##;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.iter().find_map(|b| b.as_para()).unwrap();
+    let shape = match p.objects.first() {
+        Some(InlineObject::Shape { fill, float, .. }) => (fill, float),
+        o => panic!("expected shape, got {o:?}"),
+    };
+    assert_eq!(*shape.0, None);
+    assert_eq!(shape.1.wrap, wordcraft_doc::para::Wrap::Square);
+    assert_eq!(shape.1.wrap_text, wordcraft_doc::para::WrapText::Left);
+    assert_eq!(shape.1.h_rel, wordcraft_doc::para::Anchor::Page);
+    assert_eq!(shape.1.v_rel, wordcraft_doc::para::Anchor::Margin);
+}

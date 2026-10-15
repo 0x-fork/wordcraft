@@ -1405,7 +1405,10 @@ impl Reader<'_> {
         let type_id = shape.attr("type").map(|t| t.trim().trim_start_matches('#'));
         let shapetype = type_id.and_then(|id| pict.els().find(|e| e.name == "v:shapetype" && e.attr("id") == Some(id)));
         let attr = |name: &str| shape.attr(name).or_else(|| shapetype.and_then(|t| t.attr(name)));
-        let on = |name: &str| attr(name).is_none_or(|v| !matches!(v, "f" | "false" | "0"));
+        let on = |name: &str| attr(name).is_none_or(|v| {
+            let t = v.trim();
+            !t.eq_ignore_ascii_case("f") && !t.eq_ignore_ascii_case("false") && t != "0"
+        });
         let stroke = on("stroked").then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
         let stroke_width = attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
         let fill = on("filled").then(|| attr("fillcolor").map_or(Some(Rgb::WHITE), vml_color)).flatten();
@@ -1805,37 +1808,43 @@ fn vml_float(shape: &El, style: &str) -> Float {
     let off = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0);
     let max = crate::units::MAX_LEN_PT;
     let behind = get("z-index").and_then(int).is_some_and(|z| z < 0);
-    let wrap = match shape.child("w10:wrap").and_then(|w| w.attr("type")).unwrap_or("none") {
-        "square" => Wrap::Square,
-        "tight" => Wrap::Tight,
-        "through" => Wrap::Through,
-        "topAndBottom" => Wrap::TopAndBottom,
+    let wrap_el = shape.child("w10:wrap");
+    let wrap_type = wrap_el.and_then(|w| w.attr("type")).unwrap_or("none");
+    let wrap = match wrap_type {
+        t if t.eq_ignore_ascii_case("square") => Wrap::Square,
+        t if t.eq_ignore_ascii_case("tight") => Wrap::Tight,
+        t if t.eq_ignore_ascii_case("through") => Wrap::Through,
+        t if t.eq_ignore_ascii_case("topAndBottom") || t.eq_ignore_ascii_case("top-and-bottom") => Wrap::TopAndBottom,
         _ if behind => Wrap::BehindText,
         _ => Wrap::InFrontOfText,
     };
-    let h_rel = match get("mso-position-horizontal-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "char" => Anchor::Character,
-        "left-margin-area" => Anchor::LeftMargin,
-        "right-margin-area" => Anchor::RightMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let wrap_text = wrap_el.and_then(|w| w.attr("side")).and_then(wordcraft_doc::para::WrapText::from_ooxml).unwrap_or_default();
+    let h_rel_str = get("mso-position-horizontal-relative").unwrap_or("text");
+    let h_rel = match h_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("char") => Anchor::Character,
+        s if s.eq_ignore_ascii_case("left-margin-area") => Anchor::LeftMargin,
+        s if s.eq_ignore_ascii_case("right-margin-area") => Anchor::RightMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Column,
     };
-    let v_rel = match get("mso-position-vertical-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "line" => Anchor::Line,
-        "top-margin-area" => Anchor::TopMargin,
-        "bottom-margin-area" => Anchor::BottomMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let v_rel_str = get("mso-position-vertical-relative").unwrap_or("text");
+    let v_rel = match v_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("line") => Anchor::Line,
+        s if s.eq_ignore_ascii_case("top-margin-area") => Anchor::TopMargin,
+        s if s.eq_ignore_ascii_case("bottom-margin-area") => Anchor::BottomMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Paragraph,
     };
     let dist = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0).clamp(0.0, 1584.0);
     let mut f = Float {
         wrap,
+        wrap_text,
         h_rel,
         v_rel,
         x: (off("left") + off("margin-left")).clamp(-max, max),
