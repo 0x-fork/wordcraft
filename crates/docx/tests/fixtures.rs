@@ -2567,6 +2567,15 @@ fn text_frames_read_and_round_trip() {
     assert!(q.iter().any(|x| x.props.drop_cap == Some(2) && x.props.frame.is_none()));
 }
 
+/// The font table's family classes: Word draws a missing roman font in a serif face.
+#[test]
+fn roman_fonts_are_read_from_the_font_table() {
+    let fonts = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Brand Serif"><w:family w:val="roman"/></w:font><w:font w:name="Brand Sans"><w:family w:val="swiss"/></w:font></w:fonts>"#;
+    let rels = [("rId9", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable", "fontTable.xml")];
+    let d = wordcraft_docx::read(&docx("<w:p/>", &rels, &[("word/fontTable.xml", fonts)])).unwrap();
+    assert_eq!(d.settings.roman_fonts, ["Brand Serif"]);
+}
+
 /// `w:doNotUseHTMLParagraphAutoSpacing` in the settings' `w:compat`: paragraph spacing adds up.
 #[test]
 fn html_auto_spacing_off_is_read_and_kept() {

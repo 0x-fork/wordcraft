@@ -33,6 +33,10 @@ use crate::xml::El;
 pub(crate) use props::PropCtx;
 use story::StoryCtx;
 
+/// Most fonts read from a font table, and the longest name (hostile files).
+const MAX_TABLE_FONTS: usize = 2000;
+const MAX_FONT_NAME: usize = 256;
+
 /// Most parts (headers, notes, comments, text boxes) we create from one file.
 const MAX_PARTS: usize = 50_000;
 /// Deepest chain of headers/footers whose own sections reference further headers/footers.
@@ -171,6 +175,7 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     // The font table and the fonts embedded through it ride along as opaque parts.
     if let Some(p) = part(rt::FONT_TABLE) {
         r.keep_part_tree(&p);
+        r.read_font_families(&p);
     }
     if let Some(p) = part(rt::THEME) {
         r.read_theme(&p);
@@ -579,6 +584,19 @@ impl Reader<'_> {
         if !manifest.is_empty() {
             self.doc.passthrough.insert(VBA_RELATED.into(), Arc::new(manifest.into_bytes()));
         }
+    }
+
+    /// The fonts the font table classes as roman (`w:font/w:family w:val="roman"`).
+    fn read_font_families(&mut self, path: &str) {
+        let Ok(Some(table)) = self.xml(path) else { return };
+        self.doc.settings.roman_fonts = table
+            .children("w:font")
+            .filter(|f| f.child("w:family").and_then(|v| v.attr("w:val")) == Some("roman"))
+            .filter_map(|f| f.attr("w:name"))
+            .filter(|n| !n.is_empty() && n.len() <= MAX_FONT_NAME)
+            .take(MAX_TABLE_FONTS)
+            .map(str::to_string)
+            .collect();
     }
 
     fn xml(&self, path: &str) -> Result<Option<El>, DocxError> {

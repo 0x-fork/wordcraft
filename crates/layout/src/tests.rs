@@ -689,6 +689,27 @@ fn page_break_char_starts_new_page() {
 }
 
 #[test]
+fn a_missing_roman_font_is_drawn_as_word_draws_it() {
+    // Measured in Word: a font that isn't installed is drawn in Cambria when the font table calls
+    // it roman, in Calibri otherwise.
+    let face = |roman: bool| {
+        let mut d = Document::from_text("Serif");
+        if roman {
+            d.settings.roman_fonts = vec!["No Such Brand Font".into()];
+        }
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.runs[0].props.font = Some("No Such Brand Font".into());
+        let l = lay(&d);
+        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!("no text") };
+        let first = para.clusters.first().expect("a cluster");
+        para.styles[first.style as usize].face
+    };
+    let cambria = wordcraft_fonts::word::resolve("Cambria", false, false).face;
+    assert_eq!(face(true), cambria);
+    assert_ne!(face(false), cambria);
+}
+
+#[test]
 fn an_empty_section_mark_stays_on_a_full_page() {
     use wordcraft_doc::section::SectionProps;
     // Measured in Word: a page filled to the bottom, then an empty paragraph carrying a next-page
