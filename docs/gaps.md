@@ -86,6 +86,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | trivial | Previously untracked long Web/Draft page blur resolved with visible high-resolution raster tiling; no gap remains for this issue |
 | 2026-10-14 | trivial | #1: VML freeforms (rule lines in headers) read and kept on save |
 | 2026-10-14 | trivial | Consistent preferred cell widths |
 | 2026-10-14 | trivial | Pagination gap #4 narrowed: paragraph boundaries inside complex-field instructions add no flow height. Floating-table placement and other paragraph metrics remain open. |

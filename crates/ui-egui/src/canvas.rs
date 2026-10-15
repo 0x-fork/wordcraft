@@ -1,8 +1,8 @@
-//! The document canvas: pages on a grey background, rendered by the engine into textures (one
-//! per page, re-rendered only when the page's content changes), with the caret, selection,
+//! The document canvas: pages on a grey background, rendered into cached page textures (or
+//! visible full-resolution tiles for exceptionally tall pages), with the caret, selection,
 //! rulers and mouse editing drawn by egui on top.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use egui::{Color32, Pos2, Rect, Sense, Stroke, TextureHandle, Ui, pos2, vec2};
@@ -18,6 +18,8 @@ use crate::theme::{Tokens, regular, semibold};
 pub const PX_PER_PT: f32 = 96.0 / 72.0;
 const GAP: f32 = 18.0;
 const RULER: f32 = 22.0;
+/// Maximum device-pixel height of a tile on very tall Web/Draft pages.
+const TILE_HEIGHT_PX: usize = 1024;
 
 /// Drag-select auto-scroll (#688): the pointer within this many points of the viewport's edge
 /// starts scrolling, like Word.
@@ -33,6 +35,8 @@ const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
     textures: HashMap<usize, (u64, TextureHandle)>,
+    /// Visible full-resolution tiles of pages too tall for one GPU texture.
+    tiles: HashMap<(usize, usize), (u64, TextureHandle)>,
     /// Page content fingerprints of the current layout, for the texture cache (#811).
     pub(crate) page_keys: PageKeys,
     /// Whether the document has tracked formatting changes, moves and deletions, by document
@@ -168,7 +172,7 @@ impl CanvasState {
     /// How many pages have a cached rendering.
     #[cfg(test)]
     pub(crate) fn texture_count(&self) -> usize {
-        self.textures.len()
+        self.textures.len() + self.tiles.len()
     }
 }
 
@@ -176,6 +180,7 @@ impl Default for CanvasState {
     fn default() -> Self {
         CanvasState {
             textures: HashMap::new(),
+            tiles: HashMap::new(),
             page_keys: PageKeys::default(),
             markup_facts: std::cell::Cell::new(None),
             scroll_to_caret: true,
@@ -698,6 +703,26 @@ fn texel_aligned_rect(layout: Rect, texture_px: egui::Vec2, ppp: f32) -> Rect {
     Rect::from_min_size(pos2(snap(layout.min.x), snap(layout.min.y)), texture_px / ppp)
 }
 
+/// Tile indices intersecting the view, in a fixed grid of raster pixels. The grid follows the
+/// document, not the viewport, so scrolling never changes tile contents or their cache keys.
+fn visible_tiles(page_rect: Rect, clip: Rect, screen_scale: f32, raster_scale: f32, tile_height_px: usize) -> std::ops::Range<usize> {
+    if !page_rect.intersects(clip)
+        || !screen_scale.is_finite()
+        || !raster_scale.is_finite()
+        || screen_scale <= 0.0
+        || raster_scale <= 0.0
+        || tile_height_px == 0
+    {
+        return 0..0;
+    }
+    let total_px = (page_rect.height() / screen_scale * raster_scale).ceil() as usize;
+    let count = total_px.div_ceil(tile_height_px);
+    let at = |y: f32| ((y - page_rect.min.y).clamp(0.0, page_rect.height()) / screen_scale * raster_scale) / tile_height_px as f32;
+    let first = (at(clip.top()).floor() as usize).min(count);
+    let last = (at(clip.bottom()).ceil() as usize).min(count);
+    first..last.max(first)
+}
+
 pub(crate) fn page_screen_scale(rect: Rect, page: &Page, fallback: f32) -> f32 {
     if page.w > 0.0 { rect.width() / page.w } else { fallback }
 }
@@ -1012,7 +1037,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
         let painter = ui.painter_at(ui.clip_rect());
         let ppp = ui.ctx().pixels_per_point();
-        let max_tex = ui.ctx().input(|i| i.max_texture_side) as f32;
+        let max_tex = ui.ctx().input(|i| i.max_texture_side).min(wordcraft_render::MAX_SIDE as usize).max(1) as f32;
+        let mut visible_tile_keys = HashSet::new();
         let mut rendered = 0;
         let t0 = crate::now_ms();
         let mut rects = Vec::with_capacity(geo.rects.len());
@@ -1022,17 +1048,23 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let sr = pr.translate(content_origin.to_vec2());
             let Some(page) = layout.pages.get(i) else { continue };
             let (band_top, band_bot) = geo.bands.get(i).copied().unwrap_or((0.0, sr.height()));
-            let scale_px = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05);
+            // A Web/Draft page can be arbitrarily tall. Shrinking the whole page into one GPU
+            // texture makes the text blurry; split those pages into native-resolution tiles.
+            let width_scale = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).max(0.05);
+            let tiled = page.h.clamp(1.0, 1e6) * width_scale > max_tex;
+            let scale_px = if tiled { width_scale } else { width_scale.min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05) };
+            let tile_height_px = TILE_HEIGHT_PX.min(max_tex as usize).max(1);
             // Hide White Space shows only a band of the page; everything below paints into it.
             let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
             let visible = band_of(sr).intersects(ui.clip_rect().expand(200.0));
             // Only pages on screen or with a texture need their key (#811).
-            let cached = app.canvas.textures.contains_key(&i);
-            let key = if visible || cached { page_key(app, &layout, i, view, scale_px) } else { 0 };
+            let cached = !tiled && app.canvas.textures.contains_key(&i);
+            let key =
+                if visible || cached { page_key(app, &layout, i, view, scale_px) ^ if tiled { (tile_height_px as u64) << 32 } else { 0 } } else { 0 };
             let mut fresh = cached && app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
             // Render before placing the page: a page re-rendered in this frame (a zoom step, an
             // edit) then sits on the pixel grid in this frame too, rather than a frame later.
-            if visible && !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
+            if visible && !tiled && !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
                 let opts = page_render_options(app, dim_body);
                 let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
                 let ci = page_image(&img);
@@ -1048,7 +1080,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
                 rendered += 1;
                 fresh = true;
-            } else if visible && !fresh {
+            } else if visible && !tiled && !fresh {
                 ui.ctx().request_repaint();
             }
             let current_scale = geo.scale * ppp;
@@ -1070,7 +1102,59 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // Shadow and paper.
             painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(1.5), 1.0, t.page_shadow);
             painter.rect_filled(visual_sr, 0.0, if dark_page { Color32::from_gray(dark_paper) } else { Color32::WHITE });
-            if let Some((_, tex)) = app.canvas.textures.get(&i) {
+            if tiled {
+                // Render before painting to keep the frame sharp immediately after an edit or
+                // zoom. Tiles are fixed to raster-pixel boundaries, independent of scrolling.
+                app.canvas.textures.remove(&i);
+                let total_px = (page.h.clamp(1.0, 1e6) * scale_px).ceil() as usize;
+                let screen_per_raster_px = geo.scale / scale_px;
+                let base = pos2((sr.min.x * ppp).round() / ppp, (sr.min.y * ppp).round() / ppp);
+                for tile in visible_tiles(sr, ui.clip_rect().expand(200.0).intersect(band), geo.scale, scale_px, tile_height_px) {
+                    let start_px = tile.saturating_mul(tile_height_px);
+                    let height_px = total_px.saturating_sub(start_px).min(tile_height_px);
+                    if height_px == 0 {
+                        continue;
+                    }
+                    let id = (i, tile);
+                    visible_tile_keys.insert(id);
+                    let fresh = app.canvas.tiles.get(&id).is_some_and(|(k, _)| *k == key);
+                    if !fresh && rendered < 4 {
+                        // The tiny subtraction avoids a 1px overshoot from round-tripping f32
+                        // pixels through page points and render_area's ceil() conversion.
+                        let img = wordcraft_render::render_area(
+                            &app.session.doc,
+                            page,
+                            0.0,
+                            start_px as f32 / scale_px,
+                            page.w,
+                            (height_px as f32 - 0.01).max(0.01) / scale_px,
+                            scale_px,
+                            &page_render_options(app, dim_body),
+                        );
+                        let ci = page_image(&img);
+                        match app.canvas.tiles.get_mut(&id) {
+                            Some((k, tex)) => {
+                                tex.set(ci, egui::TextureOptions::LINEAR);
+                                *k = key;
+                            }
+                            None => {
+                                let tex = ui.ctx().load_texture(format!("page{i}-tile{tile}"), ci, egui::TextureOptions::LINEAR);
+                                app.canvas.tiles.insert(id, (key, tex));
+                            }
+                        }
+                        rendered += 1;
+                    } else if !fresh {
+                        ui.ctx().request_repaint();
+                    }
+                    if let Some((_, tex)) = app.canvas.tiles.get(&id) {
+                        let rect = Rect::from_min_size(
+                            pos2(base.x, base.y + start_px as f32 * screen_per_raster_px),
+                            vec2(tex.size_vec2().x * screen_per_raster_px, height_px as f32 * screen_per_raster_px),
+                        );
+                        painter.image(tex.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                    }
+                }
+            } else if let Some((_, tex)) = app.canvas.textures.get(&i) {
                 painter.image(tex.id(), visual_sr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             }
             let page_scale = page_screen_scale(visual_sr, page, geo.scale);
@@ -1144,6 +1228,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let clip = ui.clip_rect();
         let near = clip.expand2(vec2(clip.width(), clip.height() * TEXTURE_KEEP_SCREENS));
         app.canvas.textures.retain(|k, _| *k < n && geo.rects.get(*k).is_some_and(|r| r.translate(content_origin.to_vec2()).intersects(near)));
+        app.canvas.tiles.retain(|id, _| visible_tile_keys.contains(id));
         app.canvas.page_rects = rects.clone();
         let view_rect = ui.clip_rect();
         if floating_comments(app) {
@@ -4046,6 +4131,32 @@ mod tests {
             assert!(size.x.is_finite() && size.y.is_finite());
             assert!(rects.iter().all(|r| r.min.x.is_finite() && r.max.y.is_finite()), "{rects:?}");
         }
+    }
+
+    #[test]
+    fn long_web_page_uses_only_visible_native_resolution_tiles() {
+        // A 17,843 pt Web Layout page at 100% on a 2x display would need ~47k raster
+        // rows. One 8192px texture would upscale the page over five times, blurring text.
+        let screen_scale = PX_PER_PT;
+        let raster_scale = screen_scale * 2.0;
+        let page = Rect::from_min_size(pos2(100.0, -10_000.0), vec2(800.0 * screen_scale, 17_843.0 * screen_scale));
+        let viewport = Rect::from_min_size(pos2(0.0, 100.0), vec2(1440.0, 700.0));
+        assert!(17_843.0 * raster_scale > 8192.0);
+        assert!(800.0 * raster_scale < 8192.0);
+        let tiles = visible_tiles(page, viewport, screen_scale, raster_scale, TILE_HEIGHT_PX);
+        assert!(!tiles.is_empty());
+        assert!(tiles.len() <= 3, "only the viewport should be rasterized: {tiles:?}");
+        let total_px = (17_843.0 * raster_scale).ceil() as usize;
+        for tile in tiles {
+            let start = tile * TILE_HEIGHT_PX;
+            assert!(start < total_px);
+            assert!(total_px.saturating_sub(start).min(TILE_HEIGHT_PX) <= TILE_HEIGHT_PX);
+        }
+        assert_eq!(visible_tiles(page, Rect::from_min_size(pos2(1500.0, 0.0), vec2(300.0, 500.0)), screen_scale, raster_scale, TILE_HEIGHT_PX), 0..0);
+        assert_eq!(visible_tiles(page, viewport, 0.0, raster_scale, TILE_HEIGHT_PX), 0..0);
+        assert_eq!(visible_tiles(page, viewport, screen_scale, f32::NAN, TILE_HEIGHT_PX), 0..0);
+        assert_eq!(visible_tiles(page, viewport, screen_scale, raster_scale, 0), 0..0);
+        assert!(visible_tiles(page, viewport, screen_scale, raster_scale, 512).len() <= 5);
     }
 
     #[test]
