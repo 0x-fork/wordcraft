@@ -1393,6 +1393,39 @@ fn space_between_paragraphs_is_the_larger_of_after_and_before() {
 }
 
 #[test]
+fn space_between_paragraphs_is_their_sum_when_html_auto_spacing_is_off() {
+    // Measured in Word (compatibility modes 14 and 15): with `w:doNotUseHTMLParagraphAutoSpacing`,
+    // 12 pt after and 12 pt before leave 24 pt; without it, 12 pt.
+    let gaps = |sum: bool| -> (f32, f32) {
+        let mut d = Document::from_text("One\nTwo");
+        d.settings.sum_paragraph_spacing = sum;
+        for i in 0..2 {
+            let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
+            (p.props.space_after, p.props.space_before) = (Some(12.0), Some(12.0));
+        }
+        let mut t = Table::new(1, 1, 468.0);
+        t.rows[0].cells[0].blocks = d.body.clone();
+        d.insert_block(StoryRef::Body, &Path::top(2), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let tops = |cell: bool| -> Vec<(f32, f32)> {
+            l.pages[0]
+                .items
+                .iter()
+                .filter_map(|it| match it {
+                    Placed::Lines { path, y, para, .. } if (path.0.len() == 4) == cell => Some((*y, para.height)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let gap = |ys: Vec<(f32, f32)>| ys[1].0 - (ys[0].0 + ys[0].1);
+        (gap(tops(false)), gap(tops(true)))
+    };
+    let near = |(a, b): (f32, f32), want: f32| (a - want).abs() < 0.01 && (b - want).abs() < 0.01;
+    assert!(near(gaps(true), 24.0), "{:?}", gaps(true));
+    assert!(near(gaps(false), 12.0), "{:?}", gaps(false));
+}
+
+#[test]
 fn space_between_paragraphs_in_a_cell_follows_the_body_rule() {
     // Three paragraphs in a cell, each 6pt before and 6pt after -> the gaps between them.
     let gaps = |contextual: bool| -> Vec<f32> {

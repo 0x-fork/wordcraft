@@ -1049,6 +1049,10 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
         w.close(tag);
     }
     w.open("w:compat", &[]);
+    // CT_Compat: the older switches come before the `w:compatSetting`s.
+    if doc.settings.sum_paragraph_spacing {
+        w.empty("w:doNotUseHTMLParagraphAutoSpacing", &[]);
+    }
     if s.allow_space_of_same_style_in_table {
         w.empty("w:allowSpaceOfSameStyleInTable", &[]);
     }
