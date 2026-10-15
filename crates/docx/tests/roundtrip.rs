@@ -286,7 +286,7 @@ fn tables_with_merges_round_trip() {
     {
         let c = &mut t.rows[1].cells[0];
         c.props.shading = Some(Rgb(0xFF, 0, 0));
-        c.props.valign = VAlign::Bottom;
+        c.props.valign = Some(VAlign::Bottom);
         c.props.text_direction = TextDirection::Up;
         c.props.no_wrap = true;
         c.props.margins = Some([2.0, 3.0, 4.0, 5.0]);

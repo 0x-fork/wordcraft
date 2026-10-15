@@ -1536,7 +1536,7 @@ fn table_properties_apply_in_one_step() {
     let row = &t.rows[0];
     assert_eq!((row.props.height, row.props.height_rule, row.props.cant_split, row.props.header), (Some(40.0), HeightRule::Exact, true, true));
     assert_eq!(t.grid[0], 120.0);
-    assert_eq!((row.cells[0].props.width, row.cells[0].props.valign), (Some(110.0), VAlign::Bottom));
+    assert_eq!((row.cells[0].props.width, row.cells[0].props.valign), (Some(110.0), Some(VAlign::Bottom)));
     let applied = t.clone();
     run(&mut s, "edit.undo", json!({}));
     assert_eq!(s.doc.body.iter().find_map(|b| b.as_table()).unwrap(), &t0, "one undo step per apply");
@@ -3849,6 +3849,41 @@ fn custom_table_style_applies_modifies_and_saves() {
 
 /// #714: Modify Table Style edits one part at a time (header row, even bands, a corner cell…)
 /// with font, fill, borders and cell alignment, and every table using the style follows.
+/// #1288: a cell's own Top alignment beats a table style that centres vertically, and it
+/// survives a .docx round trip (`w:vAlign w:val="top"`).
+#[test]
+fn explicit_cell_top_beats_a_centred_table_style() {
+    use wordcraft_doc::props::VAlign;
+    fn text_y(s: &mut Session) -> f32 {
+        s.layout().pages[0]
+            .items
+            .iter()
+            .find_map(|i| match i {
+                crate::layout::Placed::Lines { para, y, .. } if para.text_len == 4 => Some(*y),
+                _ => None,
+            })
+            .unwrap()
+    }
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "Cell"}));
+    run(&mut s, "table.properties", json!({"rowHeight": 120.0, "rowHeightRule": "exact"}));
+    let top = text_y(&mut s);
+    run(&mut s, "table.newStyle", json!({"name": "Mid", "wholeTable": {"vAlign": "center"}}));
+    let centred = text_y(&mut s);
+    assert!(centred > top + 20.0, "the style centres the text: {top} {centred}");
+    run(&mut s, "table.cellAlign", json!({"value": "topLeft"}));
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+    assert_eq!(t.rows[0].cells[0].props.valign, Some(VAlign::Top));
+    assert!((text_y(&mut s) - top).abs() < 0.5, "the cell's Top wins over the style");
+    // It saves and comes back as an explicit Top.
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    let t = back.body.iter().find_map(|b| b.as_table()).unwrap();
+    assert_eq!((t.rows[0].cells[0].props.valign, t.rows[0].cells[1].props.valign), (Some(VAlign::Top), None));
+    let mut back = Session::new(back);
+    assert!((text_y(&mut back) - top).abs() < 0.5);
+}
+
 #[test]
 fn table_style_parts_format_every_table_using_the_style() {
     use wordcraft_doc::props::{Align, BorderStyle, VAlign};
@@ -3940,6 +3975,11 @@ fn table_style_parts_format_every_table_using_the_style() {
         json!({"style": "Parts", "firstRow": {"align": "up"}}),
         json!({"style": "Parts", "firstRow": {"underline": "zigzag"}}),
         json!({"style": "Parts", "firstRow": "bold"}),
+        // Part fields without `part` (#1288).
+        json!({"style": "Parts", "fill": "FF0000"}),
+        json!({"style": "Parts", "bold": true}),
+        json!({"style": "Parts", "borders": false}),
+        json!({"style": "Parts", "firstRow": {"font": 5}}),
     ] {
         assert!(s.run("table.modifyStyle", &bad).is_err(), "{bad}");
     }
@@ -3948,6 +3988,13 @@ fn table_style_parts_format_every_table_using_the_style() {
     run(&mut s, "table.modifyStyle", json!({"style": "Parts", "firstRow": {"size": 1e30, "borders": {"edges": "top", "width": -5}}}));
     let head = s.doc.styles.get("Parts").unwrap().table_part(TablePart::FirstRow);
     assert_eq!((head.chr.size, head.borders.and_then(|b| b.top).map(|b| b.width)), (Some(1638.0), Some(0.25)));
+    // A null or empty font makes the part's font inherited again (#1288).
+    assert_eq!(head.chr.font.as_deref(), Some("Liberation Serif"));
+    run(&mut s, "table.modifyStyle", json!({"style": "Parts", "firstRow": {"font": null}}));
+    assert_eq!(s.doc.styles.get("Parts").unwrap().table_part(TablePart::FirstRow).chr.font, None);
+    run(&mut s, "table.modifyStyle", json!({"style": "Parts", "part": "lastCol", "font": "Liberation Mono"}));
+    run(&mut s, "table.modifyStyle", json!({"style": "Parts", "part": "lastCol", "font": " "}));
+    assert_eq!(s.doc.styles.get("Parts").unwrap().table_part(TablePart::LastCol).chr.font, None);
 }
 
 #[test]

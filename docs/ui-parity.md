@@ -59,6 +59,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | trivial | New/Modify Table Style: No Border on a part that inherits its lines hides them; emptying the font box makes the part's font inherited again (#1288) |
 | 2026-10-14 | trivial | Tab stops edited on the ruler: corner kind selector, click to set, drag to move or off to clear, per-kind markers mirrored for RTL; each gesture one `para.tabs` call and one undo step; Rulers 85% → 90% |
 | 2026-10-12 | trivial | Tables on the page: one selected cell (Select Cell, or a click along its left edge) is a cell selection when its border is dragged: the border moves in its row only (#962) |
 | 2026-10-12 | minor | Default keyboard shortcuts expanded to 140 commands on macOS (169 combinations) and 158 on Linux/Windows (188 combinations): Style Inspector (Shift+F1), Macros (Alt+F8), Strikethrough (Mod+Shift+X), Find Next (Shift+F4), Copy/Paste Insert keys (Mod+Insert, Shift+Insert), Go Back (Mod+Alt+Z), File Open/Save/Save As/Print (Mod+Alt+F2, Alt+Shift+F2, Alt+F2, Mod+Alt+I), Field navigation (Alt+F1, Alt+Shift+F1), Outline show first line (Alt+Shift+L), Next Footnote (Alt+Shift+>), Link to Previous (Alt+Shift+R), AutoText (Alt+F3), Spelling on Mac (Mod+Alt+L) |

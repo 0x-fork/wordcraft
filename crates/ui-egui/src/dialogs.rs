@@ -590,8 +590,8 @@ impl TableForm {
             cell_width_on: cell.width.is_some(),
             cell_width: fin(cell.width.unwrap_or(72.0)) / k,
             valign: match cell.valign {
-                VAlign::Center => "center",
-                VAlign::Bottom => "bottom",
+                Some(VAlign::Center) => "center",
+                Some(VAlign::Bottom) => "bottom",
                 _ => "top",
             }
             .into(),

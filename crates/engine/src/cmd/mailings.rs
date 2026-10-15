@@ -1389,7 +1389,7 @@ fn labels(s: &mut Session, v: &Value) -> CmdResult {
             if !content.is_empty() {
                 made += 1;
             }
-            cell.props.valign = wordcraft_doc::props::VAlign::Center;
+            cell.props.valign = Some(wordcraft_doc::props::VAlign::Center);
             cell.blocks = content
                 .split('\n')
                 .take(20)

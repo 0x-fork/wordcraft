@@ -588,7 +588,8 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
                 x: x0,
                 w: x1 - x0,
                 // The style's vertical alignment unless the cell has its own.
-                valign: if cell.props.valign == VAlign::Top { look.and_then(|l| l.v_align).unwrap_or_default() } else { cell.props.valign },
+                // The cell's own alignment, even Top, beats the table style's.
+                valign: cell.props.valign.or_else(|| look.and_then(|l| l.v_align)).unwrap_or_default(),
                 fill,
                 borders,
                 vmerge: cell.props.vmerge,

@@ -51,7 +51,7 @@ macro_rules! style_params {
             "{",
             $head,
             r#", "basedOn"?: string, "<part>"?: Part for each part name (wholeTable, headerRow|firstRow, lastRow|totalRow, firstColumn|firstCol, lastColumn|lastCol, bandedRows|band1Horz, band2Horz, bandedColumns|band1Vert, band2Vert, nwCell, neCell, swCell, seCell), "part"?: part name (the Part fields then sit at the top level), "parts"?: [Part & {"part": name}], "bandSize"?: n (rows per band), "para"?: ParaProps, "apply"?: bool}"#,
-            r#" where Part = {"fill"?: "RRGGBB" | null, "font"?: string, "size"?: pt, "bold"?: bool, "italic"?: bool, "underline"?: bool | "single" | "double" | "thick" | "words" | "dotted" | "dash" | "wave" | "none", "color"?: "RRGGBB" | null, "align"?: "left" | "center" | "right" | "justify" | null, "vAlign"?: "top" | "center" | "bottom" | null, "cellAlign"?: "topLeft" | "topCenter" | "topRight" | "centerLeft" | "center" | "centerRight" | "bottomLeft" | "bottomCenter" | "bottomRight" | null (both alignments), "borders"?: bool | null (true: single lines on every edge, false: none, null: inherit) | Edges | [Edges], "borderColor"?: "RRGGBB", "borderWidth"?: pt}"#,
+            r#" where Part = {"fill"?: "RRGGBB" | null, "font"?: string | null (null or "": inherited), "size"?: pt, "bold"?: bool, "italic"?: bool, "underline"?: bool | "single" | "double" | "thick" | "words" | "dotted" | "dash" | "wave" | "none", "color"?: "RRGGBB" | null, "align"?: "left" | "center" | "right" | "justify" | null, "vAlign"?: "top" | "center" | "bottom" | null, "cellAlign"?: "topLeft" | "topCenter" | "topRight" | "centerLeft" | "center" | "centerRight" | "bottomLeft" | "bottomCenter" | "bottomRight" | null (both alignments), "borders"?: bool | null (true: single lines on every edge, false: none, null: inherit) | Edges | [Edges], "borderColor"?: "RRGGBB", "borderWidth"?: pt}"#,
             r#" and Edges = {"edges"?: "all" | "none" | "outside" | "inside" | "top" | "bottom" | "left" | "right" | "insideH" | "insideV" (default all), "style"?: "single" | "double" | "dotted" | "dashed" | "dotDash" | "thick" | "triple" | "wave" | "none", "width"?: pt, "color"?: "RRGGBB" | null}"#
         )
     };
@@ -289,7 +289,13 @@ fn edit(st: &mut Style, v: &Value) -> Result<(), CmdError> {
         }
     }
     match v.get("part") {
-        None => {}
+        None => {
+            // Part fields at the top level only mean something with `part`; without it they'd be
+            // silently dropped.
+            if let Some(k) = PART_FIELDS.iter().find(|k| v.get(**k).is_some()) {
+                return Err(CmdError::Params(format!("`{k}` is a part field: give `part`, or put it in a part (`wholeTable`, `headerRow`…)")));
+            }
+        }
         Some(Value::String(n)) => {
             let part = part_named(n).ok_or_else(|| CmdError::Params(format!("no table style part `{n}`")))?;
             edit_part(st, part, v)?;
@@ -320,6 +326,10 @@ fn edit(st: &mut Style, v: &Value) -> Result<(), CmdError> {
     }
     Ok(())
 }
+
+/// The fields of a Part object.
+const PART_FIELDS: [&str; 13] =
+    ["fill", "font", "size", "bold", "italic", "underline", "color", "align", "vAlign", "cellAlign", "borders", "borderColor", "borderWidth"];
 
 /// Apply one part's params `r` to part `part` of `st`.
 fn edit_part(st: &mut Style, part: TablePart, r: &Value) -> Result<(), CmdError> {
@@ -466,8 +476,12 @@ fn region(r: &Value, f: &mut PartFormat) -> Result<(), CmdError> {
         chr.size = Some(sz.clamp(1.0, 1638.0));
         chr.size_cs = chr.size;
     }
-    if let Some(n) = p::str(r, "font").map(str::trim).filter(|n| !n.is_empty()) {
-        chr.font = Some(n.chars().take(256).collect());
+    match r.get("font") {
+        None => {}
+        // Null or empty: the part's font is inherited again.
+        Some(Value::Null) => chr.font = None,
+        Some(Value::String(n)) => chr.font = Some(n.trim()).filter(|n| !n.is_empty()).map(|n| n.chars().take(256).collect()),
+        Some(_) => return Err(CmdError::Params("`font` is a name or null".into())),
     }
     let name = |k: &str| -> Result<Option<Option<&str>>, CmdError> {
         match r.get(k) {

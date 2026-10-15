@@ -166,8 +166,9 @@ pub fn table_style_params(id: Option<&str>, name: &str, based_on: &str, regions:
 pub fn region_changes(r: &TableRegion, basis: &TableRegion) -> Value {
     let color = |c: &str| if c.is_empty() { Value::Null } else { json!(c) };
     let mut v = json!({});
-    if r.font.trim() != basis.font.trim() && !r.font.trim().is_empty() {
-        v["font"] = json!(r.font.trim());
+    if r.font.trim() != basis.font.trim() {
+        // An emptied box makes the part's font inherited again.
+        v["font"] = if r.font.trim().is_empty() { Value::Null } else { json!(r.font.trim()) };
     }
     if r.size.trim() != basis.size.trim()
         && let Ok(pt) = r.size.trim().parse::<f32>()
@@ -195,10 +196,14 @@ pub fn region_changes(r: &TableRegion, basis: &TableRegion) -> Value {
     let changed: Vec<Value> = edges(&r.borders)
         .into_iter()
         .zip(edges(&basis.borders))
-        .filter(|((_, a), (_, b))| a.filter(Border::is_visible) != b.filter(Border::is_visible))
-        .map(|((e, a), _)| match a.filter(Border::is_visible) {
-            Some(l) => json!({"edges": e, "style": l.style.ooxml(), "width": l.width, "color": l.color.map(Rgb::hex)}),
-            None => json!({"edges": e, "style": "none"}),
+        // An explicit "no line" edge differs from an unset one: it hides the lines a lower part
+        // (or the based-on style) draws.
+        .filter(|((_, a), (_, b))| a != b)
+        .filter_map(|((e, a), _)| match a {
+            Some(l) if l.is_visible() => Some(json!({"edges": e, "style": l.style.ooxml(), "width": l.width, "color": l.color.map(Rgb::hex)})),
+            Some(_) => Some(json!({"edges": e, "style": "none"})),
+            // The picker never unsets an edge.
+            None => None,
         })
         .collect();
     if !changed.is_empty() {
@@ -233,7 +238,8 @@ fn edges_on(b: &Borders, edges: &str) -> bool {
     let on = |e: Option<Border>| e.is_some_and(|x| x.is_visible());
     match edges {
         "all" => [b.top, b.bottom, b.left, b.right, b.between, b.inside_v].into_iter().all(on),
-        "none" => !b.any_visible(),
+        // Only explicit "no line" edges: unset ones still show what the part inherits.
+        "none" => [b.top, b.bottom, b.left, b.right, b.between, b.inside_v].into_iter().all(|e| e.is_some_and(|x| !x.is_visible())),
         "outside" => [b.top, b.bottom, b.left, b.right].into_iter().all(on),
         "inside" => on(b.between) && on(b.inside_v),
         "top" => on(b.top),
@@ -697,10 +703,70 @@ mod tests {
         r.align = "bottomRight".into();
         let v = region_changes(&r, &basis);
         let edges: Vec<&str> = v["borders"].as_array().unwrap().iter().map(|e| e["edges"].as_str().unwrap()).collect();
-        assert_eq!(edges, ["top", "bottom", "right"]);
+        // Left was turned off again: an explicit "no line" now, not the inherited one.
+        assert_eq!(edges, ["top", "bottom", "left", "right"]);
         assert_eq!(v["borders"][0]["style"], "double");
+        assert_eq!(v["borders"][2]["style"], "none");
         assert_eq!(v["cellAlign"], "bottomRight");
         assert_eq!(align_name(Some(Align::Center), Some(VAlign::Bottom)), "bottomCenter");
         assert_eq!(align_name(None, None), "");
+    }
+
+    /// #1288: "No Border" on a part that inherits its lines (the header row of a style based on
+    /// Table Grid) sends explicit "no line" edges, and the header row draws no lines.
+    #[test]
+    fn no_border_hides_inherited_lines() {
+        use wordcraft_layout::Placed;
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.table", json!({"rows": 2, "cols": 3})).unwrap();
+        app.run("table.look", json!({"headerRow": true})).unwrap();
+        app.run("table.newStyle", json!({"name": "Parts", "basedOn": "Table Grid"})).unwrap();
+        // The table's horizontal rules, by y.
+        let rules = |app: &mut WordApp| -> Vec<f32> {
+            app.session.layout().pages[0]
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    Placed::Rule { y0, y1, border, .. } if border.is_visible() && (y0 - y1).abs() < 0.01 => Some(*y0),
+                    _ => None,
+                })
+                .collect()
+        };
+        let before = rules(&mut app);
+        let top = before.iter().copied().fold(f32::INFINITY, f32::min);
+        assert!(top.is_finite(), "Table Grid draws the table's top edge");
+        app.dialog = Dialog::open("modifyTableStyle", &mut app);
+        let mut r = table_regions(&app, "Parts")[part_index(TablePart::FirstRow)].clone();
+        assert!(!edges_on(&r.borders, "none"), "inherited lines aren't \"No Border\"");
+        pick_edges(&mut r.borders, "none", &BorderPen::default());
+        assert!(edges_on(&r.borders, "none"));
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        steps(&mut h);
+        h.get_by(|n| n.role() == egui::accesskit::Role::ComboBox && n.value().as_deref() == Some("Whole Table")).click();
+        steps(&mut h);
+        h.get_by_label("Header Row").click();
+        steps(&mut h);
+        h.get_by_label("Borders ▾").click();
+        steps(&mut h);
+        h.get_by_label("No Border").click();
+        steps(&mut h);
+        h.get_by_label("OK").click();
+        steps(&mut h);
+        assert!(h.state().dialog.is_none(), "OK closes the dialog");
+        let head = h.state().session.doc.styles.get("Parts").unwrap().table_part(TablePart::FirstRow);
+        let b = head.borders.unwrap();
+        for e in [b.top, b.bottom, b.left, b.right, b.between, b.inside_v] {
+            assert_eq!(e.map(|x| x.style), Some(BorderStyle::None));
+        }
+        let after = rules(h.state_mut());
+        assert!(after.iter().all(|y| (y - top).abs() > 0.01), "the header row's top edge is gone: {after:?}");
+        assert!(after.len() < before.len());
     }
 }

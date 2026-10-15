@@ -1127,7 +1127,10 @@ pub struct CellProps {
     pub vmerge: VMerge,
     pub shading: Option<Rgb>,
     pub borders: Option<Borders>,
-    pub valign: VAlign,
+    /// Vertical alignment (`w:vAlign`); `None` follows the table style, else top. An explicit
+    /// `Top` beats the style.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valign: Option<VAlign>,
     /// Cell margins override (top, left, bottom, right), points.
     pub margins: Option<[f32; 4]>,
     /// Which way the cell's text runs.
