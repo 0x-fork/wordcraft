@@ -2041,6 +2041,13 @@ impl WordApp {
         let on_chrome = ctx.layer_id_at(pos).is_none_or(|l| l.order == egui::Order::Background);
         if on_chrome && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx) {
             self.canvas.want_focus = true;
+            // The page has already been drawn, so it only sees `want_focus` next frame, and its own
+            // `focused` flag (which gates the keys) isn't recomputed until then either. Claim both
+            // now, or the click swallows the first keystroke.
+            self.canvas.focused = true;
+            if let Some(id) = self.canvas.widget_id {
+                ctx.memory_mut(|m| m.request_focus(id));
+            }
             // The canvas reads keys before it takes focus back (#1107), so it counts as focused
             // now: a keystroke in the very next frame reaches the page instead of being dropped.
             self.canvas.focused = true;
