@@ -868,6 +868,20 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
         let mut updates: Vec<(usize, String)> = Vec::new();
         for (k, o) in p.objects.iter().enumerate() {
             let InlineObject::Field { instr, locked: false, .. } = o else { continue };
+            // A table formula reads the cells around its own cell again.
+            if instr.trim_start().starts_with('=') {
+                if let Some((tp, r, c)) = path.cell()
+                    && let Some(t) = s.doc.table(StoryRef::Body, &tp)
+                {
+                    let default_lang = super::default_lang(s);
+                    let text = match super::table_formula::evaluate_field_with(t, Some(&s.doc), default_lang.as_deref(), r, c, instr) {
+                        Ok(text) => text,
+                        Err(e) => format!("!{e}"),
+                    };
+                    updates.push((k, text));
+                }
+                continue;
+            }
             let name = wordcraft_layout::fields::field_name(instr);
             match name.as_str() {
                 "DATE" | "TIME" | "CREATEDATE" | "SAVEDATE" | "PRINTDATE" => {

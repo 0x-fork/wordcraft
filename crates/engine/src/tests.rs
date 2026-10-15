@@ -6063,6 +6063,71 @@ fn format_font_sets_the_asian_and_latin_fonts_separately() {
     assert!(s.run("format.font", &json!({})).is_err() && s.run("format.font", &json!({"eastAsia": " "})).is_err());
 }
 
+/// The result of the formula field in cell `c` of row `r` of the first table, if there is one.
+fn formula_result(s: &Session, r: usize, c: usize) -> Option<String> {
+    let t = s.doc.body.iter().find_map(|b| b.as_table())?;
+    t.rows.get(r)?.cells.get(c)?.blocks.iter().filter_map(|b| b.as_para()).flat_map(|p| p.objects.iter()).find_map(|o| match o {
+        wordcraft_doc::InlineObject::Field { instr, result, .. } if instr.starts_with('=') => Some(result.clone()),
+        _ => None,
+    })
+}
+
+/// A 4 × 4 matrix (values 1 to 9 under the header) with an empty fifth row; the caret in its
+/// second cell.
+fn formula_table() -> Session {
+    let mut s = s();
+    run(&mut s, "table.quick", json!({"kind": "matrix"}));
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 3, 1, 0], "off": 0}}));
+    run(&mut s, "table.insertRowBelow", json!({}));
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 4, 1, 0], "off": 0}}));
+    s
+}
+
+#[test]
+fn table_formula_reads_cell_references_and_functions() {
+    let mut s = formula_table();
+    let r = run(&mut s, "table.formula", json!({"formula": "=B2+B3*2"}));
+    assert_eq!(r["result"], "9");
+    assert_eq!(formula_result(&s, 4, 1).as_deref(), Some("9"));
+    let mut s = formula_table();
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=IF(SUM(ABOVE)>10, 1, 0)"}))["result"], "1");
+    let mut s = formula_table();
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=SUM(B2:C3) \\# \"0.00\""}))["result"], "12.00");
+}
+
+#[test]
+fn table_formula_with_an_unknown_function_is_an_error_and_inserts_nothing() {
+    let mut s = formula_table();
+    let err = s.run("table.formula", &json!({"formula": "=MEDIAN(ABOVE)"})).err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(err.contains("MEDIAN"), "{err}");
+    assert_eq!(formula_result(&s, 4, 1), None);
+    assert!(s.run("table.formula", &json!({"formula": "=SUM()"})).is_err(), "empty parentheses are a syntax error, as in Word");
+}
+
+#[test]
+fn table_formula_bare_function_name_takes_its_direction_from_the_cell() {
+    let mut s = formula_table();
+    let r = run(&mut s, "table.formula", json!({"formula": "=SUM"}));
+    assert_eq!((r["formula"].as_str(), r["result"].as_str()), (Some("=SUM(ABOVE)"), Some("12")));
+}
+
+/// Update Field (F9) works a formula out again from the cells it reads.
+#[test]
+fn update_fields_recalculates_a_table_formula() {
+    let mut s = formula_table();
+    run(&mut s, "table.formula", json!({"formula": "=SUM(ABOVE)"}));
+    assert_eq!(formula_result(&s, 4, 1).as_deref(), Some("12"));
+    // Row 1's 1 becomes 10.
+    run(
+        &mut s,
+        "select.range",
+        json!({"anchor": {"story": "body", "path": [1, 1, 1, 0], "off": 0}, "focus": {"story": "body", "path": [1, 1, 1, 0], "off": 1}}),
+    );
+    run(&mut s, "text.insert", json!({"text": "10"}));
+    run(&mut s, "references.updateFields", json!({}));
+    assert_eq!(formula_result(&s, 4, 1).as_deref(), Some("21"));
+}
+
 /// A one-column table (no header row) holding `cells`, in a document whose default language
 /// is `lang`; the caret ends in the last cell.
 fn column_table(lang: &str, cells: &[&str]) -> Session {
