@@ -668,7 +668,7 @@ fn lines(
             char_box(&ob, x0, x1, top, bottom, alpha, out);
         }
         // Label.
-        if li == 0
+        if li == pl.label_line()
             && let Some(lab) = &pl.label
         {
             let gx = x + lab.x;

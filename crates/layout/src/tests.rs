@@ -811,6 +811,26 @@ fn lists_get_labels_and_indent() {
 }
 
 #[test]
+fn a_numbered_heading_opening_with_a_page_break_takes_its_number_along() {
+    // "Before", then a numbered paragraph whose text opens with a page break: Word draws its
+    // number on the next page with the text, not alone at the bottom of the first.
+    let mut d = Document::from_text("Before\n\u{000C}Heading");
+    let id = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    d.format_paragraphs(&Pos::body(1, 0), &Pos::body(1, 1), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
+    let l = lay(&d);
+    let label_pages: Vec<usize> = l
+        .pages
+        .iter()
+        .enumerate()
+        .filter(|(_, pg)| {
+            flat(display::page_display(&d, pg, &Default::default())).iter().any(|x| matches!(x, display::Draw::Glyphs { text, .. } if text == "1."))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(label_pages, [1]);
+}
+
+#[test]
 fn russian_letter_list_labels_draw_cyrillic() {
     // russianLower labelled items 1, 2, 3 instead of а), б), в).
     use wordcraft_doc::section::NumFormat;

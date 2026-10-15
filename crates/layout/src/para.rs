@@ -2484,6 +2484,16 @@ fn resolve_tab(pl: &mut ParaLayout, pending: &mut Option<(usize, TabStop, f32)>,
 }
 
 impl ParaLayout {
+    /// The line the list label is drawn on: the first, unless the paragraph opens with a page
+    /// break, when Word draws it with the text on the next page.
+    pub fn label_line(&self) -> usize {
+        let opens_with_break = self.lines.len() > 1
+            && self.lines.first().is_some_and(|l| {
+                l.end == LineEnd::PageBreak
+                    && self.clusters.get(l.c0..l.c1).is_some_and(|cs| cs.iter().all(|c| matches!(c.kind, ClKind::PageBreak | ClKind::Marker)))
+            });
+        usize::from(opens_with_break)
+    }
     /// x of byte offset `off` within line `li` (clamped to the line).
     pub fn x_of(&self, li: usize, off: usize) -> Option<f32> {
         let l = self.lines.get(li)?;
