@@ -1,6 +1,6 @@
 # Slovenian interface
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (Slovenian interface catalog and regression checks) · **Target:** WordCraft 0.5.0
+> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** trivial (catalog completed to every key of every other catalog, 2,614 entries) · **Target:** WordCraft 0.7.0
 
 Choose **File › Options › Interface language › Slovenščina**, or follow a Slovenian system display
 language (`sl-SI`, `sl_SI.UTF-8`). The catalog code is `sl`; `ui.language` with `{"value":"sl"}`
@@ -8,9 +8,9 @@ selects it explicitly, and `WORDCRAFT_LANGUAGE=sl-SI` does the same for a headle
 launch while the preference is `auto`. Document text, command ids, CLI/MCP/control responses and
 file paths do not change.
 
-`crates/ui-egui/src/i18n/sl.tsv` has 2,463 entries: every key of every other catalog (built-in
-style names, equation gallery labels, paper sizes, watermarks, greetings and citation style names
-included). It is written from the meaning of the English labels; no proprietary translation
+`crates/ui-egui/src/i18n/sl.tsv` has 2,614 entries: every key of every other catalog (built-in
+style names, equation gallery labels, paper sizes, watermarks, greetings, citation style names and
+native print settings included). It is written from the meaning of the English labels; no proprietary translation
 resources were consulted.
 
 ## Conventions
@@ -48,11 +48,16 @@ resources were consulted.
 | Hyphenation / Proofing | Deljenje besed / Preverjanje |
 | Character Spacing / Tracking | Razmik med znaki |
 | Watermark | Vodni žig |
+| Grayscale | Odtenki sive |
+| Printer / Print | Tiskalnik / Natisni |
+| Reading Mode | Način branja |
+| Full Screen | Celozaslonski način |
+| Recover | Obnovi |
 | Text box / Content control | Polje z besedilom / Kontrolnik vsebine |
 
 ## Verification and remaining scope
 
 Tests in `crates/ui-egui/src/i18n/tests.rs` check locale selection, the saved preference, that the
-catalog covers every key of every other catalog, key terms, the search hint example and the bundled
-fonts' coverage of č, š, ž. Slovenian spelling, grammar and hyphenation are not included. Native
-speaker review is welcome.
+catalog covers every key of every other catalog and has no keys outside them, key terms, the search
+hint example and the bundled fonts' coverage of č, š, ž. Slovenian spelling, grammar and hyphenation
+are not included. Native speaker review is welcome.

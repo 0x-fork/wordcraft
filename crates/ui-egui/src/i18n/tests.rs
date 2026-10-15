@@ -1550,7 +1550,8 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
             assert_ne!(face.glyph_for(*ch), 0, "{family} {style} lacks {ch:?}");
         }
     }
-    assert!(!lang("vi").uses_cjk());}
+    assert!(!lang("vi").uses_cjk());
+}
 
 #[test]
 fn slovenian_locales_and_saved_preference_work_without_changing_the_document() {
@@ -1628,7 +1629,6 @@ fn bundled_interface_fonts_cover_slovenian_letters() {
     }
     assert!(!lang("sl").uses_cjk());
 }
-
 
 #[test]
 fn slovenian_has_no_keys_outside_the_other_catalogs() {
