@@ -3729,6 +3729,37 @@ fn floating_tables_take_no_room_and_text_wraps_beside_them() {
 }
 
 #[test]
+fn a_floating_table_ignores_a_paragraphs_empty_lines() {
+    use wordcraft_doc::para::Anchor;
+    use wordcraft_doc::props::TableFloat;
+
+    let mut doc = Document::from_text(&[""; 9].join("\n"));
+    doc.body.push(wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Visible\n\n\n", Default::default())));
+    doc.body.extend((0..14).map(|_| wordcraft_doc::para_block(wordcraft_doc::Paragraph::new())));
+    let mut table = Table::new(12, 1, 300.0);
+    for (i, row) in table.rows.iter_mut().enumerate() {
+        row.cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&format!("Approval {i}"), Default::default()))];
+    }
+    table.props.float = Some(TableFloat { h_rel: Anchor::Margin, v_rel: Anchor::Margin, x: 100.0, y: 50.0, ..Default::default() });
+    let at = doc.body.len();
+    doc.insert_block(StoryRef::Body, &Path::top(at), wordcraft_doc::Block::Table(table)).unwrap();
+
+    let layout = lay(&doc);
+    let table_pages: Vec<usize> = layout
+        .pages
+        .iter()
+        .enumerate()
+        .flat_map(|(page, p)| {
+            p.items.iter().filter_map(move |item| match item {
+                Placed::Lines { story: StoryRef::Body, path, .. } if path.0.len() > 1 => Some(page),
+                _ => None,
+            })
+        })
+        .collect();
+    assert!(!table_pages.is_empty() && table_pages.iter().all(|page| *page == 0), "table rows on pages {table_pages:?}");
+}
+
+#[test]
 fn a_floating_table_taller_than_a_page_runs_across_pages() {
     use wordcraft_doc::para::Anchor;
     use wordcraft_doc::props::TableFloat;
