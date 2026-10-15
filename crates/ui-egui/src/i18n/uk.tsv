@@ -2224,3 +2224,8 @@
 	Existing File or Web Page	Файл або веб-сторінка
 	Link to:	Зв'язати з:
 	Place in This Document	Місце в документі
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Стовпець {n}
+	Header row	Рядок заголовка
+	No header row	Без рядка заголовка
+	My list has	Мій список містить

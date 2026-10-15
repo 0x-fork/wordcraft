@@ -2224,3 +2224,8 @@
 	Existing File or Web Page	Página da Web ou arquivo existente
 	Link to:	Vincular a:
 	Place in This Document	Colocar neste documento
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Coluna {n}
+	Header row	Linha de cabeçalho
+	No header row	Sem linha de cabeçalho
+	My list has	Minha lista tem

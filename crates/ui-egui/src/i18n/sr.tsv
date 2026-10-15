@@ -2226,3 +2226,8 @@
 	Existing File or Web Page	Постојећа датотека или веб страница
 	Link to:	Веза ка:
 	Place in This Document	Место у овом документу
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Колона {n}
+	Header row	Ред заглавља
+	No header row	Без реда заглавља
+	My list has	Моја листа има

@@ -2607,3 +2607,8 @@
 	Existing File or Web Page	Létező fájl vagy weblap
 	Link to:	Hivatkozás helye:
 	Place in This Document	Dokumentumon belüli hely
+# Table Layout › Sort dialog (#1205)
+	Column {n}	{n}. oszlop
+	Header row	Fejlécsor
+	No header row	Nincs fejlécsor
+	My list has	A listám tartalmaz

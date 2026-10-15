@@ -2213,3 +2213,8 @@
 	Existing File or Web Page	現有的檔案或網頁
 	Link to:	連結至:
 	Place in This Document	這份文件中的位置
+# Table Layout › Sort dialog (#1205)
+	Column {n}	欄 {n}
+	Header row	有標題列
+	No header row	無標題列
+	My list has	清單包含

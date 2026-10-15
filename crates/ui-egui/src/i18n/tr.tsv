@@ -2608,3 +2608,8 @@ preview	Title	Örnek
 	Existing File or Web Page	Varolan Dosya veya Web Sayfası
 	Link to:	Bağlantı:
 	Place in This Document	Bu Belgede Bir Yer
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Sütun {n}
+	Header row	Başlık satırı
+	No header row	Başlık satırı yok
+	My list has	Listemde

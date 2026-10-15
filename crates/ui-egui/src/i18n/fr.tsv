@@ -2219,3 +2219,8 @@
 	Existing File or Web Page	Fichier ou page web existant(e)
 	Link to:	Lier à :
 	Place in This Document	Emplacement dans ce document
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Colonne {n}
+	Header row	Ligne d’en-tête
+	No header row	Pas de ligne d’en-tête
+	My list has	Ma liste a

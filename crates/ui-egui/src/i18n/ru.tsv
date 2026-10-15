@@ -2609,3 +2609,8 @@ preview	Title	Пример
 	Existing File or Web Page	Файл или веб-страница
 	Link to:	Связать с:
 	Place in This Document	Место в документе
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Столбец {n}
+	Header row	Строка заголовка
+	No header row	Без строки заголовка
+	My list has	Мой список содержит

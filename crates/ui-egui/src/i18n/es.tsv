@@ -2578,3 +2578,8 @@ preview	Title	Título
 	Existing File or Web Page	Archivo o página web existente
 	Link to:	Vincular a:
 	Place in This Document	Lugar de este documento
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Columna {n}
+	Header row	Fila de encabezado
+	No header row	Sin fila de encabezado
+	My list has	Mi lista tiene

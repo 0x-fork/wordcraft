@@ -2224,3 +2224,8 @@
 	Existing File or Web Page	现有文件或网页
 	Link to:	链接到:
 	Place in This Document	本文档中的位置
+# Table Layout › Sort dialog (#1205)
+	Column {n}	列 {n}
+	Header row	有标题行
+	No header row	无标题行
+	My list has	列表包含

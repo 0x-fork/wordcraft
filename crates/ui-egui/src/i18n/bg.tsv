@@ -2599,3 +2599,8 @@
 	Existing File or Web Page	Съществуващ файл или уеб страница
 	Link to:	Връзка към:
 	Place in This Document	Място в този документ
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Колона {n}
+	Header row	Заглавен ред
+	No header row	Без заглавен ред
+	My list has	Списъкът ми има

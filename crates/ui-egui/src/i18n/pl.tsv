@@ -2601,3 +2601,8 @@ preview	Title	Tytuł
 	Existing File or Web Page	Istniejący plik lub strona sieci Web
 	Link to:	Połącz z:
 	Place in This Document	Miejsce w tym dokumencie
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Kolumna {n}
+	Header row	Wiersz nagłówka
+	No header row	Bez wiersza nagłówka
+	My list has	Moja lista ma

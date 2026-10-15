@@ -2246,3 +2246,8 @@
 	Existing File or Web Page	Olemasolev fail või veebileht
 	Link to:	Link:
 	Place in This Document	Koht selles dokumendis
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Veerg {n}
+	Header row	Päiserida
+	No header row	Päiserida puudub
+	My list has	Minu loendil on

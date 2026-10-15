@@ -2642,3 +2642,8 @@
 	Local font access is not supported by your browser.	Trình duyệt của bạn không hỗ trợ truy cập phông chữ cục bộ.
 	Local font access was denied.	Quyền truy cập phông chữ cục bộ đã bị từ chối.
 	Loaded {count} system fonts.	Đã tải {count} phông chữ hệ thống.
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Cột {n}
+	Header row	Hàng tiêu đề
+	No header row	Không có hàng tiêu đề
+	My list has	Danh sách của tôi có

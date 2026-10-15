@@ -2603,3 +2603,8 @@ preview	Title	Ukázka
 	Existing File or Web Page	Existující soubor nebo webová stránka
 	Link to:	Odkaz na:
 	Place in This Document	Místo v tomto dokumentu
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Sloupec {n}
+	Header row	Řádek záhlaví
+	No header row	Bez řádku záhlaví
+	My list has	Můj seznam má

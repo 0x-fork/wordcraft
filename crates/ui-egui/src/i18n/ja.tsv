@@ -2212,3 +2212,8 @@
 	Existing File or Web Page	既存のファイル/Web ページ
 	Link to:	リンク先:
 	Place in This Document	このドキュメント内
+# Table Layout › Sort dialog (#1205)
+	Column {n}	列 {n}
+	Header row	見出し行あり
+	No header row	見出し行なし
+	My list has	範囲の先頭行
