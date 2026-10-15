@@ -170,6 +170,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | All Caps and Small Caps draw ß as SS, as Word does (#1581): "Straße" in All Caps reads STRASSE, not STRASE, and other letters whose capital is two characters (ﬀ, ŉ) draw in full. The ß is still one character: the caret never stops between the two S, and a click on them lands before or after it |
 | 2026-10-13 | Windows Magnifier follows the caret onto a new line: after Enter or Shift+Enter the view moves to the empty line at once, instead of staying on the line above until two more letters are typed (#1119) |
 | 2026-10-13 | A window too big for its screen shrinks to fit when it opens (#1215): on a laptop screen the first window reached under the taskbar or past the screen edge, with the end of the scroll bar, so dragging the scroll bar stopped where the pointer met the edge. A window saved that size is fitted on its next launch too |
+| 2026-10-14 | `layout.pageSetup` with a `section` checks its values like Margins, Size and Columns (#1582): non-finite numbers and margins that leave no room for text are refused with nothing changed; page sides, column count and gap, header/footer distances and line-numbering values are clamped to the same ranges |
 | 2026-10-13 | `wordcraft --control` checks its port (#1426): a missing port, one outside 1–65535 or one that isn't a number prints an error naming it and exits with status 2, instead of starting without the control channel (and dropping `WORDCRAFT_CONTROL_PORT`); a flag right after it, such as `--sample` or `--version`, is read as a flag rather than as the port |
 | 2026-10-14 | Text wrap (#1376): in the narrow strip beside a square-wrapped picture, a word that doesn't fit moves on whole to the next row; it used to be split across the strip ("docu" / "mentazione") |
 | 2026-10-14 | DOCX files with legacy VML preset shapes show them (#1377): Word's right arrow (`_x0000_t13`) and the other presets appear with their fill, outline and size, drawn as WordCraft draws the same DrawingML preset (the nearest shape when it has no exact one), and saving keeps them as DrawingML shapes; before, they were dropped |
@@ -429,6 +430,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | trivial | Progress log: All Caps and Small Caps draw ß as SS (#1581) |
 | 2026-10-13 | trivial | Progress log: Windows Magnifier follows the caret onto a new line (#1119) |
 | 2026-10-13 | trivial | Progress log: a window too big for its screen shrinks to fit (#1215) |
+| 2026-10-14 | trivial | Progress log: Page Setup sections are validated (#1582) |
 | 2026-10-13 | trivial | Progress log: `--control` checks its port (#1426) |
 | 2026-10-14 | trivial | Progress log: words beside a floating picture are no longer split (#1376) |
 | 2026-10-14 | trivial | Progress log: VML preset shapes (#1377) |
