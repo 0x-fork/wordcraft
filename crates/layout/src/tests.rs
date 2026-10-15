@@ -689,6 +689,28 @@ fn page_break_char_starts_new_page() {
 }
 
 #[test]
+fn a_page_break_then_a_new_page_makes_one_page() {
+    use wordcraft_doc::section::SectionProps;
+    // "Before", a paragraph of only a page break, then "After" starting a page by itself: a page
+    // break before, or a next-page section break carried by the break's own paragraph. Word's
+    // output for a report: the break's mark stays on the old page, and "After" starts the next.
+    let doc = |section_on_break: bool| {
+        let mut d = Document::from_text("Before\n\u{000C}\nAfter");
+        if section_on_break {
+            d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().section = Some(Box::new(SectionProps::default()));
+        } else {
+            d.para_mut(StoryRef::Body, &Path::top(2)).unwrap().props.page_break_before = Some(true);
+        }
+        d
+    };
+    for section_on_break in [false, true] {
+        let l = lay(&doc(section_on_break));
+        let firsts: Vec<usize> = l.pages.iter().map(|p| p.first_block).collect();
+        assert_eq!(l.pages.len(), 2, "section break on the page break: {section_on_break}; pages start at blocks {firsts:?}");
+    }
+}
+
+#[test]
 fn page_numbers_can_restart_at_zero() {
     // `w:pgNumType w:start="0"`: a cover page numbered 0, so the page after it reads 1.
     let mut d = Document::from_text("Cover\u{000C}Contents");
