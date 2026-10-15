@@ -989,9 +989,7 @@ fn polish_covers_every_key_of_every_other_catalog() {
     let polish = keys(lang("pl").0.source);
     // Italian and Hungarian still carry "Style: APA", which the interface no longer shows;
     // Hungarian and Bulgarian also name the citation styles, and Bulgarian has a few one-line
-    // pieces of gallery labels, which Swedish carries too. Polish matches every other catalog,
-    // including the style names and equation gallery Russian translates.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv")) {
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1275,6 +1273,91 @@ fn bundled_interface_fonts_cover_bulgarian_without_system_fallbacks() {
         }
     }
     assert!(!lang("bg").uses_cjk());
+}
+
+#[test]
+fn croatian_locales_and_saved_preference_work_without_changing_the_document() {
+    let hr = lang("hr");
+    for tag in ["hr", "hr-HR", "hr_HR.UTF-8", "HR-hr", "hr-Latn-HR", "hr-BA"] {
+        assert_eq!(lang_from_tag(tag), Some(hr), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "hr-HR", "en-US"]), Some(hr));
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "HR"})).unwrap();
+    assert_eq!(result["effective"], "hr");
+    assert_eq!(app.ui.language, "hr");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "hr" && l["name"] == "Hrvatski"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), hr);
+    assert_eq!(hr.name(), "Hrvatski");
+}
+
+#[test]
+fn croatian_covers_the_entire_existing_interface_catalog_and_keeps_count_labels_neutral() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let hr = lang("hr");
+    // Every key of every other catalog, and no catalog errors.
+    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "hr") {
+        let mut missing: Vec<String> = keys(other.0.source).difference(&keys(hr.0.source)).cloned().collect();
+        missing.sort();
+        // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
+        missing.retain(|k| k != "Style: APA" || !matches!(other.code(), "it" | "hu"));
+        assert!(missing.is_empty(), "hr lacks {}'s {missing:?}", other.code());
+    }
+    assert!(parse_entries(hr.0.source).1.is_empty());
+    for (source, expected) in [
+        ("File", "Datoteka"),
+        ("Home", "Početna"),
+        ("Insert", "Umetni"),
+        ("Review", "Pregled"),
+        ("Save", "Spremi"),
+        ("Heading 1", "Naslov 1"),
+        ("Spelling & Grammar", "Pravopis i gramatika"),
+        ("Hyphenation", "Rastavljanje riječi"),
+        ("WordCraft", "WordCraft"),
+        ("unknown future label", "unknown future label"),
+    ] {
+        assert_eq!(tr(hr, source), expected, "{source}");
+    }
+    assert_eq!(fmt(tr(hr, "Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "Stranica 3 od 9");
+    // The letter template is "Pismo"; the paper size of the same English name stays "Letter".
+    assert_eq!(trc(hr, "template", "Letter"), "Pismo");
+    assert_eq!(tr(hr, "Letter"), "Letter");
+    // Croatian nouns take three forms after numerals (1, 2–4, 5+), so counts read `Riječi: 21`.
+    for count in [0, 1, 2, 4, 5, 12, 14, 21, 22, 25, 101, 1000] {
+        let words = count.to_string();
+        assert_eq!(fmt(tr(hr, "{words} words"), &[("words", &words)]), format!("Riječi: {count}"));
+        assert_eq!(fmt(tr(hr, "{selected} of {words} words"), &[("selected", "1"), ("words", &words)]), format!("Riječi: 1 od {count}"));
+    }
+    set_current(hr);
+    assert_eq!(location("Review › Proofing"), "Pregled › Jezična provjera");
+    set_current(Lang::EN);
+}
+
+#[test]
+fn bundled_interface_fonts_cover_croatian_without_system_fallbacks() {
+    let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    let (entries, errors) = parse_entries(lang("hr").0.source);
+    assert!(errors.is_empty());
+    let chars: std::collections::HashSet<char> = entries
+        .iter()
+        .flat_map(|e| e.translation.chars())
+        // Croatian letters plus its quotes and dashes; symbols come from the English sources.
+        .filter(|c| matches!(c, '„' | '”' | '–'))
+        .chain("ČčĆćĐđŠšŽž".chars())
+        .collect();
+    for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
+        let face = db.face(family, style);
+        assert_eq!(face.family, family, "must use the bundled interface face");
+        for ch in &chars {
+            assert_ne!(face.glyph_for(*ch), 0, "{family} {style} lacks {ch}");
+        }
+    }
+    assert!(!lang("hr").uses_cjk());
 }
 
 #[test]

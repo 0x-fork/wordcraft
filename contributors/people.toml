@@ -123,3 +123,8 @@ real_name = "Robert Lee"
 real_name = "Erik Holmbom"
 display_name = "Erik Holmbom"
 sync_github_name = false
+
+[people.andrejskvorc]
+real_name = "Andrej Škvorc"
+display_name = "Andrej Škvorc"
+sync_github_name = false

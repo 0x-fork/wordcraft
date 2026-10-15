@@ -2656,3 +2656,5 @@
 	This document has no bookmarks.	Tài liệu này không có dấu trang.
 	Type a page number, or +2 / -1.	Nhập số trang, hoặc +2 / -1.
 	Wait for the print job to finish submitting before closing.	Hãy chờ lệnh in được gửi xong rồi mới đóng.
+# Template names in File › New (#1271)
+template	Letter	Thư
