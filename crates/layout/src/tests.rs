@@ -266,6 +266,47 @@ fn empty_doc_has_one_page() {
 }
 
 #[test]
+fn hidden_marks_take_no_space() {
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Before", Default::default()))];
+    for _ in 0..20 {
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.mark.hidden = Some(true);
+        d.body.push(wordcraft_doc::para_block(p));
+    }
+    d.body.push(wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("After", Default::default())));
+    let l = lay(&d);
+    let y = |block: usize| {
+        l.pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .find_map(|item| match item {
+                Placed::Lines { path, y, .. } if *path == Path::top(block) => Some(*y),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let mut plain = Document::new();
+    plain.body = vec![
+        wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Before", Default::default())),
+        wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("After", Default::default())),
+    ];
+    let plain_layout = lay(&plain);
+    let plain_after = plain_layout.pages[0]
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Placed::Lines { path, y, .. } if *path == Path::top(1) => Some(*y),
+            _ => None,
+        })
+        .unwrap();
+    assert!((y(21) - plain_after).abs() < 0.1, "hidden paragraphs moved the following text to {} vs {plain_after}", y(21));
+    let shown = layout(&d, &mut LayoutCache::new(), &LayoutOptions { show_hidden: true, ..Default::default() });
+    let after = shown.caret(&Pos::body(21, 0)).unwrap();
+    assert!(after.top > plain_after + 100.0, "showing hidden marks must restore their lines");
+}
+
+#[test]
 fn long_paragraph_wraps_and_paginates() {
     let text = "The quick brown fox jumps over the lazy dog. ".repeat(400);
     let d = Document::from_text(&text);

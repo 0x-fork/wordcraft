@@ -397,6 +397,11 @@ impl Reader<'_> {
         para.text = pb.text;
         para.runs = pb.runs;
         para.objects = pb.objects;
+        // Paragraph boundaries inside an instruction are hidden with the field code.
+        // The result paragraph still takes a line, even when its cached text is empty.
+        if sc.fields.iter().any(|f| f.phase == Phase::Instr) && para.plain_text().is_empty() {
+            para.mark.hidden = Some(true);
+        }
         para.normalize();
         para
     }
@@ -613,6 +618,9 @@ impl Reader<'_> {
             }
             "w:tab" | "w:ptab" => self.emit_text(sc, pb, "\t", props),
             "w:br" => {
+                if sc.fields.iter().any(|f| f.phase == Phase::Instr) {
+                    return;
+                }
                 let c = match k.attr("w:type") {
                     Some("page") => "\u{000C}",
                     Some("column") => "\u{000E}",
@@ -620,7 +628,11 @@ impl Reader<'_> {
                 };
                 self.emit_text(sc, pb, c, props);
             }
-            "w:cr" => self.emit_text(sc, pb, "\n", props),
+            "w:cr" => {
+                if !sc.fields.iter().any(|f| f.phase == Phase::Instr) {
+                    self.emit_text(sc, pb, "\n", props);
+                }
+            }
             "w:noBreakHyphen" => self.emit_text(sc, pb, "\u{2011}", props),
             "w:softHyphen" => self.emit_text(sc, pb, "\u{00AD}", props),
             "w:sym" => {

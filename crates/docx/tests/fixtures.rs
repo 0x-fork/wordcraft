@@ -666,6 +666,41 @@ fn unbalanced_fields_and_markers() {
 }
 
 #[test]
+fn field_code_spans_paragraphs() {
+    let body = r#"
+<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>IF</w:instrText></w:r></w:p>
+<w:p><w:r><w:instrText> MERGEFIELD x</w:instrText><w:br/><w:instrText> = "y"</w:instrText></w:r></w:p>
+<w:p><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>
+<w:p><w:r><w:t>Visible</w:t></w:r></w:p>"#;
+    let doc = read_body(body);
+    let p = paras(&doc);
+    assert_eq!(p.len(), 4);
+    for code in &p[..2] {
+        assert!(code.plain_text().is_empty());
+        assert_eq!(code.mark.hidden, Some(true));
+    }
+    assert_eq!(p[2].mark.hidden, None);
+    assert_eq!(p[3].plain_text(), "Visible");
+    assert_eq!(p[3].mark.hidden, None);
+}
+
+#[test]
+fn empty_field_results_keep_line() {
+    let body = r#"<w:p><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>PAGE</w:instrText><w:fldChar w:fldCharType="separate"/><w:fldChar w:fldCharType="end"/></w:r></w:p>
+<w:p><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>IF</w:instrText></w:r></w:p>
+<w:p/>
+<w:p><w:r><w:instrText> x = y</w:instrText><w:fldChar w:fldCharType="separate"/><w:t>Result</w:t><w:fldChar w:fldCharType="end"/></w:r></w:p>"#;
+    let doc = read_body(body);
+    let p = paras(&doc);
+    assert_eq!(p[0].mark.hidden, None);
+    assert!(matches!(&p[0].objects[0], InlineObject::Field { instr, .. } if instr == "PAGE"));
+    assert_eq!(p[1].mark.hidden, Some(true));
+    assert_eq!(p[2].mark.hidden, Some(true));
+    assert_eq!(p[3].mark.hidden, None);
+    assert_eq!(p[3].plain_text(), "Result");
+}
+
+#[test]
 fn header_self_reference_and_escaping_targets() {
     let hdr = format!(
         r#"<w:hdr {W_NS}><w:p><w:pPr><w:sectPr><w:headerReference w:type="default" r:id="rId1"/></w:sectPr></w:pPr><w:r><w:t>loop</w:t></w:r></w:p></w:hdr>"#
