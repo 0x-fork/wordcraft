@@ -2608,3 +2608,6 @@ preview	Title	Ukázka
 	Header row	Řádek záhlaví
 	No header row	Bez řádku záhlaví
 	My list has	Můj seznam má
+# Table Layout › Formula dialog (#1210)
+	Formula:	Vzorec:
+	Paste function:	Vložit funkci:

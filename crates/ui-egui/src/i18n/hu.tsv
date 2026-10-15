@@ -2612,3 +2612,6 @@
 	Header row	Fejlécsor
 	No header row	Nincs fejlécsor
 	My list has	A listám tartalmaz
+# Table Layout › Formula dialog (#1210)
+	Formula:	Képlet:
+	Paste function:	Függvény beillesztése:

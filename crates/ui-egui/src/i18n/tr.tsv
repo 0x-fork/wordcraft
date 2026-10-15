@@ -2613,3 +2613,6 @@ preview	Title	Örnek
 	Header row	Başlık satırı
 	No header row	Başlık satırı yok
 	My list has	Listemde
+# Table Layout › Formula dialog (#1210)
+	Formula:	Formül:
+	Paste function:	İşlev yapıştır:

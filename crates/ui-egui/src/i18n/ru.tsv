@@ -2614,3 +2614,6 @@ preview	Title	Пример
 	Header row	Строка заголовка
 	No header row	Без строки заголовка
 	My list has	Мой список содержит
+# Table Layout › Formula dialog (#1210)
+	Formula:	Формула:
+	Paste function:	Вставить функцию:

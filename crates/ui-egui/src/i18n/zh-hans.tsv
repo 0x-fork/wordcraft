@@ -2229,3 +2229,6 @@
 	Header row	有标题行
 	No header row	无标题行
 	My list has	列表包含
+# Table Layout › Formula dialog (#1210)
+	Formula:	公式：
+	Paste function:	粘贴函数：

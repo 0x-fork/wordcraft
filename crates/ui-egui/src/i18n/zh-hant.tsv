@@ -2218,3 +2218,6 @@
 	Header row	有標題列
 	No header row	無標題列
 	My list has	清單包含
+# Table Layout › Formula dialog (#1210)
+	Formula:	公式：
+	Paste function:	貼上函數：

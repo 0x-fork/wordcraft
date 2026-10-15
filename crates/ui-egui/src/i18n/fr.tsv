@@ -2224,3 +2224,6 @@
 	Header row	Ligne d’en-tête
 	No header row	Pas de ligne d’en-tête
 	My list has	Ma liste a
+# Table Layout › Formula dialog (#1210)
+	Formula:	Formule :
+	Paste function:	Coller une fonction :

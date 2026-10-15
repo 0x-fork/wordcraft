@@ -2229,3 +2229,6 @@
 	Header row	Linha de cabeçalho
 	No header row	Sem linha de cabeçalho
 	My list has	Minha lista tem
+# Table Layout › Formula dialog (#1210)
+	Formula:	Fórmula:
+	Paste function:	Colar função:

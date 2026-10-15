@@ -2217,3 +2217,6 @@
 	Header row	見出し行あり
 	No header row	見出し行なし
 	My list has	範囲の先頭行
+# Table Layout › Formula dialog (#1210)
+	Formula:	計算式:
+	Paste function:	関数の貼り付け:
