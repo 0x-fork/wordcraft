@@ -251,6 +251,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-13 | No document behind the Start screen (#1129): Esc or Back from it shows an empty window (no page, ribbon greyed out but for Help) until Blank document, a template or a file is opened, as in Word; closing it asks nothing |
 | 2026-10-12 | Word 365 cover pages (#743): a freeform inside a group keeps its shape (it was drawn as a rectangle); text boxes keep their own internal margins and Resize shape to fit text, so a tight title box no longer loses its second line; both survive saving. The missing fills in the report were theme-coloured shapes, fixed by #611 |
 | 2026-10-12 | Alt+Q moves to "Tell me" command search, as in Word for Windows (#819); not on macOS, where Option+Q types a character |
+| 2026-10-12 | PDFW: PDF export uses the shared craft-pdf writer for metadata, font preparation and serialization while retaining WordCraft layout, drawing, tagging, links and font-outline retry. Writer-only builds do not enable PDF import codecs. |
 | 2026-10-12 | PDF export of long documents with many internal links (a linked table of contents) is linear: NIH's 67-page protocol template 10.6 s → 0.9 s |
 | 2026-10-12 | Keytips: Word for Windows' tab letters (File F, Design G, References S, Review R, View W, Help Y) |
 | 2026-10-13 | Keytips reach the table tabs as in Word: Alt, J, T for Table Design and Alt, J, L for Table Layout, then their controls' badges (#1183) |
