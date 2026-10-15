@@ -896,6 +896,36 @@ fn lists_get_labels_and_indent() {
 }
 
 #[test]
+fn break_only_list_has_no_label() {
+    use wordcraft_doc::ListKind;
+    for kind in [ListKind::Numbered, ListKind::Bullet] {
+        let mut d = Document::from_text("First\n\u{000C}\nLast\n\nAfter");
+        let id = d.numbering.add_list(kind);
+        d.format_paragraphs(&Pos::body(0, 0), &Pos::body(4, 5), &|p| {
+            p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 });
+        })
+        .unwrap();
+        let l = lay(&d);
+        let labels: Vec<_> = l
+            .pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .filter_map(|it| {
+                let Placed::Lines { path, para, .. } = it else { return None };
+                Some((path.clone(), para.label.as_ref().map(|label| label.text.clone())))
+            })
+            .collect();
+        let label = |n| Some(if kind == ListKind::Numbered { format!("{n}.") } else { "•".to_string() });
+        // Word hides the break's label but counts it; a plain empty item still has a label.
+        assert_eq!(
+            labels,
+            vec![(Path::top(0), label(1)), (Path::top(1), None), (Path::top(2), label(3)), (Path::top(3), label(4)), (Path::top(4), label(5)),],
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
 fn a_numbered_heading_opening_with_a_page_break_takes_its_number_along() {
     // "Before", then a numbered paragraph whose text opens with a page break: Word draws its
     // number on the next page with the text, not alone at the bottom of the first.

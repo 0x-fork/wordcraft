@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (multi-paragraph field instructions no longer add blank lines; previously trivial: progress log: grouped `flowChartOr` shapes draw their circle and crossing spokes; previously trivial: progress log: copies keep their formatting in other programs, #1523; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (multi-paragraph field instructions no longer add blank lines; previously trivial: page-break-only list paragraphs hide their labels; previously trivial: progress log: grouped `flowChartOr` shapes draw their circle and crossing spokes; previously trivial: progress log: copies keep their formatting in other programs, #1523; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -137,6 +137,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | Date | What landed |
 |---|---|
 | 2026-10-14 | Field instructions spanning paragraphs no longer add blank lines during pagination; empty result paragraphs still take a line. |
+| 2026-10-14 | Page-break-only list paragraphs no longer print stray bullets or numbers. The next item keeps its number, matching the reference export. |
 | 2026-10-14 | Grouped `flowChartOr` shapes draw their circle and crossing spokes, as in Word |
 | 2026-10-14 | Deleting a comment removes its anchors from headers, footers, notes and text boxes too, not just the body, and deletes the whole thread below it, replies to replies included; no anchor or reply is left pointing at a deleted comment (#1345) |
 | 2026-10-14 | Legacy DOC DIB conversion checks the BMP header and copy before allocation, uses the caller's decode allowance, and caps PNG output while encoding; a BMP fallback is kept when it fits. A generated 1-pixel regression covers 57/58/512-byte limits. Resource-exhaustion consequences remain unmeasured. Related: #1334 and #1554 |
@@ -385,6 +386,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-14 | trivial | Field instructions spanning paragraphs no longer add blank lines during pagination; empty result paragraphs still take a line. |
+| 2026-10-14 | trivial | A list paragraph containing only a page break has no visible label; it still advances the list counter. Ordinary empty list items keep their label. |
 | 2026-10-14 | trivial | Floating-table overlap checks use visible line content; empty line-break lines no longer move a table |
 | 2026-10-14 | trivial | Progress log: deleting a comment leaves no dangling anchors or replies (#1345) |
 | 2026-10-14 | minor | Legacy DOC DIB conversion byte limits only; related #1334/#1554, stage and readiness estimates unchanged |
