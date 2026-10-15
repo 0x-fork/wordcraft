@@ -2830,3 +2830,29 @@ fn row_table_borders_round_trip() {
     let again = wordcraft_docx::read(&saved).unwrap();
     assert_eq!(d.body, again.body);
 }
+
+#[test]
+fn vml_textbox_style_anchor_and_fit() {
+    let body = r#"<w:p>
+        <w:r>
+            <w:pict>
+                <v:rect style="width:100pt;height:50pt">
+                    <v:textbox style="v-text-anchor:Middle;mso-fit-shape-to-text:True">
+                        <w:txbxContent>
+                            <w:p><w:r><w:t>Centered text</w:t></w:r></w:p>
+                        </w:txbxContent>
+                    </v:textbox>
+                </v:rect>
+            </w:pict>
+        </w:r>
+    </w:p>"#;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.first().unwrap().as_para().unwrap();
+    let story_id = match p.objects.first() {
+        Some(InlineObject::Shape { story: Some(id), .. }) => *id,
+        o => panic!("expected shape with story, got {o:?}"),
+    };
+    let tb = doc.parts.get(&story_id).unwrap();
+    assert_eq!(tb.body.anchor, wordcraft_doc::props::VAlign::Center);
+    assert!(tb.body.auto_fit);
+}
