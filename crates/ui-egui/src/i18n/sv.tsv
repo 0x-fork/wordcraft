@@ -2636,3 +2636,16 @@ preview	Title	Titel
 # Reading Mode column widths (#1040)
 	Narrow	Smal
 	Medium	Medel
+template	Letter	Brev
+	Style: APA	Stil: APA
+	➕ New comment	➕ Ny kommentar
+	📂  Browse…	📂  Bläddra…
+	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10,12" × 14,33"
+	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7,17" × 10,12"
+	Envelope #10   4.12" × 9.50"	Kuvert #10   4,12" × 9,50"
+	Envelope DL   4.33" × 8.66"	Kuvert DL   4,33" × 8,66"
+	Executive   7.25" × 10.50"	Executive   7,25" × 10,50"
+	Legal   8.50" × 14.00"	Legal   8,50" × 14,00"
+	Letter   8.50" × 11.00"	Letter   8,50" × 11,00"
+	Statement   5.50" × 8.50"	Statement   5,50" × 8,50"
+	Tabloid   11.00" × 17.00"	Tabloid   11,00" × 17,00"
