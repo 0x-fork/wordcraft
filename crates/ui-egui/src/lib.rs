@@ -1560,6 +1560,20 @@ impl WordApp {
         }
     }
 
+    /// Inserting a picture selects it, and the next insert would replace it. When several images
+    /// arrive in one drop, put the caret after the picture placed by the previous file (#1592).
+    fn caret_after_placed_picture(&mut self, placed: bool) {
+        if placed {
+            self.session.sel.anchor = self.session.sel.focus.clone();
+        }
+    }
+
+    /// Whether `r` placed a picture in the text (and selected it). One taken into a selected
+    /// Drawing Canvas leaves the canvas selected, so the next file of the drop joins it too.
+    fn placed_in_text(r: &Result<Value, String>) -> bool {
+        r.as_ref().is_ok_and(|v| v.get("canvasMember").is_none())
+    }
+
     /// A picked image replaces the pending Change Picture target, else it is inserted.
     fn insert_or_change_picture(&mut self, params: Value) -> Result<Value, String> {
         let target = std::mem::take(&mut self.change_picture_target);
@@ -1771,6 +1785,8 @@ impl WordApp {
             ctx.request_repaint();
         }
         #[cfg(not(target_arch = "wasm32"))]
+        let mut placed_picture = false;
+        #[cfg(not(target_arch = "wasm32"))]
         for f in ctx.input(|i| i.raw.dropped_files.clone()) {
             {
                 let path = f.path().to_string_lossy().to_string();
@@ -1778,7 +1794,10 @@ impl WordApp {
                 let img = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".wmf", ".emf"].iter().any(|e| lp.ends_with(e));
                 let sheet = wordcraft_engine::cmd::mailings::is_spreadsheet_name(&lp);
                 let _ = if img {
-                    self.run("insert.picture", json!({"path": path}))
+                    self.caret_after_placed_picture(placed_picture);
+                    let r = self.run("insert.picture", json!({"path": path}));
+                    placed_picture = Self::placed_in_text(&r);
+                    r
                 } else if sheet {
                     // A spreadsheet isn't a document: it's a recipient list (#334).
                     self.load_recipients(json!({"path": path}))
@@ -2025,6 +2044,7 @@ impl WordApp {
     fn drain_inbox(&mut self) {
         let Some(inbox) = self.services.inbox.clone() else { return };
         let files = std::mem::take(&mut *inbox.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut placed_picture = false;
         for (name, bytes) in files {
             let lower = name.to_ascii_lowercase();
             let img = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".wmf", ".emf"].iter().any(|e| lower.ends_with(e));
@@ -2040,7 +2060,10 @@ impl WordApp {
             } else if list {
                 self.load_recipients(json!({"csv": wordcraft_engine::io::decode_text(&bytes)}))
             } else if img {
-                self.insert_or_change_picture(json!({"data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}))
+                self.caret_after_placed_picture(placed_picture);
+                let r = self.insert_or_change_picture(json!({"data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}));
+                placed_picture = Self::placed_in_text(&r);
+                r
             } else {
                 self.run("file.open", json!({"path": name, "data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}))
             };
@@ -6068,6 +6091,36 @@ mod tests {
         assert_eq!(object_count(&mut a), 1);
         assert_ne!(a.selected_picture_media().unwrap(), before);
         assert!(a.change_picture_target.is_none());
+    }
+
+    /// Several images dropped together all stay in the document (#1592).
+    #[test]
+    fn several_dropped_images_are_all_inserted() {
+        let mut a = app();
+        a.services.inbox = Some(std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+        {
+            let mut q = a.services.inbox.as_ref().unwrap().lock().unwrap();
+            q.push(("a.png".into(), png_bytes([200, 30, 30, 255])));
+            q.push(("b.png".into(), png_bytes([30, 200, 30, 255])));
+        }
+        a.drain_inbox();
+        assert_eq!(object_count(&mut a), 2);
+    }
+
+    /// With a Drawing Canvas selected, every image of the drop goes into it (#1592).
+    #[test]
+    fn several_dropped_images_all_join_a_selected_canvas() {
+        let mut a = app();
+        a.services.inbox = Some(std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+        a.session.run("insert.canvas", &json!({})).unwrap();
+        {
+            let mut q = a.services.inbox.as_ref().unwrap().lock().unwrap();
+            q.push(("a.png".into(), png_bytes([200, 30, 30, 255])));
+            q.push(("b.png".into(), png_bytes([30, 200, 30, 255])));
+        }
+        a.drain_inbox();
+        let members = a.session.run("canvas.member", &json!({})).unwrap();
+        assert_eq!(members["members"].as_array().map(|m| m.len()), Some(2));
     }
 
     /// Without a pending change, inbox images insert; stale targets clear on selection change.
