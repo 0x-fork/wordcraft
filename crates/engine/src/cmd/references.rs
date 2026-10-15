@@ -904,6 +904,44 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
     update_toc(s)
 }
 
+/// Refresh every unlocked `DATE` and `TIME` field to now, as Word does whenever it shows,
+/// prints or exports a document: a letter written from a template carries today's date, not the
+/// date the template was last saved (#1672).
+///
+/// Only those two. `CREATEDATE`, `SAVEDATE` and `PRINTDATE` record when something happened and
+/// are not "now"; `REF`, `PAGEREF`, `TOC` and citations are refreshed on an explicit update
+/// (`fields.updateAll`) and not on open, again as Word does. A field carrying `w:fldLock` keeps
+/// its stored result, which is what the lock is for.
+pub fn refresh_date_fields(doc: &mut wordcraft_doc::Document) {
+    let stories: Vec<StoryRef> = std::iter::once(StoryRef::Body).chain(doc.parts.keys().copied().map(StoryRef::Part)).collect();
+    for story in stories {
+        for path in doc.para_paths(story) {
+            let Some(p) = doc.para(story, &path) else { continue };
+            let mut updates: Vec<(usize, String)> = Vec::new();
+            for (k, o) in p.objects.iter().enumerate() {
+                let InlineObject::Field { instr, locked: false, .. } = o else { continue };
+                let name = wordcraft_layout::fields::field_name(instr);
+                if !matches!(name.as_str(), "DATE" | "TIME") {
+                    continue;
+                }
+                // Word's default picture when the code carries no `\@` switch.
+                let pic = date_picture(instr).unwrap_or_else(|| if name == "TIME" { "h:mm am/pm".into() } else { "M/d/yyyy".into() });
+                updates.push((k, super::insert::format_date(&pic)));
+            }
+            if updates.is_empty() {
+                continue;
+            }
+            let Ok(para) = doc.para_mut(story, &path) else { continue };
+            for (k, r) in updates {
+                if let Some(InlineObject::Field { result, .. }) = para.objects.get_mut(k) {
+                    *result = r;
+                }
+            }
+            para.touch();
+        }
+    }
+}
+
 /// A field's `\@` date picture: the quoted text after it (switches may follow), or one word.
 pub fn date_picture(instr: &str) -> Option<String> {
     let rest = instr.split_once("\\@")?.1.trim_start();
