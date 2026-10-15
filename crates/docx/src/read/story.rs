@@ -1462,6 +1462,35 @@ impl Reader<'_> {
                 extra: Default::default(),
             });
         }
+        // A freeform: its `path`, in its `coordsize` space; a `v:fill` with no opacity
+        // or `nf` in the path leaves it unfilled. Not WordArt (`v:textpath`).
+        if shape.local() == "shape"
+            && shape.child("v:textpath").is_none()
+            && let Some(path) = shape.attr("path")
+            && let Some(vp) = super::freeform::vml_path(path, shape.attr("coordsize"), shape.attr("coordorigin"), w, h)
+        {
+            let opacity = |el: &str| shape.child(el).and_then(|e| e.attr("opacity")).and_then(vml_fraction).unwrap_or(1.0);
+            let fill = fill.filter(|_| !vp.no_fill && opacity("v:fill") > 0.0);
+            let stroke = stroke.filter(|_| !vp.no_stroke);
+            if stroke.is_none() && fill.is_none() {
+                return None;
+            }
+            let mut f = vp.freeform;
+            f.alpha = opacity("v:stroke");
+            return Some(InlineObject::Shape {
+                kind: ShapeKind::Freeform,
+                w,
+                h,
+                fill,
+                stroke,
+                stroke_width,
+                float,
+                story: None,
+                freeform: Some(Arc::new(f)),
+                effects: Default::default(),
+                extra: Default::default(),
+            });
+        }
         let kind = kind?;
         let mut extra = ShapeExtra::default();
         if kind == ShapeKind::Line {
