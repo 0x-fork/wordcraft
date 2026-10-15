@@ -2331,6 +2331,79 @@ fn imported_range_toc_is_refreshed_in_place() {
     }
 }
 
+/// A TOC as Word and other writers lay it out (a TOC heading, then the field in paragraphs of its
+/// own), styles with a number tab stop and a hanging indent, and a wider last section with the
+/// caret in it (Select All, Update Field): no blank line between the heading and the entries,
+/// and every page number at the TOC section's right margin, after its leader: short entries,
+/// entries that wrap, and level-one entries whose style has no stops of its own.
+#[test]
+fn toc_page_numbers_reach_the_right_margin() {
+    use wordcraft_doc::para::InlineObject;
+    use wordcraft_doc::props::{CharProps, TabAlign, TabLeader, TabStop};
+    let long = "A deliberately long section title that does not fit on one line of the table of contents and wraps onto a second line";
+    let mut d = wordcraft_doc::Document::from_text(&format!("Contents\n\nNo entries.\n\nShort\n{long}\nTop\nAppendix"));
+    {
+        let toc2 = d.styles.get_mut("TOC2").unwrap();
+        toc2.para.tabs = Some(vec![
+            TabStop { pos: 77.0, align: TabAlign::Left, leader: TabLeader::None },
+            TabStop { pos: 467.2, align: TabAlign::Right, leader: TabLeader::Dot },
+        ]);
+        toc2.para.indent_left = Some(36.9);
+        toc2.para.indent_first = Some(-22.7);
+        let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(1)).unwrap();
+        p.insert_object(0, InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false }, &CharProps::default()).unwrap();
+        let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(3)).unwrap();
+        p.insert_object(0, InlineObject::FieldEnd, &CharProps::default()).unwrap();
+    }
+    let mut s = Session::new(d);
+    run(&mut s, "caret.set", json!({"pos": Pos::body(0, 0)}));
+    run(&mut s, "styles.apply", json!({"style": "TOC Heading"}));
+    run(&mut s, "caret.set", json!({"pos": Pos::body(1, 0)}));
+    run(&mut s, "styles.apply", json!({"style": "TOC 1"}));
+    for (i, style) in [(4, "Heading 2"), (5, "Heading 2"), (6, "Heading 1"), (7, "Heading 1")] {
+        run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
+        run(&mut s, "styles.apply", json!({"style": style}));
+    }
+    run(&mut s, "caret.set", json!({"pos": Pos::body(7, 0)}));
+    run(&mut s, "layout.break", json!({"kind": "nextPage"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "layout.orientation", json!({"value": "landscape"}));
+    // Through DOCX, as an imported file is.
+    let bytes = wordcraft_docx::write(&s.doc).unwrap();
+    s = Session::new(wordcraft_docx::read(&bytes).unwrap());
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "references.updateFields", json!({}));
+
+    let body: Vec<(String, String)> =
+        s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| (p.props.style.clone().unwrap_or_default(), p.plain_text())).collect();
+    assert_eq!(body[0], ("TOCHeading".into(), "Contents".into()), "{body:?}");
+    assert!(body[1].0.starts_with("TOC") && !body[1].1.is_empty(), "the first entry right under the heading: {body:?}");
+    let toc_width = s.doc.sections()[0].1.text_width();
+    let margin = s.doc.sections()[0].1.margin_left;
+    let l = s.layout();
+    for (i, b) in s.doc.body.iter().enumerate() {
+        let Some(p) = b.as_para() else { continue };
+        if !p.props.style.as_deref().is_some_and(|st| st.starts_with("TOC") && st != "TOCHeading") {
+            continue;
+        }
+        let page = p.text.rfind('\t').unwrap() + 1;
+        let end = l.caret(&Pos::body(i, p.len())).unwrap();
+        let number = l.caret(&Pos::body(i, page)).unwrap();
+        assert!(
+            (end.x - (margin + toc_width)).abs() < 2.0,
+            "{:?}: page number ends at {} (right margin {})",
+            p.plain_text(),
+            end.x,
+            margin + toc_width
+        );
+        assert!(end.page == number.page && number.x > margin + toc_width - 30.0, "{:?}: page number at {}", p.plain_text(), number.x);
+    }
+    // Updating again keeps the same table.
+    let before = text(&s);
+    run(&mut s, "references.updateToc", json!({}));
+    assert_eq!(text(&s), before);
+}
+
 #[test]
 fn toc_page_numbers_follow_headings() {
     let mut s = s();
