@@ -12,15 +12,17 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("review.newComment", "New Comment", "Review › Comments", new_comment).key(super::mac_or("Mod+Alt+A / Mod+Alt+M", "Mod+Alt+M")).params(r#"{"text": string}"#),
-        CommandSpec::new("review.reply", "Reply", "Review › Comments", reply).params(r#"{"id": n, "text": string}"#),
-        CommandSpec::new("review.editComment", "Edit Comment", "Review › Comments", edit_comment).params(r#"{"id": n, "text": string}"#),
-        CommandSpec::new("review.deleteComment", "Delete", "Review › Comments", delete_comment).params(r#"{"id"?: n, "all"?: bool}"#),
+        CommandSpec::new("review.reply", "Reply", "Review › Comments", reply).params(r#"{"id": non-negative JSON integer, "text": string}"#),
+        CommandSpec::new("review.editComment", "Edit Comment", "Review › Comments", edit_comment).params(r#"{"id": non-negative JSON integer, "text": string}"#),
+        CommandSpec::new("review.deleteComment", "Delete", "Review › Comments", delete_comment).params(r#"{"id"?: non-negative JSON integer (omit to use the caret), "all"?: bool}"#),
         CommandSpec::new("review.resolveComment", "Resolve", "Review › Comments", |s, v| {
+            validate_comment_id(v)?;
             let id = p::u64(v, "id").map(|x| x as u32).or_else(|| comment_at_caret(s)).ok_or_else(|| CmdError::Params("`id` required".into()))?;
             let c = s.doc.comments.get_mut(&id).ok_or_else(|| CmdError::Params("no such comment".into()))?;
             c.resolved = p::bool(v, "value").unwrap_or(!c.resolved);
             sel_result(s)
-        }),
+        })
+        .params(r#"{"id"?: non-negative JSON integer (omit to use the caret), "value"?: bool (omit to toggle)}"#),
         CommandSpec::new("review.nextComment", "Next", "Review › Comments", |s, _| nav_comment(s, 1)).pure(),
         CommandSpec::new("review.previousComment", "Previous", "Review › Comments", |s, _| nav_comment(s, -1)).pure(),
         CommandSpec::new("review.comments", "Show Comments", "Review › Comments", list_comments).pure(),
@@ -144,7 +146,17 @@ fn new_comment(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"id": id, "story": part}))
 }
 
+/// An omitted ID permits caret targeting; an explicit malformed value must not.
+/// Unlike the general numeric parameter helper, comment IDs never coerce floats.
+fn validate_comment_id(v: &Value) -> Result<(), CmdError> {
+    if v.get("id").is_some_and(|id| id.as_u64().is_none()) {
+        return Err(CmdError::Params("`id` must be a non-negative JSON integer".into()));
+    }
+    Ok(())
+}
+
 fn reply(s: &mut Session, v: &Value) -> CmdResult {
+    validate_comment_id(v)?;
     let parent = p::u64(v, "id").map(|x| x as u32).ok_or_else(|| CmdError::Params("`id` required".into()))?;
     if !s.doc.comments.contains_key(&parent) {
         return Err(CmdError::Params("no such comment".into()));
@@ -168,6 +180,7 @@ fn comment_id(s: &Session) -> Result<u32, CmdError> {
 
 /// Replace a comment's (or reply's) text; each line becomes a paragraph.
 fn edit_comment(s: &mut Session, v: &Value) -> CmdResult {
+    validate_comment_id(v)?;
     let id = p::u64(v, "id").and_then(|x| u32::try_from(x).ok()).ok_or_else(|| CmdError::Params("`id` required".into()))?;
     let text = p::req_str(v, "text")?;
     let part = s.doc.comments.get(&id).map(|c| c.part).ok_or_else(|| CmdError::Params("no such comment".into()))?;
@@ -258,6 +271,7 @@ fn thread_of(s: &Session, id: u32) -> Vec<u32> {
 }
 
 fn delete_comment(s: &mut Session, v: &Value) -> CmdResult {
+    validate_comment_id(v)?;
     let ids: Vec<u32> = if p::bool(v, "all").unwrap_or(false) {
         s.doc.comments.keys().copied().collect()
     } else {

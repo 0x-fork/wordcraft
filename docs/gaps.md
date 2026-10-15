@@ -20,6 +20,10 @@ establish cross-platform reliability.
 
 Document renaming: desktop renaming requires a filesystem that supports hard links (exFAT/FAT drives and some network shares refuse it). Behaviour: [UI parity](ui-parity.md).
 
+> **Comment command update:** 2026-10-14 · malformed explicit IDs rejected; synthetic refusal, undo/redo and DOCX save/reopen checks (#1690 finding 3). Readiness estimates unchanged.
+
+Comment command safety (#1690, finding 3): Delete, Resolve, Reply and Edit reject explicit fractional, negative or wrong-type IDs before editing, rather than truncating floats or using the caret. Synthetic tests cover refusal without document or history changes, valid operations with undo/redo and repeated DOCX saves. This narrows the data-path risks in gap #3; the other audit findings and broader stability gate are outside this change; oversized integer conversion is being addressed in open PR #1787.
+
 ## Ranked
 
 | # | Gap | B | Evidence | Impact | Hours | Doc |
@@ -103,6 +107,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 | 2026-10-13 | trivial | Row 1: Word's text watermark in DOCX headers is drawn (#1290) |
 | 2026-10-12 | trivial | Re-audited every row against main: #9 narrowed to encrypted `.doc` (#281), #15 sources saved in DOCX (#790), #10 group landed (#267), #11 French landed (#729), #12 Draw 10/11, #16 #215 closed, #17 `para.asianTypography` live, #3 closed reports and 197 open issues, #8/#19/#21/#25/#27 open PRs named, evidence counts refreshed |
 | 2026-10-12 | trivial | Document title opens Rename Document; the account badge opens Options › General for user name and initials. |
+| 2026-10-14 | trivial | Comment commands reject malformed explicit IDs instead of truncating floats or targeting the caret (#1690, finding 3); synthetic command, undo/redo and DOCX save/reopen coverage; readiness estimates unchanged |
 | 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |
 | 2026-10-13 | trivial | #18: Windows Magnifier follows the caret onto a new line after Enter or Shift+Enter (#1119); real screen-reader testing remains |
 | 2026-10-12 | trivial | Sample-text formulas on Enter (#1067) implemented; numerical limits not compared in Word |
