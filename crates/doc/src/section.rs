@@ -721,6 +721,10 @@ pub struct SectionProps {
     pub title_page: bool,
     pub page_num_start: Option<u32>,
     pub page_num_format: NumFormat,
+    /// The file carries a `w:pgNumType` element that sets nothing else (no start, decimal
+    /// format), so saving writes it back rather than dropping it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub page_num_set: bool,
     pub line_numbers: Option<LineNumbering>,
     pub valign: PageVAlign,
     pub page_borders: Option<Borders>,
@@ -763,6 +767,7 @@ impl Default for SectionProps {
             title_page: false,
             page_num_start: None,
             page_num_format: NumFormat::Decimal,
+            page_num_set: false,
             line_numbers: None,
             valign: PageVAlign::Top,
             page_borders: None,

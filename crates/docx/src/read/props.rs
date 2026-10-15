@@ -655,6 +655,7 @@ pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
                 if let Some(f) = k.attr("w:fmt") {
                     s.page_num_format = NumFormat::from_ooxml(f);
                 }
+                s.page_num_set = s.page_num_start.is_none() && s.page_num_format == NumFormat::Decimal;
             }
             "w:lnNumType" => {
                 let mut l = LineNumbering::default();
