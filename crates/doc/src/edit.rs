@@ -23,16 +23,27 @@ pub struct Fragment {
 
 impl Fragment {
     pub fn plain_text(&self) -> String {
+        self.to_document().plain_text(crate::StoryRef::Body)
+    }
+    /// The fragment as the body of a new document (default styles).
+    pub fn to_document(&self) -> Document {
         let mut d = Document::new();
         d.body = self.blocks.iter().cloned().map(Arc::new).collect();
-        d.plain_text(crate::StoryRef::Body)
+        d
+    }
+    /// Whether the fragment holds an equation (in tables too), which a copy also puts on the
+    /// system clipboard as MathML (#816).
+    pub fn has_equation(&self) -> bool {
+        let mut found = false;
+        for b in &self.blocks {
+            each_para(b, 0, &mut |p| found |= p.objects.iter().any(|o| matches!(o, InlineObject::Equation { .. })));
+        }
+        found
     }
     /// The text a copy puts on the clipboard: [`Self::plain_text`] with symbol-font characters
     /// (Wingdings…) as their Unicode equivalents.
     pub fn clipboard_text(&self) -> String {
-        let mut d = Document::new();
-        d.body = self.blocks.iter().cloned().map(Arc::new).collect();
-        d.shown_text(crate::StoryRef::Body)
+        self.to_document().shown_text(crate::StoryRef::Body)
     }
     pub fn from_text(s: &str) -> Fragment {
         let lines: Vec<&str> = s.split('\n').collect();
@@ -297,7 +308,8 @@ impl Document {
         self.para_paths(a.story).into_iter().filter(|p| *p >= a.path && *p <= b.path).collect()
     }
 
-    /// Delete `a..b`. Returns the position where the deletion collapsed to.
+    /// Delete `a..b`. Returns the position where the deletion collapsed to. On error the document
+    /// is unchanged: both ends are checked before anything is deleted.
     pub fn delete_range(&mut self, a: &Pos, b: &Pos) -> Result<Pos> {
         let (a, b) = order(a, b);
         if a == b {
@@ -305,6 +317,14 @@ impl Document {
         }
         if a.story != b.story {
             return Err(DocError::Invalid("range spans stories".into()));
+        }
+        // Check both ends before the first edit, so an error never leaves the document half-deleted.
+        for p in [&a, &b] {
+            match self.para(p.story, &p.path) {
+                Some(para) if para.clamp(p.off) == p.off => {}
+                Some(_) => return Err(DocError::BadOffset(p.off)),
+                None => return Err(DocError::BadPath(p.path.to_string())),
+            }
         }
         // Content control markers whose partner is outside the range stay (the control is
         // emptied, not broken).
@@ -376,6 +396,27 @@ impl Document {
                 if matches!(bl.get(i).map(|b| &**b), Some(Block::Table(_))) {
                     bl.remove(i);
                 }
+            }
+        }
+        // From the very start of a top-level table to a top-level paragraph (Select All in a
+        // document that starts with a table, #1198): the tables are covered whole and go too,
+        // and the paragraphs left between join.
+        if a.path.depth() > 0 && b.path.depth() == 0 && a.off == 0 {
+            let ta = a.path.0.first().copied().unwrap_or(0) as usize;
+            let first = self.para_paths(a.story).into_iter().find(|q| q.0.first().is_some_and(|t| *t as usize == ta));
+            if first.as_ref() == Some(&a.path) {
+                let ib = b.path.last();
+                let bl = self.container_mut(a.story, &b.path)?;
+                let mut removed = 0;
+                for i in (ta..ib).rev() {
+                    if matches!(bl.get(i).map(|b| &**b), Some(Block::Table(_))) {
+                        bl.remove(i);
+                        removed += 1;
+                    }
+                }
+                let at = Pos { story: a.story, path: Path::top(ta), off: 0 };
+                let end = Pos { story: a.story, path: Path::top(ib.saturating_sub(removed)), off: 0 };
+                return self.delete_range(&at, &end);
             }
         }
         Ok(a)
@@ -653,6 +694,30 @@ mod tests {
         let at = d.delete_range(&Pos::body(0, 5), &Pos::body(1, 0)).unwrap();
         assert_eq!(at, Pos::body(0, 5));
         assert_eq!(d.plain_text(StoryRef::Body), "Hello world");
+    }
+
+    #[test]
+    fn delete_range_with_bad_end_leaves_document_unchanged() {
+        let mut d = doc(&["one", "two", "three"]);
+        let before = d.plain_text(StoryRef::Body);
+        // Missing paragraph as the second end.
+        assert!(d.delete_range(&Pos::body(0, 1), &Pos::body(9, 0)).is_err());
+        assert_eq!(d.plain_text(StoryRef::Body), before);
+        // Offset past the end of the second paragraph.
+        assert!(d.delete_range(&Pos::body(0, 1), &Pos::body(1, 99)).is_err());
+        assert_eq!(d.plain_text(StoryRef::Body), before);
+        // Offset inside a multi-byte character.
+        let mut d = doc(&["abc", "\u{e9}x"]);
+        assert!(d.delete_range(&Pos::body(0, 1), &Pos::body(1, 1)).is_err());
+        assert_eq!(d.plain_text(StoryRef::Body), "abc\n\u{e9}x");
+        // Range entering a table with a bad offset at its start: the cell text stays.
+        let mut d = doc(&["before", "after"]);
+        d.insert_block(StoryRef::Body, &Path::top(1), Block::Table(Table::new(2, 1, 200.0))).unwrap();
+        d.insert_text(&Pos { story: StoryRef::Body, path: Path(vec![1, 0, 0, 0]), off: 0 }, "x", &CharProps::default()).unwrap();
+        let before = d.plain_text(StoryRef::Body);
+        let cell = Pos { story: StoryRef::Body, path: Path(vec![1, 1, 0, 0]), off: 0 };
+        assert!(d.delete_range(&Pos::body(0, 99), &cell).is_err());
+        assert_eq!(d.plain_text(StoryRef::Body), before);
     }
 
     #[test]
