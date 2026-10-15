@@ -5984,6 +5984,35 @@ fn insert_picture_takes_a_windows_metafile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Change Picture must keep the replacement's own format: the part's name and content type
+/// come from the extension, so a JPEG stored as `imageN.png` saves declared `image/png` (Word
+/// and LibreOffice then show a broken picture).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn picture_change_keeps_the_replacement_format() {
+    let dir = scratch_dir("picture-change-format");
+    let first = dir.join("first.png");
+    std::fs::write(&first, tiny_png()).unwrap();
+    let mut jpeg = Vec::new();
+    image::RgbImage::from_pixel(2, 2, image::Rgb([30, 30, 200])).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+    let second = dir.join("second.jpg");
+    std::fs::write(&second, &jpeg).unwrap();
+
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "insert.picture", json!({"path": first.to_string_lossy()}));
+    run(&mut s, "picture.change", json!({"path": second.to_string_lossy()}));
+    let mut media = String::new();
+    s.doc.objects_in_reading_order(&mut |o| {
+        if let wordcraft_doc::para::InlineObject::Image { media: m, .. } = o {
+            media = m.clone();
+        }
+    });
+    assert!(media.ends_with(".jpeg") || media.ends_with(".jpg"), "the JPEG keeps its format: {media}");
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    assert_eq!(back.media.get(&media).map(|b| b.as_slice()), Some(jpeg.as_slice()), "the saved part is the JPEG");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn json_open_repairs_hostile_run_lengths() {
     use wordcraft_doc::{Block, Document};
