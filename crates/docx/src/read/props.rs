@@ -650,6 +650,7 @@ pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
             }
             "w:footnotePr" => s.footnote_pr = note_pr(k, true),
             "w:endnotePr" => s.endnote_pr = note_pr(k, true),
+            "w:formProt" => s.form_prot = Some(on_off(k)),
             "w:titlePg" => s.title_page = on_off(k),
             "w:bidi" => s.rtl = on_off(k),
             "w:textDirection" => {
