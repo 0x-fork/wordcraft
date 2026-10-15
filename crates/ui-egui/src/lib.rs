@@ -469,6 +469,9 @@ pub struct WordApp {
     /// CJK text is (about to be) on screen in a non-CJK interface, e.g. the language names in
     /// File ▸ Options: load the installed CJK fallback font if no embedded face covers it.
     pub(crate) want_system_cjk: bool,
+    /// The document (id, revision) whose comment text [`WordApp::ensure_comment_fonts`] last
+    /// looked at.
+    comment_fonts_for: Option<(u64, u64)>,
     fonts_frames: u32,
     /// The effective interface theme last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
@@ -595,6 +598,7 @@ impl WordApp {
             fonts_korean: false,
             fonts_system_cjk: false,
             want_system_cjk: false,
+            comment_fonts_for: None,
             fonts_frames: 0,
             applied_theme: None,
             native_scale: 1.0,
@@ -1678,6 +1682,35 @@ impl WordApp {
         }
     }
 
+    /// Comment balloons and the Comments pane draw comment text and author names with the
+    /// interface faces, which have no Arabic, Hebrew, Thai …: each such letter was drawn as a box.
+    /// Borrow the document fonts' fallback faces for them, as the caption does. Looked at once per
+    /// document revision; CJK text uses the CJK UI font instead.
+    fn ensure_comment_fonts(&mut self) {
+        let key = (self.session.document_id(), self.session.rev());
+        if self.comment_fonts_for == Some(key) {
+            return;
+        }
+        self.comment_fonts_for = Some(key);
+        let doc = &self.session.doc;
+        let mut chars = std::collections::BTreeSet::new();
+        for c in doc.comments.values() {
+            chars.extend(c.author.chars());
+            chars.extend(doc.plain_text(wordcraft_doc::StoryRef::Part(c.part)).chars());
+        }
+        if chars.iter().any(|c| wordcraft_fonts::is_cjk(*c)) {
+            self.want_system_cjk = true;
+        }
+        let text: String = chars.into_iter().collect();
+        let new = theme::faces_for_preedit(&text, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
+            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
+        });
+        if !new.is_empty() {
+            self.canvas.ime_faces.extend(new);
+            self.styled = false;
+        }
+    }
+
     /// Document title for the title bar (and the suggested file name). An untitled document is
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
@@ -1724,6 +1757,7 @@ impl WordApp {
         // language names in Options, or a file name the caption is drawing. A file opened later
         // in this frame (dialog, drop, control channel) is picked up again at the end.
         self.ensure_caption_fonts();
+        self.ensure_comment_fonts();
         self.install_ui_fonts(ctx, lang);
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
@@ -1833,6 +1867,7 @@ impl WordApp {
         }
         // The open above may have changed the file name the caption draws.
         self.ensure_caption_fonts();
+        self.ensure_comment_fonts();
         self.install_ui_fonts(ctx, lang);
         self.report_dirty();
     }
@@ -2494,6 +2529,36 @@ mod tests {
         frame(&mut cjk);
         assert!(cjk.want_system_cjk, "a CJK file name loads the CJK UI font");
         assert!(cjk.canvas.ime_faces.is_empty(), "CJK collections are not copied into the fallback list");
+    }
+
+    /// Comment balloons draw comment text and author names with the interface faces, which have
+    /// no Arabic, so an Arabic comment was all boxes. A document with one borrows a document
+    /// fallback face that covers it, once per document revision.
+    #[test]
+    fn arabic_comment_text_is_drawn_in_the_balloons() {
+        let ctx = egui::Context::default();
+        let frame = |app: &mut WordApp| {
+            ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+        };
+        let mut latin = app();
+        latin.run("text.insert", json!({"text": "Scope of works"})).unwrap();
+        latin.run("select.text", json!({"text": "Scope"})).unwrap();
+        latin.run("review.newComment", json!({"text": "Please check"})).unwrap();
+        frame(&mut latin);
+        assert!(latin.canvas.ime_faces.is_empty(), "a Latin comment needs no extra face");
+
+        let mut arabic = app();
+        arabic.run("text.insert", json!({"text": "Scope of works"})).unwrap();
+        arabic.run("select.text", json!({"text": "Scope"})).unwrap();
+        arabic.run("review.newComment", json!({"text": "لتحديد نطاق الأعمال"})).unwrap();
+        frame(&mut arabic);
+        let letter = 'ن';
+        if wordcraft_fonts::FontDb::global().fallback_for(letter, u32::MAX).is_some_and(|f| f.data().len() <= 16 << 20) {
+            assert!(arabic.canvas.ime_faces.iter().any(|f| f.covers(letter)), "the balloons borrow a face that covers the comment");
+        }
+        let n = arabic.canvas.ime_faces.len();
+        frame(&mut arabic);
+        assert_eq!(arabic.canvas.ime_faces.len(), n, "the face is added once");
     }
 
     fn app() -> WordApp {
