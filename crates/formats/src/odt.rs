@@ -40,6 +40,8 @@ const MAX_OPEN_INSERTIONS: usize = 64;
 /// Longest change author or date kept, in characters.
 const MAX_INFO_CHARS: usize = 256;
 
+mod page_parts;
+
 // ---------------------------------------------------------------------------------------------
 // Export
 
@@ -1351,6 +1353,81 @@ struct Body<'a> {
     active_ins: Vec<(String, RevMark)>,
 }
 
+impl<'a> Body<'a> {
+    fn new(styles: &'a Styles, pages: &'a Pages, zip: &'a mut dyn FnMut(&str) -> Option<Vec<u8>>) -> Self {
+        let page = pages.first.clone().unwrap_or_default();
+        Body {
+            styles,
+            zip,
+            containers: vec![Vec::new()],
+            fmt: Vec::new(),
+            para: None,
+            para_cont: false,
+            lists: Vec::new(),
+            lists_saved: Vec::new(),
+            item_used: Vec::new(),
+            tables: Vec::new(),
+            cells: Vec::new(),
+            in_text: false,
+            skip: 0,
+            depth: 0,
+            frame: None,
+            in_desc: false,
+            pages,
+            sec: page.clone(),
+            page,
+            sec_from: 0,
+            sections: 0,
+            cols_at: None,
+            in_tc: false,
+            track: None,
+            regions: HashMap::new(),
+            region_count: 0,
+            region: None,
+            info_at: None,
+            info_field: None,
+            del: None,
+            active_ins: Vec::new(),
+        }
+    }
+
+    fn feed(&mut self, ev: Ev) {
+        match ev {
+            Ev::Start(q, a) => {
+                if self.depth < MAX_XML_DEPTH {
+                    self.start(&q, &a);
+                } else {
+                    self.depth += 1;
+                }
+            }
+            Ev::End(q) => {
+                if self.depth <= MAX_XML_DEPTH {
+                    self.end(&q);
+                } else {
+                    self.depth -= 1;
+                }
+            }
+            Ev::Text(t) => self.text(&t),
+        }
+    }
+
+    /// The blocks read, with anything still open closed.
+    fn take_blocks(&mut self) -> Vec<FBlock> {
+        self.end_para();
+        while self.containers.len() > 1 {
+            let c = self.containers.pop().unwrap_or_default();
+            self.container().extend(c);
+        }
+        let mut blocks = self.containers.pop().unwrap_or_default();
+        for t in self.tables.drain(..) {
+            if !t.rows.is_empty() {
+                blocks.push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+            }
+        }
+        blocks
+    }
+}
+
 impl Body<'_> {
     fn container(&mut self) -> &mut Vec<FBlock> {
         if self.containers.is_empty() {
@@ -2139,11 +2216,11 @@ pub fn parse(bytes: &[u8]) -> Result<Flow, String> {
 
 /// [`parse`], with the last section's properties (the others are on the paragraphs that end them).
 fn parse_full(bytes: &[u8]) -> Result<(Flow, SectionProps), String> {
-    parse_tracked(bytes).map(|(f, last, _)| (f, last))
+    parse_tracked(bytes).map(|(f, last, ..)| (f, last))
 }
 
 /// [`parse_full`], plus whether change tracking is on (`None`: the document has no tracked changes).
-fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), String> {
+fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>, page_parts::Parts), String> {
     let mut z = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("ODT: not a valid package ({e})"))?;
     if let Some(mt) = read_entry(&mut z, "mimetype") {
         let mt = String::from_utf8_lossy(&mt);
@@ -2154,11 +2231,11 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
     let content = read_entry(&mut z, "content.xml").ok_or("ODT: content.xml is missing")?;
     let mut styles = Styles::default();
     let mut pages = Pages::default();
-    if let Some(s) = read_entry(&mut z, "styles.xml") {
-        styles.read(&s, false);
-        pages = read_pages(&s);
+    let styles_xml = read_entry(&mut z, "styles.xml");
+    if let Some(s) = &styles_xml {
+        styles.read(s, false);
+        pages = read_pages(s);
     }
-    let page = pages.first.clone().unwrap_or_default();
     styles.read(&content, true);
     let meta = read_entry(&mut z, "meta.xml").map(|m| read_meta(&m)).unwrap_or_default();
     let mut pictures = Pictures::new(MAX_ENTRY);
@@ -2166,67 +2243,10 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
         // A frame may point at any entry, as often as it likes: `Pictures` keeps that bounded.
         pictures.get(&mut z, path)
     };
-    let mut body = Body {
-        styles: &styles,
-        zip: &mut fetch,
-        containers: vec![Vec::new()],
-        fmt: Vec::new(),
-        para: None,
-        para_cont: false,
-        lists: Vec::new(),
-        lists_saved: Vec::new(),
-        item_used: Vec::new(),
-        tables: Vec::new(),
-        cells: Vec::new(),
-        in_text: false,
-        skip: 0,
-        depth: 0,
-        frame: None,
-        in_desc: false,
-        pages: &pages,
-        sec: page.clone(),
-        page,
-        sec_from: 0,
-        sections: 0,
-        cols_at: None,
-        in_tc: false,
-        track: None,
-        regions: HashMap::new(),
-        region_count: 0,
-        region: None,
-        info_at: None,
-        info_field: None,
-        del: None,
-        active_ins: Vec::new(),
-    };
-    events(&content, |ev| match ev {
-        Ev::Start(q, a) => {
-            if body.depth < MAX_XML_DEPTH {
-                body.start(&q, &a);
-            } else {
-                body.depth += 1;
-            }
-        }
-        Ev::End(q) => {
-            if body.depth <= MAX_XML_DEPTH {
-                body.end(&q);
-            } else {
-                body.depth -= 1;
-            }
-        }
-        Ev::Text(t) => body.text(&t),
-    });
-    body.end_para();
-    while body.containers.len() > 1 {
-        let c = body.containers.pop().unwrap_or_default();
-        body.container().extend(c);
-    }
-    let mut blocks = body.containers.pop().unwrap_or_default();
-    for t in body.tables.drain(..) {
-        if !t.rows.is_empty() {
-            blocks.push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
-        }
-    }
+    let parts = styles_xml.as_deref().map(|x| page_parts::read(x, &styles, &mut pages, &mut fetch)).unwrap_or_default();
+    let mut body = Body::new(&styles, &pages, &mut fetch);
+    events(&content, |ev| body.feed(ev));
+    let mut blocks = body.take_blocks();
     // An open section with nothing in it (after a column section at the end) isn't one: the
     // section before it ends the document.
     let mut last = body.sec;
@@ -2240,14 +2260,15 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
         blocks.push(FBlock::Para(Para::default()));
     }
     let track = body.track;
-    Ok((Flow { blocks, meta }, last, track))
+    Ok((Flow { blocks, meta }, last, track, parts))
 }
 
 /// Parse an `.odt` package into a document.
 pub fn import(bytes: &[u8]) -> Result<Document, String> {
-    let (flow, last, track) = parse_tracked(bytes)?;
+    let (flow, last, track, parts) = parse_tracked(bytes)?;
     let mut doc = model::to_doc(&flow);
     doc.last_section = last;
+    page_parts::add(&mut doc, parts);
     if let Some(t) = track {
         doc.settings.track_changes = t;
     }
@@ -2260,6 +2281,7 @@ pub fn import(bytes: &[u8]) -> Result<Document, String> {
 struct Pages {
     masters: HashMap<String, SectionProps>,
     first: Option<SectionProps>,
+    first_name: Option<String>,
 }
 
 fn read_pages(xml: &[u8]) -> Pages {
@@ -2311,6 +2333,7 @@ fn read_pages(xml: &[u8]) -> Pages {
         }
         if pages.first.is_none() {
             pages.first = Some(sec.clone());
+            pages.first_name = Some(name.clone());
         }
         pages.masters.entry(name).or_insert(sec);
     }
@@ -2608,6 +2631,87 @@ mod tests {
             </office:text></office:body></office:document-content>"#
         );
         package(&content, Some(&styles))
+    }
+
+    fn part_text(d: &Document, id: Option<u32>) -> String {
+        d.plain_text(wordcraft_doc::StoryRef::Part(id.expect("part")))
+    }
+
+    #[test]
+    fn headers_and_footers_follow_their_master_page() {
+        // #863: headers and footers live on the master pages in styles.xml.
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:automatic-styles>
+            <style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout>
+            <style:page-layout style:name="pW"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm"/></style:page-layout>
+            <style:style style:name="MP1" style:family="paragraph"><style:text-properties fo:font-weight="bold"/></style:style>
+            </office:automatic-styles><office:master-styles>
+            <style:master-page style:name="Upright" style:page-layout-name="pU">
+            <style:header><text:p text:style-name="MP1">ACME <text:span>Letterhead</text:span></text:p></style:header>
+            <style:header-left><text:p>Left page</text:p></style:header-left>
+            <loext:header-first><text:p>First page</text:p></loext:header-first>
+            <style:footer><text:p>Page <text:page-number text:select-page="current">1</text:page-number></text:p></style:footer>
+            <style:footer-left style:display="false"><text:p>Hidden</text:p></style:footer-left>
+            </style:master-page>
+            <style:master-page style:name="Wide" style:page-layout-name="pW"><style:header><text:p>Wide header</text:p></style:header></style:master-page>
+            </office:master-styles></office:document-styles>"#
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles>
+            <style:style style:name="PWide" style:family="paragraph" style:master-page-name="Wide"/>
+            </office:automatic-styles><office:body><office:text>
+            <text:p>Upright body</text:p><text:p text:style-name="PWide">Wide body</text:p>
+            </office:text></office:body></office:document-content>"#
+        );
+        let d = import(&package(&content, Some(&styles))).unwrap();
+        let secs = d.sections();
+        assert_eq!(secs.len(), 2);
+        let (up, wide) = (&secs[0].1, &secs[1].1);
+        assert_eq!(part_text(&d, up.headers.default), "ACME Letterhead");
+        assert_eq!(part_text(&d, up.headers.even), "Left page");
+        assert_eq!(part_text(&d, up.headers.first), "First page");
+        assert_eq!(part_text(&d, up.footers.default), "Page 1");
+        assert!(up.title_page && d.settings.even_odd_headers);
+        // The hidden left footer: left pages show the right pages' footer.
+        assert_eq!((up.footers.even, up.footers.first), (up.footers.default, None));
+        assert_eq!(part_text(&d, wide.headers.default), "Wide header");
+        assert_eq!((wide.headers.even, wide.title_page), (wide.headers.default, false));
+        // Its master page has no footer: an empty one, not the previous section's.
+        assert_eq!(part_text(&d, wide.footers.default), "");
+        assert_eq!(d.parts.len(), 6);
+        let id = up.headers.default.unwrap();
+        let Some(wordcraft_doc::Block::Para(p)) = d.parts[&id].blocks.first().map(|b| &**b) else { panic!("no header paragraph") };
+        assert!(p.runs.iter().all(|r| r.props.bold == Some(true)), "{:?}", p.runs);
+    }
+
+    #[test]
+    fn documents_without_headers_get_none() {
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>Body</text:p></office:text></office:body></office:document-content>"#
+        );
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>"#
+        );
+        for d in [import(&package(&content, Some(&styles))).unwrap(), import(&package(&content, None)).unwrap()] {
+            assert!(d.parts.is_empty());
+            assert_eq!(d.last_section.headers, Default::default());
+            assert!(!d.last_section.title_page && !d.settings.even_odd_headers);
+        }
+    }
+
+    #[test]
+    fn deeply_nested_header_content_does_not_panic() {
+        let n = 4 * MAX_XML_DEPTH;
+        let (open, close) = ("<text:span>".repeat(n), "</text:span>".repeat(n));
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"><style:header><text:p>{open}Deep{close}</text:p></style:header><style:footer><text:p>After</text:p></style:footer></style:master-page></office:master-styles></office:document-styles>"#
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>Body</text:p></office:text></office:body></office:document-content>"#
+        );
+        let d = import(&package(&content, Some(&styles))).unwrap();
+        assert!(d.last_section.headers.default.is_some());
+        assert_eq!(part_text(&d, d.last_section.footers.default), "After");
     }
 
     #[test]
