@@ -706,6 +706,26 @@ mod tests {
         assert_eq!(Store::files(&t.0.join(id)).unwrap().len(), 1);
     }
 
+    /// Copies are written with picture bytes in base64 (#586 follow-up); those written before kept
+    /// them as arrays of numbers and are still listed and restored, bytes intact.
+    #[test]
+    fn copies_with_byte_arrays_written_before_still_restore() {
+        let t = Temp::new();
+        let id = new_id().unwrap();
+        let mut s = snapshot(&id, "Synthetic draft with a picture");
+        s.generation = 1;
+        s.document.media.insert("media/image1.png".into(), Arc::new(vec![0, 1, 127, 128, 254, 255]));
+        let mut value = serde_json::to_value(&s).unwrap();
+        assert_eq!(value["document"]["media"]["media/image1.png"], "AAF/gP7/");
+        value["document"]["media"]["media/image1.png"] = json!([0, 1, 127, 128, 254, 255]);
+        private_dir(&t.0.join(&id)).unwrap();
+        fs::write(t.0.join(&id).join("snapshot-00000000000000000001.json"), serde_json::to_vec(&value).unwrap()).unwrap();
+        let mut store = Store::new(t.0.clone()).unwrap();
+        store.scan().unwrap();
+        assert_eq!(store.inventory().len(), 1);
+        assert_eq!(store.load(&id).unwrap().document, s.document);
+    }
+
     #[test]
     fn failed_pruning_cannot_push_a_record_beyond_the_discovery_limit() {
         let t = Temp::new();

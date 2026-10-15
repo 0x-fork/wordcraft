@@ -11,6 +11,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod bidi;
+mod byte_store;
 pub mod chart;
 mod cjk_numbers;
 pub mod cluster;
@@ -676,11 +677,11 @@ pub struct Document {
     /// The document's own endnote separators and continuation notice.
     #[serde(skip_serializing_if = "NoteSeparators::is_empty")]
     pub endnote_separators: NoteSeparators,
-    /// Embedded media (images) by key.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    /// Embedded media (images) by key. Native JSON writes each as base64 (`byte_store.rs`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", with = "byte_store")]
     pub media: BTreeMap<String, Arc<Vec<u8>>>,
     /// Source-format parts we keep verbatim for round-trip (e.g. custom XML), by part name.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", with = "byte_store")]
     pub passthrough: BTreeMap<String, Arc<Vec<u8>>>,
 }
 
