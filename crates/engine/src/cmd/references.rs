@@ -59,6 +59,7 @@ pub fn specs() -> Vec<CommandSpec> {
             }
             sel_result(s)
         })
+        .key(super::non_mac("Alt+Shift+> / Alt+Shift+."))
         .pure(),
         CommandSpec::new("references.notes", "Show Notes", "References › Footnotes", |s, _| {
             let mut out = Vec::new();

@@ -46,7 +46,7 @@ Document renaming: desktop renaming requires a filesystem that supports hard lin
 | 21 | **Mail merge data sources**: no Outlook/Contacts, Access or database sources, no email merge; CSV, typed lists (#247) and Excel/OpenDocument spreadsheets (#334, legacy .xls #778) only | | Select Recipients reads .csv/.tsv/.txt in any common encoding (UTF-8/16, GBK, Big5, Shift_JIS…), .xlsx/.xlsm, .xls and .ods; Edit Recipient List filters and sorts (#778) | Office administrators | 4–8 | [target-app-parity.md](target-app-parity.md) |
 | 22 | **Ecosystem**: no VBA execution (macros preserved only), no Office add-ins, no cloud storage, no real-time co-authoring | | `.docm` keeps macros (#172) | Enterprise users with macro templates; teams | 40–80 + owner decisions | [target-app-parity.md](target-app-parity.md) |
 | 23 | **PDF Reflow** (open a PDF as an editable document, Word for Windows) | | | Users who edit PDFs they receive | 30–50 | [file-format-parity.md](file-format-parity.md) |
-| 24 | **Default shortcuts**: ~135 of Word's ~250 (#330, #339, #343; Customize Keyboard #368, Customize Ribbon and the Quick Access Toolbar #379 landed) | | [ui-parity.md](ui-parity.md) | Power users | 4–7 | [ui-parity.md](ui-parity.md) |
+| 24 | **Default shortcuts**: 140 (macOS) / 158 (Linux/Windows) of Word's ~250 (#330, #339, #343; Customize Keyboard #368, Customize Ribbon and Quick Access Toolbar #379; inspector, macros, strikethrough, file/edit keys) | | [ui-parity.md](ui-parity.md) | Power users | 1–3 | [ui-parity.md](ui-parity.md) |
 | 25 | **In-app AI assistant** (Copilot-style draft, rewrite, summarize) | | Chat PR #178 and AI assistant PR #815 open | Users expecting Copilot | 15–30 + owner (provider) | [target-app-parity.md](target-app-parity.md) |
 | 27 | **View windows**: Side by Side, Synchronous Scrolling, Arrange All, Switch Windows | | [parity-checklist.md](parity-checklist.md) (View 25/29); PR #331 open | Comparing documents | 3–5 | [ui-parity.md](ui-parity.md) |
 | 26 | **Minor formats**: MHT, Works/WordPerfect | | Word XML Document (Flat OPC) opens and saves, Word 2003 XML opens (#548) and saves (#1081, not yet checked in Word) | Rare | 14–26 | [file-format-parity.md](file-format-parity.md) |
@@ -86,6 +86,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | minor | Gap #24 default shortcuts expanded (140 commands on macOS / 158 on Linux/Windows); stale gaps #9 (DOCX agile encryption already works, only encrypted .doc missing) and #15 (DOCX bibliography sources already saved, only desktop integrations missing) updated |
 | 2026-10-13 | trivial | Previously untracked long Web/Draft page blur resolved with visible high-resolution raster tiling; no gap remains for this issue |
 | 2026-10-14 | trivial | #1: VML freeforms (rule lines in headers) read and kept on save |
 | 2026-10-14 | trivial | Consistent preferred cell widths |

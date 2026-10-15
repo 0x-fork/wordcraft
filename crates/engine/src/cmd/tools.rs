@@ -361,6 +361,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"name"?: string} (call again to stop)"#)
         .pure(),
         CommandSpec::new("tools.macros", "Macros", "View › Macros", macros)
+            .key("Alt+F8")
             .params(r#"{"run"?: name, "define"?: {"name": string, "steps": [{"command", "params"}]}, "delete"?: name}"#)
             .pure(),
         CommandSpec::new("tools.autocorrect", "AutoCorrect Options", "File › Options › Proofing", autocorrect_options)
@@ -456,7 +457,9 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("insert.quickParts", "Quick Parts", "Insert › Text", quick_parts)
             .params(r#"{"save"?: name (from the selection), "insert"?: name, "delete"?: name} → list"#),
-        CommandSpec::new("insert.autoText", "AutoText", "Insert › Text › Quick Parts", quick_parts).params(r#"{"save"?: name, "insert"?: name}"#),
+        CommandSpec::new("insert.autoText", "AutoText", "Insert › Text › Quick Parts", quick_parts)
+            .key(super::non_mac("Alt+F3"))
+            .params(r#"{"save"?: name, "insert"?: name}"#),
         CommandSpec::new("insert.docProperty", "Document Property", "Insert › Text › Quick Parts", |s, v| {
             let name = p::str(v, "name").unwrap_or("Title").to_string();
             let c = &s.doc.core;
@@ -534,6 +537,7 @@ pub fn specs() -> Vec<CommandSpec> {
             }
             Ok(json!({"linked": true}))
         })
+        .key(super::non_mac("Alt+Shift+R"))
         .params(r#"{"footer"?: bool}"#),
         CommandSpec::new("hf.next", "Next Section", "Header & Footer › Navigation", |s, _| hf_nav(s, 1)).pure(),
         CommandSpec::new("hf.previous", "Previous Section", "Header & Footer › Navigation", |s, _| hf_nav(s, -1)).pure(),

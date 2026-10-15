@@ -117,6 +117,17 @@ fn word_default_shortcuts_resolve() {
     assert_eq!(id(cmd::mac_or("Ctrl+Q", "Mod+Q")), Some("para.reset"));
     assert_eq!(id(cmd::mac_or("Ctrl+Space", "Mod+Space")), Some("format.resetChar"));
     assert_eq!(id(cmd::mac_or("Ctrl+Shift+D", "Alt+Shift+D")), Some("insert.dateField"));
+    assert_eq!(id("Shift+F1"), Some("styles.inspector"));
+    assert_eq!(id("Alt+F8"), Some("tools.macros"));
+    assert_eq!(id("Mod+Shift+X"), Some("format.strikethrough"));
+    assert_eq!(id("Shift+F4"), Some("edit.findNext"));
+    assert_eq!(id("Mod+Insert"), Some("edit.copy"));
+    assert_eq!(id("Shift+Insert"), Some("edit.paste"));
+    assert_eq!(id("Mod+Alt+Z"), Some("edit.goBack"));
+    assert_eq!(id("Mod+Alt+F2"), Some("file.open"));
+    assert_eq!(id("Alt+Shift+F2"), Some("file.save"));
+    assert_eq!(id("Mod+Alt+I"), Some("file.print"));
+    assert_eq!(id("Alt+Shift+F1"), Some("fields.previous"));
     if cfg!(target_os = "macos") {
         assert_eq!(id("Mod+Shift+G"), Some("edit.findPrevious"));
         // Word for Mac's own keys: ⌘⇧S Save As, ⌘⌥E endnote (⌘⌥D hides the Dock), ⌘⌥A comment, ⌃H Replace.
@@ -125,6 +136,7 @@ fn word_default_shortcuts_resolve() {
         assert_eq!(id("Mod+Alt+D"), None);
         assert_eq!(id("Mod+Alt+A"), Some("review.newComment"));
         assert_eq!(id("Ctrl+H"), Some("edit.findReplace"));
+        assert_eq!(id("Mod+Alt+L"), Some("review.spelling"));
     } else {
         assert_eq!(id("Mod+Shift+S"), Some("styles.apply"));
         assert_eq!(id("Mod+Alt+D"), Some("references.endnote"));
@@ -132,6 +144,13 @@ fn word_default_shortcuts_resolve() {
         assert_eq!(id("Mod+Shift+G"), Some("review.wordCount"));
         assert_eq!(id("Mod+Alt+C"), Some("text.copyright"));
         assert_eq!(id("Mod+Alt+H"), Some("format.highlight"));
+        assert_eq!(id("Alt+Shift+L"), Some("outline.firstLineOnly"));
+        assert_eq!(id("Alt+Shift+>"), Some("references.nextFootnote"));
+        assert_eq!(id("Alt+Shift+."), Some("references.nextFootnote"));
+        assert_eq!(id("Alt+Shift+R"), Some("layout.linkToPrevious"));
+        assert_eq!(id("Alt+F3"), Some("insert.autoText"));
+        assert_eq!(id("Alt+F2"), Some("file.saveAs"));
+        assert_eq!(id("Alt+F1"), Some("fields.next"));
     }
     assert_eq!(id("Mod+PageUp"), Some("edit.findPrevious"));
     assert_eq!(id("F12"), Some("file.saveAs"));
