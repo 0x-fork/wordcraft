@@ -383,7 +383,14 @@ fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
         let len = s.doc.para(StoryRef::Body, &heading).map_or(0, |p| p.len());
         at = Pos { story: StoryRef::Body, path: heading, off: len };
     }
-    let field = InlineObject::Field { instr: r.instr.trim().to_string(), result: String::new(), locked: false, code: false, form: String::new() };
+    let field = InlineObject::Field {
+        instr: r.instr.trim().to_string(),
+        result: String::new(),
+        locked: false,
+        dirty: false,
+        code: false,
+        form: String::new(),
+    };
     let after = s.doc.insert_object(&at, field, &props)?;
     if s.doc.para_at(&after).is_some_and(|p| after.off < p.len()) {
         s.doc.split_paragraph(&after)?;
@@ -433,7 +440,7 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
     let mut head = Paragraph::with_text(&title, CharProps::default()).styled("TOCHeading");
     head.insert_object(
         head.len(),
-        InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
         &CharProps::default(),
     )?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) {
@@ -740,7 +747,7 @@ fn caption(s: &mut Session, v: &Value) -> CmdResult {
     let chapter = p::u64(v, "chapter").filter(|l| (1..=9).contains(l));
     let sep = p::str(v, "separator").and_then(|x| CHAPTER_SEPARATORS.iter().find(|s| **s == x)).copied().unwrap_or("-");
     let mut para = Paragraph::new().styled("Caption");
-    let field = |instr: String| InlineObject::Field { instr, result: String::new(), locked: false, code: false, form: String::new() };
+    let field = |instr: String| InlineObject::Field { instr, result: String::new(), locked: false, dirty: false, code: false, form: String::new() };
     if !p::bool(v, "excludeLabel").unwrap_or(false) {
         para.insert_text(0, &format!("{label} "), &CharProps::default())?;
     }
@@ -820,8 +827,10 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
         }
         let para = s.doc.para_mut(StoryRef::Body, &path)?;
         for (k, r) in updates {
-            if let Some(InlineObject::Field { result, .. }) = para.objects.get_mut(k) {
+            if let Some(InlineObject::Field { result, dirty, .. }) = para.objects.get_mut(k) {
+                // A computed result is no longer stale: Word's F9 clears `w:dirty` too.
                 *result = r;
+                *dirty = false;
             }
         }
         para.touch();
@@ -870,8 +879,10 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
         }
         let para = s.doc.para_mut(StoryRef::Body, &path)?;
         for (k, r) in updates {
-            if let Some(InlineObject::Field { result, .. }) = para.objects.get_mut(k) {
+            if let Some(InlineObject::Field { result, dirty, .. }) = para.objects.get_mut(k) {
+                // A computed result is no longer stale: Word's F9 clears `w:dirty` too.
                 *result = r;
+                *dirty = false;
             }
         }
         para.touch();

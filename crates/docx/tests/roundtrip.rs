@@ -324,7 +324,7 @@ fn sections_headers_footers_round_trip() {
         let mut p = Paragraph::with_text("Page ", CharProps::default());
         p.insert_object(
             5,
-            InlineObject::Field { instr: instr.into(), result: "1".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: instr.into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps::default(),
         )
         .unwrap();
@@ -374,7 +374,10 @@ fn sections_headers_footers_round_trip() {
     assert_eq!(part_text(&r, secs[0].1.headers.first), "First page header");
     assert_eq!(secs[0].1.headers.default, secs[1].1.headers.default, "shared header part stays shared");
     let fp = r.parts.get(&secs[0].1.footers.default.unwrap()).unwrap().blocks[0].as_para().unwrap();
-    assert_eq!(fp.objects, vec![InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() }]);
+    assert_eq!(
+        fp.objects,
+        vec![InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() }]
+    );
     assert_eq!(part_text(&r, secs[1].1.footers.default), "Page 1");
     assert_eq!(r.parts.get(&secs[0].1.headers.default.unwrap()).unwrap().kind, PartKind::Header);
 }
@@ -731,6 +734,7 @@ fn toc_field_wraps_its_entries() {
                 instr: "TOC \\o \"1-2\" \\h \\z \\u".into(),
                 result: String::new(),
                 locked: false,
+                dirty: false,
                 code: false,
                 form: String::new(),
             },
@@ -818,7 +822,14 @@ fn toc_field_skips_nested_stories() {
     let end = head.len();
     head.insert_object(
         end,
-        InlineObject::Field { instr: "TOC \\o \"1-1\" \\h \\z \\u".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field {
+            instr: "TOC \\o \"1-1\" \\h \\z \\u".into(),
+            result: String::new(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -857,8 +868,12 @@ fn tracked_changes_round_trip() {
     let p = para_runs(&[("kept ", CharProps::default()), ("added\t", ins.clone()), ("removed", del.clone()), ("gone", both.clone())]);
     let mut p = p;
     let end = p.len();
-    p.insert_object(end, InlineObject::Field { instr: "DATE".into(), result: "today".into(), locked: false, code: false, form: String::new() }, &del)
-        .unwrap();
+    p.insert_object(
+        end,
+        InlineObject::Field { instr: "DATE".into(), result: "today".into(), locked: false, dirty: false, code: false, form: String::new() },
+        &del,
+    )
+    .unwrap();
     d.body = vec![para_block(p.clone())];
     let r = rt(&d);
     assert_eq!(r.revisions, d.revisions);
@@ -905,9 +920,16 @@ fn tracked_paragraph_marks_round_trip() {
 fn fields_and_special_chars_round_trip() {
     let mut p = Paragraph::with_text("a\tb\nc\u{000C}d\u{000E}e\u{2011}f\u{00AD}g  spaced  ", CharProps::default());
     let fields = [
-        InlineObject::Field { instr: "PAGE".into(), result: "4".into(), locked: false, code: false, form: String::new() },
-        InlineObject::Field { instr: "DATE \\@ \"M/d/yyyy\"".into(), result: "1/2/2026".into(), locked: true, code: false, form: String::new() },
-        InlineObject::Field { instr: "NUMPAGES".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: "4".into(), locked: false, dirty: false, code: false, form: String::new() },
+        InlineObject::Field {
+            instr: "DATE \\@ \"M/d/yyyy\"".into(),
+            result: "1/2/2026".into(),
+            locked: true,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
+        InlineObject::Field { instr: "NUMPAGES".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
     ];
     for f in &fields {
         let end = p.len();
@@ -918,6 +940,74 @@ fn fields_and_special_chars_round_trip() {
     assert_eq!(got.text, p.text);
     assert_eq!(got.objects, p.objects);
     assert_eq!(got.runs, p.runs);
+}
+
+/// The `document.xml` of a written package.
+fn document_xml(bytes: &[u8]) -> String {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+    xml
+}
+
+/// #877: a field begin marker's `w:dirty` (the cached result is stale; Word refreshes it on
+/// open) survives a round trip, and a field without the flag doesn't gain one. Generators that
+/// can't paginate (pandoc-style pipelines, python-docx templates) set the flag instead of a result.
+#[test]
+fn field_dirty_flag_round_trips() {
+    let mut p = Paragraph::with_text("", CharProps::default());
+    for instr in ["PAGE", "DATE"] {
+        let end = p.len();
+        p.insert_object(
+            end,
+            InlineObject::Field { instr: instr.into(), result: "7".into(), locked: false, dirty: false, code: false, form: String::new() },
+            &CharProps::default(),
+        )
+        .unwrap();
+    }
+    let bytes = wordcraft_docx::write(&doc_with(vec![p])).expect("write");
+    // Another producer marks the first field's begin as dirty.
+    let xml = document_xml(&bytes);
+    let marked = xml.replacen(r#"<w:fldChar w:fldCharType="begin"/>"#, r#"<w:fldChar w:fldCharType="begin" w:dirty="true"/>"#, 1);
+    assert_ne!(&marked, &xml, "the written begin marker must be bare: {xml}");
+    let r = wordcraft_docx::read(&replace_part(&bytes, "word/document.xml", marked.as_bytes())).expect("read");
+    let out = document_xml(&wordcraft_docx::write(&r).expect("write"));
+    assert_eq!(out.matches("w:dirty").count(), 1, "the dirty field keeps its flag, the other gains none: {out}");
+    assert!(out.contains(r#"<w:fldChar w:fldCharType="begin" w:dirty="true"/>"#), "{out}");
+}
+
+/// #877: a TOC imported as a range field keeps `w:dirty` through a round trip — the flag sits on
+/// the begin marker Word rebuilds the field from (#878's fixture shape: a placeholder result).
+#[test]
+fn range_toc_dirty_flag_round_trips() {
+    let mut toc = Paragraph::new();
+    toc.insert_object(0, InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false, dirty: false }, &CharProps::default())
+        .unwrap();
+    let end = toc.len();
+    toc.insert_text(end, "Placeholder: update fields (F9).", &CharProps::default()).unwrap();
+    let end = toc.len();
+    toc.insert_object(end, InlineObject::FieldEnd, &CharProps::default()).unwrap();
+    let mut blocks = vec![toc];
+    for (t, style) in [("Alpha", Some("Heading1")), ("Body text.", None), ("Beta", Some("Heading2")), ("Gamma", Some("Heading1"))] {
+        let mut h = Paragraph::with_text(t, CharProps::default());
+        h.props.style = style.map(str::to_string);
+        blocks.push(h);
+    }
+    let bytes = wordcraft_docx::write(&doc_with(blocks)).expect("write");
+    let xml = document_xml(&bytes);
+    let marked = xml.replacen(r#"<w:fldChar w:fldCharType="begin"/>"#, r#"<w:fldChar w:fldCharType="begin" w:dirty="true"/>"#, 1);
+    assert_ne!(&marked, &xml, "the written begin marker must be bare: {xml}");
+    let marked = replace_part(&bytes, "word/document.xml", marked.as_bytes());
+    let r = wordcraft_docx::read(&marked).expect("read");
+    // Still the imported shape: a range field holding the placeholder as ordinary content.
+    assert!(matches!(paras(&r)[0].objects.first(), Some(InlineObject::FieldStart { .. })), "{:?}", paras(&r)[0].objects);
+    assert!(paras(&r)[0].objects.last().is_some_and(|o| matches!(o, InlineObject::FieldEnd)));
+    assert_eq!(paras(&r)[0].plain_text(), "Placeholder: update fields (F9).");
+    let out = document_xml(&wordcraft_docx::write(&r).expect("write"));
+    assert_eq!(out.matches("w:dirty").count(), 1, "the TOC keeps its flag: {out}");
+    let (begin, placeholder) = (out.find("fldCharType=\"begin\"").unwrap(), out.find("Placeholder").unwrap());
+    let (separate, end) = (out.find("fldCharType=\"separate\"").unwrap(), out.find("fldCharType=\"end\"").unwrap());
+    assert!(begin < separate && separate < placeholder && placeholder < end, "the placeholder stays the field's result: {out}");
 }
 
 #[test]
@@ -2187,7 +2277,7 @@ fn enclosed_characters_round_trip_in_words_structure() {
         let off = p.len();
         p.insert_object(
             off,
-            InlineObject::Field { instr: e.instr(), result: "字".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: e.instr(), result: "字".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps { size, ..Default::default() },
         )
         .unwrap();

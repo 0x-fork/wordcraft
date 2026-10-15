@@ -208,6 +208,7 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | trivial | Fields keep `w:dirty` through DOCX round trips — on buffered fields and range-field begin markers alike — and computing a result (Update Field, Update Table) clears it like Word's F9, so a generator's placeholder TOC still refreshes when Word opens the file until WordCraft replaces the placeholder (#877) |
 | 2026-10-14 | trivial | VML freeforms (`v:shape` with a `path`, such as rule lines in headers) read as freeforms and kept on save instead of being dropped |
 | 2026-10-14 | trivial | DOCX paragraphs inside complex-field instructions carry a hidden paragraph mark; cached result paragraphs remain visible. |
 | 2026-10-14 | trivial | DrawingML `flowChartOr` preserves its circle and crossing spokes, including when grouped or rotated |
