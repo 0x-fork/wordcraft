@@ -19,6 +19,8 @@ fn system_locales_map_to_languages() {
     assert_eq!(lang_from_tag("zh-Hant"), Some(lang("zh-hant")));
     assert_eq!(lang_from_tag("ja-JP"), Some(lang("ja")));
     assert_eq!(lang_from_tag("ja_JP.eucJP@euro"), Some(lang("ja")));
+    assert_eq!(lang_from_tag("ko-KR"), Some(lang("ko")));
+    assert_eq!(lang_from_tag("ko_KR.UTF-8"), Some(lang("ko")));
     assert_eq!(lang_from_tag("en-GB"), Some(Lang::EN));
     assert_eq!(lang_from_tag("C"), Some(Lang::EN));
     assert_eq!(lang_from_tag("POSIX"), Some(Lang::EN));
@@ -148,6 +150,40 @@ fn every_tab_and_command_is_translated() {
     missing.sort();
     missing.dedup();
     assert!(missing.is_empty(), "untranslated: {missing:#?}");
+}
+
+#[test]
+fn korean_print_settings_and_printer_feedback_are_translated() {
+    let korean = lang("ko");
+    for source in [
+        "Printer",
+        "Select a printer",
+        "Refresh printers",
+        "Copies",
+        "Two-sided printing",
+        "Printer default",
+        "One-sided",
+        "Two-sided: long edge",
+        "Two-sided: short edge",
+        "Grayscale",
+        "Finding printers…",
+        "No printers found. Configure a system printer or export a PDF.",
+        "Printer discovery failed.",
+        "Submitting print job…",
+        "Print job submitted.",
+        "Print job submitted: {receipt}",
+        "Print failed: the printing worker stopped.",
+        "Print failed: {error}",
+    ] {
+        assert!(has(korean, source), "missing Korean print translation: {source}");
+    }
+    assert_eq!(korean.catalog().plain("Printer"), Some("프린터"));
+    assert_eq!(korean.catalog().plain("Copies"), Some("매수"));
+    assert_eq!(korean.catalog().plain("Two-sided printing"), Some("양면 인쇄"));
+    assert_eq!(
+        korean.catalog().plain("No printers found. Configure a system printer or export a PDF."),
+        Some("프린터를 찾을 수 없습니다. 시스템 프린터를 설정하거나 PDF로 내보내세요.")
+    );
 }
 
 #[test]
@@ -440,8 +476,23 @@ fn chinese_interface_fonts_load_and_cover_simplified_hanzi() {
 }
 
 #[test]
+fn korean_interface_fonts_load_and_cover_hangul() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::font_definitions_language(false, true, true));
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    let covered = ctx.fonts_mut(|f| f.has_glyphs(&egui::FontId::proportional(14.0), "한글"));
+    let (catalogs, names) = Lang::cjk_font_text_for(false, true);
+    let mut texts = catalogs;
+    texts.push(&names);
+    let embedded = !wordcraft_fonts::ui_needs_system_cjk(&texts, &wordcraft_fonts::ui_cjk_fonts_for(false, true));
+    if embedded || wordcraft_fonts::system_cjk_ui_font_for(false, true, &['한']).is_some() {
+        assert!(covered, "a Korean face is available but the interface lacks Hangul glyphs");
+    }
+}
+
+#[test]
 fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
-    // #486: every CJK character of the Chinese and Japanese catalogs and of the language names
+    // #486: every CJK character of the Chinese, Japanese and Korean catalogs and language names
     // has a glyph in the interface font chain built from the embedded faces alone, in every
     // interface weight; `?` and boxes showed where the Japanese face was the only CJK one. Needs
     // a craft-fonts build (CRAFT_FONTS_DIR); without one there is nothing embedded to check, and
@@ -451,10 +502,10 @@ fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
         return;
     }
     let names: String = Lang::all().map(Lang::name).collect();
-    for code in ["zh-hans", "zh-hant", "ja"] {
+    for code in ["zh-hans", "zh-hant", "ja", "ko"] {
         let l = lang(code);
         let ctx = egui::Context::default();
-        ctx.set_fonts(crate::theme::font_definitions(l.prefers_hans(), false));
+        ctx.set_fonts(crate::theme::font_definitions_language(l.prefers_hans(), l.prefers_korean(), false));
         ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         let (entries, errors) = parse_entries(l.0.source);
         assert!(errors.is_empty(), "{code}: {errors:?}");
@@ -466,7 +517,10 @@ fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
             assert!(missing.is_empty(), "{code}: no glyph in {font:?} for {missing}");
         }
         // So the interface reads no installed CJK font for these languages.
-        assert_eq!(wordcraft_fonts::ui_uncovered_cjk(&[l.0.source, &names], &wordcraft_fonts::ui_cjk_fonts(l.prefers_hans())), Vec::<char>::new());
+        assert_eq!(
+            wordcraft_fonts::ui_uncovered_cjk(&[l.0.source, &names], &wordcraft_fonts::ui_cjk_fonts_for(l.prefers_hans(), l.prefers_korean())),
+            Vec::<char>::new()
+        );
     }
 }
 
@@ -474,7 +528,7 @@ fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
 fn only_cjk_languages_ask_for_an_installed_cjk_font() {
     // #241 follow-up: an English interface must not read a large system CJK font on startup.
     let cjk: Vec<&str> = Lang::all().filter(|l| l.uses_cjk()).map(Lang::code).collect();
-    assert_eq!(cjk, ["zh-hans", "zh-hant", "ja"]);
+    assert_eq!(cjk, ["zh-hans", "zh-hant", "ja", "ko"]);
 }
 
 #[test]
@@ -1152,7 +1206,7 @@ fn bulgarian_locales_and_saved_preference_work_without_changing_the_document() {
     for tag in ["bg", "bg-BG", "bg_BG.UTF-8", "BG-bg", "bg-Cyrl-BG"] {
         assert_eq!(lang_from_tag(tag), Some(bg), "{tag}");
     }
-    assert_eq!(first_supported(["ko-KR", "bg-BG", "en-US"]), Some(bg));
+    assert_eq!(first_supported([UNSUPPORTED, "bg-BG", "en-US"]), Some(bg));
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
     let before = serde_json::to_value(&app.session.doc).unwrap();
     let result = app.run("ui.language", serde_json::json!({"value": "BG"})).unwrap();

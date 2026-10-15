@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 20] = [
+pub static LANGUAGES: [LangInfo; 21] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -73,6 +73,14 @@ pub static LANGUAGES: [LangInfo; 20] = [
         catalog: OnceLock::new(),
     },
     LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "ko",
+        name: "한국어",
+        source: include_str!("ko.tsv"),
+        prefer_hans: false, // 일본어처럼 CJK지만 한자 우선순위는 필요 없으므로 false
+        editing_lang: None, // 현재 한국어 맞춤법(proofing) 지원이 없으므로 None
+        catalog: OnceLock::new(),
+    },
     LangInfo {
         code: "uk", name: "Українська", source: include_str!("uk.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new()
     },
@@ -193,6 +201,10 @@ impl Lang {
         self.0.prefer_hans
     }
 
+    pub fn prefers_korean(self) -> bool {
+        self.0.code == "ko"
+    }
+
     /// The language new blank documents are written in with this interface ([`LangInfo::editing_lang`]).
     pub fn editing_lang(self) -> Option<&'static str> {
         self.0.editing_lang
@@ -208,6 +220,12 @@ impl Lang {
     /// Options list). The interface fonts check the embedded faces against it (#486).
     pub fn cjk_font_text(hans: bool) -> (Vec<&'static str>, String) {
         let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans).map(|l| l.0.source).collect();
+        (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
+    }
+
+    /// The CJK interface catalogs using the Korean or Chinese writing-system preference.
+    pub fn cjk_font_text_for(hans: bool, korean: bool) -> (Vec<&'static str>, String) {
+        let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans && l.prefers_korean() == korean).map(|l| l.0.source).collect();
         (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
     }
 
