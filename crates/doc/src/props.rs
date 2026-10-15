@@ -1124,6 +1124,9 @@ pub struct CellProps {
     pub margins: Option<[f32; 4]>,
     /// Which way the cell's text runs.
     pub text_direction: TextDirection,
+    /// The file states the horizontal direction (`lrTb`) outright; saving writes it back.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub text_direction_set: bool,
     pub no_wrap: bool,
     /// The cell's last paragraph takes no room when it is empty (`w:hideMark`): a row of such
     /// empty cells shrinks to its borders.

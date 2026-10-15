@@ -734,6 +734,9 @@ pub struct SectionProps {
     /// sections turn the page's text area (headers and footers stay horizontal).
     #[serde(skip_serializing_if = "is_horizontal")]
     pub text_direction: crate::props::TextDirection,
+    /// The file states the horizontal direction (`lrTb`) outright; saving writes it back.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub text_direction_set: bool,
     /// Tracked change of the section's properties (`w:sectPrChange`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fmt_change: Option<Box<crate::props::PropChange<SectionProps>>>,
@@ -773,6 +776,7 @@ impl Default for SectionProps {
             page_borders: None,
             rtl: false,
             text_direction: crate::props::TextDirection::Horizontal,
+            text_direction_set: false,
             fmt_change: None,
             doc_grid: None,
             footnote_pr: NoteProps::default(),

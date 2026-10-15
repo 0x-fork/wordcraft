@@ -542,7 +542,7 @@ fn tcpr_inner(w: &mut W, c: &CellProps) {
     if let Some(m) = &c.margins {
         margins(w, "w:tcMar", m);
     }
-    if c.text_direction.is_turned() {
+    if c.text_direction.is_turned() || c.text_direction_set {
         w.val("w:textDirection", c.text_direction.ooxml());
     }
     match c.valign {

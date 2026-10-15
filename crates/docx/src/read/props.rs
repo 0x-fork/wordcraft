@@ -558,7 +558,10 @@ pub fn tcpr(pc: &PropCtx, e: &El) -> (CellProps, bool) {
             "w:noWrap" => c.no_wrap = on_off(k),
             "w:hideMark" => c.hide_mark = on_off(k),
             "w:tcMar" => c.margins = Some(margins(k)),
-            "w:textDirection" => c.text_direction = TextDirection::from_ooxml(k.attr("w:val").unwrap_or("")),
+            "w:textDirection" => {
+                c.text_direction = TextDirection::from_ooxml(k.attr("w:val").unwrap_or(""));
+                c.text_direction_set = k.attr("w:val") == Some("lrTb");
+            }
             "w:vAlign" => {
                 c.valign = match k.attr("w:val") {
                     Some("center") => VAlign::Center,
@@ -649,7 +652,10 @@ pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
             "w:endnotePr" => s.endnote_pr = note_pr(k, true),
             "w:titlePg" => s.title_page = on_off(k),
             "w:bidi" => s.rtl = on_off(k),
-            "w:textDirection" => s.text_direction = wordcraft_doc::props::TextDirection::from_ooxml(k.attr("w:val").unwrap_or("")),
+            "w:textDirection" => {
+                s.text_direction = wordcraft_doc::props::TextDirection::from_ooxml(k.attr("w:val").unwrap_or(""));
+                s.text_direction_set = k.attr("w:val") == Some("lrTb");
+            }
             "w:pgNumType" => {
                 s.page_num_start = k.attr("w:start").and_then(u32_of);
                 if let Some(f) = k.attr("w:fmt") {
