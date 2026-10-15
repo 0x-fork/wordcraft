@@ -89,8 +89,9 @@ pub enum Draw {
     Ink { pts: Vec<(f32, f32)>, color: Rgb, width: f32, alpha: f32 },
     /// A vector path (a chart's or diagram's polygons, slices, lines): filled, then stroked.
     Path { segs: Vec<PathSeg>, fill: Option<Rgb>, stroke: Option<Rgb>, stroke_width: f32, dash: Vec<f32> },
-    /// An inline chart or diagram's draws, as one figure with its alt text (for tagged PDF).
-    Figure { alt: String, kind: GraphicKind, draws: Vec<Draw> },
+    /// An inline chart, diagram or described shape's draws, as one figure with its alt text (for
+    /// tagged PDF). `kind` is the graphic's, `None` for a shape (see [`crate::shape_figure_alt`]).
+    Figure { alt: String, kind: Option<GraphicKind>, draws: Vec<Draw> },
     /// A formatting mark (¶ · → ↵) in the UI's mark colour, or in `color` (a tracked
     /// paragraph mark in its reviser's colour).
     Mark { x: f32, baseline: f32, size: f32, ch: char, color: Option<Rgb> },
@@ -1135,7 +1136,7 @@ fn lines(
                 Some(InlineObject::Graphic { graphic, alt, .. }) => {
                     let mut draws = Vec::new();
                     spun(spin, rect, graphic_draws(doc, graphic, rect, alpha), &mut draws);
-                    out.push(Draw::Figure { alt: alt.clone(), kind: graphic.kind, draws })
+                    out.push(Draw::Figure { alt: alt.clone(), kind: Some(graphic.kind), draws })
                 }
                 Some(InlineObject::Equation { .. }) => {
                     if let Some((_, ml)) = pl.maths.iter().find(|(k, _)| *k == oi) {
@@ -1720,7 +1721,15 @@ fn object_draws(o: &InlineObject, rect: Rect, outer: Spin, alpha: f32, opts: &Di
             let effects = effects_in(*effects, own.within(outer));
             let mut items = Vec::new();
             shape_draws(rect, *kind, *fill, *stroke, *stroke_width, effects, freeform.as_deref(), extra, opts, &mut items);
-            spun(own, rect, items, out)
+            match crate::shape_figure_alt(o) {
+                // A described shape is one figure with its description (tagged PDF).
+                Some(alt) => {
+                    let mut draws = Vec::new();
+                    spun(own, rect, items, &mut draws);
+                    out.push(Draw::Figure { alt: alt.to_string(), kind: None, draws })
+                }
+                None => spun(own, rect, items, out),
+            }
         }
         InlineObject::Group { .. } => {
             let mut members = Vec::new();
