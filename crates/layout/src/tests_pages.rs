@@ -264,7 +264,8 @@ fn caret_in_a_continued_footnote_is_found_on_its_page() {
 /// own pages). The footer shows each letter's last page, not the file's stale result.
 #[test]
 fn page_references_in_footers_show_their_bookmarks_page() {
-    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, code: false, form: String::new() };
+    let field =
+        |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
     let footer = |d: &mut Document, mark: &str| {
         let mut p = Paragraph::with_text("Page  of ", Default::default());
         p.insert_object(5, field("PAGE"), &Default::default()).unwrap();
@@ -355,7 +356,14 @@ fn page_ref_footer(d: &mut Document, marks: &[&str]) -> u32 {
     let mut p = Paragraph::new();
     for mark in marks {
         let n = p.len();
-        let field = InlineObject::Field { instr: format!("PAGEREF {mark}"), result: "9".into(), locked: false, code: false, form: String::new() };
+        let field = InlineObject::Field {
+            instr: format!("PAGEREF {mark}"),
+            result: "9".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        };
         p.insert_object(n, field, &Default::default()).unwrap();
     }
     let id = d.add_part(PartKind::Footer, vec![para_block(p)]);
@@ -418,7 +426,8 @@ fn page_references_in_footer_text_boxes_are_resolved() {
     use wordcraft_doc::para::{Float, ShapeKind, Wrap};
     let text_box = |d: &mut Document| {
         let mut p = Paragraph::new();
-        let field = InlineObject::Field { instr: "PAGEREF End".into(), result: "9".into(), locked: false, code: false, form: String::new() };
+        let field =
+            InlineObject::Field { instr: "PAGEREF End".into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
         p.insert_object(0, field, &Default::default()).unwrap();
         let story = d.add_part(PartKind::TextBox, vec![para_block(p)]);
         InlineObject::Shape {
@@ -462,4 +471,36 @@ fn page_references_in_footer_text_boxes_are_resolved() {
     let l = lay(&d);
     assert!(box_text(&l, footer_box).iter().all(|t| t == "2") && !box_text(&l, footer_box).is_empty(), "{:?}", box_text(&l, footer_box));
     assert_eq!(box_text(&l, body_box), ["9"]);
+}
+
+#[test]
+fn widow_control_moves_a_three_line_paragraph_whole() {
+    // A three-line paragraph with room for two at the bottom of a page can't leave a widow (two
+    // and one) nor an orphan (one and two): Word moves it whole. A four-line one splits two and
+    // two. Sweep the paragraph down the page a point at a time and check every split.
+    let mut split4 = false;
+    for (want, words) in [(3usize, 45usize), (4, 55)] {
+        for (fill, shift) in (30usize..60).flat_map(|f| (0..15).step_by(2).map(move |s| (f, s))) {
+            let filler = "Filler line.\n".repeat(fill);
+            let mut d = Document::from_text(&format!("{filler}{}\nAfter.", "word ".repeat(words)));
+            d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.space_before = Some(shift as f32)).unwrap();
+            let l = lay(&d);
+            let pieces: Vec<(usize, usize)> = l
+                .pages
+                .iter()
+                .filter_map(|p| {
+                    p.items.iter().find_map(|it| match it {
+                        Placed::Lines { story: StoryRef::Body, path, para, l0, l1, .. } if *path == Path::top(fill) => {
+                            Some((l1 - l0, para.lines.len()))
+                        }
+                        _ => None,
+                    })
+                })
+                .collect();
+            assert!(pieces.iter().all(|&(_, n)| n == want), "{words} words: {pieces:?}");
+            assert!(pieces.iter().all(|&(c, _)| c >= 2), "shift {shift}, {want} lines split as {pieces:?}");
+            split4 |= want == 4 && pieces.len() == 2;
+        }
+    }
+    assert!(split4, "the sweep never took the paragraph across a page break");
 }

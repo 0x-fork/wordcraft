@@ -422,6 +422,7 @@ fn shapes_have_paths() {
         ShapeKind::Rectangle,
         ShapeKind::RoundedRectangle,
         ShapeKind::Ellipse,
+        ShapeKind::FlowchartOr,
         ShapeKind::Star,
         ShapeKind::Heart,
         ShapeKind::Arrow,
@@ -454,7 +455,14 @@ fn fields_put_their_shown_text_in_the_text_layer() {
     // characters, are what copying, search and screen readers get.
     let mut d = Document::new();
     let mut f = Paragraph::with_text("Page  of ", CharProps::default());
-    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: String::new(), locked: false, code: false, form: String::new() };
+    let field = |instr: &str| InlineObject::Field {
+        instr: instr.into(),
+        result: String::new(),
+        locked: false,
+        dirty: false,
+        code: false,
+        form: String::new(),
+    };
     f.insert_object(5, field("PAGE"), &CharProps::default()).unwrap();
     let n = f.len();
     f.insert_object(n, field("NUMPAGES"), &CharProps::default()).unwrap();
@@ -476,8 +484,14 @@ fn fields_put_their_shown_text_in_the_text_layer() {
 fn styleref_headers_show_each_page_s_chapter() {
     let mut d = Document::new();
     let mut h = Paragraph::new();
-    let field =
-        InlineObject::Field { instr: r#"STYLEREF "Heading 1""#.into(), result: "Stale".into(), locked: false, code: false, form: String::new() };
+    let field = InlineObject::Field {
+        instr: r#"STYLEREF "Heading 1""#.into(),
+        result: "Stale".into(),
+        locked: false,
+        dirty: false,
+        code: false,
+        form: String::new(),
+    };
     h.insert_object(0, field, &CharProps::default()).unwrap();
     let id = d.add_part(wordcraft_doc::PartKind::Header, vec![para_block(h)]);
     d.last_section.headers.default = Some(id);
@@ -715,7 +729,14 @@ fn field_results_are_extractable_text() {
     let mut p = Paragraph::with_text("See  for details.", CharProps::default());
     p.insert_object(
         4,
-        InlineObject::Field { instr: " REF _RefTarget \\h ".into(), result: "Section 3.01".into(), locked: false, code: false, form: String::new() },
+        InlineObject::Field {
+            instr: " REF _RefTarget \\h ".into(),
+            result: "Section 3.01".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -738,7 +759,14 @@ fn field_result_ligatures_extract_all_their_letters() {
     let mut p = Paragraph::with_text("See  here.", font.clone());
     p.insert_object(
         4,
-        InlineObject::Field { instr: " REF _RefTarget \\h ".into(), result: result.into(), locked: false, code: false, form: String::new() },
+        InlineObject::Field {
+            instr: " REF _RefTarget \\h ".into(),
+            result: result.into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
         &font,
     )
     .unwrap();
@@ -985,6 +1013,7 @@ fn bookmark_destination_is_the_page_of_its_start() {
         opts: &PdfOptions::default(),
         out_index: pages.iter().enumerate().map(|(o, p)| (*p, o)).collect(),
         fonts: HashMap::new(),
+        font_error: None,
         outlined: &outlined,
         cmaps: HashMap::new(),
         images: HashMap::new(),
@@ -1108,9 +1137,8 @@ fn all_caps_and_small_caps_text_extracts_as_displayed() {
     ] {
         assert!(text.contains(line), "missing {line:?} in {text:?}");
     }
-    // An All Caps ß is drawn today as one S glyph, so it reads as that S: the text layer follows
-    // the glyph drawn. Drawing it as "SS", as Word does, is a separate display issue.
-    assert!(text.contains("STRASE"), "{text:?}");
+    // An All Caps ß is drawn as SS, as Word does (#1581), and reads as the SS drawn.
+    assert!(text.contains("STRASSE"), "{text:?}");
 }
 
 #[test]
@@ -1383,4 +1411,78 @@ fn right_to_left_clusters_are_written_whole_left_to_right() {
     assert_eq!(parts, [2..4, 0..2, 4..8, 4..8, 8..12, 12..14]);
     // Glyph by glyph by x this would be [5, 4, 3, 2, 0, 1]: the lam-alef's glyphs swapped.
     assert_eq!(visual_order(text, &glyphs, &ranges, &parts), [5, 4, 2, 3, 0, 1]);
+}
+
+#[test]
+fn extreme_page_index_returns_an_error() {
+    let d = Document::from_text("Hostile page selection");
+    let lay = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+    let opts = PdfOptions { pages: Some(vec![usize::MAX]), ..Default::default() };
+    assert_eq!(export(&d, &opts), Err(PdfError::BadPage(usize::MAX)));
+    assert_eq!(export_layout(&d, &lay, &opts), Err(PdfError::BadPage(usize::MAX)));
+}
+
+#[test]
+fn metadata_language_overrides_and_fallbacks_are_preserved() {
+    let mut d = Document::from_text("Metadata export");
+    d.core.created = "2024-05-06T07:08:09Z".into();
+    d.core.title = "Original title".into();
+    d.core.creator = "Original author".into();
+    d.core.description = "Description fallback".into();
+    d.core.keywords = "first; second, third;;".into();
+    let opts = PdfOptions {
+        title: Some("Override title".into()),
+        author: Some("Override author".into()),
+        tagged: false,
+        compress: false,
+        ..Default::default()
+    };
+    for language in [Some("es-CR"), Some("ja"), Some(""), Some("日本語"), None] {
+        d.styles.default_chr.lang = language.map(str::to_owned);
+        let bytes = export(&d, &opts).unwrap();
+        let raw = String::from_utf8_lossy(&bytes);
+        let pdf = hayro_syntax::Pdf::new(bytes.clone()).unwrap();
+        let catalog = pdf.xref().get::<hayro_syntax::object::Dict<'_>>(pdf.xref().root_id()).unwrap();
+        let actual_language = catalog.get::<hayro_syntax::object::String<'_>>(b"Lang");
+        for value in ["Override title", "Override author", "Description fallback", "first, second, third", "D:20240506070809"] {
+            assert!(raw.contains(value), "missing {value}");
+        }
+        if let Some(language) = language.filter(|s| !s.is_empty() && s.is_ascii()) {
+            assert_eq!(actual_language.unwrap().as_bytes(), language.as_bytes());
+            assert!(raw.contains(&format!("<dc:language><rdf:Bag><rdf:li>{language}</rdf:li>")));
+        } else {
+            assert!(actual_language.is_none());
+            assert!(!raw.contains("<dc:language>"));
+        }
+    }
+}
+
+#[test]
+fn bundled_unicode_glyphs_are_visible_and_extractable() {
+    const TEXT: &str = "café naïve — coöperate Ελληνικά Привет Tiếng Việt";
+    let fonts = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    let bundled = fonts.face("Source Sans 3", "Regular");
+    assert_eq!(bundled.family, "Source Sans 3");
+    assert_eq!(bundled.style, "Regular");
+    for ch in TEXT.chars() {
+        assert!(bundled.covers(ch), "the explicitly bundled face must cover {ch:?}");
+    }
+    let mut d = Document::new();
+    d.core.created = "2024-05-06T07:08:09Z".into();
+    d.body = vec![para_block(Paragraph::with_text(TEXT, CharProps { font: Some("Source Sans 3".into()), size: Some(14.0), ..Default::default() }))];
+    let lay = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+    let mut drawn = String::new();
+    for page in &lay.pages {
+        for draw in page_display(&d, page, &DisplayOptions::default()) {
+            if let Draw::Glyphs { face, glyphs, text, .. } = draw {
+                assert_eq!(face.data(), bundled.data(), "page glyphs must use the bundled face without system fallback");
+                assert!(glyphs.iter().all(|(id, _, _)| *id != 0), "page glyphs must not use .notdef");
+                drawn.push_str(&text);
+            }
+        }
+    }
+    assert_eq!(squash(&drawn), TEXT);
+    let bytes = export_layout(&d, &lay, &PdfOptions::default()).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("/ToUnicode"));
+    assert_eq!(squash(&extract_text(&bytes).concat()), TEXT);
 }

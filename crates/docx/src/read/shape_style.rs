@@ -29,7 +29,9 @@ pub(crate) fn preset_kind(prst: &str) -> ShapeKind {
         "ellipse" | "wedgeEllipseCallout" | "cloudCallout" | "cloud" | "flowChartConnector" | "donut" | "flowChartOnlineStorage" => {
             ShapeKind::Ellipse
         }
-        "triangle" | "rtTriangle" | "flowChartExtract" | "flowChartMerge" => ShapeKind::Triangle,
+        "flowChartOr" => ShapeKind::FlowchartOr,
+        "triangle" | "flowChartExtract" | "flowChartMerge" => ShapeKind::Triangle,
+        "rtTriangle" => ShapeKind::RightTriangle,
         "diamond" | "flowChartDecision" => ShapeKind::Diamond,
         "line" | "lineInv" => ShapeKind::Line,
         "straightConnector1" => ShapeKind::StraightConnector,
@@ -182,6 +184,11 @@ mod tests {
     }
 
     #[test]
+    fn flowchart_or_keeps_its_spokes() {
+        assert_eq!(preset_kind("flowChartOr"), ShapeKind::FlowchartOr);
+    }
+
+    #[test]
     fn explicit_paint_wins_over_the_style() {
         let sp = el(r#"<wps:spPr xmlns:wps="w" xmlns:a="a"><a:noFill/><a:ln><a:solidFill><a:srgbClr val="EE0000"/></a:solidFill></a:ln></wps:spPr>"#);
         let st = el(
@@ -234,7 +241,7 @@ mod tests {
         // The nearest shape, as `preset_kind` gives it: left arrow, right triangle, four-point
         // star, rounded callout, elbow connector, a bevel (its box).
         assert_eq!(vml_preset_kind(66), Some(ShapeKind::Arrow));
-        assert_eq!(vml_preset_kind(6), Some(ShapeKind::Triangle));
+        assert_eq!(vml_preset_kind(6), Some(ShapeKind::RightTriangle));
         assert_eq!(vml_preset_kind(187), Some(ShapeKind::Star));
         assert_eq!(vml_preset_kind(62), Some(ShapeKind::RoundedRectangle));
         assert_eq!(vml_preset_kind(34), Some(ShapeKind::ElbowConnector));

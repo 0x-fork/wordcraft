@@ -157,6 +157,7 @@ pub fn specs() -> Vec<CommandSpec> {
             s.view.outline.first_line_only = p::bool(v, "value").unwrap_or(!s.view.outline.first_line_only);
             Ok(json!({"value": s.view.outline.first_line_only}))
         })
+        .key(super::non_mac("Alt+Shift+L"))
         .params(r#"{"value"?: bool}"#)
         .when(in_outline)
         .pure(),

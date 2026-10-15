@@ -1071,11 +1071,13 @@ pub(crate) fn escape(s: &str) -> String {
     out
 }
 
-/// Escape what would start a block at the beginning of a line.
+/// Escape what would start a block at the beginning of a line. Leading spaces are kept, but at
+/// most three (a tab counts as four): four would turn the line into an indented code block.
 fn escape_line_start(s: String) -> String {
-    let s = s.trim_start().to_string();
-    let t = s.as_str();
-    let lead = s.len() - t.len();
+    let t = s.trim_start_matches([' ', '\t']);
+    let lead = s.get(..s.len() - t.len()).unwrap_or("");
+    let cols: usize = lead.chars().map(|c| if c == '\t' { 4 } else { 1 }).sum();
+    let indent = " ".repeat(cols.min(3));
     let needs = t.starts_with('#')
         || t.starts_with('>')
         || t.starts_with("- ")
@@ -1089,12 +1091,12 @@ fn escape_line_start(s: String) -> String {
             d > 0 && t.get(d..).is_some_and(|r| r.starts_with(". ") || r.starts_with(") ") || r == "." || r == ")")
         };
     if !needs {
-        return s;
+        return if cols > 3 || lead.contains('\t') { format!("{indent}{t}") } else { s };
     }
     if let Some(d) = t.find(['.', ')']).filter(|_| t.starts_with(|c: char| c.is_ascii_digit())) {
-        return format!("{}{}\\{}", &s[..lead], &t[..d], &t[d..]);
+        return format!("{indent}{}\\{}", &t[..d], &t[d..]);
     }
-    format!("{}\\{}", &s[..lead], t)
+    format!("{indent}\\{t}")
 }
 
 fn code_span(t: &str) -> String {
@@ -1474,6 +1476,19 @@ mod tests {
         let FBlock::Para(q) = &back.blocks[0] else { panic!() };
         assert_eq!(q.text(), "1. not a list *really*");
         assert!(q.list.is_none());
+    }
+
+    #[test]
+    fn escape_line_start_preserves_indentation() {
+        assert_eq!(escape_line_start("   indented text".to_string()), "   indented text");
+        assert_eq!(escape_line_start("   # not a heading".to_string()), "   \\# not a heading");
+        assert_eq!(escape_line_start("  1. not a list".to_string()), "  1\\. not a list");
+        assert_eq!(escape_line_start("  > quote".to_string()), "  \\> quote");
+        // Four spaces or a tab would make an indented code block: the indent is capped at three.
+        assert_eq!(escape_line_start("      deep".to_string()), "   deep");
+        assert_eq!(escape_line_start("\tTabbed # text".to_string()), "   Tabbed # text");
+        assert_eq!(escape_line_start("    # not a heading".to_string()), "   \\# not a heading");
+        assert_eq!(escape_line_start(" \t1. not a list".to_string()), "   1\\. not a list");
     }
 
     #[test]
