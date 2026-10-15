@@ -127,6 +127,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 | 2026-10-11 | trivial | File › Options panes landed (#485); removed from the dialog-depth list |
 | 2026-10-11 | trivial | #18: the document canvas describes its text, structure and caret to screen readers through AccessKit (#488); real screen-reader testing remains |
 | 2026-10-11 | trivial | Compare / Combine Documents and AutoCorrect Options dialogs and the Restrict Editing pane landed (#412); removed from the dialog-depth list; duplicate #7 rows merged |
+| 2026-10-14 | trivial | Open DrawingML freeform paths draw their `a:tailEnd` arrowhead |
 | 2026-10-11 | trivial | #10: WordArt text effects and Transform warps, connectors glued to shapes (#416) |
 | 2026-10-11 | trivial | #5 narrowed: content controls kept, shown and edited (#381); move tracking remains |
 | 2026-10-11 | trivial | Insert › Chart landed (#409); gap #13 narrowed to editing Word's charts, more types and SmartArt, 35–55 h |
