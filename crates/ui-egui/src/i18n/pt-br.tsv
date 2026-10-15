@@ -2232,3 +2232,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Fórmula:
 	Paste function:	Colar função:
+# Reading Mode column widths (#1040)
+	Narrow	Estreita
+	Medium	Média

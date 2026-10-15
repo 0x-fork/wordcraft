@@ -2221,3 +2221,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	公式：
 	Paste function:	貼上函數：
+# Reading Mode column widths (#1040)
+	Narrow	窄
+	Medium	中等

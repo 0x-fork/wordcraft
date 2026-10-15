@@ -2586,3 +2586,6 @@ preview	Title	Título
 # Table Layout › Formula dialog (#1210)
 	Formula:	Fórmula:
 	Paste function:	Pegar función:
+# Reading Mode column widths (#1040)
+	Narrow	Estrecha
+	Medium	Media

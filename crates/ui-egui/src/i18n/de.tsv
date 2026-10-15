@@ -2219,3 +2219,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Formel:
 	Paste function:	Funktion einfügen:
+# Reading Mode column widths (#1040)
+	Narrow	Schmal
+	Medium	Mittel

@@ -2609,3 +2609,6 @@ preview	Title	Tytuł
 # Table Layout › Formula dialog (#1210)
 	Formula:	Formuła:
 	Paste function:	Wklej funkcję:
+# Reading Mode column widths (#1040)
+	Narrow	Wąska
+	Medium	Średnia

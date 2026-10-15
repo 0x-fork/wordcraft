@@ -2227,3 +2227,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Formule :
 	Paste function:	Coller une fonction :
+# Reading Mode column widths (#1040)
+	Narrow	Étroite
+	Medium	Moyenne

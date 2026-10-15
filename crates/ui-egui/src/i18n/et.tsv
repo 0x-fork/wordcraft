@@ -2254,3 +2254,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Valem:
 	Paste function:	Kleebi funktsioon:
+# Reading Mode column widths (#1040)
+	Narrow	Kitsas
+	Medium	Keskmine

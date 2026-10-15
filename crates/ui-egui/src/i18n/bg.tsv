@@ -2607,3 +2607,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Формула:
 	Paste function:	Поставяне на функция:
+# Reading Mode column widths (#1040)
+	Narrow	Тясна
+	Medium	Средна

@@ -2658,3 +2658,6 @@
 	Wait for the print job to finish submitting before closing.	Hãy chờ lệnh in được gửi xong rồi mới đóng.
 # Template names in File › New (#1271)
 template	Letter	Thư
+# Reading Mode column widths (#1040)
+	Narrow	Hẹp
+	Medium	Trung bình

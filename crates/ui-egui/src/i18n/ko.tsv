@@ -2474,3 +2474,6 @@ preview	Title	제목
 	My list has	목록 첫 행
 	Formula:	수식:
 	Paste function:	함수 붙여넣기:
+# Reading Mode column widths (#1040)
+	Narrow	좁게
+	Medium	보통

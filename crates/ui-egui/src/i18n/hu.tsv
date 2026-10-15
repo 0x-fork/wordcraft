@@ -2615,3 +2615,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Képlet:
 	Paste function:	Függvény beillesztése:
+# Reading Mode column widths (#1040)
+	Narrow	Keskeny
+	Medium	Közepes

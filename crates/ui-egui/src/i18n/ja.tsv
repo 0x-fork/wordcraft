@@ -2220,3 +2220,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	計算式:
 	Paste function:	関数の貼り付け:
+# Reading Mode column widths (#1040)
+	Narrow	狭い
+	Medium	中

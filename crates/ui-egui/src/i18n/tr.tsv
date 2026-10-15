@@ -2616,3 +2616,6 @@ preview	Title	Örnek
 # Table Layout › Formula dialog (#1210)
 	Formula:	Formül:
 	Paste function:	İşlev yapıştır:
+# Reading Mode column widths (#1040)
+	Narrow	Dar
+	Medium	Orta

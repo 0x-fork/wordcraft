@@ -2611,3 +2611,6 @@ preview	Title	Ukázka
 # Table Layout › Formula dialog (#1210)
 	Formula:	Vzorec:
 	Paste function:	Vložit funkci:
+# Reading Mode column widths (#1040)
+	Narrow	Úzká
+	Medium	Střední
