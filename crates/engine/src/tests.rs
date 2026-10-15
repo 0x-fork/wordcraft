@@ -122,6 +122,11 @@ fn word_default_shortcuts_resolve() {
     assert_eq!(id(cmd::mac_or("Ctrl+Q", "Mod+Q")), Some("para.reset"));
     assert_eq!(id(cmd::mac_or("Ctrl+Space", "Mod+Space")), Some("format.resetChar"));
     assert_eq!(id(cmd::mac_or("Ctrl+Shift+D", "Alt+Shift+D")), Some("insert.dateField"));
+    // Option+arrows move by word everywhere; ⌘←/⌘→ go to the line's ends on macOS (#954).
+    assert_eq!(id("Alt+Left"), Some("caret.wordLeft"));
+    assert_eq!(id("Alt+Right"), Some("caret.wordRight"));
+    assert_eq!(id("Mod+Left"), Some(cmd::mac_or("caret.home", "caret.wordLeft")));
+    assert_eq!(id("Mod+Right"), Some(cmd::mac_or("caret.end", "caret.wordRight")));
     assert_eq!(id("Shift+F1"), Some("styles.inspector"));
     assert_eq!(id("Alt+F8"), Some("tools.macros"));
     assert_eq!(id("Mod+Shift+X"), Some("format.strikethrough"));
