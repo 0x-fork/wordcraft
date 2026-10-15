@@ -12,6 +12,21 @@ gives ~64%; we discount it to ~60% because DOCX fidelity has never been checked 
 files. DOCX dominates the weight: a Word user sends and receives .docx; everything else is
 occasional.
 
+## Legacy DOC/DOT document properties
+
+The binary Word reader imports SummaryInformation text properties: title, subject, author,
+keywords, description, last editor and revision. Code-page strings use their declared
+Windows single-byte encoding, UTF-8 or UTF-16LE; UnicodeString lengths are counted in UTF-16
+units. Metadata streams are capped at 2 MiB and individual values at 64 KiB. Invalid optional
+metadata is skipped without losing the document body. Creation/modification timestamps and
+DocumentSummaryInformation/custom properties are not imported by this change; DOC/DOT
+remain read-only formats and encrypted legacy documents remain unsupported.
+
+Tests create OLE property sets in Rust and exercise the public document reader for normal
+DOCs, templates, accented/Cyrillic/Unicode properties and malformed lengths/offsets. A local
+LibreOffice-generated DOC and DOT containing an original synthetic document reproduced the
+missing-title bug before this change and retain their title after it.
+
 ## Formats
 
 Weights are the share of a Word user's file traffic (estimate). Read/write: ✅ yes, 🟡 partial,
