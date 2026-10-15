@@ -3438,6 +3438,21 @@ fn float_follows_its_paragraph_to_the_next_page() {
     assert!(para.lines[0].left >= 144.0, "text wraps beside it: {}", para.lines[0].left);
 }
 
+/// A floating object belongs to its paragraph, not to the line holding its anchor: Word draws
+/// it on the page the paragraph starts on. A Word cover page is one paragraph holding a page
+/// break and then the page-anchored text box with the title; the box stays on the cover.
+#[test]
+fn a_float_anchored_after_a_page_break_stays_on_its_paragraph_s_first_page() {
+    let mut d = Document::from_text(&format!("{}\nAfter the cover", wordcraft_doc::para::PAGE_BREAK));
+    d.insert_object(&Pos::body(0, 1), rect_shape(200.0, 100.0, page_float(100.0, 300.0)), &Default::default()).unwrap();
+    let l = lay(&d);
+    assert_eq!(l.pages.len(), 2);
+    let on_cover = shapes(&l.pages[0].items);
+    assert_eq!(on_cover.len(), 1, "the shape is drawn on the cover: {on_cover:?}");
+    assert!((on_cover[0].y - 300.0).abs() < 0.5, "{:?}", on_cover[0]);
+    assert!(shapes(&l.pages[1].items).is_empty(), "and not again on page two");
+}
+
 #[test]
 fn floats_in_headers_and_table_cells_are_drawn() {
     use wordcraft_doc::para::{Anchor, Float, Wrap};
