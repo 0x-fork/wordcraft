@@ -113,10 +113,10 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Vietnamese | vi | partial (#1434) | ~95% |
 
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries); Swedish (`sv`) covers that too, plus 44 newer strings no other catalog has yet (2,504 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
-system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
+system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish and Italian proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
 2,448-entry catalog, also without proofing.
-Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), chosen per run from its language. Word ships
+Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), plus Czech (system Hunspell spelling, generic checks), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -279,6 +279,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
 |---|---|
+| 2026-10-12 | Czech proofing: cs-CZ spelling reads the installed Hunspell dictionary (`hunspell-cs` on Debian/Ubuntu), suggestions use runtime MAP/REP/TRY/KEY tables, generic repeated-word and spacing checks explain in Czech; Review › Language offers Czech/Čeština; the Czech interface writes new documents and opened TXT/Markdown in cs-CZ. Affix headers accept trailing comments. No system dictionary data or Czech hyphenation patterns bundled; parity estimates unchanged |
 | 2026-10-12 | Tables: dragging the border of one selected cell (Select Cell, or a click along its left edge) moves it in that cell's row only, as in Word, like the border of cells selected across (#962) |
 | 2026-10-13 | Korean interface catalog completed: all 2,463 entries translated; the ko-KR system locale and saved language choice select the interface. The UI prefers Korean embedded/system font faces so Hangul renders instead of boxes, and print settings and printer feedback are translated. Korean proofing remains unavailable; macOS Korean IME fixes are still pending (#163, #164) |
 | 2026-10-12 | Word default shortcuts expanded (gap #24): 140 commands bound on macOS (169 combinations), 158 on Linux/Windows (188 combinations). Bound Style Inspector (Shift+F1), Macros (Alt+F8), Strikethrough (Mod+Shift+X), Find Next (Shift+F4), Copy/Paste (Mod+Insert, Shift+Insert), Go Back (Mod+Alt+Z), File Open/Save/Save As/Print (Mod+Alt+F2, Alt+Shift+F2, Alt+F2, Mod+Alt+I), Field navigation (Alt+F1, Alt+Shift+F1), Outline show first line (Alt+Shift+L), Next Footnote (Alt+Shift+>), Link to Previous (Alt+Shift+R), AutoText (Alt+F3), Spelling on Mac (Mod+Alt+L) |
@@ -397,6 +398,8 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
+| 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
 | 2026-10-12 | trivial | Progress log: one selected cell's border drags in its row only (#962) |
 | 2026-10-12 | minor | Progress log: Word default shortcuts expanded to 140 commands on macOS (169 combinations) and 158 on Linux/Windows (188 combinations), addressing gap #24 |
 | 2026-10-13 | trivial | Web/Draft long-page blur fixed with visible full-resolution raster tiles |

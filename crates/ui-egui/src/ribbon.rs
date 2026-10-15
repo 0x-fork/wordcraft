@@ -501,7 +501,7 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 8] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 9] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("pl-PL", "Polish"),
@@ -510,6 +510,7 @@ pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 8] = [
     ("hr-HR", "Croatian"),
     ("tr-TR", "Turkish"),
     ("ru-RU", "Russian"),
+    ("cs-CZ", "Czech"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -548,6 +549,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
             wordcraft_engine::proof::ProofLang::It => "Italian".into(),
             wordcraft_engine::proof::ProofLang::Tr => "Turkish".into(),
             wordcraft_engine::proof::ProofLang::Ru => "Russian".into(),
+            wordcraft_engine::proof::ProofLang::Cs => "Czech".into(),
             wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
             _ => tag.to_string(),
         },
@@ -662,6 +664,7 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
             || (tag == "it-IT" && current.eq_ignore_ascii_case("it"))
             || (tag == "hr-HR" && current.eq_ignore_ascii_case("hr"))
             || (tag == "tr-TR" && current.eq_ignore_ascii_case("tr"))
+            || (tag == "cs-CZ" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Cs)
             || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
     };
     let checks = language_checks(&current, listed);
@@ -2774,6 +2777,14 @@ mod tests {
         let c = language_checks("PT-br-x-test", |_| false);
         assert_eq!(c.extra, None);
         assert_eq!(c.listed, PROOFING_LANGUAGES.map(|(t, _)| t == "pt-BR"));
+    }
+
+    #[test]
+    fn czech_has_a_name_in_the_language_menu() {
+        assert!(PROOFING_LANGUAGES.contains(&("cs-CZ", "Czech")));
+        for tag in ["cs", "cs-CZ", "CS-cz", "ces", "CZE"] {
+            assert_eq!(language_name(Some(tag)), "Czech", "{tag}");
+        }
     }
 
     #[test]

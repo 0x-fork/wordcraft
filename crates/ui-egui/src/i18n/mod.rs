@@ -119,7 +119,14 @@ pub static LANGUAGES: [LangInfo; 23] = [
         editing_lang: Some("pl-PL"),
         catalog: OnceLock::new(),
     },
-    LangInfo { code: "cs", name: "Čeština", source: include_str!("cs.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "cs",
+        name: "Čeština",
+        source: include_str!("cs.tsv"),
+        prefer_hans: false,
+        editing_lang: Some("cs-CZ"),
+        catalog: OnceLock::new(),
+    },
     LangInfo { code: "et", name: "Eesti", source: include_str!("et.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // German, neutral across Germany, Austria and Switzerland; `de`, `de-DE`, `de-AT`, `de-CH` …
     // resolve here.

@@ -1,3 +1,8 @@
+// Reuse our hand-written Czech proof fixture; its install helper resolves this parent import.
+use wordcraft_proof::cs::install_dictionary;
+#[path = "../../proof/src/cs/test_dict.rs"]
+mod czech_test_dict;
+
 use serde_json::json;
 use wordcraft_doc::props::BorderStyle;
 use wordcraft_doc::{Pos, StoryRef};
@@ -5361,6 +5366,42 @@ fn portuguese_proofing_through_the_review_commands() {
     run(&mut s, "review.addToDictionary", json!({"word": "coraçao"}));
     let left = run(&mut s, "review.issues", json!({}));
     assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
+}
+
+/// Czech proofing through the same commands as Review, F7, Change and Add to Dictionary.
+#[test]
+fn czech_proofing_through_the_review_commands() {
+    czech_test_dict::install();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Město pocitac, škola škola."}));
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len() >= 3);
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "cs_cz", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("cs-CZ"));
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "cs-CZ");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "{issues}");
+    assert!(arr.iter().all(|i| i["lang"] == "cs"), "{issues}");
+    assert!(
+        arr.iter().any(|i| i["text"] == "pocitac" && i["kind"] == "spelling" && i["suggestions"].as_array().unwrap().iter().any(|s| s == "počítač")),
+        "{issues}"
+    );
+    assert!(arr.iter().any(|i| i["text"] == "škola škola" && i["kind"] == "grammar" && i["message"] == "Opakované slovo: „škola“"), "{issues}");
+    run(&mut s, "caret.docStart", json!({}));
+    assert_eq!(run(&mut s, "review.spelling", json!({}))["text"], "pocitac");
+    run(&mut s, "review.applySuggestion", json!({"text": "počítač"}));
+    assert!(text(&s).starts_with("Město počítač,"));
+    // Exercise dictionary addition on a misspelling still present in the document.
+    run(&mut s, "select.text", json!({"text": "počítač"}));
+    run(&mut s, "text.insert", json!({"text": "zqcsenginevlastni"}));
+    assert_eq!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len(), 2);
+    run(&mut s, "review.addToDictionary", json!({"word": "zqcsenginevlastni"}));
+    let left = run(&mut s, "review.issues", json!({}));
+    let left = left.as_array().unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0]["kind"], "grammar");
+    assert_eq!(left[0]["lang"], "cs");
 }
 
 /// Review › Language and the proofing commands work in Polish end to end: the language makes
