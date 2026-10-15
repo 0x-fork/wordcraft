@@ -572,6 +572,19 @@ mod tests {
         }
         panic!("the scan never reported the unreadable record");
     }
+    /// `store.load(id)`, tried again for up to a second while the record can't be locked: a process
+    /// another test is starting holds the lock for a moment (see [`reopen_reporting_unreadable`]).
+    fn load_retrying(store: &mut Store, id: &str) -> Snapshot {
+        let mut last = String::new();
+        for _ in 0..50 {
+            match store.load(id) {
+                Ok(snapshot) => return snapshot,
+                Err(e) => last = e,
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("the record never loaded: {last}");
+    }
     fn snapshot(id: &str, text: &str) -> Snapshot {
         Snapshot {
             version: 1,
@@ -656,7 +669,7 @@ mod tests {
         fs::write(second, b"{truncated").unwrap();
         drop(store);
         let mut reopened = reopen_reporting_unreadable(&t.0);
-        assert_eq!(reopened.load(&id).unwrap().document.plain_text(StoryRef::Body), "First valid copy");
+        assert_eq!(load_retrying(&mut reopened, &id).document.plain_text(StoryRef::Body), "First valid copy");
         // Never reuse the corrupt generation's name or prune the valid fallback.
         reopened.save(snapshot(&id, "Third valid copy")).unwrap();
         assert_eq!(fs::read(first).unwrap(), bytes);
@@ -697,7 +710,7 @@ mod tests {
         assert_eq!(fs::read(first).unwrap(), bytes);
         drop(store);
         let mut reopened = reopen_reporting_unreadable(&t.0);
-        assert_eq!(reopened.load(&id).unwrap().document.plain_text(StoryRef::Body), "Last valid copy");
+        assert_eq!(load_retrying(&mut reopened, &id).document.plain_text(StoryRef::Body), "Last valid copy");
     }
 
     #[test]
@@ -724,7 +737,7 @@ mod tests {
         let mut reopened = Store::new(t.0.clone()).unwrap();
         reopened.scan().unwrap();
         assert!(!dir.exists());
-        assert_eq!(reopened.load(&id).unwrap().document.plain_text(StoryRef::Body), "Valid synthetic draft");
+        assert_eq!(load_retrying(&mut reopened, &id).document.plain_text(StoryRef::Body), "Valid synthetic draft");
     }
 
     #[test]
