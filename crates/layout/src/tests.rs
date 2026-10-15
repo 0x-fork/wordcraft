@@ -6388,6 +6388,23 @@ fn automatic_spacing_drops_between_list_items() {
     }
 }
 
+/// Vietnamese is written in single syllables: automatic hyphenation leaves its words whole. (The
+/// English patterns happen not to split these accented words today; the Vietnamese guard in
+/// `hyphenation_points` keeps it so whatever the patterns become.)
+#[test]
+fn automatic_hyphenation_leaves_vietnamese_whole() {
+    let text =
+        "Những người khuyến khích chuyện trường thường nghiêng nghiêng nhưng thành phố Nguyễn Trường Thượng xuyên suốt chương trình. ".repeat(8);
+    let mut d = Document::from_text(&text);
+    d.settings.auto_hyphenation = true;
+    let hyphens: usize = lay(&d).pages[0]
+        .items
+        .iter()
+        .filter_map(|i| if let Placed::Lines { para, .. } = i { Some(para.lines.iter().filter(|x| x.hyphen.is_some()).count()) } else { None })
+        .sum();
+    assert_eq!(hyphens, 0);
+}
+
 /// #1252: highlight and character-shading fills are marked as text backgrounds (a dark page dims
 /// them), and so is the text drawn on them; a paragraph's shading is an ordinary fill.
 #[test]

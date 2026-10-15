@@ -2422,7 +2422,9 @@ fn hyphen_glyph(pl: &ParaLayout, style: u32, cache: &mut Vec<(u32, u32, f32)>) -
 /// paragraph's text.
 fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool, runs: &[ProofRun]) -> Vec<u32> {
     let mut bytes: Vec<usize> = text.char_indices().filter(|(_, c)| *c == SOFT_HYPHEN).map(|(i, c)| i + c.len_utf8()).collect();
-    if auto {
+    // Vietnamese words are single syllables and never take a hyphen: no automatic hyphenation in
+    // a Vietnamese paragraph, nor in a word written with a Vietnamese-only letter (`Nguyễn`).
+    if auto && !wordcraft_proof::vi::looks_vietnamese(text) {
         let lim = wordcraft_proof::hyphen::Limits::default();
         let mut start: Option<usize> = None;
         for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
@@ -2436,6 +2438,7 @@ fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: 
                     if let Some(w) = text.get(a..i)
                         && w.chars().count() >= lim.min_word
                         && !w.chars().any(wordcraft_fonts::is_rtl)
+                        && !wordcraft_proof::vi::is_vietnamese_word(w)
                         && (caps || !all_caps(w))
                     {
                         // The word's language: its first letter's run, found by its place in `p.text`.
