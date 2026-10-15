@@ -270,6 +270,9 @@ pub enum Placed {
         row: usize,
         cell: usize,
         story: StoryRef,
+        /// Its row is exactly as tall as it says and the content is taller: what runs past the
+        /// cell is cut off when drawn, as in Word.
+        clip: bool,
     },
     /// The area of a picture, shape or text box, for hit testing, selection handles and dragging
     /// (drawn by `Image`/`Shape`/`Lines`). The object is the U+FFFC at byte `off` of paragraph

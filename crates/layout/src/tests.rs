@@ -4146,6 +4146,32 @@ fn autofit_handles_spanning_cells_long_words_and_empty_tables() {
 }
 
 #[test]
+fn text_overflowing_an_exact_row_is_clipped_to_it() {
+    use wordcraft_doc::props::HeightRule;
+    // An exactly 12 pt row holding three lines: Word shows what fits and cuts the rest at the row's
+    // edge, rather than drawing it over the rows below.
+    let mut t = Table::new(2, 1, 200.0);
+    t.rows[0].props.height = Some(12.0);
+    t.rows[0].props.height_rule = HeightRule::Exact;
+    t.rows[0].cells[0].blocks =
+        ["one", "two", "three"].iter().map(|s| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(s, Default::default()))).collect();
+    t.rows[1].cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("below", Default::default()))];
+    let mut d = Document::from_text("After");
+    d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+    let draws = display::page_display(&d, &lay(&d).pages[0], &Default::default());
+    let clipped = |want: &str| {
+        draws.iter().any(|x| match x {
+            display::Draw::Clip { items, .. } => {
+                flat(items.clone()).iter().any(|i| matches!(i, display::Draw::Glyphs { text, .. } if text.contains(want)))
+            }
+            _ => false,
+        })
+    };
+    assert!(clipped("three"), "the overflowing row's text is drawn inside a clip");
+    assert!(!clipped("below"), "a row that fits isn't clipped");
+}
+
+#[test]
 fn a_percentage_width_past_the_text_column_is_kept() {
     // `w:tblW w:type="pct" w:w="6564"` (131.28%) with the left margin as a negative indent: a
     // cover-page footer table that spans the page edge to edge.
