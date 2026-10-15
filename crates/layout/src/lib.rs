@@ -3252,7 +3252,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             l1 += 1;
             if matches!(l.end, LineEnd::PageBreak | LineEnd::ColumnBreak) && !pb.web {
                 forced_break = Some(l.end);
-                if l.end == LineEnd::PageBreak && l1 + 1 == n && pl.lines.get(l1).is_some_and(|m| m.start >= m.stop) {
+                if l.end == LineEnd::PageBreak && l1 + 1 == n && pl.lines.get(l1).is_some_and(|m| only_markers(p, m.start..m.stop)) {
                     l1 += 1;
                     mark_with_break = true;
                 }
@@ -3416,6 +3416,13 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let space_after = if pb.after_break_mark { 0.0 } else { pl.rp.space_after };
     pb.y += space_after;
     pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, space_after, pl.rp.after_auto, label.is_some()));
+}
+
+/// Whether `range` of `p`'s text holds nothing but zero-width markers (bookmarks, field and
+/// control boundaries…), or nothing at all: a line of them takes no room after a page break.
+fn only_markers(p: &Paragraph, range: std::ops::Range<usize>) -> bool {
+    let Some(text) = p.text.get(range.clone()) else { return false };
+    text.char_indices().all(|(i, c)| c == wordcraft_doc::para::OBJ && p.object_at(range.start + i).is_some_and(InlineObject::is_marker))
 }
 
 /// The outline of the body for an Outline view pass.

@@ -689,6 +689,28 @@ fn page_break_char_starts_new_page() {
 }
 
 #[test]
+fn a_bookmark_after_a_page_break_takes_no_line() {
+    // "Before", a page break, then a bookmark start (Word writes the next heading's TOC bookmark
+    // there): the bookmark takes no room, so "After" starts at the top of page 2, as in Word.
+    let top_of_after = |bookmark: bool| {
+        let mut d = Document::from_text("Before\nAfter");
+        d.insert_text(&Pos::body(0, 6), "\u{000C}", &Default::default()).unwrap();
+        if bookmark {
+            let mark = InlineObject::BookmarkStart { name: "_Toc1".into() };
+            d.insert_object(&Pos::body(0, 7), mark, &Default::default()).unwrap();
+        }
+        let l = lay(&d);
+        let page = l.pages.last().unwrap();
+        let after = page.items.iter().find_map(|i| match i {
+            Placed::Lines { path, y, .. } if path.0 == [1] => Some(*y),
+            _ => None,
+        });
+        (l.pages.len(), after.map(|y| y - page.body.y))
+    };
+    assert_eq!(top_of_after(true), top_of_after(false));
+}
+
+#[test]
 fn a_page_break_then_a_new_page_makes_one_page() {
     use wordcraft_doc::section::SectionProps;
     // "Before", a paragraph of only a page break, then "After" starting a page by itself: a page
