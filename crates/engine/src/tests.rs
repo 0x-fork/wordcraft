@@ -894,10 +894,23 @@ fn copying_an_equation_puts_mathml_on_the_clipboard() {
     run(&mut s, "edit.paste", json!({"text": clip, "html": html}));
     assert_eq!(equations(&s), vec!["y=2x_s".to_string(), "y=2x_s".to_string()]);
 
-    // A copy without an equation carries no HTML.
+    // A copy without an equation carries HTML too (#1523).
     run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 5}}));
     let r = run(&mut s, "edit.copy", json!({}));
-    assert!(r.get("html").is_none() && s.clipboard_html.is_empty(), "{r}");
+    assert!(r["html"].as_str().is_some_and(|h| h.contains("Speed") && !h.contains("<math")), "{r}");
+}
+
+#[test]
+fn copying_bold_text_puts_html_on_the_clipboard() {
+    // #1523: formatted text reaches other programs as HTML, not only as plain text.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "plain bold"}));
+    s.doc.format_range(&Pos::body(0, 6), &Pos::body(0, 10), &|c| c.bold = Some(true)).unwrap();
+    run(&mut s, "select.all", json!({}));
+    let r = run(&mut s, "edit.copy", json!({}));
+    let html = r["html"].as_str().unwrap_or_default().to_string();
+    assert!(html.contains("<strong>bold</strong>"), "{html}");
+    assert_eq!(s.clipboard_html, html);
 }
 
 #[test]
