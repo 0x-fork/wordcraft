@@ -4171,6 +4171,37 @@ fn autofit_handles_spanning_cells_long_words_and_empty_tables() {
 }
 
 #[test]
+fn an_inherited_footer_sizes_its_percentage_table_by_its_own_section() {
+    use wordcraft_doc::section::SectionProps;
+    // Measured in Word: a 100%-wide footer table defined by a portrait section keeps that width on
+    // a landscape page that inherits the footer, centred there; a landscape section naming the
+    // same footer itself gets the landscape width.
+    let table_width = |landscape_names_it: bool| {
+        let mut d = Document::from_text("Portrait\nLandscape");
+        let mut t = Table::new(1, 2, 100.0);
+        t.props.width_pct = Some(100.0);
+        let footer = d.add_part(wordcraft_doc::PartKind::Footer, vec![std::sync::Arc::new(wordcraft_doc::Block::Table(t))]);
+        let mut portrait = SectionProps::default();
+        portrait.footers.default = Some(footer);
+        d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().section = Some(Box::new(portrait.clone()));
+        let mut landscape = portrait.clone();
+        (landscape.page_w, landscape.page_h) = (portrait.page_h, portrait.page_w);
+        if !landscape_names_it {
+            landscape.footers.default = None;
+        }
+        d.last_section = landscape;
+        let l = lay(&d);
+        let cells: Vec<Rect> = l.pages[1].footer.iter().filter_map(|i| if let Placed::Cell { rect, .. } = i { Some(*rect) } else { None }).collect();
+        let (x0, x1) = cells.iter().fold((f32::MAX, f32::MIN), |(a, b), r| (a.min(r.x), b.max(r.right())));
+        (x1 - x0, portrait.text_width(), d.last_section.text_width())
+    };
+    let (inherited, portrait_w, _) = table_width(false);
+    assert!((inherited - portrait_w).abs() < 1.0, "inherited: {inherited} wide, portrait text {portrait_w}");
+    let (own, _, landscape_w) = table_width(true);
+    assert!((own - landscape_w).abs() < 1.0, "own footer: {own} wide, landscape text {landscape_w}");
+}
+
+#[test]
 fn a_row_with_less_room_than_its_minimum_height_moves_on_whole() {
     use wordcraft_doc::props::HeightRule;
     // Measured in Word: with 49 pt left on the page, a row of eight lines splits, but the same row

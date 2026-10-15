@@ -650,6 +650,9 @@ struct Ctx<'a> {
     uses_totals: bool,
     /// Whether to note `uses_totals` now (off while laying out headers and footers).
     track_totals: bool,
+    /// The width a top-level table's percentage width is a share of, when it isn't the box's:
+    /// an inherited header or footer's tables follow the section that defines it.
+    pct_base: Option<f32>,
     /// Body blocks that are empty paragraphs carrying only a section break before a continuous
     /// section, in order: they take no room (see [`place_para`]).
     quiet_marks: Vec<usize>,
@@ -2017,6 +2020,7 @@ fn layout_pass(
         grid: para::Grid::default(),
         uses_totals: false,
         track_totals: true,
+        pct_base: None,
         quiet_marks: Vec::new(),
         mirror: false,
         table_keys: Vec::new(),
@@ -2138,10 +2142,25 @@ fn layout_pass(
         ctx.fields.section_pages = totals.section(si);
         // Headers and footers left out are linked to the previous section's, and take its room.
         let (heads, feet) = (linked(&sections, si, |s| s.headers), linked(&sections, si, |s| s.footers));
-        let body_top = if reflow || turn.is_turned() { sect.margin_top } else { body_top_for(&mut ctx, sect, heads.default) };
-        let first_top = if reflow || turn.is_turned() || !sect.title_page { body_top } else { body_top_for(&mut ctx, sect, heads.first) };
-        let foot_top = if reflow || turn.is_turned() { f32::MAX } else { foot_top_for(&mut ctx, sect, feet.default) };
-        let first_foot = if reflow || turn.is_turned() || !sect.title_page { foot_top } else { foot_top_for(&mut ctx, sect, feet.first) };
+        let hb = |i: Option<u32>| defining_width(&sections, si, |s| s.headers, i);
+        let fb = |i: Option<u32>| defining_width(&sections, si, |s| s.footers, i);
+        let body_top = if reflow || turn.is_turned() {
+            sect.margin_top
+        } else {
+            with_pct_base(&mut ctx, hb(heads.default), |c| body_top_for(c, sect, heads.default))
+        };
+        let first_top = if reflow || turn.is_turned() || !sect.title_page {
+            body_top
+        } else {
+            with_pct_base(&mut ctx, hb(heads.first), |c| body_top_for(c, sect, heads.first))
+        };
+        let foot_top =
+            if reflow || turn.is_turned() { f32::MAX } else { with_pct_base(&mut ctx, fb(feet.default), |c| foot_top_for(c, sect, feet.default)) };
+        let first_foot = if reflow || turn.is_turned() || !sect.title_page {
+            foot_top
+        } else {
+            with_pct_base(&mut ctx, fb(feet.first), |c| foot_top_for(c, sect, feet.first))
+        };
         ctx.grid = para::Grid::of(doc, sect);
         let restart = sect.page_num_start;
         if sect.line_numbers.as_ref().is_some_and(|l| l.restart == wordcraft_doc::section::LineNumberRestart::Section) {
@@ -2563,6 +2582,30 @@ fn section_side(start: SectionStart, restart: Option<u32>, last: u32, pages: usi
         }
         SectionStart::Continuous | SectionStart::NextColumn => (false, restart),
     }
+}
+
+/// The text width of the section that defines header or footer `id`, when section `si` inherits
+/// it rather than naming it (`None` when it names it). Measured in Word: an inherited part's
+/// percentage-width tables are sized by that section, though it's laid out on `si`'s pages.
+fn defining_width(sections: &[(usize, &SectionProps)], si: usize, get: fn(&SectionProps) -> HeaderSet, id: Option<u32>) -> Option<f32> {
+    let id = id?;
+    let names = |s: &SectionProps| {
+        let h = get(s);
+        [h.default, h.first, h.even].contains(&Some(id))
+    };
+    let own = sections.get(si)?.1;
+    if names(own) {
+        return None;
+    }
+    sections.iter().take(si).rev().find(|(_, s)| names(s)).map(|(_, s)| s.text_width()).filter(|w| (w - own.text_width()).abs() > 0.01)
+}
+
+/// Lay out with percentage-width tables sized by `base` (see [`defining_width`]).
+fn with_pct_base<T>(ctx: &mut Ctx, base: Option<f32>, f: impl FnOnce(&mut Ctx) -> T) -> T {
+    let before = std::mem::replace(&mut ctx.pct_base, base);
+    let out = f(ctx);
+    ctx.pct_base = before;
+    out
 }
 
 /// Where body text starts: the top margin, or below the header if it's taller.
@@ -3946,7 +3989,8 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         {
             let blocks = part.blocks.clone();
             let frame = PageFrame { sect, origin: (x, sect.header), number: page.number, mirror: ctx.mirror };
-            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items;
+            let base = defining_width(sections, page.section, |s| s.headers, hid);
+            let mut items = with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items);
             for it in &mut items {
                 it.translate(x, sect.header);
             }
@@ -3957,10 +4001,11 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             && let Some(part) = ctx.doc.parts.get(&id)
         {
             let blocks = part.blocks.clone();
+            let base = defining_width(sections, page.section, |s| s.footers, fid);
             // The footer's height fixes where it sits, which page-relative floats need.
-            let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, None).height;
+            let h = with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, None).height);
             let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h), number: page.number, mirror: ctx.mirror };
-            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items;
+            let mut items = with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items);
             for it in &mut items {
                 it.translate(x, sect.page_h - sect.footer - h);
             }
