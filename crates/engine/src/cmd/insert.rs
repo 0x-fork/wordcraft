@@ -222,22 +222,31 @@ pub(crate) fn picture(s: &mut Session, v: &Value) -> CmdResult {
     place_picture(s, bytes, p::f32(v, "width"), p::str(v, "alt").unwrap_or(""))
 }
 
+/// The media extension of an encoded image by its magic bytes, as `image_size` accepted it
+/// (TIFF included: the `image` crate decodes it).
+pub(crate) fn image_ext(bytes: &[u8]) -> &'static str {
+    match bytes.get(..4) {
+        Some([0x89, b'P', b'N', b'G']) => "png",
+        Some([0xFF, 0xD8, ..]) => "jpeg",
+        Some([b'G', b'I', b'F', _]) => "gif",
+        Some([b'R', b'I', b'F', b'F']) => "webp",
+        Some([b'B', b'M', ..]) => "bmp",
+        Some([b'I', b'I', 0x2A, 0x00]) | Some([b'M', b'M', 0x00, 0x2A]) => "tiff",
+        _ => "png",
+    }
+}
+
 /// Insert an encoded image at the selection as an inline picture, `width` points wide (default:
-/// its natural size at 96 ppi), never wider than the text column.
+/// its natural size at 96 ppi), never wider than the text column. The caret ends after it, so a
+/// script's next typing doesn't replace it (#965); Picture Format commands still act on it. The
+/// app selects a picture the person inserts (`WordApp::run`).
 fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str) -> CmdResult {
     if bytes.len() > 200 << 20 {
         return Err(CmdError::Failed("image is larger than 200 MB".into()));
     }
     // Natural size: pixels at 96 ppi, or a metafile's own frame (WMF, EMF: #802).
     let (natural_w, natural_h, ext) = if let Some((pw, ph)) = wordcraft_render::image_size(&bytes) {
-        let ext = match bytes.get(..4) {
-            Some([0x89, b'P', b'N', b'G']) => "png",
-            Some([0xFF, 0xD8, ..]) => "jpeg",
-            Some([b'G', b'I', b'F', _]) => "gif",
-            Some([b'R', b'I', b'F', b'F']) => "webp",
-            Some([b'B', b'M', ..]) => "bmp",
-            _ => "png",
-        };
+        let ext = image_ext(&bytes);
         (pw as f32 * 0.75, ph as f32 * 0.75, ext)
     } else if let Some(size) = wordcraft_render::metafile_size(&bytes) {
         size
@@ -265,7 +274,7 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
     let props = s.typing_props();
     let at = delete_selection(s)?;
     let end = s.doc.insert_object(&at, obj, &props)?;
-    s.sel = Selection { anchor: at, focus: end };
+    s.sel = Selection::caret(end);
     Ok(json!({"media": key, "width": w, "height": h}))
 }
 
@@ -345,7 +354,7 @@ fn text_box(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::str(v, "text").unwrap_or("").to_string();
     let w = p::f32(v, "width").unwrap_or(144.0).clamp(18.0, 2000.0);
     let h = p::f32(v, "height").unwrap_or(72.0).clamp(18.0, 2000.0);
-    let id = s.doc.add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))]);
+    let id = s.doc.try_add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))])?;
     let obj = InlineObject::Shape {
         kind: ShapeKind::TextBox,
         w,
@@ -566,7 +575,7 @@ fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResult {
                 para.props.align = Some(Align::Center);
                 para.insert_object(
                     0,
-                    InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+                    InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
                     &CharProps::default(),
                 )?;
             }
@@ -731,7 +740,7 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
         _ => Align::Center,
     };
     let x_of_y = p::str(v, "format").is_some_and(|f| f.contains("of"));
-    let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() };
+    let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() };
     if position == "current" {
         let props = s.typing_props();
         let at = delete_selection(s)?;
@@ -750,7 +759,7 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
         let end = para.len();
         para.insert_object(
             end,
-            InlineObject::Field { instr: "NUMPAGES".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "NUMPAGES".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps { bold: Some(true), ..Default::default() },
         )?;
     } else {
@@ -768,7 +777,7 @@ fn date_time(s: &mut Session, v: &Value) -> CmdResult {
         let at = delete_selection(s)?;
         let end = s.doc.insert_object(
             &at,
-            InlineObject::Field { instr: format!("DATE \\@ \"{fmt}\""), result: text, locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: format!("DATE \\@ \"{fmt}\""), result: text, locked: false, dirty: false, code: false, form: String::new() },
             &props,
         )?;
         s.sel = Selection::caret(end);
@@ -876,7 +885,8 @@ fn field(s: &mut Session, v: &Value) -> CmdResult {
     let result = p::str(v, "result").unwrap_or("").to_string();
     let props = s.typing_props();
     let at = delete_selection(s)?;
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, code: false, form: String::new() }, &props)?;
+    let end =
+        s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, dirty: false, code: false, form: String::new() }, &props)?;
     s.sel = Selection::caret(end);
     let _ = super::references::update_fields(s);
     sel_result(s)
