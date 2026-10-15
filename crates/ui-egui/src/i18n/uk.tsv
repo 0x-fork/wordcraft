@@ -1573,6 +1573,11 @@
 	Add Font…	Додати шрифт…
 	Added Fonts	Додані шрифти
 	Remove Added Font	Видалити доданий шрифт
+	Load System Installed Fonts…	Завантажити встановлені системні шрифти…
+	All system fonts are already available.	Усі системні шрифти вже доступні.
+	Local font access is not supported by your browser.	Ваш браузер не підтримує доступ до локальних шрифтів.
+	Local font access was denied.	У доступі до локальних шрифтів відмовлено.
+	Loaded {count} system fonts.	Завантажено системних шрифтів: {count}.
 	Recent Colors	Останні кольори
 	More Colors…	Інші кольори…
 	Standard	Стандартні

@@ -1809,6 +1809,11 @@ preview	Title	Пример
 	Add Font…	Добавить шрифт…
 	Added Fonts	Добавленные шрифты
 	Remove Added Font	Удалить добавленный шрифт
+	Load System Installed Fonts…	Загрузить установленные системные шрифты…
+	All system fonts are already available.	Все системные шрифты уже доступны.
+	Local font access is not supported by your browser.	Ваш браузер не поддерживает доступ к локальным шрифтам.
+	Local font access was denied.	Доступ к локальным шрифтам отклонен.
+	Loaded {count} system fonts.	Загружено системных шрифтов: {count}.
 	Print Markup	Печатать исправления и примечания
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Примечания рядом с каждой страницей и отслеживаемые изменения в PDF, при печати и в изображениях; список примечаний в конце веб-страниц, Markdown и текста.
 	Recent Colors	Последние цвета

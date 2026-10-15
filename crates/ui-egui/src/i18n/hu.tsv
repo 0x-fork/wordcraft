@@ -1944,6 +1944,11 @@
 	Add Font…	Betűtípus hozzáadása…
 	Added Fonts	Hozzáadott betűtípusok
 	Remove Added Font	Hozzáadott betűtípus eltávolítása
+	Load System Installed Fonts…	Telepített rendszer-betűtípusok betöltése…
+	All system fonts are already available.	Minden rendszer-betűtípus elérhető már.
+	Local font access is not supported by your browser.	A böngészője nem támogatja a helyi betűtípusokhoz való hozzáférést.
+	Local font access was denied.	A helyi betűtípusokhoz való hozzáférés megtagadva.
+	Loaded {count} system fonts.	{count} rendszer-betűtípus betöltve.
 	Print Markup	Jelölések nyomtatása
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	PDF-ben, nyomtatásban és képen: megjegyzések az oldalak mellett és követett módosítások. Weboldal, Markdown és szöveg esetén: megjegyzéslista a végén.
 	Recent Colors	Legutóbbi színek

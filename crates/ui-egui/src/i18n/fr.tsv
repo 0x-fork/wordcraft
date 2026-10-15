@@ -1929,6 +1929,11 @@
 	Add Font…	Ajouter une police…
 	Added Fonts	Polices ajoutées
 	Remove Added Font	Supprimer la police ajoutée
+	Load System Installed Fonts…	Charger les polices système installées…
+	All system fonts are already available.	Toutes les polices système sont déjà disponibles.
+	Local font access is not supported by your browser.	L'accès aux polices locales n'est pas pris en charge par votre navigateur.
+	Local font access was denied.	L'accès aux polices locales a été refusé.
+	Loaded {count} system fonts.	{count} polices système chargées.
 	Recent Colors	Couleurs récentes
 	More Colors…	Autres couleurs…
 	Standard	Standard

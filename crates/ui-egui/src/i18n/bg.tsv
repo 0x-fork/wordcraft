@@ -2241,6 +2241,11 @@
 	Add Font…	Добавяне на шрифт…
 	Added Fonts	Добавени шрифтове
 	Remove Added Font	Премахване на добавен шрифт
+	Load System Installed Fonts…	Зареждане на инсталирани системни шрифтове…
+	All system fonts are already available.	Всички системни шрифтове вече са налични.
+	Local font access is not supported by your browser.	Достъпът до локални шрифтове не се поддържа от браузъра ви.
+	Local font access was denied.	Достъпът до локални шрифтове беше отказан.
+	Loaded {count} system fonts.	Заредени са {count} системни шрифта.
 	Recent Colors	Последни цветове
 	More Colors…	Още цветове…
 	Standard	Стандартни

@@ -1561,6 +1561,11 @@
 	Add Font…	フォントの追加…
 	Added Fonts	追加したフォント
 	Remove Added Font	追加したフォントの削除
+	Load System Installed Fonts…	インストール済みシステムフォントを読み込む…
+	All system fonts are already available.	すべてのシステムフォントは既に使用可能です。
+	Local font access is not supported by your browser.	お使いのブラウザーはローカルフォントへのアクセスに対応していません。
+	Local font access was denied.	ローカルフォントへのアクセスが拒否されました。
+	Loaded {count} system fonts.	{count} 個のシステムフォントを読み込みました。
 	Recent Colors	最近使用した色
 	More Colors…	その他の色…
 	Standard	標準

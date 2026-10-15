@@ -1573,6 +1573,11 @@
 	Add Font…	Adicionar fonte…
 	Added Fonts	Fontes adicionadas
 	Remove Added Font	Remover fonte adicionada
+	Load System Installed Fonts…	Carregar fontes do sistema instaladas…
+	All system fonts are already available.	Todas as fontes do sistema já estão disponíveis.
+	Local font access is not supported by your browser.	O acesso a fontes locais não é compatível com seu navegador.
+	Local font access was denied.	O acesso a fontes locais foi negado.
+	Loaded {count} system fonts.	{count} fontes do sistema carregadas.
 	Recent Colors	Cores recentes
 	More Colors…	Mais cores…
 	Standard	Padrão

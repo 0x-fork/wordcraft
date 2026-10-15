@@ -1580,6 +1580,11 @@
 	Add Font…	Lisa font…
 	Added Fonts	Lisatud fondid
 	Remove Added Font	Eemalda lisatud font
+	Load System Installed Fonts…	Laadi süsteemi installitud fondid…
+	All system fonts are already available.	Kõik süsteemifondid on juba saadaval.
+	Local font access is not supported by your browser.	Teie brauser ei toeta kohalike fontide juurdepääsu.
+	Local font access was denied.	Juurdepääs kohalikele fontidele keelati.
+	Loaded {count} system fonts.	Laaditi {count} süsteemifonti.
 	Recent Colors	Viimati kasutatud värvid
 	More Colors…	Rohkem värve…
 	Standard	Standard

@@ -2636,3 +2636,9 @@
 # Missing dictionary on the status bar (#1441)
 	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Chưa cài từ điển chính tả cho {language}, nên ngôn ngữ này không được kiểm tra. WordCraft tìm từ điển Hunspell {name} trong thư mục WORDCRAFT_DICTIONARIES và ở các vị trí thông thường của hệ thống.
 	{language} (no dictionary)	{language} (không có từ điển)
+# Load system installed fonts on the web (#1390)
+	Load System Installed Fonts…	Tải phông chữ đã cài trên hệ thống…
+	All system fonts are already available.	Tất cả phông chữ hệ thống đã có sẵn.
+	Local font access is not supported by your browser.	Trình duyệt của bạn không hỗ trợ truy cập phông chữ cục bộ.
+	Local font access was denied.	Quyền truy cập phông chữ cục bộ đã bị từ chối.
+	Loaded {count} system fonts.	Đã tải {count} phông chữ hệ thống.

@@ -1558,6 +1558,11 @@
 	Add Font…	Schriftart hinzufügen…
 	Added Fonts	Hinzugefügte Schriftarten
 	Remove Added Font	Hinzugefügte Schriftart entfernen
+	Load System Installed Fonts…	Installierte Systemschriftarten laden…
+	All system fonts are already available.	Alle Systemschriftarten sind bereits verfügbar.
+	Local font access is not supported by your browser.	Lokaler Schriftartenzugriff wird von Ihrem Browser nicht unterstützt.
+	Local font access was denied.	Zugriff auf lokale Schriftarten wurde verweigert.
+	Loaded {count} system fonts.	{count} Systemschriftarten geladen.
 	Recent Colors	Zuletzt verwendete Farben
 	More Colors…	Weitere Farben…
 	Standard	Standard

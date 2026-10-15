@@ -1949,6 +1949,11 @@
 	Regular expressions	Wyrażenia regularne
 	Relationship	Relacja
 	Remove Added Font	Usuń dodaną czcionkę
+	Load System Installed Fonts…	Wczytaj zainstalowane czcionki systemowe…
+	All system fonts are already available.	Wszystkie czcionki systemowe są już dostępne.
+	Local font access is not supported by your browser.	Twoja przeglądarka nie obsługuje dostępu do czcionek lokalnych.
+	Local font access was denied.	Odmówiono dostępu do czcionek lokalnych.
+	Loaded {count} system fonts.	Wczytano {count} czcionek systemowych.
 	Remove Content Control	Usuń formant zawartości
 	Remove row	Usuń wiersz
 	Remove series	Usuń serię

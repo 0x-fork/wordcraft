@@ -1811,6 +1811,11 @@ preview	Title	Örnek
 	Add Font…	Yazı Tipi Ekle…
 	Added Fonts	Eklenen Yazı Tipleri
 	Remove Added Font	Eklenen Yazı Tipini Kaldır
+	Load System Installed Fonts…	Yüklü Sistem Yazı Tiplerini Yükle…
+	All system fonts are already available.	Tüm sistem yazı tipleri zaten kullanılabilir.
+	Local font access is not supported by your browser.	Tarayıcınız yerel yazı tipi erişimini desteklemiyor.
+	Local font access was denied.	Yerel yazı tipi erişimi reddedildi.
+	Loaded {count} system fonts.	{count} sistem yazı tipi yüklendi.
 	Print Markup	İşaretlemeyi Yazdır
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	PDF'lerde, baskılarda ve görüntülerde her sayfanın yanında açıklamalar ve izlenen değişiklikler; web sayfalarının, Markdown ve metnin sonunda açıklama listesi.
 	Recent Colors	Son Kullanılan Renkler

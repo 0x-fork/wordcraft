@@ -764,6 +764,8 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 if let Some(f) = font_combo(ui, "font", 150.0, &font, &fams, Some(&*prev)) {
                     let _ = if f == crate::widgets::ADD_FONT {
                         app.run("font.add", json!({}))
+                    } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
+                        app.run("font.loadSystem", json!({}))
                     } else {
                         let f = app.previews.font_stored(&f);
                         app.run("format.font", json!({"name": f}))

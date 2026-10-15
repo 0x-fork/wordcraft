@@ -1571,6 +1571,11 @@
 	Add Font…	Dodaj font…
 	Added Fonts	Dodati fontovi
 	Remove Added Font	Ukloni dodati font
+	Load System Installed Fonts…	Učitaj instalirane sistemske fontove…
+	All system fonts are already available.	Svi sistemski fontovi su već dostupni.
+	Local font access is not supported by your browser.	Vaš pregledač ne podržava pristup lokalnim fontovima.
+	Local font access was denied.	Pristup lokalnim fontovima je odbijen.
+	Loaded {count} system fonts.	Učitano sistemskih fontova: {count}.
 	Recent Colors	Nedavne boje
 	More Colors…	Još boja…
 	Standard	Standardne

@@ -1562,6 +1562,11 @@
 	Add Font…	新增字型…
 	Added Fonts	已新增的字型
 	Remove Added Font	移除已新增的字型
+	Load System Installed Fonts…	載入系統已安裝字型…
+	All system fonts are already available.	所有系統字型已可用。
+	Local font access is not supported by your browser.	您的瀏覽器不支援存取本機字型。
+	Local font access was denied.	本機字型存取遭到拒絕。
+	Loaded {count} system fonts.	已載入 {count} 個系統字型。
 	Recent Colors	最近使用的色彩
 	More Colors…	其他色彩…
 	Standard	標準
