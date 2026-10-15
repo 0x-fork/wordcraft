@@ -554,6 +554,10 @@ impl TabLeader {
     }
 }
 
+/// Two tab positions closer than this (points) are the same stop: `para.tabs` replaces at this
+/// tolerance, and the Tabs dialog and the ruler merge and detect no-ops with it.
+pub const TAB_POS_EPS: f32 = 0.5;
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TabStop {
     /// Points from the paragraph's left indent origin (the text column's left edge).
