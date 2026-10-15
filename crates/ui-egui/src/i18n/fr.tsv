@@ -527,7 +527,7 @@
 	Multiple Pages	Plusieurs pages
 	Name (A–Z)	Nom (A–Z)
 	Name:	Nom :
-	Narrow  0.5" all	Étroites — 0,5" partout
+	Narrow  {size} all	Étroites — {size} partout
 	Navigation	Navigation
 	Navigation Pane	Volet de navigation
 	New	Nouveau
@@ -554,7 +554,7 @@
 	Nonbreaking Hyphen	Tiret insécable
 	Nonbreaking Space	Espace insécable
 	None	Aucun
-	Normal  1" all	Normales — 1" partout
+	Normal  {size} all	Normales — {size} partout
 	Normal Style	Style Normal
 	Not available right now	Indisponible pour le moment
 	Not saved	Non enregistré

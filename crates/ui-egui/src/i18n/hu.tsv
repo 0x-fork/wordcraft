@@ -443,7 +443,7 @@
 	Multiple Pages	Több oldal
 	Name (A–Z)	Név (A–Z)
 	Name:	Név:
-	Narrow  0.5" all	Keskeny  0,5" mindenhol
+	Narrow  {size} all	Keskeny  {size} mindenhol
 	Navigation	Navigáció
 	Navigation Pane	Navigációs panel
 	New	Új
@@ -472,7 +472,7 @@
 	Nonbreaking Space	Nem törő szóköz
 	None	Nincs
 	Normal	Normál
-	Normal  1" all	Normál  1" mindenhol
+	Normal  {size} all	Normál  {size} mindenhol
 	Normal Indent	Normál behúzás
 	Normal Style	Normál stílus
 	Normal Table	Normál táblázat

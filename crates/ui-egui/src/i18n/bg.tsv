@@ -517,7 +517,7 @@
 	Multiple Pages	Няколко страници
 	Name (A–Z)	Име (А–Я)
 	Name:	Име:
-	Narrow  0.5" all	Тесни  0.5" навсякъде
+	Narrow  {size} all	Тесни  {size} навсякъде
 	Navigation	Навигация
 	Navigation Pane	Навигационен панел
 	New	Нов
@@ -545,7 +545,7 @@
 	Nonbreaking Hyphen	Непрекъсваемо тире
 	Nonbreaking Space	Непрекъсваем интервал
 	None	Няма
-	Normal  1" all	Нормални  1" навсякъде
+	Normal  {size} all	Нормални  {size} навсякъде
 	Normal Style	Нормален стил
 	Not available right now	В момента не е налично
 	Not saved	Не е запазено

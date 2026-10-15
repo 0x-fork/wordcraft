@@ -564,7 +564,7 @@
 	Multiple Pages	여러 페이지
 	Name (A–Z)	이름순(A–Z)
 	Name:	이름:
-	Narrow  0.5" all	좁게(모든 여백 0.5")
+	Narrow  {size} all	좁게(모든 여백 {size})
 	Navigation	탐색
 	Navigation Pane	탐색 창
 	New	새로 만들기
@@ -591,7 +591,7 @@
 	Nonbreaking Hyphen	줄 바꿈하지 않는 하이픈
 	Nonbreaking Space	줄 바꿈하지 않는 공백
 	None	없음
-	Normal  1" all	보통(모든 여백 1")
+	Normal  {size} all	보통(모든 여백 {size})
 	Normal Style	표준 스타일
 	Not available right now	현재 사용할 수 없음
 	Not saved	저장되지 않음

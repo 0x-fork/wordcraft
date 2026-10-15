@@ -513,7 +513,7 @@
 	Multiple Pages	Mehrere Seiten
 	Name (A–Z)	Name (A–Z)
 	Name:	Name:
-	Narrow  0.5" all	Schmal  0,5" rundum
+	Narrow  {size} all	Schmal  {size} rundum
 	Navigation	Navigation
 	Navigation Pane	Navigationsbereich
 	New	Neu
@@ -540,7 +540,7 @@
 	Nonbreaking Hyphen	Geschützter Bindestrich
 	Nonbreaking Space	Geschütztes Leerzeichen
 	None	Keine
-	Normal  1" all	Normal  1" rundum
+	Normal  {size} all	Normal  {size} rundum
 	Normal Style	Formatvorlage „Standard“
 	Not available right now	Derzeit nicht verfügbar
 	Not saved	Nicht gespeichert

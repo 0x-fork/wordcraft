@@ -585,7 +585,7 @@
 	Multiple Pages	Varias páginas
 	Name (A–Z)	Nombre (A–Z)
 	Name:	Nombre:
-	Narrow  0.5" all	Estrecho  0,5" en todos
+	Narrow  {size} all	Estrecho  {size} en todos
 	Navigation	Navegación
 	Navigation Pane	Panel de navegación
 	New	Nuevo
@@ -614,7 +614,7 @@
 	Nonbreaking Hyphen	Guion no separable
 	Nonbreaking Space	Espacio de no separación
 	None	Ninguno
-	Normal  1" all	Normal  1" en todos
+	Normal  {size} all	Normal  {size} en todos
 	Normal Style	Estilo normal
 	Not available right now	No disponible por ahora
 	Not saved	Sin guardar

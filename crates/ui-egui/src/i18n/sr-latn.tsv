@@ -618,7 +618,7 @@
 	Multiple Pages	Više strana
 	Name (A–Z)	Naziv (A–Š)
 	Name:	Naziv:
-	Narrow  0.5" all	Uske  0,5" svuda
+	Narrow  {size} all	Uske  {size} svuda
 	Navigation	Navigacija
 	Navigation Pane	Okno za navigaciju
 	New	Novo
@@ -645,7 +645,7 @@
 	Nonbreaking Hyphen	Nedeljiva crtica
 	Nonbreaking Space	Nedeljivi razmak
 	None	Nijedno
-	Normal  1" all	Normalne  1" svuda
+	Normal  {size} all	Normalne  {size} svuda
 	Normal Style	Normalan stil
 	Not available right now	Trenutno nedostupno
 	Not saved	Nije sačuvano

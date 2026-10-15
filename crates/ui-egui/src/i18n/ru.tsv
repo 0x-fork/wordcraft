@@ -445,7 +445,7 @@
 	Multiple Pages	Несколько страниц
 	Name (A–Z)	Имя (А–Я)
 	Name:	Имя:
-	Narrow  0.5" all	Узкие  0,5" со всех сторон
+	Narrow  {size} all	Узкие  {size} со всех сторон
 	Navigation	Навигация
 	Navigation Pane	Область навигации
 	New	Создать
@@ -474,7 +474,7 @@
 	Nonbreaking Space	Неразрывный пробел
 	None	Нет
 	Normal	Обычный
-	Normal  1" all	Обычные  1" со всех сторон
+	Normal  {size} all	Обычные  {size} со всех сторон
 	Normal Indent	Обычный отступ
 	Normal Style	Обычный стиль
 	Normal Table	Обычная таблица

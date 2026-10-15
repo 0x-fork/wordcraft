@@ -585,7 +585,7 @@
 	Multiple Pages	Кілька сторінок
 	Name (A–Z)	Назва (А–Я)
 	Name:	Назва:
-	Narrow  0.5" all	Вузькі — усі по 0,5″
+	Narrow  {size} all	Вузькі — усі по {size}
 	Navigation	Навігація
 	Navigation Pane	Панель навігації
 	New	Новий
@@ -612,7 +612,7 @@
 	Nonbreaking Hyphen	Нерозривний дефіс
 	Nonbreaking Space	Нерозривний пробіл
 	None	Немає
-	Normal  1" all	Звичайні — усі по 1″
+	Normal  {size} all	Звичайні — усі по {size}
 	Normal Style	Звичайний стиль
 	Not available right now	Зараз недоступно
 	Not saved	Не збережено

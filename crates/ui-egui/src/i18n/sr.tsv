@@ -622,7 +622,7 @@
 	Multiple Pages	Више страна
 	Name (A–Z)	Назив (А–Ш)
 	Name:	Назив:
-	Narrow  0.5" all	Уске  0,5" свуда
+	Narrow  {size} all	Уске  {size} свуда
 	Navigation	Навигација
 	Navigation Pane	Окно за навигацију
 	New	Ново
@@ -649,7 +649,7 @@
 	Nonbreaking Hyphen	Недељива цртица
 	Nonbreaking Space	Недељиви размак
 	None	Ниједно
-	Normal  1" all	Нормалне  1" свуда
+	Normal  {size} all	Нормалне  {size} свуда
 	Normal Style	Нормалан стил
 	Not available right now	Тренутно недоступно
 	Not saved	Није сачувано

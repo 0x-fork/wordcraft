@@ -1353,17 +1353,22 @@ fn design(app: &mut WordApp, ui: &mut Ui) {
 // mark, as Text Direction's does (#1206).
 fn margins_items(ui: &mut Ui, app: &mut WordApp) {
     let current = wordcraft_engine::cmd::page::margins_preset_at(&app.session);
-    for (l, k) in [
-        ("Normal  1\" all", "normal"),
-        ("Narrow  0.5\" all", "narrow"),
-        ("Moderate", "moderate"),
-        ("Wide", "wide"),
-        ("Mirrored", "mirrored"),
-        ("Office 2003 Default", "office2003"),
+    // The two uniform presets name their margin in the measurement unit (`2,54 cm`, #838).
+    for (l, k, uniform) in [
+        ("Normal  {size} all", "normal", Some(72.0)),
+        ("Narrow  {size} all", "narrow", Some(36.0)),
+        ("Moderate", "moderate", None),
+        ("Wide", "wide", None),
+        ("Mirrored", "mirrored", None),
+        ("Office 2003 Default", "office2003", None),
     ] {
+        let label = match uniform {
+            Some(pt) => crate::i18n::fmt(tl!(l), &[("size", &crate::options::length(pt))]),
+            None => l.to_string(),
+        };
         // Mirrored margins come from the document as well as from the preset (#1181).
         let on = current == Some(k) || (k == "mirrored" && app.session.doc.settings.mirror_margins);
-        mi_check(ui, app, l, on, "layout.margins", json!({"preset": k}));
+        mi_check(ui, app, &label, on, "layout.margins", json!({"preset": k}));
     }
     mi(ui, app, "Custom Margins…", "ui.dialog", json!({"name": "pageSetup"}));
 }

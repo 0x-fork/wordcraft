@@ -571,7 +571,7 @@
 	Multiple Pages	多頁
 	Name (A–Z)	名稱（A–Z）
 	Name:	名稱：
-	Narrow  0.5" all	窄  四周 0.5"
+	Narrow  {size} all	窄  四周 {size}
 	Navigation	導覽
 	Navigation Pane	功能窗格
 	New	新增
@@ -598,7 +598,7 @@
 	Nonbreaking Hyphen	不分行連字號
 	Nonbreaking Space	不分行空格
 	None	無
-	Normal  1" all	一般  四周 1"
+	Normal  {size} all	一般  四周 {size}
 	Normal Style	內文樣式
 	Not available right now	目前無法使用
 	Not saved	未儲存

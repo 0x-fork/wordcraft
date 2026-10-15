@@ -443,7 +443,7 @@
 	Multiple Pages	Birden Çok Sayfa
 	Name (A–Z)	Ad (A–Z)
 	Name:	Ad:
-	Narrow  0.5" all	Dar  her kenar 0,5 inç
+	Narrow  {size} all	Dar  her kenar {size}
 	Navigation	Gezinti
 	Navigation Pane	Gezinti Bölmesi
 	New	Yeni
@@ -472,7 +472,7 @@
 	Nonbreaking Space	Bölünemez Boşluk
 	None	Yok
 	Normal	Normal
-	Normal  1" all	Normal  her kenar 1 inç
+	Normal  {size} all	Normal  her kenar {size}
 	Normal Indent	Normal Girintili
 	Normal Style	Normal Stil
 	Normal Table	Normal Tablo

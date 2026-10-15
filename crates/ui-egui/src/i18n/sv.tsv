@@ -576,7 +576,7 @@
 	Multiple Pages	Flera sidor
 	Name (A–Z)	Namn (A–Ö)
 	Name:	Namn:
-	Narrow  0.5" all	Smala  0,5" överallt
+	Narrow  {size} all	Smala  {size} överallt
 	Navigation	Navigering
 	Navigation Pane	Navigeringspanel
 	New	Ny
@@ -605,7 +605,7 @@
 	Nonbreaking Hyphen	Hårt bindestreck
 	Nonbreaking Space	Hårt blanksteg
 	None	Ingen
-	Normal  1" all	Normala  1" överallt
+	Normal  {size} all	Normala  {size} överallt
 	Normal Style	Stilen Normal
 	Not available right now	Inte tillgängligt just nu
 	Not saved	Inte sparat

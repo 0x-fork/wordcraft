@@ -715,7 +715,7 @@
 	Name (A–Z)	Jméno (A–Z)
 	Name of the file this document is saved as	Název souboru dokumentu
 	Name:	Název:
-	Narrow  0.5" all	Úzké  0,5" všude
+	Narrow  {size} all	Úzké  {size} všude
 	Navigation	Navigace
 	Navigation Pane	Navigační podokno
 	New	Nový
@@ -757,7 +757,7 @@
 	Nonbreaking Space	Nezlomitelná mezera
 	None	Žádné
 	Normal	Normální
-	Normal  1" all	Normální  1" všude
+	Normal  {size} all	Normální  {size} všude
 	Normal Indent	Normální s odsazením
 	Normal speed	Normální rychlost
 	Normal Style	Normální styl

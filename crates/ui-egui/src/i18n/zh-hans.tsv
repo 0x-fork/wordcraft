@@ -582,7 +582,7 @@
 	Multiple Pages	多页
 	Name (A–Z)	名称（A–Z）
 	Name:	名称：
-	Narrow  0.5" all	窄  四周 0.5"
+	Narrow  {size} all	窄  四周 {size}
 	Navigation	导航
 	Navigation Pane	导航窗格
 	New	新建
@@ -609,7 +609,7 @@
 	Nonbreaking Hyphen	不间断连字符
 	Nonbreaking Space	不间断空格
 	None	无
-	Normal  1" all	常规  四周 1"
+	Normal  {size} all	常规  四周 {size}
 	Normal Style	正文样式
 	Not available right now	当前不可用
 	Not saved	未保存

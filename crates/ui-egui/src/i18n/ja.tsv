@@ -570,7 +570,7 @@
 	Multiple Pages	複数ページ
 	Name (A–Z)	名前（A–Z）
 	Name:	名前:
-	Narrow  0.5" all	狭い  上下左右 0.5"
+	Narrow  {size} all	狭い  上下左右 {size}
 	Navigation	ナビゲーション
 	Navigation Pane	ナビゲーション ウィンドウ
 	New	新規
@@ -597,7 +597,7 @@
 	Nonbreaking Hyphen	改行なしハイフン
 	Nonbreaking Space	改行なしスペース
 	None	なし
-	Normal  1" all	標準  上下左右 1"
+	Normal  {size} all	標準  上下左右 {size}
 	Normal Style	標準スタイル
 	Not available right now	現在は使用できません
 	Not saved	未保存

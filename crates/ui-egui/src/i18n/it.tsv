@@ -513,7 +513,7 @@
 	Multiple Pages	Più pagine
 	Name (A–Z)	Nome (A–Z)
 	Name:	Nome:
-	Narrow  0.5" all	Stretto  0,5" ovunque
+	Narrow  {size} all	Stretto  {size} ovunque
 	Navigation	Navigazione
 	Navigation Pane	Riquadro di spostamento
 	New	Nuovo
@@ -541,7 +541,7 @@
 	Nonbreaking Hyphen	Trattino unificatore
 	Nonbreaking Space	Spazio unificatore
 	None	Nessuno
-	Normal  1" all	Normale  1" ovunque
+	Normal  {size} all	Normale  {size} ovunque
 	Normal Style	Stile normale
 	Not available right now	Non disponibile al momento
 	Not saved	Non salvato

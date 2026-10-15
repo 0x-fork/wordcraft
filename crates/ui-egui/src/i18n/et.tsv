@@ -462,7 +462,7 @@
 	Multiple Pages	Mitu lehte
 	Name (A–Z)	Nimi (A–Z)
 	Name:	Nimi:
-	Narrow  0.5" all	Kitsas  0,5" kõigil külgedel
+	Narrow  {size} all	Kitsas  {size} kõigil külgedel
 	Navigation	Navigeerimine
 	Navigation Pane	Navigeerimispaan
 	New	Uus
@@ -495,7 +495,7 @@
 	Nonbreaking Hyphen	Poolitamatu sidekriips
 	Nonbreaking Space	Poolitamatu tühik
 	None	Puudub
-	Normal  1" all	Tavaline  1" kõigil külgedel
+	Normal  {size} all	Tavaline  {size} kõigil külgedel
 	Normal Style	Tavaline stiil
 	Not available right now	Praegu pole saadaval
 	Not saved	Salvestamata

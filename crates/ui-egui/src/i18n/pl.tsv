@@ -434,7 +434,7 @@
 	Multiple Pages	Wiele stron
 	Name (A–Z)	Nazwa (A–Z)
 	Name:	Nazwa:
-	Narrow  0.5" all	Wąskie  wszystkie 0,5"
+	Narrow  {size} all	Wąskie  wszystkie {size}
 	Navigation	Nawigacja
 	Navigation Pane	Okienko nawigacji
 	New	Nowy
@@ -463,7 +463,7 @@
 	Nonbreaking Hyphen	Łącznik nierozdzielający
 	Nonbreaking Space	Spacja nierozdzielająca
 	None	Brak
-	Normal  1" all	Normalne  wszystkie 1"
+	Normal  {size} all	Normalne  wszystkie {size}
 	Normal Style	Styl Normalny
 	Not available right now	W tej chwili niedostępne
 	Not saved	Niezapisany

@@ -1370,7 +1370,7 @@ template	Letter	Pismo
 	Name (A–Z)	Naziv (A–Ž)
 	Name of the file this document is saved as	Naziv datoteke u koju je dokument spremljen
 	Name:	Naziv:
-	Narrow  0.5" all	Usko  0,5" sa svih strana
+	Narrow  {size} all	Usko  {size} sa svih strana
 	Natural Logarithm	Prirodni logaritam
 	Nature	Priroda
 	Navigation	Navigacija
@@ -1439,7 +1439,7 @@ template	Letter	Pismo
 	Nonbreaking Space	Razmak bez prijeloma
 	None	Nema
 	Normal	Uobičajeni
-	Normal  1" all	Normalno  1" sa svih strana
+	Normal  {size} all	Normalno  {size} sa svih strana
 	Normal Indent	Normalna uvlaka
 	Normal Style	Normalan stil
 	Normal Table	Normalna tablica
