@@ -1781,6 +1781,18 @@ fn track_changes_and_accept() {
     assert_eq!(text(&s), "inal added");
 }
 
+#[test]
+fn document_text_drops_tracked_deletions() {
+    // #866: document.text (MCP get_text) omits tracked deletions; plain_text still includes them.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Signed by Alice Smith, Partner."}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "select.text", json!({"text": "Alice Smith, Partner"}));
+    run(&mut s, "text.insert", json!({"text": "Bob Jones, Director"}));
+    assert_eq!(text(&s), "Signed by Bob Jones, DirectorAlice Smith, Partner.");
+    assert_eq!(run(&mut s, "document.text", json!({}))["text"], "Signed by Bob Jones, Director.");
+}
+
 /// The author of the revision `rid` points to.
 fn author_of(s: &Session, rid: Option<u32>) -> Option<String> {
     rid.and_then(|r| s.doc.revisions.get(r as usize)).map(|r| r.author.clone())
