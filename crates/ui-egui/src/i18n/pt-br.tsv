@@ -2103,6 +2103,16 @@
 	AutoFit Column by Double-Clicking	Autoajustar coluna com clique duplo
 	Region:	Região:
 	Automatic ({region})	Automático ({region})
+	Odd Banded Rows	Linhas listradas ímpares
+	Even Banded Rows	Linhas listradas pares
+	Odd Banded Columns	Colunas listradas ímpares
+	Even Banded Columns	Colunas listradas pares
+	Top Left Cell	Célula superior esquerda
+	Top Right Cell	Célula superior direita
+	Bottom Left Cell	Célula inferior esquerda
+	Bottom Right Cell	Célula inferior direita
+	Inside Horizontal Border	Borda horizontal interna
+	Inside Vertical Border	Borda vertical interna
 	Text of the nearest paragraph with a given style (running headers)	Texto do parágrafo mais próximo com um determinado estilo (cabeçalhos dinâmicos)
 	Style name:	Nome do estilo:
 # Mail merge: filter and sort recipients (#778)

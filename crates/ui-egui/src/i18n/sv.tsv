@@ -2636,3 +2636,14 @@ preview	Title	Titel
 # Reading Mode column widths (#1040)
 	Narrow	Smal
 	Medium	Medel
+# Table style parts in the Modify Table Style dialog (#714, added while landing #887)
+	Odd Banded Rows	Udda randade rader
+	Even Banded Rows	Jämna randade rader
+	Odd Banded Columns	Udda randade kolumner
+	Even Banded Columns	Jämna randade kolumner
+	Top Left Cell	Övre vänstra cellen
+	Top Right Cell	Övre högra cellen
+	Bottom Left Cell	Nedre vänstra cellen
+	Bottom Right Cell	Nedre högra cellen
+	Inside Horizontal Border	Inre vågrät kantlinje
+	Inside Vertical Border	Inre lodrät kantlinje

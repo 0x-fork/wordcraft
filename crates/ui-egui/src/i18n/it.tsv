@@ -2458,6 +2458,16 @@ preview	Title	Esempio
 	Hindi	Hindi
 	Context	Contesto
 	System	Sistema
+	Odd Banded Rows	Righe alternate dispari
+	Even Banded Rows	Righe alternate pari
+	Odd Banded Columns	Colonne alternate dispari
+	Even Banded Columns	Colonne alternate pari
+	Top Left Cell	Cella in alto a sinistra
+	Top Right Cell	Cella in alto a destra
+	Bottom Left Cell	Cella in basso a sinistra
+	Bottom Right Cell	Cella in basso a destra
+	Inside Horizontal Border	Bordo orizzontale interno
+	Inside Vertical Border	Bordo verticale interno
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtra destinatari
 	Sort Recipients	Ordina destinatari

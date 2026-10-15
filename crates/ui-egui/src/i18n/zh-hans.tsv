@@ -2103,6 +2103,16 @@
 	AutoFit Column by Double-Clicking	双击自动调整列宽
 	Region:	区域：
 	Automatic ({region})	自动（{region}）
+	Odd Banded Rows	奇数镶边行
+	Even Banded Rows	偶数镶边行
+	Odd Banded Columns	奇数镶边列
+	Even Banded Columns	偶数镶边列
+	Top Left Cell	左上单元格
+	Top Right Cell	右上单元格
+	Bottom Left Cell	左下单元格
+	Bottom Right Cell	右下单元格
+	Inside Horizontal Border	内部横框线
+	Inside Vertical Border	内部竖框线
 	Text of the nearest paragraph with a given style (running headers)	具有指定样式的最近段落的文本（书眉）
 	Style name:	样式名称：
 # Mail merge: filter and sort recipients (#778)

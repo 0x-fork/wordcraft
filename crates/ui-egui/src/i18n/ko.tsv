@@ -2477,3 +2477,14 @@ preview	Title	제목
 # Reading Mode column widths (#1040)
 	Narrow	좁게
 	Medium	보통
+# Table style parts in the Modify Table Style dialog (#714, added while landing #887)
+	Odd Banded Rows	홀수 줄무늬 행
+	Even Banded Rows	짝수 줄무늬 행
+	Odd Banded Columns	홀수 줄무늬 열
+	Even Banded Columns	짝수 줄무늬 열
+	Top Left Cell	왼쪽 위 셀
+	Top Right Cell	오른쪽 위 셀
+	Bottom Left Cell	왼쪽 아래 셀
+	Bottom Right Cell	오른쪽 아래 셀
+	Inside Horizontal Border	안쪽 가로 테두리
+	Inside Vertical Border	안쪽 세로 테두리

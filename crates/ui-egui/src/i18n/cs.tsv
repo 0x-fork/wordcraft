@@ -2467,6 +2467,16 @@ preview	Title	Ukázka
 	Hindi	Hindské
 	Context	Podle kontextu
 	System	Systémové
+	Odd Banded Rows	Liché pruhované řádky
+	Even Banded Rows	Sudé pruhované řádky
+	Odd Banded Columns	Liché pruhované sloupce
+	Even Banded Columns	Sudé pruhované sloupce
+	Top Left Cell	Levá horní buňka
+	Top Right Cell	Pravá horní buňka
+	Bottom Left Cell	Levá dolní buňka
+	Bottom Right Cell	Pravá dolní buňka
+	Inside Horizontal Border	Vnitřní vodorovné ohraničení
+	Inside Vertical Border	Vnitřní svislé ohraničení
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtrovat příjemce
 	Sort Recipients	Seřadit příjemce

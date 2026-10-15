@@ -554,6 +554,49 @@ fn table_style_formatting_round_trips() {
     assert_eq!(got.table.as_ref(), Some(&parts));
 }
 
+/// #714: every table style part (ECMA-376 §17.7.6 `w:tblStylePr` types) keeps its run
+/// formatting, cell shading, cell borders and horizontal and vertical alignment through a save.
+#[test]
+fn every_table_style_part_round_trips() {
+    use wordcraft_doc::styles::{PartFormat, TablePart};
+    let mut d = doc_with(vec![Paragraph::with_text("x", CharProps::default())]);
+    let mut st = Style { id: "Parts".into(), name: "Parts".into(), kind: StyleKind::Table, based_on: Some("TableGrid".into()), ..Default::default() };
+    let aligns = [Align::Left, Align::Center, Align::Right];
+    let valigns = [VAlign::Top, VAlign::Center, VAlign::Bottom];
+    for (i, part) in TablePart::ALL.into_iter().enumerate() {
+        let n = i as u8;
+        let f = PartFormat {
+            chr: CharProps {
+                bold: Some(i % 2 == 0),
+                italic: Some(i % 3 == 0),
+                underline: (i % 4 == 0).then_some(Underline::Single),
+                size: Some(8.0 + i as f32),
+                font: Some(format!("Face {i}")),
+                color: Some(TextColor::Rgb(Rgb(n, 0x20, 0x40))),
+                ..Default::default()
+            },
+            fill: Some(Rgb(0x10 + n, 0x80, 0xF0 - n)),
+            borders: Some(Borders {
+                top: Some(Border { style: BorderStyle::Double, width: 1.5, color: Some(Rgb(n, 0, 0)), space: 0.0 }),
+                bottom: Some(Border::single(0.5 + i as f32 / 4.0)),
+                left: Some(Border { style: BorderStyle::None, width: 0.0, color: None, space: 0.0 }),
+                inside_v: (i % 2 == 1).then(|| Border::single(0.25)),
+                ..Default::default()
+            }),
+            align: aligns.get(i % 3).copied(),
+            v_align: valigns.get(i % 3).copied(),
+        };
+        st.set_table_part(part, f);
+    }
+    d.styles.upsert(st.clone());
+    let r = rt(&d);
+    let got = r.styles.get("Parts").unwrap();
+    for part in TablePart::ALL {
+        assert_eq!(got.table_part(part), st.table_part(part), "{}", part.ooxml());
+    }
+    assert_eq!(got.table, st.table);
+}
+
 #[test]
 fn notes_round_trip() {
     let mut d = Document::new();

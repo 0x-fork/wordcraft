@@ -3847,6 +3847,109 @@ fn custom_table_style_applies_modifies_and_saves() {
     assert_eq!(t.props.style.as_deref(), Some(id.as_str()), "w:tblStyle");
 }
 
+/// #714: Modify Table Style edits one part at a time (header row, even bands, a corner cell…)
+/// with font, fill, borders and cell alignment, and every table using the style follows.
+#[test]
+fn table_style_parts_format_every_table_using_the_style() {
+    use wordcraft_doc::props::{Align, BorderStyle, VAlign};
+    use wordcraft_doc::styles::TablePart;
+    use wordcraft_doc::{Rgb, TextColor};
+    let mut s = s();
+    let look = json!({"headerRow": true, "bandedRows": true, "firstColumn": true, "totalRow": false});
+    run(&mut s, "insert.table", json!({"rows": 4, "cols": 3}));
+    run(&mut s, "text.insert", json!({"text": "Head"}));
+    run(&mut s, "table.look", look.clone());
+    run(&mut s, "table.newStyle", json!({"name": "Parts", "basedOn": "Table Grid"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 4, "cols": 3}));
+    run(&mut s, "text.insert", json!({"text": "Head"}));
+    run(&mut s, "table.look", look);
+    run(&mut s, "table.style", json!({"style": "Parts"}));
+    let tables: Vec<_> = s.doc.body.iter().filter_map(|b| b.as_table()).collect();
+    assert_eq!(tables.len(), 2);
+    assert!(tables.iter().all(|t| t.props.style.as_deref() == Some("Parts")));
+
+    run(
+        &mut s,
+        "table.modifyStyle",
+        json!({"style": "Parts",
+            "firstRow": {"bold": true, "underline": true, "color": "FFFFFF", "font": "Liberation Serif", "cellAlign": "bottomCenter",
+                "borders": [{"edges": "none"}, {"edges": "bottom", "style": "double", "width": 1.5, "color": "FF0000"}]},
+            "band2Horz": {"fill": "DDEEFF"},
+            "nwCell": {"fill": "112233"},
+            "parts": [{"part": "lastCol", "italic": true}]}),
+    );
+    run(&mut s, "table.modifyStyle", json!({"style": "Parts", "part": "band1Horz", "fill": "AABBCC", "vAlign": "center"}));
+    let st = s.doc.styles.get("Parts").unwrap().clone();
+    let head = st.table_part(TablePart::FirstRow);
+    assert_eq!((head.chr.bold, head.align, head.v_align), (Some(true), Some(Align::Center), Some(VAlign::Bottom)));
+    let b = head.borders.unwrap();
+    assert_eq!(b.bottom.map(|x| (x.style, x.width, x.color)), Some((BorderStyle::Double, 1.5, Some(Rgb(0xFF, 0, 0)))));
+    assert_eq!(b.top.map(|x| x.style), Some(BorderStyle::None), "`none` clears the other edges");
+    assert_eq!(st.table_part(TablePart::LastCol).chr.italic, Some(true));
+    assert_eq!(st.table_part(TablePart::Band1Horz).v_align, Some(VAlign::Center));
+
+    let fills = |s: &mut Session, c: Rgb| {
+        s.layout().pages[0].items.iter().filter(|i| matches!(i, crate::layout::Placed::Fill { color, .. } if *color == c)).count()
+    };
+    // Per table: the top-left corner cell; odd bands are rows 1 and 3, the even band row 2.
+    assert_eq!(fills(&mut s, Rgb(0x11, 0x22, 0x33)), 2, "top left cells");
+    assert_eq!(fills(&mut s, Rgb(0xAA, 0xBB, 0xCC)), 12, "odd banded rows");
+    assert_eq!(fills(&mut s, Rgb(0xDD, 0xEE, 0xFF)), 6, "even banded rows");
+    let rules = s
+        .layout()
+        .pages[0]
+        .items
+        .iter()
+        .filter(|i| matches!(i, crate::layout::Placed::Rule { border, .. } if border.style == BorderStyle::Double && border.color == Some(Rgb(0xFF, 0, 0))))
+        .count();
+    assert!(rules >= 6, "the header rows' bottom edges in both tables: {rules}");
+    // The header text: bold, white, underlined and centred, in both tables.
+    let heads: Vec<_> = s.layout().pages[0]
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            crate::layout::Placed::Lines { para, .. } if para.text_len == 4 => Some((para.rp.align, para.styles[0].rc.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(heads.len(), 2, "{heads:?}");
+    for (align, rc) in heads {
+        assert_eq!(align, Align::Center);
+        assert!(rc.bold && rc.underline != wordcraft_doc::props::Underline::None, "{rc:?}");
+        assert_eq!(rc.color, TextColor::Rgb(Rgb::WHITE));
+    }
+    // It saves: the parts come back.
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    let got = back.styles.get("Parts").unwrap();
+    for part in TablePart::ALL {
+        assert_eq!(got.table_part(part), st.table_part(part), "{}", part.ooxml());
+    }
+
+    // Hostile params fail cleanly and change nothing.
+    for bad in [
+        json!({"style": "Parts", "part": 5}),
+        json!({"style": "Parts", "part": "diagonal"}),
+        json!({"style": "Parts", "parts": "x"}),
+        json!({"style": "Parts", "parts": [{"fill": "FF0000"}]}),
+        json!({"style": "Parts", "firstRow": {"borders": {"edges": "diagonal"}}}),
+        json!({"style": "Parts", "firstRow": {"borders": {"style": "zigzag"}}}),
+        json!({"style": "Parts", "firstRow": {"borders": [1, 2]}}),
+        json!({"style": "Parts", "firstRow": {"cellAlign": 3}}),
+        json!({"style": "Parts", "firstRow": {"cellAlign": "middleish"}}),
+        json!({"style": "Parts", "firstRow": {"align": "up"}}),
+        json!({"style": "Parts", "firstRow": {"underline": "zigzag"}}),
+        json!({"style": "Parts", "firstRow": "bold"}),
+    ] {
+        assert!(s.run("table.modifyStyle", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.doc.styles.get("Parts"), Some(&st));
+    // Huge and odd numbers are clamped.
+    run(&mut s, "table.modifyStyle", json!({"style": "Parts", "firstRow": {"size": 1e30, "borders": {"edges": "top", "width": -5}}}));
+    let head = s.doc.styles.get("Parts").unwrap().table_part(TablePart::FirstRow);
+    assert_eq!((head.chr.size, head.borders.and_then(|b| b.top).map(|b| b.width)), (Some(1638.0), Some(0.25)));
+}
+
 #[test]
 fn page_and_table_gridlines_toggle_independently() {
     // #69: View › Gridlines (the page drawing grid) and Table Layout › View Gridlines (table cell

@@ -2100,6 +2100,16 @@
 	Hindi	Hindi
 	Context	Kontekstowe
 	System	Systemowe
+	Odd Banded Rows	Nieparzyste wiersze naprzemienne
+	Even Banded Rows	Parzyste wiersze naprzemienne
+	Odd Banded Columns	Nieparzyste kolumny naprzemienne
+	Even Banded Columns	Parzyste kolumny naprzemienne
+	Top Left Cell	Lewa górna komórka
+	Top Right Cell	Prawa górna komórka
+	Bottom Left Cell	Lewa dolna komórka
+	Bottom Right Cell	Prawa dolna komórka
+	Inside Horizontal Border	Wewnętrzna krawędź pozioma
+	Inside Vertical Border	Wewnętrzna krawędź pionowa
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtruj adresatów
 	Sort Recipients	Sortuj adresatów

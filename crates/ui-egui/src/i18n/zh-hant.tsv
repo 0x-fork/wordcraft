@@ -2092,6 +2092,16 @@
 	AutoFit Column by Double-Clicking	按兩下自動調整欄寬
 	Region:	地區：
 	Automatic ({region})	自動（{region}）
+	Odd Banded Rows	奇數帶狀列
+	Even Banded Rows	偶數帶狀列
+	Odd Banded Columns	奇數帶狀欄
+	Even Banded Columns	偶數帶狀欄
+	Top Left Cell	左上儲存格
+	Top Right Cell	右上儲存格
+	Bottom Left Cell	左下儲存格
+	Bottom Right Cell	右下儲存格
+	Inside Horizontal Border	內部水平框線
+	Inside Vertical Border	內部垂直框線
 	Text of the nearest paragraph with a given style (running headers)	具有指定樣式的最近段落文字（書眉）
 	Style name:	樣式名稱：
 # Mail merge: filter and sort recipients (#778)

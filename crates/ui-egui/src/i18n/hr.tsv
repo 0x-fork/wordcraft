@@ -2621,3 +2621,14 @@ preview	Title	Naslov
 # Reading Mode column widths (#1040)
 	Narrow	Usko
 	Medium	Srednje
+# Table style parts in the Modify Table Style dialog (#714, added while landing #887)
+	Odd Banded Rows	Neparni prugasti retci
+	Even Banded Rows	Parni prugasti retci
+	Odd Banded Columns	Neparni prugasti stupci
+	Even Banded Columns	Parni prugasti stupci
+	Top Left Cell	Gornja lijeva ćelija
+	Top Right Cell	Gornja desna ćelija
+	Bottom Left Cell	Donja lijeva ćelija
+	Bottom Right Cell	Donja desna ćelija
+	Inside Horizontal Border	Unutarnji vodoravni obrub
+	Inside Vertical Border	Unutarnji okomiti obrub

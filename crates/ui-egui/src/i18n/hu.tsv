@@ -2461,6 +2461,16 @@
 	Reading Column Width	Olvasási oszlopszélesség
 	Reading Line Spacing	Olvasási sorköz
 	Reading Text Size	Olvasási szövegméret
+	Odd Banded Rows	Páratlan sávos sorok
+	Even Banded Rows	Páros sávos sorok
+	Odd Banded Columns	Páratlan sávos oszlopok
+	Even Banded Columns	Páros sávos oszlopok
+	Top Left Cell	Bal felső cella
+	Top Right Cell	Jobb felső cella
+	Bottom Left Cell	Bal alsó cella
+	Bottom Right Cell	Jobb alsó cella
+	Inside Horizontal Border	Belső vízszintes szegély
+	Inside Vertical Border	Belső függőleges szegély
 	Filter Recipients	Címzettek szűrése
 	Sort Recipients	Címzettek rendezése
 	Filter and Sort	Szűrés és rendezés

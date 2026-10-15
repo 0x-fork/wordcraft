@@ -2636,6 +2636,17 @@
 # Missing dictionary on the status bar (#1441)
 	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Chưa cài từ điển chính tả cho {language}, nên ngôn ngữ này không được kiểm tra. WordCraft tìm từ điển Hunspell {name} trong thư mục WORDCRAFT_DICTIONARIES và ở các vị trí thông thường của hệ thống.
 	{language} (no dictionary)	{language} (không có từ điển)
+# Table style parts in the Modify Table Style dialog (#714)
+	Odd Banded Rows	Hàng xen kẽ lẻ
+	Even Banded Rows	Hàng xen kẽ chẵn
+	Odd Banded Columns	Cột xen kẽ lẻ
+	Even Banded Columns	Cột xen kẽ chẵn
+	Top Left Cell	Ô trên cùng bên trái
+	Top Right Cell	Ô trên cùng bên phải
+	Bottom Left Cell	Ô dưới cùng bên trái
+	Bottom Right Cell	Ô dưới cùng bên phải
+	Inside Horizontal Border	Viền ngang bên trong
+	Inside Vertical Border	Viền dọc bên trong
 # Load system installed fonts on the web (#1390)
 	Load System Installed Fonts…	Tải phông chữ đã cài trên hệ thống…
 	All system fonts are already available.	Tất cả phông chữ hệ thống đã có sẵn.

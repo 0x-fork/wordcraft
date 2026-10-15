@@ -2451,6 +2451,17 @@
 	Pastes the clipboard's picture.	Поставя картината от клипборда.
 	Region:	Регион:
 	Automatic ({region})	Автоматично ({region})
+# Table style editor: every table style part (#714)
+	Odd Banded Rows	Нечетни редуващи се редове
+	Even Banded Rows	Четни редуващи се редове
+	Odd Banded Columns	Нечетни редуващи се колони
+	Even Banded Columns	Четни редуващи се колони
+	Top Left Cell	Горна лява клетка
+	Top Right Cell	Горна дясна клетка
+	Bottom Left Cell	Долна лява клетка
+	Bottom Right Cell	Долна дясна клетка
+	Inside Horizontal Border	Вътрешна хоризонтална граница
+	Inside Vertical Border	Вътрешна вертикална граница
 	Text of the nearest paragraph with a given style (running headers)	Текст на най-близкия абзац с даден стил (текущи колонтитули)
 	Style name:	Име на стил:
 # Mail merge: filter and sort recipients (#778)

@@ -2080,6 +2080,16 @@
 	Reading Column Width	Largeur de colonne de lecture
 	Reading Line Spacing	Interligne de lecture
 	Reading Text Size	Taille du texte de lecture
+	Odd Banded Rows	Lignes à bandes impaires
+	Even Banded Rows	Lignes à bandes paires
+	Odd Banded Columns	Colonnes à bandes impaires
+	Even Banded Columns	Colonnes à bandes paires
+	Top Left Cell	Cellule en haut à gauche
+	Top Right Cell	Cellule en haut à droite
+	Bottom Left Cell	Cellule en bas à gauche
+	Bottom Right Cell	Cellule en bas à droite
+	Inside Horizontal Border	Bordure intérieure horizontale
+	Inside Vertical Border	Bordure intérieure verticale
 	Filter Recipients	Filtrer les destinataires
 	Sort Recipients	Trier les destinataires
 	Filter and Sort	Filtrer et trier
