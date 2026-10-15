@@ -832,7 +832,7 @@ fn hungarian_locales_and_saved_preference_work_without_changing_the_document() {
     for tag in ["hu", "hu-HU", "hu_HU.UTF-8", "HU_hu.UTF-8@euro", "hu-Latn-HU"] {
         assert_eq!(lang_from_tag(tag), Some(hu), "{tag}");
     }
-    assert_eq!(first_supported(["sv-SE", "hu-HU", "en-US"]), Some(hu));
+    assert_eq!(first_supported(["fi-FI", "hu-HU", "en-US"]), Some(hu));
     assert_eq!(normalize_pref("HU"), Some("hu"));
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
     let before = serde_json::to_value(&app.session.doc).unwrap();
@@ -989,9 +989,9 @@ fn polish_covers_every_key_of_every_other_catalog() {
     let polish = keys(lang("pl").0.source);
     // Italian and Hungarian still carry "Style: APA", which the interface no longer shows;
     // Hungarian and Bulgarian also name the citation styles, and Bulgarian has a few one-line
-    // pieces of gallery labels. Polish matches every other catalog, including the style names and
-    // equation gallery Russian translates.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi")) {
+    // pieces of gallery labels, which Swedish carries too. Polish matches every other catalog,
+    // including the style names and equation gallery Russian translates.
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1275,6 +1275,84 @@ fn bundled_interface_fonts_cover_bulgarian_without_system_fallbacks() {
         }
     }
     assert!(!lang("bg").uses_cjk());
+}
+
+#[test]
+fn swedish_locales_and_saved_preference_work_without_changing_the_document() {
+    let sv = lang("sv");
+    for tag in ["sv", "sv-SE", "sv_SE.UTF-8", "SV-se", "sv-FI"] {
+        assert_eq!(lang_from_tag(tag), Some(sv), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "sv-SE", "en-US"]), Some(sv));
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "SV"})).unwrap();
+    assert_eq!(result["effective"], "sv");
+    assert_eq!(app.ui.language, "sv");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "sv" && l["name"] == "Svenska"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), sv);
+    assert_eq!(sv.name(), "Svenska");
+}
+
+#[test]
+fn swedish_covers_the_entire_existing_interface_catalog() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    // Every key the interface looks up (Spanish carries them all), and no catalog errors.
+    assert!(keys(lang("sv").0.source).is_superset(&keys(lang("es").0.source)));
+    assert!(parse_entries(lang("sv").0.source).1.is_empty());
+    let sv = lang("sv");
+    for (source, expected) in [
+        ("File", "Arkiv"),
+        ("Home", "Start"),
+        ("Insert", "Infoga"),
+        ("Font", "Typsnitt"),
+        ("Paragraph", "Stycke"),
+        ("Review", "Granska"),
+        ("Save", "Spara"),
+        ("Heading 1", "Rubrik 1"),
+        ("Hyphenation", "Avstavning"),
+        ("Track Changes", "Spåra ändringar"),
+        ("WordCraft", "WordCraft"),
+        ("unknown future label", "unknown future label"),
+    ] {
+        assert_eq!(tr(sv, source), expected, "{source}");
+    }
+    // The search hint's example must find the command it names.
+    assert_eq!(tr(sv, "Insert Table"), "Infoga tabell");
+    assert!(tr(sv, "Type a command, e.g. \"insert table\"").contains(&tr(sv, "Insert Table").to_lowercase()));
+    assert_eq!(fmt(tr(sv, "Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "Sida 3 av 9");
+    // `ord` is the same in the singular and the plural, so the counts read right for every number.
+    for count in [0, 1, 2, 5, 21, 100, 1000] {
+        let words = count.to_string();
+        assert_eq!(fmt(tr(sv, "{words} words"), &[("words", &words)]), format!("{count} ord"));
+        assert_eq!(fmt(tr(sv, "{selected} of {words} words"), &[("selected", "1"), ("words", &words)]), format!("1 av {count} ord"));
+    }
+}
+
+#[test]
+fn bundled_interface_fonts_cover_swedish_letters() {
+    let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    let (entries, errors) = parse_entries(lang("sv").0.source);
+    assert!(errors.is_empty());
+    let chars: std::collections::HashSet<char> = entries
+        .iter()
+        .flat_map(|e| e.translation.chars())
+        // Latin letters with diacritics plus the Swedish quote and dash; symbols come from the English sources.
+        .filter(|c| ('\u{00C0}'..='\u{00FF}').contains(c) || matches!(c, '”' | '–'))
+        .chain("ÅÄÖåäöÉé".chars())
+        .collect();
+    for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
+        let face = db.face(family, style);
+        assert_eq!(face.family, family, "must use the bundled interface face");
+        for ch in &chars {
+            assert_ne!(face.glyph_for(*ch), 0, "{family} {style} lacks {ch}");
+        }
+    }
+    assert!(!lang("sv").uses_cjk());
 }
 
 #[test]

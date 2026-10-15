@@ -2650,3 +2650,9 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Công thức:
 	Paste function:	Dán hàm:
+# Added while landing (#1219): strings that landed after this catalog
+	Enter bookmark name:	Nhập tên dấu trang:
+	Find “{text}” in the document	Tìm “{text}” trong tài liệu
+	This document has no bookmarks.	Tài liệu này không có dấu trang.
+	Type a page number, or +2 / -1.	Nhập số trang, hoặc +2 / -1.
+	Wait for the print job to finish submitting before closing.	Hãy chờ lệnh in được gửi xong rồi mới đóng.

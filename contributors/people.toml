@@ -118,3 +118,8 @@ display_name = "The Legend Of MTS Dev"
 real_name = "Robert Lee"
 
 
+
+[people.holmbom]
+real_name = "Erik Holmbom"
+display_name = "Erik Holmbom"
+sync_github_name = false
