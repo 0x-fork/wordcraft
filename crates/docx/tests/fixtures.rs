@@ -2634,6 +2634,45 @@ fn text_frames_read_and_round_trip() {
     assert!(q.iter().any(|x| x.props.drop_cap == Some(2) && x.props.frame.is_none()));
 }
 
+/// #2360: a `w:framePr` in the document defaults, the sizeless top-left one Apple Pages writes,
+/// frames no paragraph, as in Word: a header's title and the body's text stay in the text instead
+/// of moving to the page's corner, and the default isn't written back. The defaults' other
+/// properties are kept, and a style's own frame still applies.
+#[test]
+fn a_frame_in_the_paragraph_defaults_frames_nothing() {
+    let styles = format!(
+        r#"<w:styles {W_NS}><w:docDefaults><w:pPrDefault><w:pPr><w:framePr w:anchorLock="0" w:w="0" w:h="0" w:vSpace="0" w:hSpace="0" w:xAlign="left" w:y="0" w:hRule="exact" w:vAnchor="margin"/><w:spacing w:after="120"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Framed"><w:name w:val="Framed"/><w:pPr><w:framePr w:wrap="around" w:hAnchor="margin" w:vAnchor="text" w:xAlign="right" w:y="1"/></w:pPr></w:style></w:styles>"#
+    );
+    let header = format!(r#"<w:hdr {W_NS}><w:p><w:r><w:t>Title</w:t></w:r></w:p></w:hdr>"#);
+    let body = r#"<w:p><w:r><w:t>Body</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Framed"/></w:pPr><w:r><w:t>Boxed</w:t></w:r></w:p><w:sectPr><w:headerReference w:type="default" r:id="rIdH"/></w:sectPr>"#;
+    let bytes = docx(
+        body,
+        &[("rIdS", "styles", "styles.xml"), ("rIdH", "header", "header1.xml")],
+        &[("word/styles.xml", &styles), ("word/header1.xml", &header)],
+    );
+    let check = |d: &Document| {
+        assert!(d.styles.default_para.frame.is_none(), "{:?}", d.styles.default_para.frame);
+        assert_eq!(d.styles.default_para.space_after, Some(6.0), "the defaults' spacing is kept");
+        let frame = |p: &Paragraph| d.styles.resolve_para(&p.props).frame;
+        let body = paras(d);
+        assert_eq!(body[0].text, "Body");
+        assert!(frame(body[0]).is_none(), "body text is not a frame");
+        let boxed = frame(body[1]).expect("a style's frame still applies");
+        assert_eq!((boxed.h_anchor.as_str(), boxed.x_align.as_deref()), ("margin", Some("right")));
+        let hid = d.last_section.headers.default.expect("a header");
+        let title = d.parts.get(&hid).unwrap().blocks.iter().find_map(|b| b.as_para()).expect("the title");
+        assert_eq!(title.text, "Title");
+        assert!(frame(title).is_none(), "the header's title is not a frame");
+    };
+    let d = wordcraft_docx::read(&bytes).unwrap();
+    check(&d);
+    let saved = wordcraft_docx::write(&d).unwrap();
+    let xml = text(&unzip(&saved), "word/styles.xml");
+    let defaults = xml.split("</w:docDefaults>").next().unwrap_or_default();
+    assert!(!defaults.contains("w:framePr"), "the default frame isn't written back: {defaults}");
+    check(&wordcraft_docx::read(&saved).unwrap());
+}
+
 /// A legacy VML freeform (`v:shape` with a `path`, ECMA-376 Part 4): a rule across a header,
 /// drawn in a 1000 × 1000 coordinate space, outlined, its fill transparent. It is read as a
 /// freeform of the shape's size and kept when saved (as DrawingML custom geometry) and read back.
