@@ -99,6 +99,69 @@ fn is_range_instr(instr: &str) -> bool {
     super::is_toc(instr) || instr.trim_start().get(..5).is_some_and(|k| k.eq_ignore_ascii_case("ADDIN"))
 }
 
+/// Where a `HYPERLINK` field goes, as a `w:hyperlink` reads: `url`, `url#bookmark` (`\l`) or
+/// `#bookmark`. None for any other field, or one with no target.
+fn hyperlink_target(instr: &str) -> Option<String> {
+    // Only a `HYPERLINK` code is split up (a field's code may run to megabytes).
+    if !instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("HYPERLINK")) {
+        return None;
+    }
+    let args = field_args(instr);
+    let mut args = args.iter();
+    if !args.next().is_some_and(|(k, quoted)| !quoted && k.eq_ignore_ascii_case("HYPERLINK")) {
+        return None;
+    }
+    let (mut url, mut anchor) = (None, None);
+    while let Some((a, quoted)) = args.next() {
+        if *quoted || !a.starts_with('\\') {
+            url = url.or(Some(a.as_str()));
+            continue;
+        }
+        // `\l` names a bookmark, `\o` a tooltip and `\t` a target frame; `\m` and `\n` take none.
+        let value = matches!(a.to_ascii_lowercase().as_str(), "\\l" | "\\o" | "\\t").then(|| args.next()).flatten();
+        if a.eq_ignore_ascii_case("\\l") {
+            anchor = value.map(|(v, _)| v.as_str());
+        }
+    }
+    let (url, anchor) = (url.map(str::trim).filter(|u| !u.is_empty()), anchor.map(str::trim).filter(|a| !a.is_empty()));
+    match (url, anchor) {
+        (Some(u), Some(a)) => Some(format!("{u}#{a}")),
+        (Some(u), None) => Some(u.to_string()),
+        (None, Some(a)) => Some(format!("#{a}")),
+        (None, None) => None,
+    }
+}
+
+/// A field code's words: the field's name, its switches and its arguments, each with whether
+/// it was quoted. In quotes, `\"` is a quote and `\\` a backslash.
+fn field_args(instr: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let mut chars = instr.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            continue;
+        }
+        let mut word = String::new();
+        if c == '"' {
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => break,
+                    '\\' if matches!(chars.peek(), Some('"' | '\\')) => word.extend(chars.next()),
+                    _ => word.push(c),
+                }
+            }
+            out.push((word, true));
+        } else {
+            word.push(c);
+            while let Some(c) = chars.next_if(|c| !c.is_whitespace() && *c != '"') {
+                word.push(c);
+            }
+            out.push((word, false));
+        }
+    }
+    out
+}
+
 /// The last paragraph of a block list: its last block, or inside a final table the last
 /// paragraph of its last cell (nested tables to [`MAX_TABLE_DEPTH`]).
 fn last_para_mut(out: &mut Blocks, depth: usize) -> Option<&mut Paragraph> {
@@ -847,6 +910,19 @@ impl Reader<'_> {
             // A range field with no result yet.
             self.emit_obj(sc, pb, InlineObject::FieldStart { instr: f.instr.trim().to_string(), locked: f.locked, dirty: f.dirty }, &f.props);
             self.emit_obj(sc, pb, InlineObject::FieldEnd, &f.props);
+            return;
+        }
+        // A `HYPERLINK` field is a link, as a `w:hyperlink` is: its result stays ordinary content
+        // carrying the link, so a tab in it reaches its tab stop and the `PAGEREF` in a table of
+        // contents entry (Word for the web writes them this way) stays a field of its own (#2174).
+        if !nested_in_instr && let Some(target) = hyperlink_target(&f.instr) {
+            for (it, mut p) in f.buf {
+                p.link.get_or_insert_with(|| target.clone());
+                match it {
+                    Item::Text(t) => self.emit_text(sc, pb, &t, &p),
+                    Item::Obj(o) => self.emit_obj(sc, pb, *o, &p),
+                }
+            }
             return;
         }
         // A cached result holding a picture, chart or shape (`INCLUDEPICTURE`'s embedded
