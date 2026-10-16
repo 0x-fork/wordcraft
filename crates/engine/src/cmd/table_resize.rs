@@ -1016,4 +1016,74 @@ mod tests {
         assert_eq!(first_table(&s).grid.len(), 3, "no new grid line");
         assert!((cell_rect(&mut s, 0, 2).x - (c.x + 20.0)).abs() < 1.0, "the first row follows");
     }
+
+    /// Selects the cell at (row, cell) one of the ways Word does: Select Cell, the left-edge
+    /// arrow, or a triple-click on its text.
+    fn select_one_cell(s: &mut Session, how: &str, r: usize, c: usize) {
+        let b = cell_rect(s, r, c);
+        let y = b.y + b.h / 2.0;
+        match how {
+            "arrow" => {
+                s.run("table.selectAt", &json!({"page": 0, "x": b.x + 4.5, "y": y})).unwrap();
+            }
+            "triple" => {
+                s.run("caret.set", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": y})).unwrap();
+                s.run("select.paragraph", &json!({})).unwrap();
+            }
+            _ => {
+                s.run("caret.set", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": y})).unwrap();
+                s.run("table.selectCell", &json!({})).unwrap();
+            }
+        }
+    }
+
+    /// Each way of selecting one cell makes its right and its left border move in its row
+    /// only; the neighbour on that side gives up or gains the room and the row keeps its width.
+    #[test]
+    fn a_single_selected_cells_borders_move_only_in_its_row() {
+        for how in ["cell", "arrow", "triple"] {
+            for left in [false, true] {
+                let mut s = table_session(3, 3);
+                let (a, b, c) = (cell_rect(&mut s, 1, 0), cell_rect(&mut s, 1, 1), cell_rect(&mut s, 1, 2));
+                let y = b.y + b.h / 2.0;
+                select_one_cell(&mut s, how, 1, 1);
+                let start = first_table(&s);
+                let x = if left { b.x } else { b.right() };
+                s.run("table.resizeDrag", &json!({"page": 0, "x": x, "y": y, "toX": x + 30.0, "toY": y})).unwrap();
+                let (a1, b1, c1) = (cell_rect(&mut s, 1, 0), cell_rect(&mut s, 1, 1), cell_rect(&mut s, 1, 2));
+                if left {
+                    assert!((b1.w - (b.w - 30.0)).abs() < 1.0 && (a1.w - (a.w + 30.0)).abs() < 1.0, "{how} left: {a1:?} {b1:?}");
+                    assert!((c1.w - c.w).abs() < 0.5, "{how} left");
+                } else {
+                    assert!((b1.w - (b.w + 30.0)).abs() < 1.0 && (c1.w - (c.w - 30.0)).abs() < 1.0, "{how} right: {b1:?} {c1:?}");
+                    assert!((a1.w - a.w).abs() < 0.5, "{how} right");
+                }
+                assert!((c1.right() - c.right()).abs() < 0.5, "{how}: the row keeps its width");
+                for r in [0, 2] {
+                    assert!(
+                        (cell_rect(&mut s, r, 1).x - b.x).abs() < 0.5 && (cell_rect(&mut s, r, 1).right() - b.right()).abs() < 0.5,
+                        "{how}: row {r} unchanged"
+                    );
+                }
+                s.run("edit.undo", &json!({})).unwrap();
+                assert_eq!(first_table(&s), start, "{how}: one undo step");
+            }
+        }
+    }
+
+    /// A caret, a part of a cell's text, or another cell's border with a cell selected: the
+    /// whole column moves.
+    #[test]
+    fn without_that_cell_selected_the_whole_column_moves() {
+        let mut s = table_session(3, 3);
+        let b = cell_rect(&mut s, 1, 1);
+        let y = b.y + b.h / 2.0;
+        s.run("caret.set", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": y})).unwrap();
+        s.run("table.resizeDrag", &json!({"page": 0, "x": b.right(), "y": y, "toX": b.right() + 30.0, "toY": y})).unwrap();
+        assert!((cell_rect(&mut s, 0, 1).w - (b.w + 30.0)).abs() < 1.0, "caret only");
+        s.run("edit.undo", &json!({})).unwrap();
+        select_one_cell(&mut s, "arrow", 2, 2);
+        s.run("table.resizeDrag", &json!({"page": 0, "x": b.right(), "y": y, "toX": b.right() + 30.0, "toY": y})).unwrap();
+        assert!((cell_rect(&mut s, 0, 1).w - (b.w + 30.0)).abs() < 1.0, "another cell selected");
+    }
 }
