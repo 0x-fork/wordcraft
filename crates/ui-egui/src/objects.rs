@@ -450,10 +450,11 @@ fn behind_drag_at(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32,
         .map(|o| (o, Grab::Move))
 }
 
-/// Whether a drag shows the object's pixels (moved, or scaled for an unturned picture) rather
-/// than an outline: resizing reflows a text box (and redraws a shape).
+/// Whether a drag shows the object's pixels rather than an outline. Resizing reflows a text
+/// box (and redraws a shape). Text-box text doesn't yet follow its frame's committed rotation,
+/// so turning one keeps the outline preview rather than promising rotated text on release.
 fn shows_pixels(d: &ObjectDrag) -> bool {
-    (d.picture && d.object.spin.is_identity()) || d.drag.grab == Grab::Move
+    (d.picture && d.object.spin.is_identity()) || d.drag.grab == Grab::Move || (d.drag.grab == Grab::Rotate && d.object.text_box.is_none())
 }
 
 /// `o` drawn alone over its rotated bounds, as a texture, at the canvas's `scale` (screen points
@@ -520,6 +521,18 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
     if let Some(d) = app.canvas.obj_drag.as_ref().filter(|d| d.drag.moved) {
         let Some(to) = screen(pages, scale, d.drag.to_page, d.drag.rect) else { return };
         if d.drag.grab == Grab::Rotate {
+            if let Some(tex) = &d.preview
+                && let Some(bounds) = screen(pages, scale, d.drag.page, d.object.bounds())
+            {
+                // The cached pixels already contain the starting rotation and flips. Turn
+                // only by the additional angle; changing UVs would mirror them a second time.
+                let mut mesh = egui::Mesh::with_texture(tex.id());
+                let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                mesh.add_rect_with_uv(bounds, uv, Color32::from_white_alpha(PREVIEW_OPACITY));
+                let delta = wordcraft_geom::normalize_degrees(d.drag.deg - d.object.spin.deg);
+                mesh.rotate(egui::emath::Rot2::from_angle(delta.to_radians()), to.center());
+                painter.add(egui::Shape::mesh(mesh));
+            }
             frame::paint_turning(painter, t, to, d.drag.deg);
             return;
         }
@@ -911,5 +924,169 @@ mod tests {
         assert_eq!(dark, 0, "no text from behind the shape in its preview");
         button(&h, end, false);
         steps(&mut h, 3);
+    }
+
+    /// A settled canvas for the rotation regressions, without taking focus on the desktop.
+    fn rotation_window(app: WordApp) -> crate::table_resize::tests::H {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(0.25).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        crate::table_resize::tests::steps(&mut h, 6);
+        h
+    }
+
+    /// #2277: the actual picture pixels follow the rotation handle before release, including
+    /// pictures whose cached preview already contains a rotation and either reflection.
+    #[test]
+    fn rotation_drag_turns_picture_pixels_live_and_commits_once_or_cancels() {
+        use crate::table_resize::tests::{H, button, steps};
+        for (initial, flip_h, flip_v) in [(0.0, false, false), (30.0, true, false), (90.0, false, true), (315.0, true, true)] {
+            // Four original colour quadrants make both accidental extra rotation and reflected
+            // UVs observable. Sample near the long ends after a quarter turn, outside the old
+            // picture, so the stationary page image cannot satisfy the pixel assertions.
+            let colours = [[230, 20, 20, 255], [20, 200, 20, 255], [20, 20, 230, 255], [230, 200, 20, 255]];
+            let image = image::RgbaImage::from_fn(80, 40, |x, y| {
+                let quadrant = match (x < 40, y < 20) {
+                    (true, true) => 0,
+                    (false, true) => 1,
+                    (false, false) => 2,
+                    (true, false) => 3,
+                };
+                image::Rgba(colours[quadrant])
+            });
+            let mut bytes = Vec::new();
+            image.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+            let picture = InlineObject::Image {
+                media: "rotation-test".into(),
+                w: 200.0,
+                h: 100.0,
+                alt: String::new(),
+                float: wordcraft_doc::para::Float {
+                    wrap: Wrap::InFrontOfText,
+                    x: 150.0,
+                    y: 180.0,
+                    rot: initial,
+                    flip_h,
+                    flip_v,
+                    ..Default::default()
+                },
+                crop: [0.0; 4],
+                ole: None,
+            };
+            let (mut app, _) = app_with(picture);
+            app.session.doc.media.insert("rotation-test".into(), Arc::new(bytes));
+            app.session.touch();
+            app.run("view.commentsPane", json!({"value": false})).unwrap();
+            app.run("select.range", json!({"anchor": Pos::body(0, 0), "focus": Pos::body(0, OBJ.len_utf8())})).unwrap();
+            let mut h: H = rotation_window(app);
+            let depth = h.state().session.undo_depth();
+            let original = serde_json::to_value(&h.state().session.doc).unwrap();
+            let o = h.state_mut().session.layout().object(&Pos::body(0, 0), 0).unwrap();
+            let (cx, cy) = (o.rect.x + o.rect.w / 2.0, o.rect.y + o.rect.h / 2.0);
+            let center = crate::canvas::page_to_screen(h.state_mut(), 0, cx, cy).unwrap();
+            let top = crate::canvas::page_to_screen(h.state_mut(), 0, cx, o.rect.y).unwrap();
+            let radius = center.distance(top) + 22.0;
+            let handle = |degrees: f32| center + egui::emath::Rot2::from_angle(degrees.to_radians()) * egui::vec2(0.0, -radius);
+            let target = wordcraft_geom::normalize_degrees(initial + 90.0);
+            let start = handle(initial);
+            let end = handle(target);
+            h.event(egui::Event::PointerMoved(start));
+            button(&h, start, true);
+            h.step();
+            h.event(egui::Event::PointerMoved(end));
+            steps(&mut h, 2);
+            let d = h.state().canvas.obj_drag.as_ref().expect("rotating");
+            assert_eq!(d.drag.grab, Grab::Rotate);
+            assert_eq!(d.drag.deg, target);
+            let texture = d.preview.as_ref().expect("cached picture preview").id();
+            assert_eq!(serde_json::to_value(&h.state().session.doc).unwrap(), original, "dragging must not edit the document");
+            assert_eq!(h.state().session.undo_depth(), depth);
+            let rendered = h.render().unwrap();
+            if initial == 0.0
+                && let Ok(path) = std::env::var("WORDCRAFT_ROTATION_SHOT")
+            {
+                rendered.save(path).unwrap();
+            }
+            let ppp = h.ctx.pixels_per_point();
+            let spin = wordcraft_geom::Spin::new(target, flip_h, flip_v);
+            for ((x, y), colour) in [(-75.0, -20.0), (75.0, -20.0), (75.0, 20.0), (-75.0, 20.0)].into_iter().zip(colours) {
+                let (x, y) = spin.apply(cx, cy, cx + x, cy + y);
+                let at = crate::canvas::page_to_screen(h.state_mut(), 0, x, y).unwrap();
+                let pixel = rendered.get_pixel((at.x * ppp).round() as u32, (at.y * ppp).round() as u32).0;
+                for (actual, expected) in pixel.into_iter().zip(colour).take(3) {
+                    if expected > 150 {
+                        assert!(actual > 170, "live quadrant missing: {initial}/{flip_h}/{flip_v} {colour:?} -> {pixel:?}");
+                    } else {
+                        assert!(actual < 150, "live quadrant missing: {initial}/{flip_h}/{flip_v} {colour:?} -> {pixel:?}");
+                    }
+                }
+            }
+            // A second angle reuses the raster rather than regenerating it on pointer moves.
+            let next = handle(target + 15.0);
+            h.event(egui::Event::PointerMoved(next));
+            steps(&mut h, 2);
+            assert_eq!(h.state().canvas.obj_drag.as_ref().unwrap().preview.as_ref().unwrap().id(), texture);
+            let final_angle = h.state().canvas.obj_drag.as_ref().unwrap().drag.deg;
+            button(&h, next, false);
+            steps(&mut h, 3);
+            assert!(h.state().canvas.obj_drag.is_none());
+            assert_eq!(h.state().session.undo_depth(), depth + 1, "one command on release");
+            assert_eq!(selected(h.state()).unwrap().1.frame().unwrap().2.rot, final_angle);
+            h.state_mut().run("edit.undo", json!({})).unwrap();
+            steps(&mut h, 3);
+            assert_eq!(serde_json::to_value(&h.state().session.doc).unwrap(), original, "one undo restores everything");
+
+            h.event(egui::Event::PointerMoved(start));
+            button(&h, start, true);
+            h.step();
+            h.event(egui::Event::PointerMoved(end));
+            steps(&mut h, 2);
+            assert!(h.state().canvas.obj_drag.as_ref().unwrap().preview.is_some());
+            h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+            h.step();
+            button(&h, end, false);
+            steps(&mut h, 3);
+            assert!(h.state().canvas.obj_drag.is_none());
+            assert_eq!(h.state().session.undo_depth(), depth, "Escape adds no undo step");
+            assert_eq!(serde_json::to_value(&h.state().session.doc).unwrap(), original, "Escape cancels without an edit");
+        }
+    }
+
+    #[test]
+    fn rotation_drag_keeps_text_boxes_outline_only_until_their_text_can_rotate() {
+        use crate::table_resize::tests::{button, steps};
+        let mut app = WordApp::new(wordcraft_engine::Session::new(Document::new()), Default::default());
+        app.run("insert.textBox", json!({"text": "Text stays upright on release"})).unwrap();
+        let bx = app.session.layout().find_object(0, |o| o.text_box.is_some()).unwrap();
+        app.run("select.range", json!({"anchor": bx.pos(), "focus": Pos { off: bx.off + OBJ.len_utf8(), ..bx.pos() }})).unwrap();
+        app.run("arrange.bounds", json!({"page": 0, "x": 150, "y": 180, "width": 200, "height": 100})).unwrap();
+        let mut h = rotation_window(app);
+        let original = serde_json::to_value(&h.state().session.doc).unwrap();
+        let depth = h.state().session.undo_depth();
+        let bx = h.state_mut().session.layout().find_object(0, |o| o.text_box.is_some()).unwrap();
+        let (cx, cy) = (bx.rect.x + bx.rect.w / 2.0, bx.rect.y + bx.rect.h / 2.0);
+        let center = crate::canvas::page_to_screen(h.state_mut(), 0, cx, cy).unwrap();
+        let top = crate::canvas::page_to_screen(h.state_mut(), 0, cx, bx.rect.y).unwrap();
+        let radius = center.distance(top) + 22.0;
+        let (start, end) = (center - egui::vec2(0.0, radius), center + egui::vec2(radius, 0.0));
+        h.event(egui::Event::PointerMoved(start));
+        button(&h, start, true);
+        h.step();
+        h.event(egui::Event::PointerMoved(end));
+        steps(&mut h, 2);
+        let d = h.state().canvas.obj_drag.as_ref().expect("turning the text box frame");
+        assert_eq!((d.drag.grab, d.drag.deg), (Grab::Rotate, 90.0));
+        assert!(d.preview.is_none(), "do not preview rotated text that would snap upright on release");
+        assert_eq!(serde_json::to_value(&h.state().session.doc).unwrap(), original);
+        assert_eq!(h.state().session.undo_depth(), depth);
+        button(&h, end, false);
+        steps(&mut h, 3);
+        assert_eq!(selected(h.state()).unwrap().1.frame().unwrap().2.rot, 90.0);
+        assert_eq!(h.state().session.undo_depth(), depth + 1);
     }
 }
