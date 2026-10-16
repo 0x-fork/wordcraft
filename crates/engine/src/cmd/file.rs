@@ -298,7 +298,10 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     let copy = super::insert::saved_copy(s);
     crate::io::save_path_with(&path, copy.as_ref().unwrap_or(&s.doc), password, &opts).map_err(CmdError::Failed)?;
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
-    if ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
+    // A save in a format that doesn't keep everything (plain text, Markdown, a page image) is a
+    // copy, except over the document's own file: a note.txt opened and saved is saved (#2376).
+    let own_file = s.path.as_deref() == Some(path.as_path());
+    if own_file || ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
         s.path = Some(path.clone());
         s.dirty = false;
     }

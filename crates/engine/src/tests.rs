@@ -3192,6 +3192,41 @@ fn mailings_results_are_new_untitled_documents() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// #2376: a note.txt opened and saved stayed unsaved, so closing asked to save it forever. Saving
+/// the document's own file is a save in any format; Save As to plain text elsewhere is a copy.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn saving_a_text_file_over_itself_saves_the_document() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-own-txt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["note.txt", "note.md"] {
+        let path = dir.join(name);
+        std::fs::write(&path, b"").unwrap();
+        let mut s = s();
+        run(&mut s, "file.open", json!({"path": path.to_string_lossy()}));
+        run(&mut s, "text.insert", json!({"text": "Hello"}));
+        assert!(s.dirty);
+        assert_eq!(run(&mut s, "file.save", json!({}))["saved"], true);
+        assert!(!s.dirty, "{name}: saved over itself");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("Hello"), "{name}: written");
+
+        // Saving the same file by name is the same save.
+        run(&mut s, "text.insert", json!({"text": " again"}));
+        run(&mut s, "file.save", json!({"path": path.to_string_lossy()}));
+        assert!(!s.dirty, "{name}: saved by its own path");
+
+        // Plain text somewhere else is still a copy: the document keeps its file and its changes.
+        run(&mut s, "text.insert", json!({"text": "!"}));
+        let copy = dir.join(format!("copy-{name}"));
+        run(&mut s, "file.saveAs", json!({"path": copy.to_string_lossy()}));
+        assert!(copy.exists());
+        assert!(s.dirty, "{name}: a copy elsewhere leaves it unsaved");
+        assert_eq!(s.path.as_deref(), Some(path.as_path()));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn html_pictures_load_relative_to_the_file() {

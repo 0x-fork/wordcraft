@@ -1037,7 +1037,8 @@ impl WordApp {
     /// Save before New/Open/Close (and the mailings that replace the document): true once the
     /// document is safely written. A save in a format that doesn't keep everything (a page
     /// image, plain text) writes a copy and leaves the document unsaved, so it doesn't count:
-    /// the command is cancelled and the document stays. A save that fails (no permission, the
+    /// the command is cancelled and the document stays. A save over the document's own file
+    /// (a note.txt that was opened) is a save in any format (#2376). A save that fails (no permission, the
     /// file locked by another app, a missing folder) is the save's error ([`Self::save_failed`]
     /// tells the user).
     /// In the browser the save picker may write the file later ([`PromptSave::Later`], #1315).
@@ -2264,7 +2265,8 @@ impl AutoSaveBlock {
 
 /// Whether saving to `name` keeps the whole document (the formats `file.save` treats as the
 /// document's own file, including macro-enabled documents and templates); anything else is a
-/// copy that leaves it unsaved. AutoSave writes only these formats.
+/// copy that leaves it unsaved, unless it is the file the document was opened from (#2376).
+/// AutoSave writes only these formats.
 pub fn keeps_everything(name: &str) -> bool {
     let ext = std::path::Path::new(name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm" | "odt" | "rtf" | "json" | "xml")
@@ -4096,6 +4098,36 @@ mod tests {
         a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         let on_disk = wordcraft_engine::io::open_path(&path).unwrap().plain_text(wordcraft_doc::StoryRef::Body);
         assert!(on_disk.contains("Revised Draft"), "the edit is on disk: {on_disk:?}");
+        assert!(a.quit_requested, "the app may close");
+        assert!(a.close_requested(), "the close that follows goes ahead");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #2376: a text file opened, edited and saved still asked to save on close, and Save in that
+    /// prompt wrote the file but left the window open; only Don't Save closed it.
+    #[test]
+    fn a_text_file_saved_over_itself_closes() {
+        let dir = scratch("close-txt");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, b"").unwrap();
+
+        // Saved with Ctrl+S, then closed: nothing to ask.
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        a.run("file.save", json!({})).unwrap();
+        assert!(a.close_requested(), "a saved text file closes");
+        assert_eq!(prompt(&a), None);
+
+        // Edited again, then closed: Save in the prompt writes the file and lets the window close.
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        assert!(!a.close_requested());
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        let r = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        assert_eq!(r["done"], true, "{r}");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("Revised Hello"), "the edit is on disk");
         assert!(a.quit_requested, "the app may close");
         assert!(a.close_requested(), "the close that follows goes ahead");
         let _ = std::fs::remove_dir_all(&dir);
