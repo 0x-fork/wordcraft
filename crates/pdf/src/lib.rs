@@ -335,8 +335,15 @@ fn visual_order(text: &str, glyphs: &[(u32, f32, f32)], clusters: &[std::ops::Ra
             _ => groups.push((*x, vec![i])),
         }
     }
-    // Stable: clusters at the same x keep their order, as do glyphs sharing their text.
-    groups.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // Clusters at the same x go in text order, reversed when right to left: some fonts draw
+    // lam-alef as a lam and a zero-width alef at one x, and a right-to-left run whose ranges
+    // don't decrease loses its reading order (#2310). Stable for glyphs sharing their text.
+    let tie = |idx: &[usize]| -> i64 {
+        let Some(r) = idx.first().and_then(|&g| clusters.get(g)) else { return 0 };
+        let start = i64::try_from(r.start).unwrap_or(i64::MAX);
+        if text.get(r.clone()).is_some_and(|t| t.chars().any(wordcraft_fonts::is_rtl)) { -start } else { start }
+    };
+    groups.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| tie(&a.1).cmp(&tie(&b.1))));
     groups
         .into_iter()
         .flat_map(|(_, mut idx)| {

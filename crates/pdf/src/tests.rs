@@ -1394,6 +1394,21 @@ fn left_to_right_glyphs_keep_their_order() {
     assert!(left_to_right(&glyphs));
 }
 
+/// A lam-alef some fonts draw as a lam and a zero-width alef at the same x goes in reverse
+/// text order, so the run's ranges still decrease and viewers read لا, not ال (#2310).
+/// Left-to-right clusters at one x keep their text order.
+#[test]
+fn clusters_at_the_same_x_go_in_reading_order() {
+    let text = "سلا";
+    let glyphs = [(3, 20.0, 10.0), (1, 10.0, 10.0), (2, 10.0, 0.0)];
+    let ranges = [0..2, 2..4, 4..6];
+    assert_eq!(visual_order(text, &glyphs, &ranges, &ranges), [2, 1, 0]);
+    let text = "ab";
+    let glyphs = [(1, 10.0, 0.0), (2, 10.0, 5.0)];
+    let ranges = [0..1, 1..2];
+    assert_eq!(visual_order(text, &glyphs, &ranges, &ranges), [0, 1]);
+}
+
 /// Right-to-left glyphs (reading order, drawn right to left) are written left to right a
 /// cluster at a time. A letter's vowel mark takes its own character and goes before the letter,
 /// so a viewer reversing the word reads letter then mark; a lam-alef drawn as two glyphs keeps
