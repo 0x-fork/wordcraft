@@ -1085,5 +1085,58 @@ mod tests {
         select_one_cell(&mut s, "arrow", 2, 2);
         s.run("table.resizeDrag", &json!({"page": 0, "x": b.right(), "y": y, "toX": b.right() + 30.0, "toY": y})).unwrap();
         assert!((cell_rect(&mut s, 0, 1).w - (b.w + 30.0)).abs() < 1.0, "another cell selected");
+        s.run("edit.undo", &json!({})).unwrap();
+        // All of a cell's text, picked as a range (no cell mark): not a cell selection.
+        s.run("caret.set", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": y})).unwrap();
+        s.run("text.insert", &json!({"text": "Wide"})).unwrap();
+        s.run("select.text", &json!({"text": "Wide"})).unwrap();
+        let (anchor, focus) = (serde_json::to_value(&s.sel.anchor).unwrap(), serde_json::to_value(&s.sel.focus).unwrap());
+        s.run("select.range", &json!({"anchor": anchor, "focus": focus})).unwrap();
+        assert!(s.cell_range().is_none());
+        let b = cell_rect(&mut s, 1, 1);
+        s.run("table.resizeDrag", &json!({"page": 0, "x": b.right(), "y": y, "toX": b.right() + 30.0, "toY": y})).unwrap();
+        assert!((cell_rect(&mut s, 0, 1).w - (b.w + 30.0)).abs() < 1.0, "all of a cell's text selected");
+    }
+
+    /// The jagged row a single cell's drag leaves is saved to .docx and read back the same.
+    #[test]
+    fn a_jagged_row_survives_a_docx_round_trip() {
+        let mut s = table_session(3, 3);
+        let b = cell_rect(&mut s, 1, 1);
+        let y = b.y + b.h / 2.0;
+        select_one_cell(&mut s, "arrow", 1, 1);
+        s.run("table.resizeDrag", &json!({"page": 0, "x": b.right(), "y": y, "toX": b.right() + 30.0, "toY": y})).unwrap();
+        let t = first_table(&s);
+        let bytes = crate::io::save_bytes("jagged.docx", &s.doc).unwrap();
+        let doc = crate::io::open_bytes("jagged.docx", &bytes).unwrap();
+        let back = doc.body.iter().find_map(|b| b.as_table()).cloned().unwrap();
+        let spans = |t: &Table| t.rows.iter().map(|r| r.cells.iter().map(Cell::span).collect::<Vec<_>>()).collect::<Vec<_>>();
+        assert_eq!(spans(&back), spans(&t));
+        let mut s2 = Session::new(doc);
+        for c in 0..spans(&t)[1].len() {
+            assert!((cell_rect(&mut s2, 1, c).w - cell_rect(&mut s, 1, c).w).abs() < 1.0, "cell {c}");
+        }
+    }
+
+    /// In a cell of two paragraphs, a triple-click on the last one selects the cell (its border
+    /// then moves in its row only); on the first one it selects text, and the whole column moves.
+    #[test]
+    fn triple_click_selects_a_cell_only_on_its_last_paragraph() {
+        for last in [true, false] {
+            let mut s = table_session(3, 3);
+            let b = cell_rect(&mut s, 1, 1);
+            s.run("caret.set", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": b.y + b.h / 2.0})).unwrap();
+            s.run("text.insert", &json!({"text": "One"})).unwrap();
+            s.run("text.newParagraph", &json!({})).unwrap();
+            s.run("text.insert", &json!({"text": "Two"})).unwrap();
+            s.run("select.text", &json!({"text": if last { "Two" } else { "One" }})).unwrap();
+            s.run("select.paragraph", &json!({})).unwrap();
+            assert_eq!(s.cell_range().is_some(), last);
+            let b = cell_rect(&mut s, 1, 1);
+            let y = b.y + b.h / 2.0;
+            s.run("table.resizeDrag", &json!({"page": 0, "x": b.right(), "y": y, "toX": b.right() + 30.0, "toY": y})).unwrap();
+            let moved = (cell_rect(&mut s, 0, 1).w - (b.w + 30.0)).abs() < 1.0;
+            assert_eq!(moved, !last, "last paragraph {last}: the column moves only without a cell selection");
+        }
     }
 }

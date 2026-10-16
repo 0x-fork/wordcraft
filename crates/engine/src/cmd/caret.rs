@@ -378,7 +378,7 @@ fn select_sentence(s: &mut Session, _: &Value) -> CmdResult {
     select_unit(s, Unit::Sentence)
 }
 
-/// A triple-click on the only paragraph of a table cell selects the cell (Word takes its end
+/// A triple-click on the last paragraph of a table cell selects the cell (Word takes its end
 /// mark too, which shades it), so its borders then move on their own (`table.resizeDrag`).
 fn select_paragraph(s: &mut Session, _: &Value) -> CmdResult {
     let r = select_unit(s, Unit::Paragraph);
@@ -393,7 +393,8 @@ fn select_paragraph(s: &mut Session, _: &Value) -> CmdResult {
     {
         let tp = wordcraft_doc::Path(tp.to_vec());
         let (row, cell) = (row as usize, cell as usize);
-        let only = s.doc.table(a.story, &tp).and_then(|t| t.rows.get(row)?.cells.get(cell)).is_some_and(|c| c.blocks.len() == 1);
+        let last = s.doc.table(a.story, &tp).and_then(|t| t.rows.get(row)?.cells.get(cell)).map(|c| c.blocks.len().saturating_sub(1));
+        let only = last.is_some_and(|l| a.path.0.last().is_some_and(|&i| i as usize == l));
         let grid = s.doc.table(a.story, &tp).map(|t| super::table::grid_cols(t, row, cell));
         if let (true, Some(cols)) = (only, grid) {
             return super::table::select_range(s, a.story, &tp, (row, row), cols);
