@@ -327,10 +327,10 @@ pub fn specs() -> Vec<CommandSpec> {
         .when(has_movable),
         CommandSpec::new("arrange.selectionPane", "Selection Pane", "Layout › Arrange", objects_list).pure(),
         CommandSpec::new("arrange.bounds", "Move or Resize", "Layout › Arrange", bounds)
-            .params(r#"{"width"?: pt, "height"?: pt, "x"?: pt, "y"?: pt, "page"?: n}  (x/y: the top-left on page `page` (0-based, default its page); moving an inline object floats it)"#)
+            .params(r#"{"width"?: pt, "height"?: pt, "x"?: pt, "y"?: pt, "page"?: n, "to"?: Pos}  (x/y: the top-left on page `page` (0-based, default its page); moving an inline object by x/y floats it. to: an In Line with Text object moves to that text position and stays inline, as a drag does)"#)
             .when(has_movable),
         CommandSpec::new("arrange.copyTo", "Copy to", "Layout › Arrange", copy_to)
-            .params(r#"{"x": pt, "y": pt, "page"?: n}  (Ctrl+drag: a copy of the selected object lands with its top-left there and is selected; the original and the clipboard stay as they were)"#)
+            .params(r#"{"x": pt, "y": pt, "page"?: n} | {"to": Pos}  (Ctrl+drag: a copy of the selected object lands with its top-left there, or an In Line with Text one at the text position `to`, and is selected; the original and the clipboard stay as they were)"#)
             .when(has_movable),
         CommandSpec::new("arrange.nudge", "Nudge", "Layout › Arrange", |s, v| {
             let d = |k| p::f32(v, k).unwrap_or(0.0).clamp(-MAX_OFFSET, MAX_OFFSET);
@@ -681,6 +681,10 @@ fn bounds(s: &mut Session, v: &Value) -> CmdResult {
         (None, None) => None,
         _ => return Err(CmdError::Params("`x` and `y` go together".into())),
     };
+    let in_text = text_target(v, &obj)?;
+    if in_text.is_some() && to.is_some() {
+        return Err(CmdError::Params("`to` or `x`/`y`, not both".into()));
+    }
     let (w0, h0) = obj_size(&obj);
     let min = min_size(&obj);
     let w = p::f32(v, "width").unwrap_or(w0).clamp(min, MAX_OFFSET);
@@ -688,24 +692,92 @@ fn bounds(s: &mut Session, v: &Value) -> CmdResult {
     if (w, h) != (w0, h0) {
         with_obj(s, |o| o.set_size(w, h))?;
     }
-    let pos = match to {
-        Some((x, y)) => move_object(s, pos, p::u64(v, "page"), x, y, (w, h))?,
-        None => pos,
+    let pos = match (to, in_text) {
+        (Some((x, y)), _) => move_object(s, pos, p::u64(v, "page"), x, y, (w, h))?,
+        (None, Some(at)) => move_in_text(s, pos, &at)?,
+        (None, None) => pos,
     };
-    s.sel = Selection { anchor: pos.clone(), focus: Pos { off: pos.off + wordcraft_doc::para::OBJ.len_utf8(), ..pos.clone() } };
+    select_object(s, &pos);
     let o = s.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)).cloned();
     Ok(json!({"object": serde_json::to_value(o).unwrap_or(Value::Null), "pos": super::pos_json(&pos)}))
 }
 
+/// Select the object whose character is at `pos`.
+fn select_object(s: &mut Session, pos: &Pos) {
+    s.sel = Selection { anchor: pos.clone(), focus: Pos { off: pos.off + wordcraft_doc::para::OBJ.len_utf8(), ..pos.clone() } };
+}
+
+/// The text position in `v`'s `to`, for an In Line with Text `obj` (a floating one is placed by
+/// `x`/`y`); None without one.
+fn text_target(v: &Value, obj: &InlineObject) -> Result<Option<Pos>, CmdError> {
+    let Some(to) = v.get("to").filter(|t| !t.is_null()) else { return Ok(None) };
+    if obj.is_floating() {
+        return Err(CmdError::Params("`to` places an In Line with Text object; move a floating one by `x` and `y`".into()));
+    }
+    super::parse_pos(to).map(Some).ok_or_else(|| CmdError::Params("bad `to`".into()))
+}
+
+/// The text position `to` an In Line with Text object at `pos` can land at: in the object's own
+/// story (a table cell there too), not inside a field's code or such (it's clamped to a
+/// character).
+fn landing(s: &Session, pos: &Pos, to: &Pos) -> Result<Pos, CmdError> {
+    if pos.path.depth() > 0 || !movable_story(s, pos.story) {
+        return Err(CmdError::Disabled("only objects in the body text, headers and footers can be moved".into()));
+    }
+    if to.story != pos.story || s.doc.para_at(to).is_none() {
+        return Err(CmdError::Params("`to` must be a position in the object's own text".into()));
+    }
+    Ok(s.doc.clamp(to))
+}
+
+/// Move the In Line with Text object at `pos` to the text position `to`, where it stays In Line
+/// with Text, keeping its character formatting: Word's drag of an inline picture, which lands
+/// where its dashed insertion cursor was (#2233, #2234). Dropped on itself, nothing changes.
+/// Returns the object's position afterwards.
+fn move_in_text(s: &mut Session, pos: Pos, to: &Pos) -> Result<Pos, CmdError> {
+    let to = landing(s, &pos, to)?;
+    let len = wordcraft_doc::para::OBJ.len_utf8();
+    let same_para = to.path == pos.path;
+    if same_para && (to.off == pos.off || to.off == pos.off + len) {
+        return Ok(pos);
+    }
+    let para = s.doc.para_at(&pos).ok_or_else(|| CmdError::Failed("object vanished".into()))?;
+    let obj = para.object_at(pos.off).cloned().ok_or_else(|| CmdError::Failed("object vanished".into()))?;
+    let props = para.props_of_char(pos.off).clone();
+    s.doc.delete_range(&pos, &Pos { off: pos.off + len, ..pos.clone() })?;
+    let mut at = to;
+    if same_para && at.off > pos.off {
+        at.off = at.off.saturating_sub(len);
+    }
+    let at = s.doc.clamp(&at);
+    s.doc.insert_object(&at, obj, &props)?;
+    Ok(at)
+}
+
 /// Ctrl+drag: copy the selected object (a text box gets its own story) and move the copy to
-/// (x, y), leaving the original in place and the clipboard alone. The copy is selected.
+/// (x, y), or for an In Line with Text object put it at the text position `to`, leaving the
+/// original in place and the clipboard alone. The copy is selected.
 fn copy_to(s: &mut Session, v: &Value) -> CmdResult {
-    let (pos, _) = selected(s).ok_or_else(|| CmdError::Disabled("no picture or shape selected".into()))?;
+    let (pos, obj) = selected(s).ok_or_else(|| CmdError::Disabled("no picture or shape selected".into()))?;
+    let len = wordcraft_doc::para::OBJ.len_utf8();
+    let end = Pos { off: pos.off + len, ..pos.clone() };
+    if let Some(to) = text_target(v, &obj)? {
+        if p::f32(v, "x").is_some() || p::f32(v, "y").is_some() {
+            return Err(CmdError::Params("`to` or `x`/`y`, not both".into()));
+        }
+        let at = landing(s, &pos, &to)?;
+        let frag = s.doc.copy_range(&pos, &end);
+        s.sel = Selection::caret(at.clone());
+        super::paste::insert(s, frag)?;
+        // The copy starts where it was pasted.
+        let copy = s.doc.clamp(&at);
+        select_object(s, &copy);
+        let o = s.doc.para_at(&copy).and_then(|p| p.object_at(copy.off)).cloned();
+        return Ok(json!({"object": serde_json::to_value(o).unwrap_or(Value::Null), "pos": super::pos_json(&copy)}));
+    }
     if p::f32(v, "x").is_none() || p::f32(v, "y").is_none() {
         return Err(CmdError::Params("`x` and `y` are required".into()));
     }
-    let len = wordcraft_doc::para::OBJ.len_utf8();
-    let end = Pos { off: pos.off + len, ..pos.clone() };
     let frag = s.doc.copy_range(&pos, &end);
     s.sel = Selection::caret(end.clone());
     super::paste::insert(s, frag)?;
@@ -1538,6 +1610,103 @@ mod tests {
         assert!(s.run("arrange.copyTo", &json!({"page": 0})).is_err());
         s.run("edit.undo", &json!({})).unwrap();
         assert_eq!(count(&s), 1);
+    }
+
+    /// The body's top-level paragraphs, an object's character shown as ▣.
+    fn body_text(s: &Session) -> String {
+        (0..2)
+            .filter_map(|i| s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(i)))
+            .map(|p| p.text.replace(wordcraft_doc::para::OBJ, "▣"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Two paragraphs, the second starting with an inline picture (bold, so its formatting can be
+    /// followed), selected.
+    fn inline_picture_session() -> Session {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("text.insert", &json!({"text": "First paragraph."})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("format.bold", &json!({})).unwrap();
+        let data = super::super::insert::base64_encode(&png(20, 10));
+        s.run("insert.picture", &json!({"data": data, "width": 100})).unwrap();
+        s.run("format.bold", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": " second paragraph."})).unwrap();
+        let pic = Pos::body(1, 0);
+        s.run("select.range", &json!({"anchor": pic, "focus": Pos { off: pic.off + wordcraft_doc::para::OBJ.len_utf8(), ..pic.clone() }})).unwrap();
+        assert!(selected(&s).is_some_and(|(_, o)| !o.is_floating()));
+        s
+    }
+
+    /// #2234: dragging an In Line with Text picture into the text (`to`) moves it there and it stays
+    /// inline, with its formatting, selected, in one undo step; it never floats.
+    #[test]
+    fn an_inline_picture_dragged_into_the_text_stays_inline() {
+        let mut s = inline_picture_session();
+        let text = body_text;
+        assert_eq!(text(&s), "First paragraph.\n▣ second paragraph.");
+        // Into the first paragraph, after "First".
+        let r = s.run("arrange.bounds", &json!({"to": Pos::body(0, 5)})).unwrap();
+        assert_eq!(text(&s), "First▣ paragraph.\n second paragraph.");
+        assert_eq!(r["object"]["float"]["wrap"], "inline", "{r}");
+        let (pos, obj) = selected(&s).expect("still selected");
+        assert_eq!(pos, Pos::body(0, 5));
+        assert!(!obj.is_floating());
+        assert!(s.doc.para_at(&pos).unwrap().props_of_char(pos.off).bold == Some(true), "keeps its run's formatting");
+        // Later in its own paragraph (after "paragraph", counted with it still there): the offset
+        // accounts for its own character leaving.
+        s.run("arrange.bounds", &json!({"to": Pos::body(0, 18)})).unwrap();
+        assert_eq!(text(&s), "First paragraph▣.\n second paragraph.");
+        // Each move is one undo step.
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(text(&s), "First▣ paragraph.\n second paragraph.");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(text(&s), "First paragraph.\n▣ second paragraph.");
+        // Dropped on itself (either side): nothing changes.
+        let here = selected(&s).unwrap().0;
+        s.run("arrange.bounds", &json!({"to": here})).unwrap();
+        s.run("arrange.bounds", &json!({"to": Pos { off: here.off + wordcraft_doc::para::OBJ.len_utf8(), ..here.clone() }})).unwrap();
+        assert_eq!(text(&s), "First paragraph.\n▣ second paragraph.");
+        assert_eq!(selected(&s).unwrap().0, here);
+    }
+
+    /// `to` is only for In Line with Text objects, in their own text; bad targets change nothing.
+    #[test]
+    fn moving_into_the_text_refuses_bad_targets() {
+        let mut s = inline_picture_session();
+        let before = body_text(&s);
+        for bad in [
+            json!({"to": "junk"}),
+            json!({"to": {"story": "body", "path": [9], "off": 0}}),
+            json!({"to": Pos::body(0, 0), "x": 10, "y": 10}),
+            json!({"to": {"story": {"part": 99}, "path": [0], "off": 0}}),
+        ] {
+            assert!(s.run("arrange.bounds", &bad).is_err(), "{bad}");
+            assert!(s.run("arrange.copyTo", &bad).is_err(), "{bad}");
+        }
+        // A huge offset is clamped to the paragraph's end.
+        s.run("arrange.bounds", &json!({"to": {"story": "body", "path": [0], "off": 999_999}})).unwrap();
+        assert_eq!(body_text(&s), "First paragraph.▣\n second paragraph.");
+        assert_ne!(body_text(&s), before);
+        // A floating object is moved by x/y, not into the text.
+        s.run("arrange.bounds", &json!({"page": 0, "x": 200, "y": 300})).unwrap();
+        assert!(s.run("arrange.bounds", &json!({"to": Pos::body(1, 0)})).is_err());
+    }
+
+    /// Ctrl+drag of an inline picture into the text: a copy lands there, inline and selected; the
+    /// original stays.
+    #[test]
+    fn copying_an_inline_picture_into_the_text() {
+        let mut s = inline_picture_session();
+        s.clipboard_text = "keep".into();
+        s.run("arrange.copyTo", &json!({"to": Pos::body(0, 5)})).unwrap();
+        assert_eq!(body_text(&s), "First▣ paragraph.\n▣ second paragraph.");
+        let (pos, obj) = selected(&s).expect("the copy is selected");
+        assert_eq!(pos, Pos::body(0, 5));
+        assert!(!obj.is_floating());
+        assert_eq!(s.clipboard_text, "keep");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(body_text(&s), "First paragraph.\n▣ second paragraph.");
     }
 
     #[test]

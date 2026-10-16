@@ -3031,6 +3031,13 @@ fn caret_color_at(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, page: u
     c
 }
 
+/// The caret colour at page point (`x`, `y`) of page `page`, uncached: for a caret drawn while
+/// dragging, such as an inline picture's insertion cursor.
+pub(crate) fn caret_color_on(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32) -> Color32 {
+    let Some(p) = layout.pages.get(page) else { return Color32::BLACK };
+    caret_contrast(wordcraft_render::background_at(&app.session.doc, p, &page_render_options(app, dims_body(app, layout)), x, y))
+}
+
 /// Render options for page rasters shown on screen: on macOS, text is darkened the way the system
 /// draws it, so a page looks as it does in other Mac apps (exports never are).
 pub(crate) fn screen_render_options() -> wordcraft_render::RenderOptions {

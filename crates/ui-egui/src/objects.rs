@@ -8,9 +8,13 @@
 //! drag starts (#1010: a cut of the page would carry along whatever is behind it). The drop is
 //! one command, one relayout.
 //!
-//! Moving one snaps it to alignment guides ([`crate::guides`]): the page's edges and centre, the
-//! margins and the other floating objects on the page, shown as thin lines while dragging. Alt
-//! moves freely; File › Options › Advanced turns them off (`ui.alignmentGuides`).
+//! Dragging an In Line with Text object moves it within the text, as in Word: a dashed insertion
+//! cursor follows the pointer through the text (#2233) and the drop puts it there, still inline
+//! (`arrange.bounds` / `arrange.copyTo` with `to`, #2234). A floating one goes where it's dropped.
+//!
+//! Moving a floating one snaps it to alignment guides ([`crate::guides`]): the page's edges and
+//! centre, the margins and the other floating objects on the page, shown as thin lines while
+//! dragging. Alt moves freely; File › Options › Advanced turns them off (`ui.alignmentGuides`).
 //!
 //! A selected connector shows a handle at each end instead of a frame: dragging one onto a shape
 //! glues it to the nearest connection site there (`shape.connect`), elsewhere leaves it free.
@@ -53,6 +57,9 @@ pub struct ObjectDrag {
     guides: Vec<crate::guides::Guide>,
     /// The object drawn alone over its rotated bounds, for the preview: made once it moves.
     preview: Option<egui::TextureHandle>,
+    /// Moving an In Line with Text object: the text position under the pointer, where it lands,
+    /// and the colour of the dashed insertion cursor drawn there.
+    drop_at: Option<(Pos, Color32)>,
 }
 
 /// How near (screen points) a press must be to a connector's end to grab it.
@@ -201,7 +208,10 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 // Alignment guides: a move snaps to the page, the margins and the other objects
                 // (Alt: freely).
                 d.guides.clear();
-                if d.drag.grab == Grab::Move && d.drag.moved && app.ui.alignment_guides && !ui.input(|i| i.modifiers.alt) {
+                if d.drag.grab == Grab::Move && d.drag.moved && !d.object.floating() {
+                    // An inline one lands in the text: the insertion cursor follows the pointer.
+                    d.drop_at = drop_point(app, layout, pages, scale, at, &d);
+                } else if d.drag.grab == Grab::Move && d.drag.moved && app.ui.alignment_guides && !ui.input(|i| i.modifiers.alt) {
                     snap_move(layout, &mut d, scale);
                 }
             }
@@ -236,6 +246,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             guides: Vec::new(),
             preview: None,
             copy: false,
+            drop_at: None,
         });
         return true;
     }
@@ -264,6 +275,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             guides: Vec::new(),
             preview: None,
             copy: false,
+            drop_at: None,
         });
         return false;
     }
@@ -288,10 +300,25 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 guides: Vec::new(),
                 preview: None,
                 copy,
+                drop_at: None,
             });
         }
     }
     true
+}
+
+/// Where an In Line with Text object dragged to `at` (screen) lands: the nearest position of its
+/// own story's text there, with the insertion cursor's colour (the same contrast as the caret's).
+fn drop_point(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at: Pos2, d: &ObjectDrag) -> Option<(Pos, Color32)> {
+    let (page, x, y) = crate::canvas::page_at(pages, layout, scale, at)?;
+    let pos = layout.hit(page, x, y, d.object.story)?;
+    if let Some((was, color)) = &d.drop_at
+        && *was == pos
+    {
+        return Some((pos, *color)); // the paper under it is worked out once per position
+    }
+    let c = layout.caret_on(&pos, page)?;
+    Some((pos, crate::canvas::caret_color_on(app, layout, c.page, c.x, c.top + c.height / 2.0)))
 }
 
 /// Snap a moved object's bounds (rotated ones by their turned box) to the guides of the page
@@ -481,6 +508,19 @@ fn drop(app: &mut WordApp, d: &ObjectDrag) {
             let _ = app.run("arrange.rotation", json!({"degrees": d.drag.deg}));
             return;
         }
+        // An In Line with Text object stays in the text, at the insertion cursor; dropped on
+        // itself, it doesn't move.
+        Grab::Move if !d.object.floating() => {
+            let Some((to, _)) = &d.drop_at else { return };
+            let pos = d.object.pos();
+            let on_itself = to.story == pos.story && to.path == pos.path && (to.off == pos.off || to.off == pos.off + OBJ.len_utf8());
+            if d.copy {
+                let _ = app.run("arrange.copyTo", json!({"to": to}));
+            } else if !on_itself {
+                let _ = app.run("arrange.bounds", json!({"to": to}));
+            }
+            return;
+        }
         Grab::Move if d.copy => {
             let _ = app.run("arrange.copyTo", json!({"page": d.drag.to_page, "x": r.x, "y": r.y}));
             return;
@@ -536,6 +576,7 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
         }
         frame::paint(painter, t, to, d.drag.deg, false, false, false);
         paint_guides(d, painter, t, layout, pages, scale);
+        paint_drop_caret(d, painter, layout, pages, scale);
         return;
     }
     // The others selected along with it (Shift+click): their outlines.
@@ -554,6 +595,14 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
         let handles = selectable_story(app, o.story) && !fixed(app, &o);
         frame::paint(painter, t, f, o.spin.deg, editing, handles, handles);
     }
+}
+
+/// The dashed insertion cursor where a dragged In Line with Text object will land.
+fn paint_drop_caret(d: &ObjectDrag, painter: &Painter, layout: &DocLayout, pages: &[Rect], scale: f32) {
+    let Some((pos, color)) = &d.drop_at else { return };
+    let Some(c) = layout.caret_on(pos, d.drag.to_page) else { return };
+    let Some(r) = screen(pages, scale, c.page, wordcraft_geom::Rect::new(c.x, c.top, 0.0, c.height)) else { return };
+    painter.extend(egui::Shape::dashed_line(&[r.left_top(), r.left_bottom()], egui::Stroke::new(1.5, *color), 2.0, 2.0));
 }
 
 /// A connector's end being dragged: a line from its other end to the pointer, and the connection
@@ -845,6 +894,72 @@ mod tests {
         }
         assert!(h.state().canvas.obj_drag.is_none());
         assert_eq!(h.state().ui.keytips, crate::keytips::Phase::Off, "Alt during a drag isn't a keytip tap");
+    }
+
+    /// #2233, #2234: dragging an In Line with Text picture into another paragraph shows a dashed
+    /// insertion cursor at the text under the pointer (no alignment guides), and the drop puts the
+    /// picture there, still inline and selected. Dropped back where it was, nothing changes.
+    #[test]
+    fn an_inline_picture_drags_to_the_insertion_cursor_and_stays_inline() {
+        use crate::table_resize::tests::{H, button, steps};
+        let mut a = WordApp::new(
+            wordcraft_engine::Session::new(Document::from_text("The first paragraph of text.\nThe second paragraph, where the picture starts.")),
+            Default::default(),
+        );
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let picture =
+            InlineObject::Image { media: String::new(), w: 80.0, h: 40.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None };
+        a.session.doc.insert_object(&Pos::body(1, 0), picture, &Default::default()).unwrap();
+        a.session.touch();
+        let mut h: H = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(0.25).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        let o = h.state_mut().session.layout().object(&Pos::body(1, 0), 0).expect("laid out");
+        assert_eq!(o.wrap, Wrap::Inline);
+        // Aim between "first" and " paragraph" in the first paragraph.
+        let target = Pos::body(0, "The first".len());
+        let c = h.state_mut().session.layout().caret(&target).expect("caret");
+        let at = |h: &mut H, x: f32, y: f32| crate::canvas::page_to_screen(h.state_mut(), 0, x, y).unwrap();
+        let start = at(&mut h, o.rect.x + o.rect.w / 2.0, o.rect.y + o.rect.h / 2.0);
+        let end = at(&mut h, c.x + 0.5, c.top + c.height / 2.0);
+        h.event(egui::Event::PointerMoved(start));
+        h.step();
+        button(&h, start, true);
+        h.step();
+        for k in 1..=5 {
+            h.event(egui::Event::PointerMoved(start + (end - start) * (k as f32 / 5.0)));
+            h.step();
+        }
+        let d = h.state().canvas.obj_drag.as_ref().expect("dragging");
+        assert_eq!(d.drop_at.as_ref().map(|(p, _)| p.clone()), Some(target.clone()), "the insertion cursor is at the text under the pointer");
+        assert!(d.guides.is_empty(), "an inline object doesn't snap to guides");
+        button(&h, end, false);
+        steps(&mut h, 3);
+        assert!(h.state().canvas.obj_drag.is_none());
+        let (pos, obj) = selected(h.state()).expect("still selected");
+        assert_eq!(pos, target, "landed at the insertion cursor");
+        assert!(!obj.is_floating(), "still In Line with Text");
+        assert_eq!(h.state().session.doc.para_at(&Pos::body(1, 0)).map(|p| p.objects.len()), Some(0), "left its old place");
+        // Back onto itself: no change, no undo step.
+        let undo = h.state().session.undo_depth();
+        let o = h.state_mut().session.layout().object(&target, 0).expect("laid out");
+        let start = at(&mut h, o.rect.x + o.rect.w / 2.0, o.rect.y + o.rect.h / 2.0);
+        button(&h, start, true);
+        h.step();
+        for v in [egui::vec2(12.0, 0.0), egui::vec2(0.0, 0.0)] {
+            h.event(egui::Event::PointerMoved(start + v));
+            h.step();
+        }
+        button(&h, start, false);
+        steps(&mut h, 3);
+        assert_eq!(selected(h.state()).map(|(p, _)| p), Some(target));
+        assert_eq!(h.state().session.undo_depth(), undo);
     }
 
     /// #1010: dragging a shape off text, the preview is the shape alone, not the text that was
