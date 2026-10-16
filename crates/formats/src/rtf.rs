@@ -10,8 +10,10 @@
 //! Import: a tolerant reader for groups and destinations (unknown `\*` destinations, headers,
 //! footers, notes and objects are skipped), `\par \line \tab \page`, `\uN` with `\ucN`
 //! fallback skipping, `\'hh` and 8-bit text in the document's code page (`\ansicpg`, `\mac`, `\pc`, `\pca`) or
-//! the current font's (`\fcharset`, `\cpg`: Cyrillic, Central European, Greek, Mac OS Roman…;
-//! Windows-1252 when none is named), the formatting words above, stylesheet-based
+//! the current font's (`\fcharset`, `\cpg`: Cyrillic, Central European, Greek, Mac OS Roman, the
+//! East Asian multibyte pages 932/936/949/950…; Windows-1252 when none is named). A multibyte
+//! code page's bytes are held and decoded as a run, so a lead byte and its trail byte decode
+//! together; the formatting words above, stylesheet-based
 //! headings and `\outlinelevel`, lists through `\ls`/`\ilvl`, fields, bookmarks, pictures and
 //! tables. Group nesting and picture sizes are capped.
 
@@ -27,6 +29,12 @@ const MAX_GROUPS: usize = 512;
 const MAX_PICT: usize = 64 << 20;
 /// Most sections we read (`\sect`); later breaks end paragraphs only.
 const MAX_SECTIONS: usize = 10_000;
+/// The encoding of an East Asian multibyte code page (932 Shift-JIS, 936 GBK, 949 UHC, 950 Big5),
+/// which [`Reader::finish_multibyte`] decodes a run with; `None` for the single-byte code pages.
+fn multibyte_encoding(code_page: u16) -> Option<&'static encoding_rs::Encoding> {
+    let label = wordcraft_doc::encoding::multibyte_encoding_name(code_page)?;
+    encoding_rs::Encoding::for_label(label.as_bytes())
+}
 
 // ---------------------------------------------------------------------------------------------
 // Export
@@ -1144,6 +1152,11 @@ struct Reader {
     rev_name: String,
     skip_chars: usize,
     pending_high: Option<u16>,
+    /// A streaming decoder for the current multibyte code page, and the code page it was made for.
+    /// A lead byte and its trail byte decode together even when a text word, a group boundary or the
+    /// end of a chunk falls between them, so a run of any length never splits a character.
+    mb_decoder: Option<encoding_rs::Decoder>,
+    mb_cp: u16,
     // Output.
     body: Vec<FBlock>,
     para: Para,
@@ -1291,6 +1304,8 @@ impl Reader {
     }
 
     fn close(&mut self) {
+        // A group end decodes the multibyte bytes read in it, before the state is restored.
+        self.finish_multibyte();
         self.skip_chars = 0;
         if self.overflow > 0 {
             self.overflow -= 1;
@@ -1378,11 +1393,66 @@ impl Reader {
         }
     }
 
-    /// A byte of 8-bit text (`\'hh` or raw) as a char, in the current font's code page, else the
-    /// default font's, else the document's.
-    fn byte_char(&self, b: u8) -> char {
-        let cp = self.st.cp.or_else(|| self.font_cps.get(&self.deff).copied()).unwrap_or(if self.ansicpg == 0 { 1252 } else { self.ansicpg });
-        wordcraft_doc::encoding::code_page_byte(cp, b)
+    /// The code page 8-bit text is read in: the current font's, else the default font's, else the
+    /// document's (Windows-1252 when none is named).
+    fn code_page(&self) -> u16 {
+        self.st.cp.or_else(|| self.font_cps.get(&self.deff).copied()).unwrap_or(if self.ansicpg == 0 { 1252 } else { self.ansicpg })
+    }
+
+    /// A byte of 8-bit text (`\'hh` or raw): a single-byte code page decodes it at once; a
+    /// multibyte one is fed to a streaming decoder ([`Reader::finish_multibyte`]), so a lead byte decodes
+    /// together with its trail byte.
+    fn byte(&mut self, b: u8) {
+        if self.skip_chars > 0 {
+            self.skip_chars -= 1;
+            return;
+        }
+        let cp = self.code_page();
+        let Some(encoding) = multibyte_encoding(cp) else {
+            self.finish_multibyte();
+            let c = wordcraft_doc::encoding::code_page_byte(cp, b);
+            self.ch(c);
+            return;
+        };
+        // A code page switch ends the previous run (a lead byte left then becomes U+FFFD, as Word
+        // writes it) before the new decoder starts.
+        if self.mb_cp != cp || self.mb_decoder.is_none() {
+            self.finish_multibyte();
+            self.mb_cp = cp;
+            self.mb_decoder = Some(encoding.new_decoder());
+        }
+        if let Some(decoder) = self.mb_decoder.as_mut() {
+            // `decode_to_string` writes into the string's spare capacity only, so reserve for the
+            // widest one-byte result (U+FFFD is three bytes) before feeding it.
+            let mut out = String::with_capacity(16);
+            let _ = decoder.decode_to_string(&[b], &mut out, false);
+            if !out.is_empty() {
+                self.text(&out);
+            }
+        }
+    }
+
+    /// Decode the multibyte bytes read so far in the code page they were read in, with U+FFFD for
+    /// invalid sequences, as Word writes them. A code page switch, a group end and the end of the
+    /// document flush; the buffer is capped, so it never grows with the input.
+    /// Ends the current multibyte run: the streaming decoder emits whatever it still holds (a lone
+    /// lead byte becomes U+FFFD, as Word writes it) and is dropped. A code page switch, a single-byte
+    /// run, a group end and the end of the document finish the run this way.
+    fn finish_multibyte(&mut self) {
+        let Some(mut decoder) = self.mb_decoder.take() else { return };
+        let mut out = String::with_capacity(16);
+        let _ = decoder.decode_to_string(&[], &mut out, true);
+        if !out.is_empty() {
+            self.text(&out);
+        }
+    }
+
+    /// Whether 8-bit input is read as a multibyte run: the current code page is one, or its bytes
+    /// are still pending.
+    /// Whether 8-bit input goes through a multibyte decoder: the ASCII fast path must not overtake
+    /// text the decoder has not emitted yet.
+    fn has_pending_multibyte(&self) -> bool {
+        self.mb_decoder.is_some() || wordcraft_doc::encoding::is_multibyte_code_page(self.code_page())
     }
 
     fn commit_style(&mut self) {
@@ -1571,6 +1641,7 @@ impl Reader {
             self.skip_chars -= 1;
             return;
         }
+        self.finish_multibyte();
         let mut buf = [0u8; 4];
         self.text(c.encode_utf8(&mut buf));
     }
@@ -1728,6 +1799,9 @@ impl Reader {
     }
 
     fn word(&mut self, w: &str, p: Option<i32>, starred: bool, first_in_group: bool) {
+        // Every control word ends a multibyte run: the code page it is read in may change here
+        // (`\f`, `\fcharset`, `\cpg`, `\ansicpg`, `\pard`), and `\par` must see the text before it.
+        self.finish_multibyte();
         let on = p != Some(0);
         let pv = p.unwrap_or(0);
         if self.st.dest == Dest::Skip && !(self.in_info() && matches!(w, "title" | "author" | "subject" | "keywords" | "doccomm" | "creatim")) {
@@ -1850,9 +1924,9 @@ impl Reader {
                         self.font_cp_cur = None;
                     }
                     "fcharset" => self.font_cp_cur = wordcraft_doc::encoding::charset_code_page(pv),
-                    // A font's explicit code page (`\cpg1251`) wins over its charset.
+                    // A font's explicit code page (`\cpg1251`, `\cpg932`) wins over its charset.
                     "cpg" => {
-                        if let Some(cp) = u16::try_from(pv).ok().filter(|cp| wordcraft_doc::encoding::is_byte_code_page(*cp)) {
+                        if let Some(cp) = u16::try_from(pv).ok().filter(|cp| wordcraft_doc::encoding::is_text_code_page(*cp)) {
                             self.font_cp_cur = Some(cp);
                         }
                     }
@@ -2054,7 +2128,7 @@ impl Reader {
             }
             "fs" => self.st.fmt.size = if pv > 0 { Some((pv as f32 / 2.0).clamp(1.0, 1638.0)) } else { None },
             "ansicpg" => {
-                if let Some(cp) = u16::try_from(pv).ok().filter(|cp| wordcraft_doc::encoding::is_byte_code_page(*cp)) {
+                if let Some(cp) = u16::try_from(pv).ok().filter(|cp| wordcraft_doc::encoding::is_text_code_page(*cp)) {
                     self.ansicpg = cp;
                 }
             }
@@ -2557,8 +2631,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                                 if r.st.dest == Dest::Pict {
                                     r.text(&format!("{v:02x}"));
                                 } else {
-                                    let c = r.byte_char(v);
-                                    r.ch(c);
+                                    r.byte(v);
                                 }
                                 i += 4;
                             }
@@ -2602,14 +2675,13 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                     j += 1;
                 }
                 let chunk = bytes.get(i..j).unwrap_or(b"");
-                if r.skip_chars == 0 && chunk.is_ascii() {
+                if r.skip_chars == 0 && chunk.is_ascii() && !r.has_pending_multibyte() {
                     if let Ok(s) = std::str::from_utf8(chunk) {
                         r.text(s);
                     }
                 } else {
                     for b in chunk {
-                        let c = r.byte_char(*b);
-                        r.ch(c);
+                        r.byte(*b);
                     }
                 }
                 i = j;
@@ -2617,7 +2689,8 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
             }
         }
     }
-    // A header or footer left open by a truncated file ends here.
+    // A header or footer left open by a truncated file ends here, and so does a multibyte run.
+    r.finish_multibyte();
     r.end_header_footer();
     if r.para_has || !r.para.inlines.is_empty() {
         r.end_para(false);
@@ -3024,6 +3097,111 @@ mod tests {
         // A code page number out of range is ignored, not truncated to another one.
         let f = parse(br"{\rtf1\ansi\ansicpg65973 caf\'e9\par}").unwrap();
         assert_eq!(texts(&f), ["Normal:café"]);
+        // The OEM charset (255) is DOS code page 437, like 254.
+        let f = parse(br"{\rtf1\ansi\deff0{\fonttbl{\f0\fcharset255 Courier New;}}\f0 caf\'82\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:café"]);
+    }
+
+    /// #1653: the East Asian code pages (932 Shift-JIS, 936 GBK, 949 UHC, 950 Big5) decode their
+    /// bytes as a run, so a lead byte and its trail byte decode together, escaped or raw.
+    #[test]
+    fn east_asian_multibyte_code_pages() {
+        // Japanese `\ansicpg932` (CP932: 日 = 93 fa, 本 = 96 7b, 語 = 8c ea).
+        let f = parse(br"{\rtf1\ansi\ansicpg932 \'93\'fa\'96\'7b\'8c\'ea\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:日本語"]);
+        // Raw 8-bit text (not `\'hh`), and raw bytes mixed with one escaped byte: RTF can't carry a
+        // raw `{`, `}` or `\`, so 本's trail byte 7b is written `\'7b` here.
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg932 \x8a\xbf\x8e\x9a\\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:漢字"]);
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg932 \x93\xfa\x96\\'7b\x8c\xea\\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:日本語"]);
+        // A font names the code page with `\fcharset128` or with `\cpg932`, and `\f0` selects it.
+        let f = parse(br"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fcharset128 MS Mincho;}}\f0 \'93\'fa\'96\'7b\'8c\'ea\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:日本語"]);
+        let f = parse(br"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\cpg932 MS Mincho;}}\f0 \'93\'fa\'96\'7b\'8c\'ea\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:日本語"]);
+        // Raw 8-bit bytes in the font table (the font's name) decode in the document's code page.
+        let d = import(b"{\\rtf1\\ansi\\ansicpg932\\deff0{\\fonttbl{\\f0\\fcharset128 \x96\xbe\x92\xa9;}}\\f0 x\\par}").unwrap();
+        assert_eq!(d.styles.default_chr.font.as_deref(), Some("明朝"));
+        // Korean `\ansicpg949` (UHC: 한국어 = c7 d1 b1 b9 be ee).
+        let f = parse(br"{\rtf1\ansi\ansicpg949 \'c7\'d1\'b1\'b9\'be\'ee\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:한국어"]);
+        // Simplified Chinese `\ansicpg936` (GBK: 中文 = d6 d0 ce c4).
+        let f = parse(br"{\rtf1\ansi\ansicpg936 \'d6\'d0\'ce\'c4\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:中文"]);
+        // Traditional Chinese `\ansicpg950` (Big5: 中文 = a4 a4 a4 e5).
+        let f = parse(br"{\rtf1\ansi\ansicpg950 \'a4\'a4\'a4\'e5\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:中文"]);
+        // `\uN?` escapes still decode alongside multibyte text (`\u26412?` is 本, its `?` fallback
+        // skipped by `\uc1`).
+        let f = parse(br"{\rtf1\ansi\ansicpg932 \'93\'fa\u26412?\'8c\'ea x\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:日本語 x"]);
+        // An invalid sequence decodes as U+FFFD, as Word writes it, and doesn't lose the rest.
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg932 \x93\\par after\\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:\u{FFFD}", "Normal:after"]);
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg932 \x93\xfa\x93 x\x96\x8c\\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:日\u{FFFD} x膜"]);
+    }
+
+    /// A multibyte run longer than any fixed buffer keeps every character: the streaming decoder
+    /// holds a lead byte and its trail byte together across decode steps instead of cutting the
+    /// character at a buffer size (the review's finding on the byte-capped flush).
+    #[test]
+    fn a_long_multibyte_run_never_splits_a_character() {
+        let mut bytes = b"{\\rtf1\\ansi\\ansicpg932 ".to_vec();
+        bytes.push(b'A');
+        // 2048 × あ (CP932 82 a0) is 4096 bytes after the one ASCII byte: a fixed 4096-byte buffer
+        // would flush with the last あ's lead byte in one step and its trail byte in the next.
+        for _ in 0..2048 {
+            bytes.extend_from_slice(&[0x82, 0xA0]);
+        }
+        bytes.extend_from_slice(b"\\par}");
+        let f = parse(&bytes).unwrap();
+        let expected: String = std::iter::once('A').chain((0..2048).map(|_| 'あ')).collect();
+        assert_eq!(texts(&f), [format!("Normal:{expected}")]);
+    }
+
+    /// A lead byte with no trail byte at the end of the document becomes U+FFFD, as Word writes a
+    /// malformed sequence — the streaming decoder is finalised, not left holding it.
+    #[test]
+    fn an_incomplete_lead_byte_at_the_end_is_replacement() {
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg932 \x93}").unwrap();
+        assert_eq!(texts(&f), ["Normal:\u{FFFD}"]);
+    }
+
+    /// #1653: a code page switch (`\f`, `\fcharset`, `\cpg`, `\ansicpg`), a group end and the end
+    /// of the document decode the multibyte bytes read so far, before the new code page applies.
+    #[test]
+    fn multibyte_code_page_switches_flush_pending_bytes() {
+        // Japanese (932) → ASCII → Cyrillic (`\fcharset204` with `\cpg1251`): each run decodes in
+        // its own code page, the last bytes before the switch included.
+        let f = parse(
+            br"{\rtf1\ansi\ansicpg932\deff0{\fonttbl{\f0 MS Mincho;}{\f1\fcharset204\cpg1251 Arial CYR;}}\f0 \'93\'fa\'96\'7b\'8c\'ea mixed \f1 \'cf\'f0\'e8\'e2\'e5\'f2\par}",
+        )
+        .unwrap();
+        assert_eq!(texts(&f), ["Normal:日本語 mixed Привет"]);
+        // A group end flushes: the group's 932 bytes decode before the outer 1252 text.
+        let f =
+            parse(br"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Arial;}{\f1\fcharset128 MS Mincho;}}\f0 {\f1 \'93\'fa\'96\'7b\'8c\'ea}caf\'e9\par}")
+                .unwrap();
+        assert_eq!(texts(&f), ["Normal:日本語café"]);
+        // An `\ansicpg` switch mid-document flushes too.
+        let f = parse(br"{\rtf1\ansi\ansicpg932 \'93\'fa\ansicpg1251 \'cf\'f0\'e8\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:日При"]);
+        // A run left open at the end of the document isn't lost.
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg932 \x93\xfa").unwrap();
+        assert_eq!(texts(&f), ["Normal:日"]);
+    }
+
+    /// A Windows-1252 document (the default) reads exactly as before: high bytes one at a time.
+    #[test]
+    fn windows_1252_text_is_unchanged() {
+        let f = parse(b"{\\rtf1\\ansi\\ansicpg1252 caf\xe9 na\xefve \x93quoted\x94 \\'80 5\\'b0\\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:café naïve “quoted” € 5°"]);
+        // No `\ansicpg`: the default is 1252; the byte values of an East Asian code page keep
+        // their 1252 meaning.
+        let f = parse(b"{\\rtf1\\ansi \xe9\\'92\\'93 \\'fa\\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:é’“ ú"]);
     }
 
     #[test]
