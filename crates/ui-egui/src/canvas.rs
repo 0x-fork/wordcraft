@@ -2844,7 +2844,12 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
     item(ui, app, "Cut", "edit.cut", json!({}));
     item(ui, app, "Copy", "edit.copy", json!({}));
+    // How to paste, chosen before pasting (#2583): the ribbon's Paste menu, item for item. Paste
+    // keeps the clipboard's formatting (Word's Keep Source Formatting).
     item(ui, app, "Paste", "edit.paste", json!({}));
+    item(ui, app, "Keep Text Only", "edit.pasteText", json!({}));
+    item(ui, app, "Merge Formatting", "edit.pasteMerge", json!({}));
+    item(ui, app, "Paste Special…", "edit.pasteSpecial", json!({}));
     ui.separator();
     if let Some(syn) = app.canvas.context_synonyms.clone().and_then(|v| v.as_array().cloned()).filter(|a| !a.is_empty()) {
         ui.menu_button(tl!("Synonyms"), |ui| {
@@ -3827,6 +3832,81 @@ mod tests {
         }
         let text = h.state().session.doc.plain_text(StoryRef::Body);
         assert_eq!(text.matches("Fresh heading").count(), 2, "the new heading is listed in the table: {text}");
+    }
+
+    /// #2583: the context menu offers the ribbon's Paste menu, item for item, and each pastes its
+    /// own way: Paste keeps the copied bold and colour (Word's Keep Source Formatting), Merge
+    /// Formatting keeps only the bold, Keep Text Only neither; Paste Special… opens its dialog.
+    #[test]
+    fn context_menu_offers_the_ribbons_paste_items() {
+        use egui_kittest::kittest::Queryable;
+        use wordcraft_doc::props::{Rgb, TextColor};
+        let red = Some(TextColor::Rgb(Rgb(0xC0, 0, 0)));
+        let items = [
+            ("Paste", "edit.paste"),
+            ("Keep Text Only", "edit.pasteText"),
+            ("Merge Formatting", "edit.pasteMerge"),
+            ("Paste Special…", "edit.pasteSpecial"),
+        ];
+        for (choice, pasted) in [
+            ("Paste", Some((true, red))),
+            ("Merge Formatting", Some((true, None))),
+            ("Keep Text Only", Some((false, None))),
+            ("Paste Special…", None),
+        ] {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Bold\nTarget")), Default::default());
+            a.session
+                .doc
+                .format_range(&Pos::body(0, 0), &Pos::body(0, 4), &|c| {
+                    c.bold = Some(true);
+                    c.color = red;
+                })
+                .unwrap();
+            a.session.relayout();
+            a.run("select.text", json!({"text": "Bold"})).unwrap();
+            a.run("edit.copy", json!({})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..6 {
+                h.step();
+            }
+            let c = h.state_mut().session.layout().caret(&Pos::body(1, 6)).expect("laid out");
+            let at = page_to_screen(h.state_mut(), c.page, c.x, c.top + c.height / 2.0).expect("on screen");
+            h.event(egui::Event::PointerMoved(at));
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+                h.step();
+            }
+            h.step();
+            // Each item reads as its name and its shortcut (none for Merge Formatting).
+            let labels: Vec<String> = items.iter().map(|(name, id)| format!("{name} {}", crate::widgets::shortcut_text(h.state(), id))).collect();
+            for l in &labels {
+                assert!(h.query_by_label(l).is_some(), "{choice}: {l:?} is offered");
+            }
+            let k = items.iter().position(|(name, _)| *name == choice).unwrap();
+            h.get_by_label(&labels[k]).click();
+            for _ in 0..3 {
+                h.step();
+            }
+            match pasted {
+                Some((bold, colour)) => {
+                    let doc = &h.state().session.doc;
+                    assert_eq!(doc.plain_text(StoryRef::Body), "Bold\nTargetBold", "{choice}: pasted at the end of the second paragraph");
+                    let p = doc.para_at(&Pos::body(1, 0)).expect("the target paragraph");
+                    assert_eq!(p.props_of_char(7).bold == Some(true), bold, "{choice}: bold");
+                    assert_eq!(p.props_of_char(7).color, colour, "{choice}: colour");
+                }
+                None => {
+                    assert!(matches!(h.state().dialog, Some(crate::dialogs::Dialog::PasteSpecial { .. })), "{choice}: the dialog opens");
+                }
+            }
+        }
     }
 
     /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
