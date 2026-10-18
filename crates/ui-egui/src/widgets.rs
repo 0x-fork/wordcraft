@@ -1022,6 +1022,30 @@ fn icon_text_button_with(ui: &mut Ui, icon: &str, text: &str, font: egui::FontId
     resp
 }
 
+/// A drop-down menu item with `icon` before `text`, at least `min_w` wide.
+pub fn icon_menu_item(ui: &mut Ui, icon: &str, text: &str, shortcut: &str, min_w: f32) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font.clone(), Color32::PLACEHOLDER);
+    let sc = (!shortcut.is_empty()).then(|| ui.painter().layout_no_wrap(shortcut.to_string(), font, Color32::PLACEHOLDER));
+    let pad = ui.spacing().button_padding;
+    let icon_w = 16.0;
+    let sc_w = sc.as_ref().map_or(0.0, |g| g.size().x + 3.0 * pad.x);
+    let w = (pad.x + icon_w + 6.0 + galley.size().x + sc_w + pad.x).max(min_w).max(ui.available_width());
+    let (r, resp) = ui.allocate_exact_size(vec2(w, galley.size().y.max(icon_w) + 2.0 * pad.y), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), text));
+    let st = drawn_state(ui, &resp, false);
+    ui.painter().rect_filled(r, ui.visuals().widgets.inactive.corner_radius, st.fill);
+    let (line, accent) = if ui.is_enabled() { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
+    let text_c = if ui.is_enabled() { st.text } else { t.text_disabled };
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + pad.x + icon_w / 2.0, r.center().y), vec2(icon_w, icon_w)), icon, line, accent);
+    ui.painter().galley(pos2(r.min.x + pad.x + icon_w + 6.0, r.center().y - galley.size().y / 2.0), galley, text_c);
+    if let Some(g) = sc {
+        ui.painter().galley(pos2(r.max.x - pad.x - g.size().x, r.center().y - g.size().y / 2.0), g, t.text_disabled);
+    }
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
