@@ -137,6 +137,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
 
 | Date | What landed |
+| 2026-10-15 | A missing Thai document font (TH Sarabun New, Angsana New, Cordia New, the UPC families…) is substituted by one Thai face for the whole run, Latin letters and digits included, as Word substitutes Cordia New; Thai no longer sits in one font next to larger Latin in another (#1549) |
 |---|---|
 | 2026-10-17 | Paste from LibreOffice: a paragraph indented on both sides (HTML `<blockquote>` on the clipboard) pastes as an indented Normal paragraph with LibreOffice's margins, not centred and italic in the Quote style (#1270). |
 | 2026-10-17 | DrawingML shape outlines retain explicit preset/custom dashes on screen and in PDF, including zero-width path strokes. |
@@ -422,6 +423,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Progress log: one Thai face for a run in a missing Thai font (#1549) |
 | 2026-10-18 | trivial | Progress log: Different First Page headers reachable from page 1 (#2826) |
 | 2026-10-16 | trivial | Progress log: Web Layout fills the window width (#1876) |
 | 2026-10-17 | trivial | Progress log: DOCX glossary documents (building blocks) |
