@@ -295,17 +295,25 @@ impl Reader<'_> {
     }
 
     fn marker(&mut self, e: &El) -> Option<InlineObject> {
-        let id = e.attr("w:id").unwrap_or("").to_string();
+        let id = e.attr("w:id").map(str::trim).unwrap_or("").to_string();
         match e.name.as_str() {
             "w:bookmarkStart" => {
-                let name = e.attr("w:name").unwrap_or("").to_string();
+                if self.bookmarks.len() >= 100_000 {
+                    return None;
+                }
+                let name = e.attr("w:name").map(str::trim).unwrap_or("").to_string();
                 if name.is_empty() || name.len() > 256 {
                     return None;
                 }
                 self.bookmarks.insert(id, name.clone());
                 Some(InlineObject::BookmarkStart { name })
             }
-            "w:bookmarkEnd" => self.bookmarks.get(&id).map(|n| InlineObject::BookmarkEnd { name: n.clone() }),
+            "w:bookmarkEnd" => self
+                .bookmarks
+                .get(&id)
+                .cloned()
+                .or_else(|| e.attr("w:name").map(str::trim).filter(|n| !n.is_empty() && n.len() <= 256).map(str::to_string))
+                .map(|name| InlineObject::BookmarkEnd { name }),
             "w:commentRangeStart" => self.comment_id(&id).map(|id| InlineObject::CommentStart { id }),
             "w:permStart" => {
                 // Bounded: a hostile file can't grow the map without end.
