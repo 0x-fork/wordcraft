@@ -2632,3 +2632,15 @@ preview	Title	Örnek
 	Dot-dot-dash	Nokta-nokta-çizgi
 	More Underlines…	Diğer Alt Çizgiler…
 	Underline Color	Alt Çizgi Rengi
+# Split Cells and Convert Text to Table (#2592)
+	Merge cells before split	Bölmeden önce hücreleri birleştir
+	Table size	Tablo boyutu
+	AutoFit behavior	Otomatik sığdırma
+	Initial column width:	Başlangıç sütun genişliği:
+	AutoFit to contents	İçeriğe sığdır
+	AutoFit to window	Pencereye sığdır
+	Separate text at	Metni ayırma yeri
+	Commas	Virgüller
+	Other:	Diğer:
+	The number must be between 1 and {max}.	Sayı 1 ile {max} arasında olmalıdır.
+	The measurement must be between {min} and {max}.	Ölçü {min} ile {max} arasında olmalıdır.

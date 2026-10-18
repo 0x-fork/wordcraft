@@ -2635,3 +2635,15 @@ preview	Title	Naslov
 	Dot-dot-dash	Točka-točka-crtica
 	More Underlines…	Više podcrtavanja…
 	Underline Color	Boja podcrtavanja
+# Split Cells and Convert Text to Table (#2592)
+	Merge cells before split	Spoji ćelije prije razdvajanja
+	Table size	Veličina tablice
+	AutoFit behavior	Automatsko prilagođavanje
+	Initial column width:	Početna širina stupca:
+	AutoFit to contents	Prilagodi sadržaju
+	AutoFit to window	Prilagodi prozoru
+	Separate text at	Odvoji tekst na
+	Commas	Zarezi
+	Other:	Ostalo:
+	The number must be between 1 and {max}.	Broj mora biti između 1 i {max}.
+	The measurement must be between {min} and {max}.	Mjera mora biti između {min} i {max}.

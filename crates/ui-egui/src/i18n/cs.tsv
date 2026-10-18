@@ -2627,3 +2627,15 @@ preview	Title	Ukázka
 	Dot-dot-dash	Dvojitě čerchované
 	More Underlines…	Další podtržení…
 	Underline Color	Barva podtržení
+# Split Cells and Convert Text to Table (#2592)
+	Merge cells before split	Před rozdělením buňky sloučit
+	Table size	Velikost tabulky
+	AutoFit behavior	Automatické přizpůsobení
+	Initial column width:	Počáteční šířka sloupce:
+	AutoFit to contents	Automaticky přizpůsobit obsahu
+	AutoFit to window	Automaticky přizpůsobit oknu
+	Separate text at	Oddělit text pomocí
+	Commas	Čárky
+	Other:	Jiné:
+	The number must be between 1 and {max}.	Číslo musí být mezi 1 a {max}.
+	The measurement must be between {min} and {max}.	Míra musí být mezi {min} a {max}.
