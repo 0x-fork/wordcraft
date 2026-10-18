@@ -513,6 +513,8 @@ struct Key {
     read_spacing: Option<u32>,
     grid: (u32, u32, u32, bool),
     fit: bool,
+    /// Heights of the paragraph's inline boxes that resize to fit their text.
+    fitted: u64,
     hide_deleted: HideDeleted,
     /// STYLEREF results in headers and footers ([`FieldCtx::styleref_key`]).
     sref: u64,
@@ -722,6 +724,9 @@ struct Ctx<'a> {
     pin: Option<Pin>,
     footer_wraps: HashMap<(usize, u32, bool), Vec<WrapArea>>,
     header_tables: HashMap<(usize, u32, bool), Vec<Rect>>,
+    /// Heights of text boxes that resize to fit their text, by (story, width), worked out once
+    /// per layout ([`textbox::fitted_height`]).
+    fitted: HashMap<(u32, u32), Option<f32>>,
 }
 
 /// A header or footer (`story`) laid out for page `number` of a section (`sect`, `mirror`): its
@@ -820,6 +825,7 @@ impl Ctx<'_> {
             read_line_spacing: None,
             grid: para::Grid::default(),
             fit_objects: false,
+            fitted: &[],
         };
         let pl = Arc::new(para::layout_para(&p, &env));
         self.numbers.insert(n, pl.clone());
@@ -851,7 +857,8 @@ impl Ctx<'_> {
         exclusions: &[para::Exclusion],
         label: Option<(String, Level)>,
     ) -> Arc<ParaLayout> {
-        let (key, eq_number) = self.para_key(p, width, table, exclusions, label.as_ref());
+        let fitted = self.fitted_boxes(p);
+        let (key, eq_number) = self.para_key(p, width, table, exclusions, label.as_ref(), &fitted);
         self.cache.used.insert(key.clone());
         if let Some(pl) = self.cache.paras.get(&key) {
             self.cache.hits += 1;
@@ -859,7 +866,7 @@ impl Ctx<'_> {
         }
         self.cache.misses += 1;
         let typing = key.typing;
-        let pl = Arc::new(para::layout_para(p, &self.para_env(width, label, table, exclusions, eq_number, typing)));
+        let pl = Arc::new(para::layout_para(p, &self.para_env(width, label, table, exclusions, eq_number, typing, &fitted)));
         self.cache.paras.insert(key, pl.clone());
         pl
     }
@@ -875,7 +882,8 @@ impl Ctx<'_> {
         label: Option<(String, Level)>,
         measure: impl FnOnce(&ParaLayout) -> (f32, f32),
     ) -> (f32, f32) {
-        let (key, eq_number) = self.para_key(p, width, table, &[], label.as_ref());
+        let fitted = self.fitted_boxes(p);
+        let (key, eq_number) = self.para_key(p, width, table, &[], label.as_ref(), &fitted);
         self.cache.used.insert(key.clone());
         if let Some(m) = self.cache.measures.get(&key) {
             self.cache.hits += 1;
@@ -883,9 +891,34 @@ impl Ctx<'_> {
         }
         self.cache.misses += 1;
         let typing = key.typing;
-        let m = measure(&para::layout_para(p, &self.para_env(width, label, table, &[], eq_number, typing)));
+        let m = measure(&para::layout_para(p, &self.para_env(width, label, table, &[], eq_number, typing, &fitted)));
         self.cache.measures.insert(key, m);
         m
+    }
+
+    /// The heights of `p`'s inline text boxes that resize to fit their text, by object index
+    /// ([`para::ParaEnv::fitted`]).
+    fn fitted_boxes(&mut self, p: &Paragraph) -> Vec<(usize, f32)> {
+        let mut out = Vec::new();
+        for (k, o) in p.objects.iter().enumerate() {
+            let InlineObject::Shape { story: Some(id), w, float, .. } = o else { continue };
+            if float.wrap != Wrap::Inline || float.rot != 0.0 {
+                continue;
+            }
+            let key = (*id, w.to_bits());
+            let h = match self.fitted.get(&key) {
+                Some(h) => *h,
+                None => {
+                    let h = textbox::fitted_height(self, *id, *w);
+                    self.fitted.insert(key, h);
+                    h
+                }
+            };
+            if let Some(h) = h {
+                out.push((k, h));
+            }
+        }
+        out
     }
 
     /// The cache key of `p` laid out with these inputs, and its first automatic equation number
@@ -897,6 +930,7 @@ impl Ctx<'_> {
         table: Option<&para::CellText>,
         exclusions: &[para::Exclusion],
         label: Option<&(String, Level)>,
+        fitted: &[(usize, f32)],
     ) -> (Key, u32) {
         let page = if has_page_fields(p) { Some(self.fields.page_key()) } else { None };
         if self.track_totals && !self.uses_totals && has_total_fields(p) {
@@ -926,6 +960,7 @@ impl Ctx<'_> {
             read_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing.map(f32::to_bits) } else { None },
             grid: self.grid.key(),
             fit: self.boxes.inside(),
+            fitted: if fitted.is_empty() { 0 } else { hash_of(&format!("{fitted:?}")) },
             hide_deleted: self.hide_deleted,
             sref: if self.fields.styleref.is_some() && styleref::has_styleref(p) { self.fields.styleref_key(p) } else { 0 },
             typing: self.opts.typing_word.filter(|t| t.rev == p.rev).map(|t| (t.start, t.end)),
@@ -956,6 +991,7 @@ impl Ctx<'_> {
         exclusions: &'b [para::Exclusion],
         eq_number: u32,
         typing_word: Option<(usize, usize)>,
+        fitted: &'b [(usize, f32)],
     ) -> para::ParaEnv<'b> {
         para::ParaEnv {
             doc: self.doc,
@@ -974,6 +1010,7 @@ impl Ctx<'_> {
             read_line_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing } else { None },
             grid: self.grid,
             fit_objects: self.boxes.inside(),
+            fitted,
         }
     }
 }
@@ -2172,6 +2209,7 @@ fn layout_pass(
         quiet_marks: Vec::new(),
         mirror: false,
         table_keys: Vec::new(),
+        fitted: HashMap::new(),
         header_tables: HashMap::new(),
         footer_wraps: HashMap::new(),
         pin: None,
@@ -3912,6 +3950,7 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32
                 read_line_spacing: if ctx.opts.view == ViewMode::Read { ctx.opts.read_line_spacing } else { None },
                 grid: ctx.grid,
                 fit_objects: false,
+                fitted: &[],
             };
             let _ = rp;
             let pl = para::layout_para(p, &env);
