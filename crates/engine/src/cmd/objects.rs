@@ -714,15 +714,39 @@ fn copy_to(s: &mut Session, v: &Value) -> CmdResult {
 /// text it lands on flows around it, and it moves with that text. On a page where no paragraph
 /// starts, it anchors to the nearest line and is positioned on the page. Returns the object's
 /// position afterwards.
+///
+/// A drop across pages can be thrown back: while the object sits on its old page it wraps text
+/// away from the paragraph it is anchored to, so once it has moved, that paragraph can move back
+/// onto the old page itself — and the object goes with it. Dropping near the top of the next
+/// page does it every time (the anchor is that page's first paragraph, which fits on the old page
+/// again once the object's wrap is gone). So a cross-page drop is anchored again until the object
+/// really stays on the page asked for: the later passes see the pagination as it now is. A
+/// same-page move (a resize, a nudge) places once, and a drop that still won't stay keeps its
+/// last place rather than failing.
 fn move_object(s: &mut Session, pos: Pos, page: Option<u64>, x: f32, y: f32, (w, h): (f32, f32)) -> Result<Pos, CmdError> {
+    let cur = s.layout().object(&pos, s.page_hint).ok_or_else(|| CmdError::Failed("the object isn't laid out".into()))?.page;
+    let target = page.map_or(cur, |n| usize::try_from(n).unwrap_or(usize::MAX));
+    let tries = if target == cur { 1 } else { 3 };
+    let mut at = pos;
+    for _ in 0..tries {
+        at = move_object_once(s, &at, target, x, y, (w, h))?;
+        s.touch();
+        if s.layout().object(&at, target).is_some_and(|hit| hit.page == target) {
+            break;
+        }
+    }
+    Ok(at)
+}
+
+/// [`move_object`]'s one placement: move the object's character to the anchor under (x, y) on
+/// `page` and offset it from there.
+fn move_object_once(s: &mut Session, pos: &Pos, page: usize, x: f32, y: f32, (w, h): (f32, f32)) -> Result<Pos, CmdError> {
     use wordcraft_doc::para::Anchor;
     if pos.path.depth() > 0 || !movable_story(s, pos.story) {
         return Err(CmdError::Disabled("only objects in the body text, headers and footers can be moved".into()));
     }
     let story = pos.story;
     let layout = s.layout();
-    let cur = layout.object(&pos, s.page_hint).ok_or_else(|| CmdError::Failed("the object isn't laid out".into()))?;
-    let page = page.map_or(cur.page, |n| usize::try_from(n).unwrap_or(usize::MAX));
     let pg = layout.pages.get(page).ok_or_else(|| CmdError::Params(format!("no page {page}")))?;
     // Keep a corner of it on the page.
     let x = x.max(12.0 - w).min(pg.w - 12.0);
@@ -734,11 +758,11 @@ fn move_object(s: &mut Session, pos: Pos, page: Option<u64>, x: f32, y: f32, (w,
     };
     // Move its character to the anchor (unless it's already in that paragraph).
     let at = if anchor.story == pos.story && anchor.path == pos.path && !on_page {
-        pos
+        pos.clone()
     } else {
-        let obj = s.doc.para_at(&pos).and_then(|p| p.object_at(pos.off)).cloned().ok_or_else(|| CmdError::Failed("object vanished".into()))?;
+        let obj = s.doc.para_at(pos).and_then(|p| p.object_at(pos.off)).cloned().ok_or_else(|| CmdError::Failed("object vanished".into()))?;
         let len = wordcraft_doc::para::OBJ.len_utf8();
-        s.doc.delete_range(&pos, &Pos { off: pos.off + len, ..pos.clone() })?;
+        s.doc.delete_range(pos, &Pos { off: pos.off + len, ..pos.clone() })?;
         let mut at = anchor;
         if at.story == pos.story && at.path == pos.path && at.off > pos.off {
             at.off = at.off.saturating_sub(len);
