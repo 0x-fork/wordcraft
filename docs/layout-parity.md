@@ -95,6 +95,12 @@ An original embedded-font control matches native Word inline fallback to Times w
 a covered primary glyph. A tall present-glyph label retains a 19.628 pt pitch (Word mean 19.632 pt).
 The combined numbering-definition blocks are not used to infer their individual font choices.
 
+## Floating tables across header and body
+
+A body floating table with `tblOverlap=never` clears floating header tables.
+Allowed overlap retains its requested position. Original native controls confirm
+both cases. Earlier-body reflow around late tables remains separate.
+
 ## List-label line spacing
 
 Controlled original DOCX probes against Word for Mac 16.113.3 (26092714), macOS 26.6.2,
@@ -240,6 +246,7 @@ Page-relative footer tables keep their physical wrap bounds without adding to fo
 | 2026-10-16 | trivial | Math operators, delimiters and accents missing from the math font use a fallback font (#1273) |
 | 2026-10-17 | trivial | SECTIONPAGES includes shared continuous-section pages in body and header/footer fields |
 | 2026-10-17 | trivial | Footer page tables preserve text height and wrap intersecting body lines |
+| 2026-10-17 | trivial | Non-overlapping body floating tables clear header tables; overlapping tables keep their requested position |
 | 2026-10-14 | trivial | Row table border exceptions draw without leaking into other rows |
 | 2026-10-14 | trivial | Consistent cell widths override a stale table grid |
 | 2026-10-14 | trivial | Paragraphs inside complex-field instructions take no flow height; empty result paragraphs keep their line. |
