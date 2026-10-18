@@ -2153,7 +2153,7 @@ impl WordApp {
             // Control input belongs to this window's remembered widget even while another app
             // is active. Give only this input frame egui focus, without requesting OS activation.
             raw.focused = true;
-            if let (Some(ctx), Some(id)) = (&self.ctx, self.canvas.widget_id) {
+            if let (Some(ctx), Some((id, _))) = (&self.ctx, self.canvas.widget_id) {
                 // Canvas keys run before painting updates last frame's native focus flag.
                 self.canvas.focused = ctx.memory(|m| m.has_focus(id));
             }
@@ -2282,7 +2282,13 @@ impl WordApp {
             // `focused` flag (which gates the keys) isn't recomputed until then either. Claim both
             // now, or the click swallows the first keystroke.
             self.canvas.focused = true;
-            if let Some(id) = self.canvas.widget_id {
+            // Only a page this pass drew. The File page's back arrow closes the File page in the
+            // pass that drew it instead of the page, and focus on a widget missing from the pass
+            // names a node AccessKit doesn't have: with accessibility on, AccessKit ends the program
+            // over that. `want_focus` hands the keyboard over next frame instead.
+            if let Some((id, pass)) = self.canvas.widget_id
+                && pass == ctx.cumulative_pass_nr()
+            {
                 ctx.memory_mut(|m| m.request_focus(id));
             }
             // The canvas reads keys before it takes focus back (#1107), so it counts as focused
