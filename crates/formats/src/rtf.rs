@@ -2209,24 +2209,78 @@ fn spacing(st: &St) -> model::Spacing {
     model::Spacing { before: gap(st.sb), after: gap(st.sa), line, left: st.li.map(pt), right: st.ri.map(pt), first: st.fi.map(pt) }
 }
 
-/// The target of a `HYPERLINK "url"` (or `HYPERLINK \l "bookmark"`) field instruction.
+/// The target of a `HYPERLINK "url"` (or `HYPERLINK "url" \l "bookmark"`, `HYPERLINK \l "bookmark"`) field instruction.
 fn hyperlink(instr: &str) -> Option<String> {
     let t = instr.trim();
-    let rest = t.strip_prefix("HYPERLINK").or_else(|| t.strip_prefix("hyperlink"))?;
-    let local = rest.contains("\\l");
-    let q0 = rest.find('"');
-    let target = match q0 {
-        Some(a) => {
-            let r = rest.get(a + 1..)?;
-            r.get(..r.find('"').unwrap_or(r.len()))?.to_string()
-        }
-        None => rest.split_whitespace().find(|w| !w.starts_with('\\'))?.to_string(),
+    let rest = if t.get(..9).is_some_and(|h| h.eq_ignore_ascii_case("hyperlink")) {
+        t[9..].trim()
+    } else {
+        return None;
     };
-    let target = target.replace("%22", "\"");
-    if target.is_empty() {
+    if rest.is_empty() {
         return None;
     }
-    Some(if local && !target.starts_with('#') { format!("#{target}") } else { target })
+
+    let mut url: Option<String> = None;
+    let mut local: Option<String> = None;
+    let mut switch: Option<&str> = None;
+
+    let mut i = 0;
+    let bytes = rest.as_bytes();
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        if bytes[i] == b'\\' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'*') {
+                i += 1;
+            }
+            switch = Some(&rest[start..i]);
+            continue;
+        }
+        let arg = if bytes[i] == b'"' {
+            i += 1;
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
+            }
+            let val = &rest[start..i];
+            if i < bytes.len() && bytes[i] == b'"' {
+                i += 1;
+            }
+            val.to_string()
+        } else {
+            let start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            rest[start..i].to_string()
+        };
+        let clean_arg = arg.replace("%22", "\"");
+        if switch.take() == Some("\\l") {
+            local = Some(clean_arg);
+        } else if url.is_none() {
+            url = Some(clean_arg);
+        }
+    }
+
+    match (url, local) {
+        (Some(u), Some(l)) if !u.is_empty() && !l.is_empty() => {
+            let frag = l.trim_start_matches('#');
+            if u.contains('#') { Some(u) } else { Some(format!("{u}#{frag}")) }
+        }
+        (Some(u), _) if !u.is_empty() => Some(u),
+        (None, Some(l)) if !l.is_empty() => {
+            let frag = l.trim_start_matches('#');
+            Some(format!("#{frag}"))
+        }
+        _ => None,
+    }
 }
 
 /// Parse RTF bytes into the flow model.
@@ -3645,5 +3699,14 @@ mod tests {
     #[test]
     fn escapes() {
         assert_eq!(esc("a{b}\\c\té😀"), "a\\{b\\}\\\\c\\tab \\u233?\\u-10179?\\u-8704?");
+    }
+
+    #[test]
+    fn hyperlink_field_targets() {
+        assert_eq!(hyperlink(r#"HYPERLINK "http://example.com" \l "heading""#), Some("http://example.com#heading".into()));
+        assert_eq!(hyperlink(r#"HYPERLINK \l "heading""#), Some("#heading".into()));
+        assert_eq!(hyperlink(r#"Hyperlink "http://example.com""#), Some("http://example.com".into()));
+        assert_eq!(hyperlink(r#"HYPERLINK "http://example.com/path\latest""#), Some("http://example.com/path\\latest".into()));
+        assert_eq!(hyperlink(r#"HYPERLINK "http://example.com" \o "Help text""#), Some("http://example.com".into()));
     }
 }
