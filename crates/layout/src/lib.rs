@@ -2913,7 +2913,8 @@ fn floating(o: &InlineObject) -> Option<(f32, f32, &Float)> {
 /// frame (table cells, text boxes, notes) positions relative to the page or margins fall back
 /// to the box itself.
 fn float_rect(frame: Option<PageFrame>, col: (f32, f32), y0: f32, w: f32, h: f32, float: &Float) -> Rect {
-    let (w, h) = (w.clamp(1.0, 4000.0), h.clamp(1.0, 4000.0));
+    // Thinner than a point stays thin (a 0.25 pt rule, a flat line): Word keeps the size.
+    let (w, h) = (wordcraft_geom::finite(w).clamp(0.0, 4000.0), wordcraft_geom::finite(h).clamp(0.0, 4000.0));
     // Each axis: the reference area's start and extent, in page coordinates. Across, as laid out
     // before an even page is mirrored (less the shift it then gets).
     let page_x = |f: &PageFrame| {
