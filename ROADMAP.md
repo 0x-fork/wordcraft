@@ -188,6 +188,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-16 | Equations from Word files keep all their content (#1273): math straight in the body or a table cell, math behind `mc:AlternateContent Requires="m"`, runs inside hyperlinks, simple fields and markup-compatibility blocks within an equation, and `w:sym`/Symbol-font characters in math; operators, delimiters and accents the math font lacks come from a fallback font. Every ECMA-376 §22.1 element is pinned by a coverage test. |
 | 2026-10-16 | Captions and title pages (#1230): Insert Caption… on the right-click menu of pictures, shapes, text boxes and charts, the caption going under (or over) the object in its own cell or text box; Page Setup's Different First Page and Different Odd & Even Pages check boxes, so a title page can go without its page number |
 | 2026-10-17 | SECTIONPAGES includes shared continuous-section pages. A native original control confirms a section starting on page 1 and continuing on page 2 reports 2. |
+| 2026-10-17 | File › Print's Scale to paper size (#2108): pick Letter, Legal, A4 or any Layout › Size paper and every page is scaled to it and centred, the paper turned to each page's orientation, in the preview, the print job (with the spooler's media) and Save these pages as PDF; the document keeps its page size. `paper` param on `ui.print`/`file.printPdf` |
 |---|---|
 | 2026-10-16 | Save Changes gives assistive technology a named alert dialog with the loss warning and any save failure; visual layout and save policy unchanged (#1015). Native screen-reader verification remains pending. |
 | 2026-10-15 | The font family caches are bounded (4096 families for text, 1024 for math, names over 256 bytes aren't remembered), so a document naming thousands of missing fonts can't grow memory; equation fonts are looked up again after a font is added or removed instead of keeping the old choice (#1354) |
@@ -561,6 +562,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-16 | trivial | Progress log: Insert Caption… on objects and Page Setup header and footer options (#1230) |
 | 2026-10-17 | trivial | SECTIONPAGES includes shared continuous-section pages in body and header/footer fields |
 | 2026-10-17 | trivial | Footer page tables no longer inflate footer text height; body lines wrap at their physical bounds |
+| 2026-10-17 | minor | Progress log: Scale to paper size on File › Print, #2108 |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
