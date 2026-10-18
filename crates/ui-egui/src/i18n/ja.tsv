@@ -2267,3 +2267,11 @@
 	{added}; {count} couldn't be read: {names}	{added}。読み込めなかったもの {count} 件: {names}
 	{names} and {n} more	{names} ほか {n} 件
 	{added}; {n} skipped (limit {max})	{added}。{n} 件をスキップしました (上限 {max})
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	本文内に表示
+	In margin	余白に表示
+	Drop Cap Options…	ドロップ キャップのオプション…
+	Lines to drop:	ドロップする行数:
+	Distance from text:	本文からの距離:
+	Distance from text	本文からの距離

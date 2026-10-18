@@ -2633,3 +2633,11 @@ preview	Title	Título
 	{added}; {count} couldn't be read: {names}	{added}; no se pudieron leer {count}: {names}
 	{names} and {n} more	{names} y {n} más
 	{added}; {n} skipped (limit {max})	{added}; {n} omitidas (límite {max})
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	En texto
+	In margin	En margen
+	Drop Cap Options…	Opciones de letra capital…
+	Lines to drop:	Líneas que ocupa:
+	Distance from text:	Distancia del texto:
+	Distance from text	Distancia del texto

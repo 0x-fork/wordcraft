@@ -2670,3 +2670,15 @@ preview	Title	Örnek
 	text boxes can't go inside a text box	metin kutuları bir metin kutusunun içine konamaz
 	the cursor isn't in a table	imleç bir tabloda değil
 	{name} options	{name} seçenekleri
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Metin içinde
+	In margin	Kenar boşluğunda
+	Drop Cap Options…	Büyük başlangıç harfi seçenekleri…
+	Lines to drop:	Kaplayacağı satır:
+	Distance from text:	Metinden uzaklık:
+	Distance from text	Metinden uzaklık
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	paragraf boş
+	the paragraph starts with a space	paragraf boşlukla başlıyor

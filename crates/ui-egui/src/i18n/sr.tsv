@@ -2281,3 +2281,11 @@
 	{added}; {count} couldn't be read: {names}	{added}; није могуће прочитати ({count}): {names}
 	{names} and {n} more	{names} и још {n}
 	{added}; {n} skipped (limit {max})	{added}; прескочено: {n} (ограничење {max})
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	У тексту
+	In margin	На маргини
+	Drop Cap Options…	Опције украсног слова…
+	Lines to drop:	Број редова:
+	Distance from text:	Растојање од текста:
+	Distance from text	Растојање од текста

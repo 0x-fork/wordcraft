@@ -2301,3 +2301,11 @@
 	{added}; {count} couldn't be read: {names}	{added}; {count} ei õnnestunud lugeda: {names}
 	{names} and {n} more	{names} ja veel {n}
 	{added}; {n} skipped (limit {max})	{added}; {n} jäeti vahele (piir {max})
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Tekstis
+	In margin	Veerisel
+	Drop Cap Options…	Süvisinitsiaali suvandid…
+	Lines to drop:	Ridade arv:
+	Distance from text:	Kaugus tekstist:
+	Distance from text	Kaugus tekstist

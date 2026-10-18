@@ -2669,3 +2669,15 @@
 	text boxes can't go inside a text box	szövegdoboz nem kerülhet szövegdobozba
 	the cursor isn't in a table	a kurzor nem táblázatban van
 	{name} options	{name} beállításai
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Süllyesztett
+	In margin	Margón
+	Drop Cap Options…	Iniciálé beállításai…
+	Lines to drop:	Sorok száma:
+	Distance from text:	Távolság a szövegtől:
+	Distance from text	Távolság a szövegtől
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	a bekezdés üres
+	the paragraph starts with a space	a bekezdés szóközzel kezdődik

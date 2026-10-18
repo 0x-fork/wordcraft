@@ -2662,3 +2662,15 @@
 	text boxes can't go inside a text box	текстови полета не могат да са в текстово поле
 	the cursor isn't in a table	курсорът не е в таблица
 	{name} options	{name}: опции
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Вградена
+	In margin	В полето
+	Drop Cap Options…	Опции за главна буква…
+	Lines to drop:	Редове на буквата:
+	Distance from text:	Разстояние от текста:
+	Distance from text	Разстояние от текста
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	абзацът е празен
+	the paragraph starts with a space	абзацът започва с интервал

@@ -2279,3 +2279,11 @@
 	{added}; {count} couldn't be read: {names}	{added}；{count} 个无法读取：{names}
 	{names} and {n} more	{names} 等另外 {n} 个
 	{added}; {n} skipped (limit {max})	{added}；已跳过 {n} 个（上限 {max}）
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	下沉
+	In margin	悬挂
+	Drop Cap Options…	首字下沉选项…
+	Lines to drop:	下沉行数：
+	Distance from text:	距正文：
+	Distance from text	距正文

@@ -2279,3 +2279,11 @@
 	{added}; {count} couldn't be read: {names}	{added}; не вдалося прочитати ({count}): {names}
 	{names} and {n} more	{names} та ще {n}
 	{added}; {n} skipped (limit {max})	{added}; пропущено: {n} (ліміт {max})
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	У тексті
+	In margin	На полі
+	Drop Cap Options…	Параметри буквиці…
+	Lines to drop:	Висота в рядках:
+	Distance from text:	Відстань від тексту:
+	Distance from text	Відстань від тексту

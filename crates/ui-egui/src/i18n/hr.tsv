@@ -2673,3 +2673,15 @@ preview	Title	Naslov
 	text boxes can't go inside a text box	tekstni okviri ne mogu biti unutar tekstnog okvira
 	the cursor isn't in a table	kursor nije u tablici
 	{name} options	Mogućnosti: {name}
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	U tekstu
+	In margin	Na margini
+	Drop Cap Options…	Mogućnosti inicijala…
+	Lines to drop:	Broj redaka:
+	Distance from text:	Udaljenost od teksta:
+	Distance from text	Udaljenost od teksta
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	odlomak je prazan
+	the paragraph starts with a space	odlomak počinje razmakom

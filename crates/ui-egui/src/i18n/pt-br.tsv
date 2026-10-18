@@ -2279,3 +2279,11 @@
 	{added}; {count} couldn't be read: {names}	{added}; {count} não puderam ser lidas: {names}
 	{names} and {n} more	{names} e mais {n}
 	{added}; {n} skipped (limit {max})	{added}; {n} ignoradas (limite de {max})
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	No texto
+	In margin	Na margem
+	Drop Cap Options…	Opções de capitular…
+	Lines to drop:	Linhas ocupadas:
+	Distance from text:	Distância do texto:
+	Distance from text	Distância do texto

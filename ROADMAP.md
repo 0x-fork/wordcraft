@@ -178,6 +178,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-16 | Footnote and endnote editing keeps the body and active note text at normal opacity (#2545), without changing document colours or print/PDF output. |
 | 2026-10-16 | A picture watermark in a header that starts with a table is drawn centred on the page behind the body text, on every page, instead of in the header's cell at the top of the page (#1775); `layoutInCell="0"` and VML `o:allowincell="f"` survive save and reopen |
 | 2026-10-17 | Ribbon hover hints: a disabled control says why (the command's own reason), split-button arrows, menu buttons and the font, size and outline boxes have hints, and hints show on keyboard focus (#1086). |
+| 2026-10-17 | Insert › Drop Cap is a menu (None, Dropped, In margin, Drop Cap Options…); the dialog sets position, font, lines to drop and distance; letters in the margin; DOCX keeps them (#2601). |
 |---|---|
 | 2026-10-16 | Save Changes gives assistive technology a named alert dialog with the loss warning and any save failure; visual layout and save policy unchanged (#1015). Native screen-reader verification remains pending. |
 | 2026-10-15 | The font family caches are bounded (4096 families for text, 1024 for math, names over 256 bytes aren't remembered), so a document naming thousands of missing fonts can't grow memory; equation fonts are looked up again after a font is added or removed instead of keeping the old choice (#1354) |
@@ -541,6 +542,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-15 | trivial | Progress log: the word being typed gets no squiggle until the caret leaves it (#1552) |
 | 2026-10-15 | trivial | Progress log: Highlight No Color sticks to the button (#2105) |
 | 2026-10-16 | trivial | Body and active note text keep normal opacity while editing footnotes or endnotes (#2545); header/footer dimming is unchanged |
+| 2026-10-17 | minor | Progress log: Drop Cap Options (#2601) |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |

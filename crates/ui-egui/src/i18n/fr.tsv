@@ -2679,3 +2679,11 @@
 	✓ None	✓ Aucun
 preview	Title	Titre
 template	Letter	Lettre
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Dans le texte
+	In margin	Dans la marge
+	Drop Cap Options…	Options de lettrine…
+	Lines to drop:	Hauteur (lignes) :
+	Distance from text:	Distance du texte :
+	Distance from text	Distance du texte

@@ -2682,3 +2682,15 @@ preview	Title	Esempio
 	text boxes can't go inside a text box	le caselle di testo non possono stare in una casella di testo
 	the cursor isn't in a table	il cursore non è in una tabella
 	{name} options	Opzioni di {name}
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Nel testo
+	In margin	Nel margine
+	Drop Cap Options…	Opzioni capolettera…
+	Lines to drop:	Altezza in righe:
+	Distance from text:	Distanza dal testo:
+	Distance from text	Distanza dal testo
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	il paragrafo è vuoto
+	the paragraph starts with a space	il paragrafo inizia con uno spazio

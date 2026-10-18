@@ -2665,3 +2665,15 @@ preview	Title	Ukázka
 	text boxes can't go inside a text box	textové pole nelze vložit do textového pole
 	the cursor isn't in a table	kurzor není v tabulce
 	{name} options	Možnosti: {name}
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Zapuštěná
+	In margin	Na okraji
+	Drop Cap Options…	Možnosti iniciály…
+	Lines to drop:	Výška v řádcích:
+	Distance from text:	Vzdálenost od textu:
+	Distance from text	Vzdálenost od textu
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	odstavec je prázdný
+	the paragraph starts with a space	odstavec začíná mezerou

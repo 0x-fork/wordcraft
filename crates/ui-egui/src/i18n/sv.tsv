@@ -2688,3 +2688,15 @@ preview	Title	Titel
 	text boxes can't go inside a text box	textrutor kan inte placeras i en textruta
 	the cursor isn't in a table	markören är inte i en tabell
 	{name} options	Alternativ för {name}
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	I texten
+	In margin	I marginalen
+	Drop Cap Options…	Alternativ för anfang…
+	Lines to drop:	Antal rader:
+	Distance from text:	Avstånd från text:
+	Distance from text	Avstånd från text
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	stycket är tomt
+	the paragraph starts with a space	stycket börjar med ett blanksteg
