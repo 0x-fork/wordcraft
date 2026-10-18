@@ -198,6 +198,35 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context, selection: Rect, viewport: R
     });
 }
 
+/// A text context menu offers formatting at a caret too. Object and equation menus keep their
+/// own controls; the standalone selection toolbar remains hidden while this popup is open.
+pub fn context_menu_visible(app: &WordApp) -> bool {
+    app.ui.mini_toolbar
+        && !app.session.view.read_mode
+        && app.session.math.is_none()
+        && app.session.cell_range().is_none()
+        && !crate::ribbon::has_picture_selected(&app.session)
+        && wordcraft_engine::cmd::objects::object_selection(&app.session).is_none()
+}
+
+/// The existing two-row toolbar in the context menu's popup, above its command panel. Sharing
+/// the popup lets its font/size/colour lists stay open without dismissing the parent menu.
+pub fn show_in_context_menu(app: &mut WordApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    egui::Frame::popup(ui.style()).inner_margin(egui::Margin::symmetric(4, 3)).show(ui, |ui| {
+        ui.push_id("context_mini_toolbar", |ui| {
+            // Menu styling removes input borders; use the same controls as the standalone bar.
+            ui.set_style(ui.ctx().global_style());
+            ui.set_width(ROW2_W);
+            ui.spacing_mut().item_spacing = Vec2::new(SPACING, ROW_GAP);
+            content(app, ui, &t);
+            if app.dialog.is_some() || app.colors.is_some() {
+                ui.close();
+            }
+        });
+    });
+}
+
 /// The controls in two rows like Word's mini toolbar, reusing the ribbon's widgets so the bar
 /// matches the ribbon exactly.
 fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
@@ -508,6 +537,142 @@ mod tests {
 
     fn format_state(h: &mut egui_kittest::Harness<'static, WordApp>) -> Value {
         h.state_mut().session.run("format.state", &json!({})).unwrap()
+    }
+
+    /// #2959: formatting must be available alongside the text's right-click menu, using the
+    /// selection that was clicked. Its lists must remain usable inside the context popup.
+    #[test]
+    fn context_menu_toolbar_formats_the_selection_and_opens_its_size_list() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut h = bar_over("brown fox");
+        let selection = h.state().session.sel.clone();
+        let caret = h.state_mut().session.layout().caret(&wordcraft_doc::Pos::body(0, 12)).unwrap();
+        let at = crate::canvas::page_to_screen(h.state_mut(), caret.page, caret.x, caret.top + caret.height / 2.0).unwrap();
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        steps(&mut h);
+        assert!(h.state().canvas.context_menu_open);
+        assert_eq!(h.state().session.sel, selection, "right-click inside the selection keeps it");
+        assert!(bar_layer(&h).is_none(), "the standalone selection toolbar must not double up");
+        let viewport = h.state().canvas.viewport.unwrap();
+        let bold = h.get_all_by_label("Bold").map(|n| n.rect()).find(|r| viewport.contains_rect(*r)).expect("the context menu has Bold");
+        click_at(&mut h, bold.center());
+        assert_eq!(format_state(&mut h).get("bold"), Some(&json!(true)));
+        assert_eq!(h.state().session.sel, selection);
+        assert!(h.state().canvas.context_menu_open, "formatting keeps the context toolbar available");
+
+        let size_box = h
+            .get_all_by_role(Role::TextInput)
+            .map(|n| n.rect())
+            .filter(|r| viewport.contains_rect(*r))
+            .max_by(|a, b| a.min.x.total_cmp(&b.min.x))
+            .expect("the context toolbar has a size box");
+        click_at(&mut h, pos2(size_box.max.x + 8.0, size_box.center().y));
+        let twenty = h.get_by_label("20").rect().center();
+        click_at(&mut h, twenty);
+        assert_eq!(format_state(&mut h).get("size").and_then(Value::as_f64), Some(20.0));
+        assert_eq!(h.state().session.sel, selection);
+        assert!(h.state().canvas.context_menu_open, "picking a font size keeps the parent menu available");
+        click_at(&mut h, pos2(size_box.max.x + 8.0, size_box.center().y));
+        assert!(egui::Popup::is_any_open(&h.ctx), "the child list is open");
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+        steps(&mut h);
+        assert!(!egui::Popup::is_any_open(&h.ctx), "Escape closes the child list");
+        assert!(h.state().canvas.context_menu_open, "the parent toolbar remains after dismissing its list");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_ne!(format_state(&mut h).get("size").and_then(Value::as_f64), Some(20.0), "size is one undo step");
+        assert_eq!(format_state(&mut h).get("bold"), Some(&json!(true)), "the earlier Bold is a separate undo step");
+        let copy = h.query_all_by_label_contains("Copy").map(|n| n.rect()).find(|r| viewport.contains_rect(*r)).expect("the menu has Copy");
+        click_at(&mut h, copy.center());
+        assert!(!h.state().canvas.context_menu_open, "ordinary menu commands still close the popup");
+    }
+
+    #[test]
+    fn context_menu_toolbar_opens_at_a_caret_from_the_keyboard_and_dismisses() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = bar_over("brown fox");
+        h.state_mut().run("caret.docEnd", json!({})).unwrap();
+        steps(&mut h);
+        let caret = h.state().session.sel.clone();
+        h.event(egui::Event::Key { key: egui::Key::F10, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::SHIFT });
+        steps(&mut h);
+        let viewport = h.state().canvas.viewport.unwrap();
+        assert!(h.state().canvas.context_menu_open);
+        let bold =
+            h.get_all_by_label("Bold").map(|n| n.rect()).find(|r| viewport.contains_rect(*r)).expect("the keyboard menu has Bold at a caret too");
+        click_at(&mut h, bold.center());
+        assert_eq!(format_state(&mut h).get("bold"), Some(&json!(true)));
+        assert_eq!(h.state().session.sel, caret);
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+        steps(&mut h);
+        assert!(!h.state().canvas.context_menu_open);
+        h.event(egui::Event::Text(" typed".into()));
+        steps(&mut h);
+        assert!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).ends_with(" typed"), "typing resumes in the document");
+
+        h.state_mut().run("ui.contextMenu", json!({})).unwrap();
+        steps(&mut h);
+        assert!(h.state().canvas.context_menu_open);
+        click_at(&mut h, viewport.right_bottom() - Vec2::splat(10.0));
+        assert!(!h.state().canvas.context_menu_open, "an outside click dismisses both panels");
+    }
+
+    #[test]
+    fn context_menu_toolbar_fits_near_the_bottom_right_of_a_narrow_window() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = bar_over("brown fox");
+        h.set_size(Vec2::new(380.0, 650.0));
+        steps(&mut h);
+        h.state_mut().run("ui.contextMenu", json!({})).unwrap();
+        steps(&mut h);
+        h.state_mut().canvas.context_menu_at = Some(pos2(370.0, 640.0));
+        steps(&mut h);
+        let screen = h.ctx.content_rect();
+        let bold = h.get_all_by_label("Bold").map(|n| n.rect()).find(|r| r.min.y > 200.0).expect("the context toolbar is shown");
+        assert!(screen.contains_rect(bold), "the toolbar stays inside the window: {bold:?} in {screen:?}");
+        let copy = h.query_all_by_label_contains("Copy").map(|n| n.rect()).find(|r| r.min.y > 200.0).expect("the menu has Copy");
+        assert!(screen.contains_rect(copy), "the menu stays inside the window: {copy:?} in {screen:?}");
+        let align = h.get_all_by_label("Justify").map(|n| n.rect()).find(|r| r.min.y > 200.0).expect("the last toolbar control is shown");
+        assert!(screen.contains_rect(align), "all controls fit: {align:?} in {screen:?}");
+    }
+
+    #[test]
+    fn context_menu_toolbar_respects_read_mode_and_the_toolbar_preference() {
+        use egui_kittest::kittest::Queryable;
+        for read_mode in [false, true] {
+            let mut h = bar_over("brown fox");
+            h.state_mut().session.view.read_mode = read_mode;
+            h.state_mut().ui.mini_toolbar = read_mode;
+            h.state_mut().run("ui.contextMenu", json!({})).unwrap();
+            steps(&mut h);
+            assert!(h.state().canvas.context_menu_open, "the text menu remains available");
+            let top = h.state().canvas.viewport.unwrap().top();
+            assert!(h.query_all_by_label("Bold").all(|n| n.rect().min.y < top), "the context toolbar is suppressed, read_mode={read_mode}");
+            assert!(h.query_all_by_label_contains("Copy").any(|n| n.rect().min.y > top), "the menu still offers Copy");
+        }
+    }
+
+    #[test]
+    fn escape_in_a_ribbon_list_does_not_open_the_context_menu() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut h = bar_over("brown fox");
+        let size = h
+            .get_all_by_role(Role::TextInput)
+            .filter(|n| n.value().as_deref() == Some("12"))
+            .map(|n| n.rect())
+            .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+            .expect("the ribbon has a size field");
+        click_at(&mut h, pos2(size.max.x + 8.0, size.center().y));
+        assert!(egui::Popup::is_any_open(&h.ctx));
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+        steps(&mut h);
+        assert!(!egui::Popup::is_any_open(&h.ctx));
+        assert!(!h.state().canvas.context_menu_open, "dismissing another popup must not open the text context menu");
     }
 
     /// The bar was drawn on the Tooltip layer, over every drop-down: the ribbon's font size list
