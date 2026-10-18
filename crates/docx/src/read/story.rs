@@ -1637,6 +1637,52 @@ impl Reader<'_> {
             }
             _ => None,
         };
+        // Word 2007 WordArt: a `v:shape` whose `v:textpath` draws its `string` (the header watermark
+        // is taken before this). Shown as a text box holding that text, in the textpath's font and the
+        // shape's `fillcolor`; the box itself has neither fill nor outline, as the letters are the art.
+        if shape.local() == "shape"
+            && let Some(tp) = shape.child("v:textpath")
+            && !tp.attr("on").is_some_and(|v| matches!(v, "f" | "false" | "0"))
+            && let Some(text) = tp.attr("string").map(|t| t.chars().take(200).collect::<String>()).filter(|t| !t.trim().is_empty())
+            && sc.story_depth < MAX_STORY_DEPTH
+        {
+            let font = tp
+                .attr("style")
+                .and_then(|s| vml_style(s, "font-family"))
+                .map(|f| f.trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()).chars().take(100).collect::<String>())
+                .filter(|f| !f.is_empty());
+            // The shapetype's WordArt shape (`o:spt` 136-175) bends the text like DrawingML's warp.
+            let warp = vml_spt(shape, shapetype, type_id)
+                .and_then(|spt| spt.checked_sub(136))
+                .and_then(|i| VML_TEXT_WARPS.get(i as usize))
+                .copied()
+                .and_then(TextWarp::new);
+            // The letters fill the box (`fitshape`): sized to its height.
+            let props = CharProps {
+                font,
+                size: Some((h * 0.75).clamp(8.0, 200.0)),
+                color: attr("fillcolor").and_then(vml_color).map(TextColor::Rgb),
+                ..CharProps::default()
+            };
+            let id = self.doc.add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, props))]);
+            if let Some(part) = self.doc.parts.get_mut(&id) {
+                part.body.anchor = wordcraft_doc::props::VAlign::Center;
+                part.body.inset = Some([0; 4]);
+            }
+            return Some(InlineObject::Shape {
+                kind: ShapeKind::TextBox,
+                w,
+                h,
+                fill: None,
+                stroke: None,
+                stroke_width,
+                float,
+                story: Some(id),
+                freeform: None,
+                effects: Default::default(),
+                extra: ShapeExtra { warp, ..ShapeExtra::default() },
+            });
+        }
         if let Some((tb, t)) = vml_textbox(shape, 0)
             && sc.story_depth < MAX_STORY_DEPTH
         {
@@ -1977,6 +2023,51 @@ fn wrap_polygon(e: &El) -> Option<wordcraft_doc::wrap::WrapPolygon> {
     }
     wordcraft_doc::wrap::WrapPolygon::new(edited, pts)
 }
+
+/// The DrawingML text warps of VML's WordArt shapes, `o:spt` 136 (plain text) to 175 (can down), in
+/// order: the same shapes under their DrawingML names (`ST_TextShapeType`).
+const VML_TEXT_WARPS: [&str; 40] = [
+    "textPlain",
+    "textStop",
+    "textTriangle",
+    "textTriangleInverted",
+    "textChevron",
+    "textChevronInverted",
+    "textRingInside",
+    "textRingOutside",
+    "textArchUp",
+    "textArchDown",
+    "textCircle",
+    "textButton",
+    "textArchUpPour",
+    "textArchDownPour",
+    "textCirclePour",
+    "textButtonPour",
+    "textCurveUp",
+    "textCurveDown",
+    "textCascadeUp",
+    "textCascadeDown",
+    "textWave1",
+    "textWave2",
+    "textDoubleWave1",
+    "textWave4",
+    "textInflate",
+    "textDeflate",
+    "textInflateBottom",
+    "textDeflateBottom",
+    "textInflateTop",
+    "textDeflateTop",
+    "textDeflateInflate",
+    "textDeflateInflateDeflate",
+    "textFadeRight",
+    "textFadeLeft",
+    "textFadeUp",
+    "textFadeDown",
+    "textSlantUp",
+    "textSlantDown",
+    "textCanUp",
+    "textCanDown",
+];
 
 /// A VML shape's preset type (`o:spt`): its own, its shapetype's, or the number in Word's
 /// shapetype id `_x0000_tNN` (`type_id`), Word writing each shapetype only at its first use.

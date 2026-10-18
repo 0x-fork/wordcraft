@@ -1122,6 +1122,39 @@ fn vml_textpath_in_header_is_the_watermark() {
     assert_eq!(read(r#"<v:shape id="PowerPlusWaterMarkObject2"><v:textpath string="  "/></v:shape>"#, true).0, None);
 }
 
+/// Issue #2875: Word 2007 WordArt, a body `v:shape` with a `v:textpath`, is shown as a text shape
+/// holding its string in the textpath's font and the shape's colour, bent by the warp of its WordArt
+/// shape, not dropped; a textpath turned off or with an empty string draws nothing.
+#[test]
+fn vml_textpath_in_body_is_shown() {
+    let read = |shape: &str| {
+        let body = format!("<w:p><w:r><w:t>Before</w:t></w:r><w:r><w:pict>{shape}</w:pict></w:r></w:p>");
+        wordcraft_docx::read(&docx(&body, &[], &[])).unwrap()
+    };
+    let art = r##"<v:shape type="#_x0000_t136" style="position:absolute;width:300pt;height:60pt" fillcolor="#336699" stroked="f"><v:textpath style="font-family:&quot;Impact&quot;;font-size:1pt" string="Sale"/></v:shape>"##;
+    let d = read(art);
+    let objs = &paras(&d)[0].objects;
+    assert_eq!(objs.len(), 1);
+    let InlineObject::Shape { story: Some(id), w, h, .. } = &objs[0] else { panic!("not a text shape: {:?}", objs[0]) };
+    assert_eq!((*w, *h), (300.0, 60.0));
+    let p = d.parts.get(id).unwrap().blocks[0].as_para().unwrap();
+    assert_eq!(p.text, "Sale");
+    assert_eq!(p.runs[0].props.font.as_deref(), Some("Impact"));
+    assert_eq!(p.runs[0].props.color, Some(TextColor::Rgb(Rgb(0x33, 0x66, 0x99))));
+
+    // Its WordArt shape bends the text: shapetype 144 (Arch Up) is DrawingML's `textArchUp`.
+    let warp = |shape: &str| match &paras(&read(shape))[0].objects[..] {
+        [InlineObject::Shape { extra, .. }] => extra.warp.as_ref().map(|w| w.preset.clone()),
+        other => panic!("not one shape: {other:?}"),
+    };
+    assert_eq!(warp(&art.replace("_x0000_t136", "_x0000_t144")).as_deref(), Some("textArchUp"));
+    assert_eq!(warp(&art.replace("_x0000_t136", "_x0000_t175")).as_deref(), Some("textCanDown"));
+    assert_eq!(warp(art).as_deref(), Some("textPlain"));
+
+    assert!(paras(&read(&art.replace("<v:textpath ", r#"<v:textpath on="f" "#)))[0].objects.is_empty());
+    assert!(paras(&read(&art.replace(r#"string="Sale""#, r#"string=" ""#)))[0].objects.is_empty());
+}
+
 /// Issue #1290: a file with Word's watermark keeps it through save and reopen: the same
 /// watermark, the same headers with the same text and paragraphs, one shape per header written;
 /// header WordArt that isn't a watermark doesn't become one on the way.
