@@ -150,6 +150,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-15 | Image size limits are checked before allocating (#1321): a picture whose header declares more RGBA bytes than the 512 MiB budget is refused before decoding (render and PDF share one helper in `wordcraft-geom`), and page rasters are capped at 100 million pixels in total, scaled down rather than only per side. |
 | 2026-10-15 | Saved DOCX files keep the order of mixed right-to-left and left-to-right text in Word: Hebrew around a Latin name, numbers, brackets or an e-mail address no longer changes places, and Word reports the Hebrew as Hebrew rather than Arabic (#1543). |
 | 2026-10-15 | Web: typing in Cyrillic or another non-Latin script no longer repeats text. WordCraft now honours the input method's request to erase around the caret before retyping (#1480). Chrome can still move the hidden text field's caret, so later letters may still land out of order. That cause is still open |
+| 2026-10-15 | Equations: typing `V_dd` or `x^ab` and pressing Space keeps `dd` and `ab` whole in the subscript or superscript, like `V_(dd)`, as Word for Mac does; Linear format shows the bare form |
 |---|---|
 | 2026-10-15 | The font family caches are bounded (4096 families for text, 1024 for math, names over 256 bytes aren't remembered), so a document naming thousands of missing fonts can't grow memory; equation fonts are looked up again after a font is added or removed instead of keeping the old choice (#1354) |
 | 2026-10-15 | AutoCorrect recognizes `-->` as `→` (#2223), respecting replacement settings and undo without changing paragraph-start arrow bullets. |
@@ -483,6 +484,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-16 | trivial | Progress log: Hebrew field results and smart quotes (#1670) |
 | 2026-10-16 | trivial | Progress log: Ctrl+wheel zoom no longer scrolls the document (#1743) |
 | 2026-10-16 | trivial | Hint-reliant CJK fonts execute TrueType contour assembly; Windows DFKai-SB no longer loses strokes. Synthetic local-font regression; no font binaries bundled. |
+| 2026-10-15 | trivial | Progress log: multi-letter equation scripts (#1609) |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
