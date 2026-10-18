@@ -417,6 +417,9 @@ pub struct ParaEnv<'a> {
     pub table: Option<&'a CellText>,
     /// Check spelling (and grammar, as the options say) for squiggles; `None` = no squiggles.
     pub proofing: Option<crate::ProofOptions>,
+    /// The byte range of the word being typed in this paragraph: it gets no spelling squiggle
+    /// until the caret leaves it ([`crate::LayoutOptions::typing_word`]).
+    pub typing_word: Option<(usize, usize)>,
     /// How digits look on screen (an unresolved `System` shows Western digits).
     pub numeral: NumeralMode,
     /// Areas text must flow around (floating objects), relative to the paragraph: x from the
@@ -1783,7 +1786,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         text_len: p.text.len(),
         has_page_fields,
         notes,
-        issues: env.proofing.map(|o| proof_issues(p, &runs, &o, is_list_item(doc, p))).unwrap_or_default(),
+        issues: env.proofing.map(|o| proof_issues(p, &runs, &o, env.typing_word, is_list_item(doc, p))).unwrap_or_default(),
         drop_cap,
         hyph_after: Vec::new(),
         bidi_levels: b.levels,
@@ -2983,11 +2986,18 @@ pub fn is_list_item(doc: &Document, p: &Paragraph) -> bool {
     p.props.numbering.or_else(|| doc.styles.resolve_para(&p.props).numbering).is_some_and(|n| n.num != 0)
 }
 
-/// Spelling and grammar issues in a paragraph as squiggles: (start, end, is grammar).
-fn proof_issues(p: &Paragraph, runs: &[ProofRun], opts: &crate::ProofOptions, list_item: bool) -> Vec<(usize, usize, bool)> {
+/// Spelling and grammar issues as squiggles (start, end, is grammar), less spelling issues overlapping `typing`.
+fn proof_issues(
+    p: &Paragraph,
+    runs: &[ProofRun],
+    opts: &crate::ProofOptions,
+    typing: Option<(usize, usize)>,
+    list_item: bool,
+) -> Vec<(usize, usize, bool)> {
     paragraph_issues(p, runs, &opts.spelling, opts.grammar, list_item)
         .into_iter()
         .map(|i| (i.start, i.end, i.kind == wordcraft_proof::IssueKind::Grammar))
+        .filter(|&(a, b, grammar)| grammar || !typing.is_some_and(|(s, e)| a < e && s < b))
         .collect()
 }
 
@@ -3029,6 +3039,7 @@ mod label_spacing_tests {
             hide_deleted: Default::default(),
             table: None,
             proofing: None,
+            typing_word: None,
             field_codes: false,
             grid: Grid::default(),
             exclusions: &[],

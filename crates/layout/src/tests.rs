@@ -8373,3 +8373,46 @@ fn ink_member_of_a_group_draws_its_fallback_picture() {
     assert!((r.x - (frame.x + 20.0)).abs() < 0.01 && (r.y - (frame.y + 30.0)).abs() < 0.01, "{r:?} in {frame:?}");
     assert!((r.w - 60.0).abs() < 0.01 && (r.h - 30.0).abs() < 0.01, "{r:?}");
 }
+
+/// The word being typed gets no spelling squiggle until the caret leaves it (#1552): only in the
+/// paragraph with that revision, only spelling, and a change to it lays that one paragraph out
+/// again without clearing the cache.
+#[test]
+fn the_word_being_typed_has_no_spelling_squiggle() {
+    let d = Document::from_text("helo wrld\nfine text here");
+    let rev = d.para(StoryRef::Body, &Path::top(0)).unwrap().rev;
+    let marks = |l: &DocLayout, grammar: bool| -> Vec<String> {
+        l.pages[0]
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Placed::Lines { para, path, .. } if *path == Path::top(0) => {
+                    Some(para.issues.iter().filter(|i| i.2 == grammar).map(|i| "helo wrld"[i.0..i.1].to_string()).collect::<Vec<_>>())
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+    let mut c = LayoutCache::new();
+    let opts = LayoutOptions { proofing: true, ..LayoutOptions::default() };
+    let both = layout(&d, &mut c, &opts);
+    assert_eq!(marks(&both, false), ["helo", "wrld"]);
+    let misses = c.misses;
+    // "wrld" is being typed: only "helo" is marked; grammar is as before.
+    let typing = layout(&d, &mut c, &LayoutOptions { typing_word: Some(TypingWord { rev, start: 5, end: 9 }), ..opts.clone() });
+    assert_eq!(marks(&typing, false), ["helo"]);
+    assert_eq!(marks(&typing, true), marks(&both, true));
+    assert_eq!(c.misses, misses + 1, "only the paragraph with the word is laid out again");
+    // A range overlapping the word counts too (the checker's word may be longer than the caret's).
+    let typing = layout(&d, &mut c, &LayoutOptions { typing_word: Some(TypingWord { rev, start: 7, end: 9 }), ..opts.clone() });
+    assert_eq!(marks(&typing, false), ["helo"]);
+    // A different paragraph revision leaves everything marked.
+    let other = layout(&d, &mut c, &LayoutOptions { typing_word: Some(TypingWord { rev: rev.wrapping_add(1), start: 5, end: 9 }), ..opts.clone() });
+    assert_eq!(marks(&other, false), ["helo", "wrld"]);
+    // The caret left the word: the layout without the exemption comes back from the cache.
+    let misses = c.misses;
+    let left = layout(&d, &mut c, &opts);
+    assert_eq!(marks(&left, false), ["helo", "wrld"]);
+    assert_eq!(c.misses, misses);
+}
