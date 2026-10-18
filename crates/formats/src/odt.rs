@@ -206,6 +206,10 @@ impl Writer {
         if let Some(n) = start.and_then(|(_, n)| *n) {
             props.push_str(&format!(" style:page-number=\"{n}\""));
         }
+
+        if p.keep_next {
+            props.push_str(" fo:keep-with-next=\"always\"");
+        }
         if p.kind == Kind::Rule {
             props.push_str(" fo:border-bottom=\"0.75pt solid #a0a0a0\" fo:padding-bottom=\"1pt\"");
         }
@@ -1051,6 +1055,8 @@ struct StyleInfo {
     fmt: FmtDelta,
     align: Option<Align>,
     page_break: bool,
+    /// `fo:keep-with-next`: `Some(true)` for "always", `Some(false)` for "auto".
+    keep_next: Option<bool>,
     outline: Option<u8>,
     border_bottom: bool,
     /// `fo:background-color` of a table-cell style's `style:table-cell-properties`.
@@ -1275,6 +1281,11 @@ impl Styles {
                         if get(&a, "fo:break-before") == Some("page") {
                             s.page_break = true;
                         }
+                        match get(&a, "fo:keep-with-next") {
+                            Some("always") => s.keep_next = Some(true),
+                            Some("auto") => s.keep_next = Some(false),
+                            _ => {}
+                        }
                         if let Some(v) = get(&a, "style:page-number") {
                             s.page_number = Some(v.trim().parse::<u32>().ok().map(|n| n.min(32_767)));
                         }
@@ -1377,12 +1388,12 @@ impl Styles {
         self.chain(name).iter().find_map(|(_, s)| s.cell_background)
     }
 
-    /// Paragraph kind, alignment, page break, rule and base formatting. The text formatting of
+    /// Paragraph kind, alignment, page break, rule, keep-with-next and base formatting. The text formatting of
     /// every style in the chain applies (automatic and common, ODF 1.3 §16.2 inheritance), except
     /// the style that gives the paragraph its kind and that style's ancestors: their formatting
     /// is the kind's own look (a heading's size and colour), not direct formatting. `Standard`,
     /// the default paragraph style, holds document defaults and is left out too.
-    fn para(&self, name: &str) -> (Kind, Option<Align>, bool, bool, Fmt) {
+    fn para(&self, name: &str) -> (Kind, Option<Align>, bool, bool, bool, Fmt) {
         let chain = self.chain(name);
         let mut kind = Kind::Normal;
         let mut kind_at = chain.len();
@@ -1417,7 +1428,9 @@ impl Styles {
         for (_, s) in chain.iter().take(kind_at).rev().filter(|(n, s)| s.auto || *n != "Standard") {
             s.fmt.apply(&mut f);
         }
-        (kind, align, pb, rule, f)
+        // Like the text formatting, the kind style's own `fo:keep-with-next` (a heading's) is the kind's look, not direct formatting.
+        let keep_next = chain.iter().take(kind_at).find_map(|(_, s)| s.keep_next).unwrap_or(false);
+        (kind, align, pb, rule, keep_next, f)
     }
 }
 
@@ -1576,7 +1589,8 @@ impl Body<'_> {
 
     fn start_para(&mut self, style: Option<&str>, heading: Option<u8>) {
         self.end_para();
-        let (mut kind, align, mut pb, rule, base) = style.map(|s| self.styles.para(s)).unwrap_or((Kind::Normal, None, false, false, Fmt::default()));
+        let (mut kind, align, mut pb, rule, keep_next, base) =
+            style.map(|s| self.styles.para(s)).unwrap_or((Kind::Normal, None, false, false, false, Fmt::default()));
         // The section break starts the new page; no page break besides.
         if let Some(next) = style.and_then(|s| self.page_section(s))
             && self.break_section(next)
@@ -1586,7 +1600,7 @@ impl Body<'_> {
         if let Some(h) = heading {
             kind = Kind::Heading(h.clamp(1, 6));
         }
-        let mut p = Para { kind, align, page_break: pb, ..Default::default() };
+        let mut p = Para { kind, align, page_break: pb, keep_next, ..Default::default() };
         if rule && kind == Kind::Normal {
             p.kind = Kind::Rule;
         }
@@ -3063,6 +3077,23 @@ mod tests {
         assert!(matches!(doc.body.get(3).map(|b| &**b), Some(wordcraft_doc::Block::Table(_))));
         // A one-column page layout keeps the default column gap.
         assert_eq!(secs[0].1.columns, wordcraft_doc::section::Columns::default());
+    }
+
+    #[test]
+    fn keep_with_next_survives_import_and_export() {
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles>
+            <style:style style:name="Keep" style:family="paragraph"><style:paragraph-properties fo:keep-with-next="always"/></style:style>
+            <style:style style:name="Loose" style:family="paragraph" style:parent-style-name="Keep"><style:paragraph-properties fo:keep-with-next="auto"/></style:style>
+            </office:automatic-styles><office:body><office:text>
+            <text:p text:style-name="Keep">Kept</text:p><text:p text:style-name="Loose">Loose</text:p><text:p>Plain</text:p>
+            </office:text></office:body></office:document-content>"#
+        );
+        let doc = import(&package(&content, None)).unwrap();
+        let flags = |d: &Document| d.body.iter().filter_map(|b| b.as_para()).map(|p| p.props.keep_next).collect::<Vec<_>>();
+        assert_eq!(flags(&doc), [Some(true), None, None]);
+        let again = import(&export(&doc).unwrap()).unwrap();
+        assert_eq!(flags(&again), [Some(true), None, None]);
     }
 
     // --- Tracked changes (ODF 1.3 Part 3 §5.5) -------------------------------------------------
