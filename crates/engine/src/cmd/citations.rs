@@ -342,7 +342,7 @@ pub fn specs() -> Vec<CommandSpec> {
             sel_result(s)
         }),
         CommandSpec::new("insert.crossReference", "Cross-reference", "Insert › Links", cross_ref)
-            .params(r#"{"to": "heading|bookmark|figure|table|equation", "target": string (text / name / number), "show"?: "text|page|number|aboveBelow"} or {} to list targets"#),
+            .params(r#"{"to": "heading|bookmark|figure|table|equation|label:<Name> (a caption label of your own)", "target": string (text / name / number), "show"?: "text|page|number|aboveBelow"} or {} to list targets"#),
         CommandSpec::new("references.noteOptions", "Footnote and Endnote", "References › Footnotes", super::references::note_options).params(
             r#"{"kind"?: "footnote|endnote", "pos"?: "pageBottom|beneathText" (footnotes) | "sectEnd|docEnd" (endnotes), "numFmt"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter|…", "numStart"?: 1-32767, "numRestart"?: "continuous|eachSect|eachPage" (each page: footnotes only), "scope"?: "document|section", "footnoteFormat"?: …, "endnoteFormat"?: …} — no settings: the options in effect at the caret"#,
         ),
@@ -995,11 +995,78 @@ fn cross_ref(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"inserted": result}))
 }
 
+/// The label of a caption: the text before its first field (`Plate ` in `Plate `, `SEQ Plate`,
+/// `: A rock`). When the caption starts with its chapter number, the text between that field and
+/// the `SEQ` number, unless it is only a separator. Failing both, the `SEQ` identifier names it.
+/// A caption without a `SEQ` field (typed by hand) has what comes before its first digit.
+fn caption_label(p: &Paragraph, text: &str) -> Option<String> {
+    let fields: Vec<(usize, &str)> = p
+        .object_offsets()
+        .into_iter()
+        .filter_map(|o| match p.object_at(o) {
+            Some(InlineObject::Field { instr, .. }) => Some((o, instr.as_str())),
+            _ => None,
+        })
+        .collect();
+    let seq = fields.iter().position(|(_, instr)| instr.split_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case("SEQ")));
+    let label = match seq.and_then(|i| Some((i, fields.get(i)?))) {
+        Some((i, (seq_at, instr))) => {
+            // The text in `from..to` with the bookmark marks dropped, if it says anything.
+            let said = |from: usize, to: usize| {
+                let t: String = p.text.get(from..to).unwrap_or_default().chars().filter(|c| *c != wordcraft_doc::para::OBJ).collect();
+                let t = t.trim();
+                t.chars().any(char::is_alphanumeric).then(|| t.to_string())
+            };
+            let first = fields.first().map_or(0, |(o, _)| *o);
+            let after_previous =
+                i.checked_sub(1).and_then(|k| fields.get(k)).map_or(0, |(o, _)| o.saturating_add(wordcraft_doc::para::OBJ.len_utf8()));
+            said(0, first).or_else(|| said(after_previous, *seq_at)).or_else(|| instr.split_whitespace().nth(1).map(|id| id.replace('_', " ")))?
+        }
+        None => text.get(..text.find(|c: char| c.is_ascii_digit())?)?.trim().to_string(),
+    };
+    (!label.is_empty() && label.chars().count() <= 40).then_some(label)
+}
+
+/// The caption paragraphs of the body: (text, position, label).
+fn captions(s: &Session) -> Vec<(String, Pos, Option<String>)> {
+    s.doc
+        .para_paths(StoryRef::Body)
+        .into_iter()
+        .filter_map(|path| {
+            let p = s.doc.para(StoryRef::Body, &path).filter(|p| p.props.style.as_deref() == Some("Caption"))?;
+            let text = p.plain_text();
+            let label = caption_label(p, &text);
+            Some((text, Pos { story: StoryRef::Body, path, off: 0 }, label))
+        })
+        .collect()
+}
+
+/// The labels the body's captions use, first seen first: Figure, Table and Equation, and any the
+/// person made with Insert Caption › New Label. Each is a cross-reference type, `label:<Name>` (#2940).
+pub fn caption_labels(s: &Session) -> Vec<String> {
+    let mut labels: Vec<String> = Vec::new();
+    for l in captions(s).into_iter().filter_map(|(_, _, l)| l) {
+        if !labels.contains(&l) {
+            labels.push(l);
+        }
+    }
+    labels
+}
+
 /// Cross-reference targets of a kind: (shown text or bookmark name, position).
 pub fn ref_targets(s: &Session, to: &str) -> Vec<(String, Pos)> {
     let mut targets: Vec<(String, Pos)> = Vec::new();
     match to {
         "bookmark" => targets = s.doc.bookmarks(),
+        // A caption label of the person's own: the captions that use exactly that label.
+        t if t.starts_with("label:") => {
+            let want = t.get("label:".len()..).unwrap_or_default();
+            targets = captions(s)
+                .into_iter()
+                .filter(|(_, _, label)| !want.is_empty() && label.as_deref() == Some(want))
+                .map(|(text, pos, _)| (text, pos))
+                .collect();
+        }
         "figure" | "table" | "equation" => {
             let label = match to {
                 "table" => "Table",
@@ -1192,6 +1259,80 @@ mod tests {
         let (name, _) = s.doc.bookmarks().into_iter().find(|(n, _)| n.starts_with("_Ref")).unwrap();
         assert_eq!(crate::cmd::references::bookmark_text(&s.doc, &name).as_deref(), Some("Figure 1"));
         assert!(fields(&s).contains(&(format!("REF {name} \\h"), "Figure 1".to_string())), "{:?}", fields(&s));
+    }
+
+    /// #2940: a caption with a label of the person's own (Insert Caption › New Label) is a
+    /// cross-reference type of its own, `label:<Name>`, next to Figure, Table and Equation.
+    #[test]
+    fn cross_reference_to_a_custom_caption_label() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Rock\nSee "));
+        s.run("select.text", &json!({"text": "Rock"})).unwrap();
+        s.run("references.caption", &json!({"label": "Plate", "text": "A rock"})).unwrap();
+        assert_eq!(caption_labels(&s), vec!["Plate".to_string()]);
+        let list = s.run("insert.crossReference", &json!({"to": "label:Plate"})).unwrap();
+        assert_eq!(list, json!(["Plate 1: A rock"]));
+        assert!(ref_targets(&s, "label:Figure").is_empty(), "only that label's captions");
+        assert!(ref_targets(&s, "label:").is_empty() && ref_targets(&s, "label:Pla").is_empty(), "the whole label");
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("insert.crossReference", &json!({"to": "label:Plate", "target": "Plate 1", "show": "number"})).unwrap();
+        assert!(s.doc.plain_text(StoryRef::Body).ends_with("See Plate 1"), "{}", s.doc.plain_text(StoryRef::Body));
+        assert!(fields(&s).iter().any(|(i, r)| i.starts_with("REF _Ref") && r == "Plate 1"), "{:?}", fields(&s));
+    }
+
+    /// #2940: the label comes from the caption's structure (the text before its `SEQ` number), so
+    /// letter and roman numbering, which have no digit, still name it; a multi-word label too.
+    #[test]
+    fn caption_labels_do_not_need_a_digit() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Rock\nGem\nSand\nSee "));
+        for (text, label, format) in [("Rock", "Plate", "ALPHABETIC"), ("Gem", "Photo Plate", "ROMAN"), ("Sand", "Chart", "ARABIC")] {
+            s.run("select.text", &json!({"text": text})).unwrap();
+            s.run("references.caption", &json!({"label": label, "text": text, "format": format})).unwrap();
+        }
+        assert_eq!(caption_labels(&s), ["Plate", "Photo Plate", "Chart"]);
+        assert_eq!(ref_targets(&s, "label:Plate").len(), 1);
+        assert_eq!(ref_targets(&s, "label:Photo Plate").len(), 1);
+        assert_eq!(ref_targets(&s, "label:Chart").len(), 1);
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("insert.crossReference", &json!({"to": "label:Photo Plate", "target": "Photo Plate I", "show": "number"})).unwrap();
+        assert!(s.doc.plain_text(StoryRef::Body).ends_with("See Photo Plate I"), "{}", s.doc.plain_text(StoryRef::Body));
+    }
+
+    /// #2940: a caption may start with its chapter number (`STYLEREF`) and carry its label text
+    /// between that and the `SEQ` number; the text is the label, not the `SEQ` identifier.
+    #[test]
+    fn caption_label_after_a_chapter_number_field() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Rock\nSee "));
+        let field = |instr: &str| InlineObject::Field {
+            instr: instr.into(),
+            result: String::new(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        };
+        let plain = CharProps::default();
+        // STYLEREF, " Specimen ", SEQ Figure, ": A rock"
+        let mut imported = Paragraph::new().styled("Caption");
+        imported.insert_object(0, field("STYLEREF 1 \\s"), &plain).unwrap();
+        imported.insert_text(imported.len(), " Specimen ", &plain).unwrap();
+        imported.insert_object(imported.len(), field("SEQ Figure \\* ARABIC"), &plain).unwrap();
+        imported.insert_text(imported.len(), ": A rock", &plain).unwrap();
+        s.doc.insert_block(StoryRef::Body, &Path::top(1), Block::Para(imported)).unwrap();
+        // A generated caption with a chapter number: label, STYLEREF, separator, SEQ.
+        s.run("select.text", &json!({"text": "Rock"})).unwrap();
+        s.run("references.caption", &json!({"label": "Plate", "chapter": 1, "separator": "-"})).unwrap();
+        // No label text at all: the SEQ identifier names it, after the chapter number's separator.
+        let mut bare = Paragraph::new().styled("Caption");
+        bare.insert_object(0, field("STYLEREF 1 \\s"), &plain).unwrap();
+        bare.insert_text(bare.len(), "-", &plain).unwrap();
+        bare.insert_object(bare.len(), field("SEQ Photo_Plate"), &plain).unwrap();
+        let end = s.doc.body.len();
+        s.doc.insert_block(StoryRef::Body, &Path::top(end), Block::Para(bare)).unwrap();
+        let labels = caption_labels(&s);
+        assert!(labels.contains(&"Specimen".to_string()), "{labels:?}");
+        assert!(labels.contains(&"Plate".to_string()), "{labels:?}");
+        assert!(labels.contains(&"Photo Plate".to_string()), "{labels:?}");
+        assert!(!labels.iter().any(|l| l == "-" || l.is_empty() || l == "Figure"), "{labels:?}");
     }
 
     /// #661: References › Table of Authorities › Update Table picks up citations marked after the table.
