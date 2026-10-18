@@ -191,6 +191,7 @@
 	Use the Insert key to switch overtype on and off	Använd Insert-tangenten för att slå på och av överskrivning
 	Whole document	Hela dokumentet
 	This section	Det här avsnittet
+	Selected text	Markerad text
 	Fill	Fyllning
 	Setting:	Inställning:
 	3-D	3D
@@ -2663,3 +2664,5 @@ preview	Title	Titel
 	Other:	Annat:
 	The number must be between 1 and {max}.	Talet måste vara mellan 1 och {max}.
 	The measurement must be between {min} and {max}.	Måttet måste vara mellan {min} och {max}.
+	Recently Used Fonts	Senast använda typsnitt
+	All Fonts	Alla typsnitt

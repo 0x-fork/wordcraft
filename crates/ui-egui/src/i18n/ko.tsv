@@ -176,6 +176,7 @@
 	Use the Insert key to switch overtype on and off	Insert 키를 눌러 겹쳐쓰기 켜기/끄기
 	Whole document	문서 전체
 	This section	이 구역
+	Selected text	선택한 텍스트
 	Fill	채우기
 	Setting:	설정:
 	3-D	3차원
@@ -2504,3 +2505,5 @@ preview	Title	제목
 	Other:	기타:
 	The number must be between 1 and {max}.	숫자는 1에서 {max} 사이여야 합니다.
 	The measurement must be between {min} and {max}.	측정값은 {min}에서 {max} 사이여야 합니다.
+	Recently Used Fonts	최근 사용한 글꼴
+	All Fonts	모든 글꼴

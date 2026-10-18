@@ -198,6 +198,7 @@
 	Use the Insert key to switch overtype on and off	Usar la tecla Insert para activar y desactivar la sobrescritura
 	Whole document	Todo el documento
 	This section	Esta sección
+	Selected text	Texto seleccionado
 	Fill	Relleno de color
 	Setting:	Valor:
 	3-D	3D
@@ -2615,3 +2616,5 @@ preview	Title	Título
 	Other:	Otro:
 	The number must be between 1 and {max}.	El número debe estar entre 1 y {max}.
 	The measurement must be between {min} and {max}.	La medida debe estar entre {min} y {max}.
+	Recently Used Fonts	Fuentes usadas recientemente
+	All Fonts	Todas las fuentes

@@ -1329,6 +1329,7 @@
 	This font has no characters to show.	Ta czcionka nie zawiera znaków do pokazania.
 	This point forward	Od tego miejsca
 	This section	Ta sekcja
+	Selected text	Zaznaczony tekst
 	Title from the document properties	Tytuł z właściwości dokumentu
 	Total	Razem
 	Track Changes Options	Opcje śledzenia zmian
@@ -2638,3 +2639,5 @@ preview	Title	Tytuł
 	Other:	Inny:
 	The number must be between 1 and {max}.	Liczba musi być z zakresu od 1 do {max}.
 	The measurement must be between {min} and {max}.	Miara musi być z zakresu od {min} do {max}.
+	Recently Used Fonts	Ostatnio używane czcionki
+	All Fonts	Wszystkie czcionki

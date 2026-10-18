@@ -1642,6 +1642,7 @@
 	Apply to:	Alkalmazás erre:
 	Whole document	Teljes dokumentum
 	This section	Ez a szakasz
+	Selected text	Kijelölt szöveg
 	Fill	Kitöltés
 	Setting:	Beállítás:
 	3-D	Térhatású
@@ -2644,3 +2645,5 @@
 	Other:	Egyéb:
 	The number must be between 1 and {max}.	A számnak 1 és {max} között kell lennie.
 	The measurement must be between {min} and {max}.	A méretnek {min} és {max} között kell lennie.
+	Recently Used Fonts	Legutóbb használt betűtípusok
+	All Fonts	Összes betűtípus

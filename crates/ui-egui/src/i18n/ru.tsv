@@ -1620,6 +1620,7 @@ preview	Title	Пример
 	Apply to:	Применить к:
 	Whole document	Ко всему документу
 	This section	К этому разделу
+	Selected text	К выделенному тексту
 	Fill	Заливка
 	Setting:	Тип:
 	3-D	Объёмная
@@ -2646,3 +2647,5 @@ preview	Title	Пример
 	Other:	Другой:
 	The number must be between 1 and {max}.	Число должно быть от 1 до {max}.
 	The measurement must be between {min} and {max}.	Размер должен быть от {min} до {max}.
+	Recently Used Fonts	Недавно использованные шрифты
+	All Fonts	Все шрифты

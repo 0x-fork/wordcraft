@@ -1242,6 +1242,7 @@
 	This font has no characters to show.	Toto písmo neobsahuje žádné znaky k zobrazení.
 	This point forward	Od tohoto místa dále
 	This section	Tento oddíl
+	Selected text	Vybraný text
 	Three	Tři
 	Tight	Těsné
 	Title from the document properties	Název z vlastností dokumentu
@@ -2640,3 +2641,5 @@ preview	Title	Ukázka
 	Other:	Jiné:
 	The number must be between 1 and {max}.	Číslo musí být mezi 1 a {max}.
 	The measurement must be between {min} and {max}.	Míra musí být mezi {min} a {max}.
+	Recently Used Fonts	Naposledy použitá písma
+	All Fonts	Všechna písma

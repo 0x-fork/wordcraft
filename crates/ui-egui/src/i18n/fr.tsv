@@ -145,6 +145,7 @@
 	Apply to:	Appliquer à :
 	Whole document	Tout le document
 	This section	Cette section
+	Selected text	Texte sélectionné
 	Fill	Remplissage
 	Setting:	Type :
 	3-D	3-D
@@ -2256,3 +2257,5 @@
 	Other:	Autre :
 	The number must be between 1 and {max}.	Le nombre doit être compris entre 1 et {max}.
 	The measurement must be between {min} and {max}.	La mesure doit être comprise entre {min} et {max}.
+	Recently Used Fonts	Polices récemment utilisées
+	All Fonts	Toutes les polices

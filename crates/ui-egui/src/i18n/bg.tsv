@@ -147,6 +147,7 @@
 	Apply to:	Прилагане към:
 	Whole document	Целия документ
 	This section	Този раздел
+	Selected text	Избрания текст
 	Fill	Запълване
 	Setting:	Настройка:
 	3-D	3-D
@@ -2637,3 +2638,5 @@
 	Other:	Друго:
 	The number must be between 1 and {max}.	Числото трябва да е между 1 и {max}.
 	The measurement must be between {min} and {max}.	Размерът трябва да е между {min} и {max}.
+	Recently Used Fonts	Наскоро използвани шрифтове
+	All Fonts	Всички шрифтове

@@ -144,6 +144,7 @@
 	Apply to:	Applica a:
 	Whole document	Tutto il documento
 	This section	Questa sezione
+	Selected text	Testo selezionato
 	Fill	Riempimento
 	Setting:	Impostazione:
 	3-D	3D
@@ -2657,3 +2658,5 @@ preview	Title	Esempio
 	Other:	Altro:
 	The number must be between 1 and {max}.	Il numero deve essere compreso tra 1 e {max}.
 	The measurement must be between {min} and {max}.	La misura deve essere compresa tra {min} e {max}.
+	Recently Used Fonts	Caratteri usati di recente
+	All Fonts	Tutti i caratteri
