@@ -1177,3 +1177,131 @@ fn tab_in_a_table_inserted_in_right_to_left_text_moves_left() {
         assert_eq!(caret_cell_x(&mut s), (0, x0), "{keys:?}: Shift+Tab comes back");
     }
 }
+
+/// A .docx of two paragraphs in two sections, as Word writes it: the first section's properties
+/// in the first paragraph's mark (portrait), the last section's in the body (landscape, starting
+/// as `kind`).
+fn two_section_docx(kind: &str) -> Vec<u8> {
+    const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    let files = [
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#.to_string(),
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#.to_string(),
+        ),
+        (
+            "word/document.xml",
+            format!(
+                r#"<w:document xmlns:w="{W}"><w:body><w:p><w:pPr><w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr></w:pPr><w:r><w:t>One.</w:t></w:r></w:p><w:p><w:r><w:t>Two.</w:t></w:r></w:p><w:sectPr><w:type w:val="{kind}"/><w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/></w:sectPr></w:body></w:document>"#
+            ),
+        ),
+    ];
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in files {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, data.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+/// #2127: Backspace just after a section break, or Delete just before it, removes the break, as
+/// in Word: the two paragraphs join, the text before the break takes the following section's
+/// page setup, and Undo brings the break back. Imported breaks and ones made here alike.
+#[test]
+fn backspace_and_delete_remove_a_section_break() {
+    let made_here = || {
+        let mut s = typed("One.Two.");
+        s.sel = crate::Selection::caret(Pos::body(0, 4));
+        run(&mut s, "layout.break", json!({"kind": "nextPage"}));
+        s
+    };
+    for source in ["nextPage", "continuous", "made here"] {
+        for (key, caret) in [("text.backspace", Pos::body(1, 0)), ("text.delete", Pos::body(0, 4))] {
+            let mut s = match source {
+                "made here" => made_here(),
+                kind => Session::new(crate::io::open_bytes("s.docx", &two_section_docx(kind)).unwrap()),
+            };
+            assert_eq!(s.doc.sections().len(), 2, "{source}");
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "One.\nTwo.", "{source}");
+            let after = s.doc.sections().last().map(|(_, sp)| (**sp).clone()).unwrap();
+            s.sel = crate::Selection::caret(caret);
+            run(&mut s, key, json!({}));
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "One.Two.", "{source} {key}");
+            let sections = s.doc.sections();
+            assert_eq!(sections.len(), 1, "{source} {key}: the break is gone");
+            assert_eq!(*sections[0].1, after, "{source} {key}: the following section's setup");
+            run(&mut s, "edit.undo", json!({}));
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "One.\nTwo.", "{source} {key}: undo");
+            assert_eq!(s.doc.sections().len(), 2, "{source} {key}: undo brings the break back");
+        }
+    }
+}
+
+/// A .docx laid out like the one attached to #2127: a continuous section break, with the
+/// document's only header, on the mark of an empty paragraph after "One.", and the last
+/// section (nextPage, no header of its own, so linked to the previous one) in the body.
+/// `then` adds a paragraph after the break; without it the break is on the last paragraph and
+/// the last section has none.
+fn break_on_the_last_paragraph_docx(then: Option<&str>) -> Vec<u8> {
+    const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let then = then.map(|t| format!("<w:p><w:r><w:t>{t}</w:t></w:r></w:p>")).unwrap_or_default();
+    let files = [
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>"#.to_string(),
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#.to_string(),
+        ),
+        (
+            "word/_rels/document.xml.rels",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>"#.to_string(),
+        ),
+        ("word/header1.xml", format!(r#"<w:hdr xmlns:w="{W}"><w:p><w:r><w:t>Lab report</w:t></w:r></w:p></w:hdr>"#)),
+        (
+            "word/document.xml",
+            format!(
+                r#"<w:document xmlns:w="{W}" xmlns:r="{R}"><w:body><w:p><w:r><w:t>One.</w:t></w:r></w:p><w:p><w:pPr><w:sectPr><w:headerReference w:type="default" r:id="rId2"/><w:type w:val="continuous"/><w:pgSz w:w="11920" w:h="16850"/><w:pgMar w:top="1320" w:right="1275" w:bottom="280" w:left="1417" w:header="480" w:footer="0" w:gutter="0"/></w:sectPr></w:pPr></w:p>{then}<w:sectPr><w:type w:val="nextPage"/><w:pgSz w:w="11920" w:h="16850"/><w:pgMar w:top="1320" w:right="1275" w:bottom="280" w:left="1417" w:header="480" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>"#
+            ),
+        ),
+    ];
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in files {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, data.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+/// #2127: Delete at the end of the last paragraph removes a section break on its mark too,
+/// though there's no paragraph after it to join. The text takes the last section's setup, and
+/// the header the last section showed by linking to the removed one stays. Removing the break
+/// by joining two paragraphs keeps that header as well. Undo brings the break back.
+#[test]
+fn delete_removes_a_section_break_on_the_last_paragraph() {
+    for then in [None, Some("Two.")] {
+        let mut s = Session::new(crate::io::open_bytes("s.docx", &break_on_the_last_paragraph_docx(then)).unwrap());
+        let sections = s.doc.sections();
+        assert_eq!(sections.len(), 2, "{then:?}");
+        let header = sections[0].1.headers.default;
+        assert!(header.is_some() && sections[1].1.headers.default.is_none(), "{then:?}: the header is on the break's section");
+        let mut after = sections[1].1.clone();
+        after.headers.default = header;
+        s.sel = crate::Selection::caret(Pos::body(1, 0));
+        run(&mut s, "text.delete", json!({}));
+        let text = if then.is_some() { "One.\nTwo." } else { "One.\n" };
+        assert_eq!(s.doc.plain_text(StoryRef::Body), text, "{then:?}");
+        let sections = s.doc.sections();
+        assert_eq!(sections.len(), 1, "{then:?}: the break is gone");
+        assert_eq!(*sections[0].1, after, "{then:?}: the last section's setup, with the header");
+        run(&mut s, "edit.undo", json!({}));
+        let sections = s.doc.sections();
+        assert_eq!(sections.len(), 2, "{then:?}: undo brings the break back");
+        assert_eq!((sections[0].1.headers.default, sections[1].1.headers.default), (header, None), "{then:?}: undo");
+    }
+}
