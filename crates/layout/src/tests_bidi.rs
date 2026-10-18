@@ -561,3 +561,51 @@ fn list_label_moves_with_its_text_when_the_paragraph_is_aligned() {
         }
     }
 }
+
+#[test]
+fn list_label_after_leading_page_break_uses_its_text_lines_alignment() {
+    // #2964: the number moved to page 2, but kept the centring of the empty break line.
+    // Adding the break must leave both the label and text at the same horizontal positions.
+    for (rtl, heading) in [(false, "SUBJECT OF THE AGREEMENT"), (true, "عنوان القسم")] {
+        for kind in [wordcraft_doc::ListKind::Numbered, wordcraft_doc::ListKind::Bullet] {
+            for align in [Align::Left, Align::Center, Align::Right, Align::Justify] {
+                for tab in [false, true] {
+                    let text = if tab { format!("{heading}\tTail") } else { heading.into() };
+                    let make = |page_break: bool| {
+                        let contents = if page_break { format!("\u{000C}{text}") } else { text.clone() };
+                        let mut d = doc_of(&[("Before", false), (&contents, rtl)]);
+                        let id = d.numbering.add_list(kind);
+                        for a in &mut d.numbering.abstracts {
+                            let level = a.levels.first_mut().unwrap();
+                            level.start = 2;
+                            level.indent = 14.2;
+                            level.hanging = 14.2;
+                        }
+                        let at = Pos::body(1, 0);
+                        d.format_paragraphs(&at, &at, &|p| {
+                            p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 });
+                            p.align = Some(align);
+                        })
+                        .unwrap();
+                        lay(&d)
+                    };
+                    let without = make(false);
+                    let with = make(true);
+                    let (plain, plain_x) = first_line(&without, 1);
+                    let (broken, broken_x) = first_line(&with, 1);
+                    let plain_label = plain.label.as_ref().unwrap();
+                    let broken_label = broken.label.as_ref().unwrap();
+                    assert_eq!(broken.label_line(), 1);
+                    assert_eq!(with.pages.len(), 2);
+                    assert!(with.pages[1].items.iter().any(|item| matches!(item,
+                        Placed::Lines { path, l0, l1, .. } if path.0 == vec![1] && *l0 <= 1 && *l1 > 1
+                    )));
+                    let label_delta = broken_x + broken_label.x - plain_x - plain_label.x;
+                    assert!(label_delta.abs() < 0.01, "rtl={rtl}, kind={kind:?}, align={align:?}, tab={tab}: label moved {label_delta}");
+                    let text_delta = caret_x(&with, 1, 1) - caret_x(&without, 1, 0);
+                    assert!(text_delta.abs() < 0.01, "rtl={rtl}, kind={kind:?}, align={align:?}, tab={tab}: text moved {text_delta}");
+                }
+            }
+        }
+    }
+}
