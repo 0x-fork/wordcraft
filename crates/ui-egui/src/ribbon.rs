@@ -2161,7 +2161,10 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
         big(ui, app, "newWindow", "New\nWindow", "view.newWindow", json!({}), false);
         big(ui, app, "arrangeAll", "Arrange\nAll", "view.arrangeAll", json!({}), false);
         big(ui, app, "split", "Split", "view.split", json!({}), false);
-        big(ui, app, "fullScreen", "Full\nScreen", "view.fullScreen", json!({}), v.full_screen);
+        // The Full Screen button carries its name for assistive technology (and for the
+        // regression test that clicks it): big buttons are otherwise drawn unlabeled.
+        let resp = big_toggle(ui, app, "fullScreen", "Full\nScreen", "view.fullScreen", v.full_screen);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, v.full_screen, "Full Screen"));
     });
     group(ui, "Macros", None, app, |ui, app| {
         big(ui, app, "macros", "Macros", "tools.macros", json!({}), false);
