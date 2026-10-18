@@ -794,6 +794,12 @@ pub(crate) fn caret_missing_dictionary(app: &WordApp) -> Option<&'static str> {
     wordcraft_engine::proof::missing_dictionary(caret_lang_tag(app).as_deref())
 }
 
+/// The dictionary file and reason when the caret's language has a dictionary installed that
+/// couldn't be read, so "no dictionary" would send the user to reinstall it for nothing (#2830).
+pub(crate) fn caret_unreadable_dictionary(app: &WordApp) -> Option<(std::path::PathBuf, String)> {
+    wordcraft_engine::proof::unreadable_dictionary(caret_lang_tag(app).as_deref()).map(|(_, file, reason)| (file, reason))
+}
+
 /// Review › Language (and the status bar's language): set the selection's proofing language, or
 /// leave it unchecked. The current choice has a check mark; a language outside the short list
 /// (French, German…) shows checked above it. Set Proofing Language… opens the Language dialog

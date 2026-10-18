@@ -8,6 +8,11 @@ WordCraft reads at runtime. These dictionaries are not bundled: they are large, 
 GPL or LGPL licensed. Without one, the language isn't checked. The status bar then shows the
 language with **(no dictionary)**, for example *Português (Brasil) (no dictionary)*.
 
+If a dictionary is installed but can't be read (an unsupported `SET` encoding, a file over the
+size limit, a parse error), the language isn't checked either, and the status bar shows
+**(dictionary unreadable)** instead. Its tooltip gives the `.dic` file and the reason, and
+**File › Options › Proofing** lists the same reason next to the file.
+
 Install a dictionary once, restart WordCraft, and the language is checked as you type.
 
 ## Which files each language needs
@@ -123,4 +128,5 @@ Never commit dictionary files to this repository: they stay on the user's system
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-18 | trivial | ISO 8859-1 (`SET ISO8859-1`) dictionaries are read, so the original VERO `pt_BR` works without converting it to UTF-8 (#2824) |
+| 2026-10-18 | minor | An installed dictionary that can't be read shows **(dictionary unreadable)** in the status bar, with the file and reason in its tooltip and in File › Options › Proofing (#2830) |
 | 2026-10-16 | major | First version: the file names per language, the search order and folders on Windows, macOS and Linux, installing `pt_BR` on each, and how to check it works |

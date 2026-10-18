@@ -482,13 +482,24 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 // The language at the caret; a click sets the proofing language (Review › Language).
                 let lang = crate::ribbon::caret_language(app);
                 let missing = crate::ribbon::caret_missing_dictionary(app);
-                let shown = if missing.is_some() { crate::i18n::fmt(tl!("{language} (no dictionary)"), &[("language", &lang)]) } else { lang.clone() };
-                let tip = match missing {
-                    Some(name) => crate::i18n::fmt(
+                let unreadable = crate::ribbon::caret_unreadable_dictionary(app);
+                let shown = if unreadable.is_some() {
+                    crate::i18n::fmt(tl!("{language} (dictionary unreadable)"), &[("language", &lang)])
+                } else if missing.is_some() {
+                    crate::i18n::fmt(tl!("{language} (no dictionary)"), &[("language", &lang)])
+                } else {
+                    lang.clone()
+                };
+                let tip = match (&unreadable, missing) {
+                    (Some((file, reason)), _) => crate::i18n::fmt(
+                        tl!("The spelling dictionary for {language} couldn't be read, so it isn't checked. File: {file}. Reason: {reason}"),
+                        &[("language", &lang), ("file", &file.to_string_lossy()), ("reason", reason)],
+                    ),
+                    (None, Some(name)) => crate::i18n::fmt(
                         tl!("No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations."),
                         &[("language", &lang), ("name", name)],
                     ),
-                    None => tl!("Language").to_string(),
+                    (None, None) => tl!("Language").to_string(),
                 };
                 let resp = st(ui, &shown).on_hover_text(tip);
                 egui::Popup::menu(&resp).show(|ui| {
