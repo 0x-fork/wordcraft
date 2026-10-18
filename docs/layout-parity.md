@@ -198,6 +198,10 @@ Explicit cell page breaks (Word for Mac 16.113.2, compatibility modes 14 and 15)
 
 Footer flow-table strokes reserve their drawn top edge, including the half-width above the cell box. Original Word for Mac 16.113.2 mode-15 controls confirm the three footer cases move to the next page. The 3 pt row-end border case without a footer still differs. Tight row-end and continuation border fitting remain separate.
 
+## Footer page tables
+
+Page-relative footer tables keep their physical wrap bounds without adding to footer text height. Body text resumes below the table. Original native controls cover empty, text-bearing and minimum-height tables. Body textbox boundaries and nested footer painting remain separate gaps.
+
 ## Revision history
 
 | Date | Change | Summary |
@@ -235,6 +239,7 @@ Footer flow-table strokes reserve their drawn top edge, including the half-width
 | 2026-10-16 | trivial | An otherwise empty section at page start retains its line before continuous content; later closing marks stay quiet |
 | 2026-10-16 | trivial | Math operators, delimiters and accents missing from the math font use a fallback font (#1273) |
 | 2026-10-17 | trivial | SECTIONPAGES includes shared continuous-section pages in body and header/footer fields |
+| 2026-10-17 | trivial | Footer page tables preserve text height and wrap intersecting body lines |
 | 2026-10-14 | trivial | Row table border exceptions draw without leaking into other rows |
 | 2026-10-14 | trivial | Consistent cell widths override a stale table grid |
 | 2026-10-14 | trivial | Paragraphs inside complex-field instructions take no flow height; empty result paragraphs keep their line. |
