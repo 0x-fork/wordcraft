@@ -2498,6 +2498,11 @@ preview	Title	제목
 	Bottom Right Cell	오른쪽 아래 셀
 	Inside Horizontal Border	안쪽 가로 테두리
 	Inside Vertical Border	안쪽 세로 테두리
+# Mail merge: recipient list search (#1576)
+	Find in list:	목록에서 찾기:
+	Any field	모든 필드
+	Matches: {count}	일치: {count}개
+	Show only records that will be merged	병합할 레코드만 표시
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	나누기 전에 셀 병합
 	Table size	표 크기
