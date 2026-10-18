@@ -7329,7 +7329,7 @@ mod tests {
         let mut viewed = filter.clone();
         viewed.find = "grace".into();
         viewed.only_merged = true;
-        assert_eq!(viewed.params(), filter.params());
+        assert_eq!(viewed.params(&fields), filter.params(&fields));
     }
 
     /// #1576 review: while a cell is edited the grid keeps its rows, so a record the edit stops
