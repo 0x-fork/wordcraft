@@ -55,7 +55,12 @@ fn autoformat(s: &mut Session, text: &str) -> Option<String> {
     let para = s.doc.para_at(f)?;
     let before = para.text.get(..f.off)?;
     let prev = before.chars().next_back();
-    let opening = prev.is_none_or(|p| p.is_whitespace() || "([{<\u{2014}\u{2013}".contains(p));
+    let opening = prev.is_none_or(|p| {
+        p.is_whitespace()
+            || "([{<\u{2014}\u{2013}\u{00AB}\u{2039}\u{201E}\u{201A}".contains(p)
+            || (c == '"' && p == '\u{2018}')
+            || (c == '\'' && p == '\u{201C}')
+    });
     match c {
         '"' => Some(if opening { "\u{201C}" } else { "\u{201D}" }.into()),
         '\'' => Some(if opening { "\u{2018}" } else { "\u{2019}" }.into()),

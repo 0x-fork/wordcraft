@@ -344,6 +344,18 @@ fn autocorrect_as_you_type() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "½ cup. iPhone. See readme.txt ");
 }
 
+#[test]
+fn smart_quotes_nested_and_opening_delimiters() {
+    let s = typed("\"'nested'\" '\"inner\"' (\"'parens'\")");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "“‘nested’” ‘“inner”’ (“‘parens’”)");
+    // Empty quotes preserve open then close
+    let s = typed("\"\" ''");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "“” ‘’");
+    // After opening guillemets and low quotes
+    let s = typed("«'french'» „'german'“");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "«‘french’» „‘german’“");
+}
+
 /// #835: the English replacement list applies only to English text. Polish "i" ("and") stays
 /// lowercase; symbols still change; English and untagged text still get "I".
 #[test]
