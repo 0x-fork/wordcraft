@@ -1346,7 +1346,7 @@ impl Reader<'_> {
         {
             part.body.auto_color = Some(rgb);
         }
-        let mut extra = ShapeExtra::default();
+        let mut extra = ShapeExtra { dash: super::shape_style::line_dash(ln), ..Default::default() };
         // A rounded rectangle's own corner (`adj`, ECMA-376 §20.1.10.56); other presets drawn as
         // rounded rectangles keep the default.
         if prst == "roundRect" {

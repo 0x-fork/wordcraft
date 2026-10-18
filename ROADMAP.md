@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 ## Progress log
 
 | Date | What landed |
+| 2026-10-17 | DrawingML shape outlines retain explicit preset/custom dashes on screen and in PDF, including zero-width path strokes. |
 | 2026-10-17 | Missing Arial Unicode MS tries Arial and its proportional substitutes before code-font heuristics. |
 | 2026-10-16 | Web Layout text fills the window width and re-wraps once a resize settles, or at once on a zoom, instead of a fixed 800 pt column; Draft and Outline keep their 800 pt column (#1876). |
 | 2026-10-16 | Create Source: the automatic Tag is three letters of the first author and the last two digits of the year (`Smi20`), with 1, 2… added when taken, as Word for Mac 16.113.4 does (user-checked). Editing Author or Year keeps the Tag, as in Word, and the citations in the text show the new author and year (#2094; the reporter expected the Tag to follow). |
@@ -419,6 +420,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-16 | trivial | Progress log: Web Layout fills the window width (#1876) |
 | 2026-10-17 | trivial | Progress log: DOCX glossary documents (building blocks) |
 | 2026-10-17 | trivial | Language dialog keeps inherited proofing language and no-proof choices (#2717); readiness estimates unchanged |
+| 2026-10-17 | trivial | Explicit DrawingML preset/custom outline dashes survive import/save and paint in raster/PDF, scaled to the effective stroke width even for zero-width paths. Synthetic controls; theme-inherited dashes and line caps remain unverified. |
 | 2026-10-15 | trivial | `wordcraft-cli convert --update-fields` explicitly refreshes unlocked fields before conversion; ordinary conversion keeps cached results. Field refresh can change pagination |
 | 2026-10-17 | trivial | Arial Unicode MS uses Arial and its proportional substitutes; glyph coverage and exact Word line height remain font-dependent. |
 | 2026-10-18 | trivial | Progress log: Split Cells and Convert Text to Table dialogs, matched to the Word check (#2592) |
