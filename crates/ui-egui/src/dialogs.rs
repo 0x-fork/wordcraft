@@ -269,6 +269,8 @@ pub enum Dialog {
     Link {
         url: String,
         text: String,
+        /// Focus and select the address when the dialog first opens.
+        focus: bool,
         /// "Place in This Document" instead of "Existing File or Web Page".
         place: bool,
         /// The document's places (`link.targets`), read when that tab is first shown.
@@ -1008,7 +1010,9 @@ impl Dialog {
                     valign: sp.valign,
                 }
             }
-            "link" => Dialog::Link { url: "https://".into(), text: app.session.selected_text(), place: false, targets: None, pick: None },
+            "link" => {
+                Dialog::Link { url: "https://".into(), text: app.session.selected_text(), place: false, targets: None, pick: None, focus: true }
+            }
             "bookmark" => Dialog::Bookmark { name: bookmark_at_caret(&app.session), by_location: false, hidden: false, deleted: false },
             "wordCount" => Dialog::WordCount { stats: app.session.run("review.wordCount", &json!({})).unwrap_or_default() },
             "zoom" => Dialog::Zoom { percent: (app.session.view.zoom * 100.0).round() },
@@ -2011,7 +2015,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::Link { url, text, place, targets, pick } => {
+        Dialog::Link { url, text, place, targets, pick, focus } => {
             // Word's "Link to:" choices; the places are read once, when that tab is first shown.
             ui.horizontal(|ui| {
                 ui.label(tl!("Link to:"));
@@ -2027,7 +2031,13 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.end_row();
                 if !*place {
                     ui.label(tl!("Address:"));
-                    ui.text_edit_singleline(url);
+                    let mut out = egui::TextEdit::singleline(url).id(egui::Id::new("link_address")).show(ui);
+                    if std::mem::take(focus) {
+                        out.response.request_focus();
+                        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(url.chars().count()));
+                        out.state.cursor.set_char_range(Some(all));
+                        out.state.store(ui.ctx(), out.response.id);
+                    }
                     ui.end_row();
                 }
             });
