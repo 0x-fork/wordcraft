@@ -199,7 +199,7 @@ check and the wasm build. Contributor and agent instructions: [AGENTS.md](AGENTS
 
 ## Roadmap
 
-WordCraft is in **alpha**. It covers 88% of standard ribbon features with commands today; counting
+WordCraft is in **alpha**. It covers 88% of the ribbon features tracked in [`docs/gaps.md`](docs/gaps.md) with commands today; counting
 depth, file fidelity, stability and the rest, we estimate it is about 60% ready for real work,
 about 55% for a typical professional's weekly work and about 63% for everyday essentials. Beta
 needs testing against real-world .docx files, keeping charts and SmartArt through a round trip,
