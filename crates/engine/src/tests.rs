@@ -4291,6 +4291,26 @@ fn navigation_pane_opens_without_changing_view_mode() {
 }
 
 #[test]
+fn interface_theme_queues_a_front_end_request_and_rejects_junk() {
+    // #1861: the session can't paint, so the command asks the front end; the document,
+    // view state and undo stack are untouched.
+    let mut s = s();
+    let dirty = s.dirty;
+    for value in ["light", "dark", "system"] {
+        let r = run(&mut s, "view.interfaceTheme", json!({"value": value}));
+        assert_eq!(r["value"], value);
+        assert_eq!(s.ui_requests.last().unwrap()["interfaceTheme"], value);
+    }
+    let r = run(&mut s, "view.interfaceTheme", json!({}));
+    assert_eq!(r["value"], "toggle");
+    assert_eq!(s.ui_requests.last().unwrap()["toggle"], "interfaceTheme");
+    assert_eq!(s.dirty, dirty);
+    for bad in [json!({"value": "midnight"}), json!({"value": 3})] {
+        assert!(s.run("view.interfaceTheme", &bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn reading_mode_reflows_per_viewport_without_changing_document_or_export() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "A long paragraph for reading. ".repeat(200)}));

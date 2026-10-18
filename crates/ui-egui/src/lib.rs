@@ -1299,6 +1299,15 @@ impl WordApp {
             self.nav_search_focus = true;
             self.ui.nav_tab = "results".into();
         }
+        // #1861: the registered Interface Theme command drives the same setting as Options.
+        if let Some(name) = req.get("interfaceTheme").and_then(Value::as_str)
+            && let Some(a) = theme::Appearance::from_code(name)
+        {
+            self.ui.theme = a;
+        }
+        if req.get("toggle").and_then(Value::as_str) == Some("interfaceTheme") {
+            self.ui.theme = if self.ui_is_dark() { theme::Appearance::Light } else { theme::Appearance::Dark };
+        }
         if let Some(what) = req.get("open").and_then(Value::as_str) {
             match what {
                 "openFile" => self.open_dialog(),
@@ -6117,6 +6126,30 @@ mod tests {
         // An unknown saved value keeps the rest of the preferences.
         let odd: UiState = serde_json::from_str(r#"{"theme": "sepia", "tab": "Insert"}"#).unwrap();
         assert_eq!((odd.theme, odd.tab.as_str()), (Appearance::System, "Insert"));
+    }
+
+    /// #1861: the registered Interface Theme command drives the same setting as Options:
+    /// searchable in the registry, settable, toggling without a value, and surviving a restart.
+    #[test]
+    fn interface_theme_command_sets_toggles_and_persists() {
+        use theme::Appearance;
+        let mut a = app();
+        let spec = a.session.registry.get("view.interfaceTheme").expect("registered and searchable");
+        assert_eq!((spec.label, spec.location), ("Interface Theme", "View › Dark Mode"));
+        a.run("view.interfaceTheme", json!({"value": "dark"})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::Dark);
+        a.run("view.interfaceTheme", json!({"value": "system"})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::System);
+        a.run("view.interfaceTheme", json!({"value": "light"})).unwrap();
+        a.run("view.interfaceTheme", json!({})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::Dark, "no value toggles light to dark");
+        a.run("view.interfaceTheme", json!({})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::Light, "and back");
+        assert!(a.run("view.interfaceTheme", json!({"value": "sepia"})).is_err());
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert_eq!(b.ui.theme, Appearance::Light);
     }
 
     /// #475, #822: the interface size is kept between runs; junk saved values read as Auto and

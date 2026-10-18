@@ -2108,7 +2108,7 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
         menu_button(ui, app, "interfaceTheme", Some("Interface\nTheme"), "Interface Theme", true, "", |ui, app| {
             for a in crate::theme::Appearance::ALL {
                 if ui.add(egui::Button::selectable(app.ui.theme == a, tl!(a.label())).min_size(vec2(200.0, 0.0))).clicked() {
-                    let _ = app.run("ui.theme", json!({"value": a.code()}));
+                    let _ = app.run("view.interfaceTheme", json!({"value": a.code()}));
                     ui.close();
                 }
             }
