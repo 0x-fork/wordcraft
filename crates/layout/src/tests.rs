@@ -8328,3 +8328,48 @@ fn float_font_keeps_line_height() {
     }
     assert!(pitch(Wrap::Inline, 40.0) > pitch(Wrap::Inline, 9.0));
 }
+
+/// Native ink inside a group is drawn as drawing-level ink is: its fallback picture, in its place.
+#[test]
+fn ink_member_of_a_group_draws_its_fallback_picture() {
+    use crate::display::Draw;
+    use std::sync::Arc;
+    use wordcraft_doc::graphic::{Graphic, GraphicItem, GraphicKind};
+    use wordcraft_doc::para::{Float, GroupChild};
+    let items = vec![GraphicItem::Image { rect: [0.0, 0.0, 60.0, 30.0], media: "preview".into() }];
+    let ink = InlineObject::Graphic {
+        w: 60.0,
+        h: 30.0,
+        alt: String::new(),
+        float: Float::default(),
+        graphic: Arc::new(Graphic { kind: GraphicKind::Ink, items, w: 60.0, h: 30.0, ..Default::default() }),
+    };
+    let group = InlineObject::Group {
+        w: 200.0,
+        h: 100.0,
+        float: Float::default(),
+        ch_w: 200.0,
+        ch_h: 100.0,
+        children: vec![GroupChild { x: 20.0, y: 30.0, obj: ink }],
+        canvas: None,
+    };
+    let mut d = Document::from_text("Text by the group.");
+    d.insert_object(&Pos::body(0, 0), group, &Default::default()).unwrap();
+    let l = lay(&d);
+    let frame = l.object(&Pos::body(0, 0), 0).unwrap().rect;
+    fn images(draws: &[Draw], out: &mut Vec<Rect>) {
+        for d in draws {
+            match d {
+                Draw::Image { rect, media, .. } if media == "preview" => out.push(*rect),
+                Draw::Rotated { items, .. } | Draw::Clip { items, .. } => images(items, out),
+                Draw::Figure { draws, .. } => images(draws, out),
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    images(&crate::display::page_display(&d, &l.pages[0], &Default::default()), &mut found);
+    let [r] = found.as_slice() else { panic!("ink preview not drawn: {found:?}") };
+    assert!((r.x - (frame.x + 20.0)).abs() < 0.01 && (r.y - (frame.y + 30.0)).abs() < 0.01, "{r:?} in {frame:?}");
+    assert!((r.w - 60.0).abs() < 0.01 && (r.h - 30.0).abs() < 0.01, "{r:?}");
+}

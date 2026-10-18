@@ -1692,6 +1692,25 @@ fn object_draws(o: &InlineObject, rect: Rect, outer: Spin, alpha: f32, opts: &Di
                 None => spun(own, rect, members, out),
             }
         }
+        // Native ink in a group (kept opaque): drawn as drawing-level ink is, from its pictures.
+        InlineObject::Graphic { graphic, .. } if graphic.kind == GraphicKind::Ink => {
+            let (sx, sy) = (scale_of(rect.w, graphic.w), scale_of(rect.h, graphic.h));
+            let items = graphic
+                .items
+                .iter()
+                .filter_map(|it| match it {
+                    GraphicItem::Image { rect: r, media } => Some(Draw::Image {
+                        rect: Rect::new(rect.x + r[0] * sx, rect.y + r[1] * sy, r[2] * sx, r[3] * sy),
+                        media: media.clone(),
+                        crop: [0.0; 4],
+                        alpha,
+                        alt: String::new(),
+                    }),
+                    _ => None,
+                })
+                .collect();
+            spun(own, rect, items, out)
+        }
         _ => {}
     }
 }

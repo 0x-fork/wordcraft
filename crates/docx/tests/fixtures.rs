@@ -2697,6 +2697,277 @@ fn native_ink_preserves_inner_transform_and_rotation_padding_on_unrelated_saves(
     }
 }
 
+// ---- native Word ink as a member of a group or a drawing canvas (gap 2) ----
+
+const GROUP_URI: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup";
+const CANVAS_URI: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas";
+const W14_NS: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
+
+/// A rectangle member `name` at `x` (EMU) in its group's space.
+fn rect_member(name: &str, x: u32) -> String {
+    format!(
+        r#"<wps:wsp><wps:cNvPr id="{x}" name="{name}"/><wps:cNvSpPr/><wps:spPr><a:xfrm><a:off x="{x}" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></wps:spPr><wps:bodyPr/></wps:wsp>"#
+    )
+}
+
+/// A native-ink member (`w14:contentPart`) at `x` (EMU), optionally inside `mc:AlternateContent`
+/// with a picture fallback.
+fn ink_member(x: u32, fallback: bool) -> String {
+    let content = format!(
+        r#"<w14:contentPart xmlns:w14="{W14_NS}" bwMode="auto" r:id="rInk"><w14:nvContentPartPr><w14:cNvPr id="9" name="Ink 9"/><w14:cNvContentPartPr/></w14:nvContentPartPr><w14:xfrm><a:off x="{x}" y="0"/><a:ext cx="914400" cy="457200"/></w14:xfrm></w14:contentPart>"#
+    );
+    if !fallback {
+        return content;
+    }
+    format!(
+        r#"<mc:AlternateContent><mc:Choice xmlns:wpi="{INK_NS}" Requires="wpi">{content}</mc:Choice><mc:Fallback><pic:pic><pic:nvPicPr><pic:cNvPr id="9" name="Ink 9"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rPreview"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="{x}" y="0"/><a:ext cx="914400" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></mc:Fallback></mc:AlternateContent>"#
+    )
+}
+
+/// A document whose second paragraph holds a group (or canvas) of a rectangle, `ink` and another
+/// rectangle, in that order.
+fn nested_ink_docx(canvas: bool, ink: &str, fallback: bool) -> Vec<u8> {
+    let members = format!("{}{ink}{}", rect_member("Before", 0), rect_member("After", 1828800));
+    let graphic = if canvas {
+        format!(r#"<a:graphicData uri="{CANVAS_URI}"><wpc:wpc xmlns:wpc="{CANVAS_URI}"><wpc:bg/><wpc:whole/>{members}</wpc:wpc></a:graphicData>"#)
+    } else {
+        format!(
+            r#"<a:graphicData uri="{GROUP_URI}"><wpg:wgp><wpg:cNvGrpSpPr/><wpg:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="2743200" cy="914400"/><a:chOff x="0" y="0"/><a:chExt cx="2743200" cy="914400"/></a:xfrm></wpg:grpSpPr>{members}</wpg:wgp></a:graphicData>"#
+        )
+    };
+    let body = format!(
+        r#"<w:p><w:r><w:t>Original</w:t></w:r></w:p><w:p><w:r><w:drawing><wp:inline><wp:extent cx="2743200" cy="914400"/><wp:docPr id="1" name="Group 1"/><a:graphic>{graphic}</a:graphic></wp:inline></w:drawing></w:r></w:p>"#
+    );
+    let mut relationships = vec![("rInk", "customXml", "ink/ink1.xml")];
+    let mut extra = vec![("[Content_Types].xml", INK_TYPES), ("word/ink/ink1.xml", INK_XML)];
+    if fallback {
+        relationships.push(("rPreview", "image", "media/preview.png"));
+        extra.push(("word/media/preview.png", "original preview bytes"));
+    }
+    docx(&body, &relationships, &extra)
+}
+
+/// The members of the one group or canvas in `d`.
+fn group_children(d: &Document) -> Vec<wordcraft_doc::para::GroupChild> {
+    let groups: Vec<_> = paras(d)
+        .iter()
+        .flat_map(|p| p.objects.iter())
+        .filter_map(|o| match o {
+            InlineObject::Group { children, .. } => Some(children.clone()),
+            _ => None,
+        })
+        .collect();
+    let [children] = groups.try_into().unwrap_or_else(|g: Vec<_>| panic!("expected one group, found {}", g.len()));
+    children
+}
+
+fn assert_ink_between_rects(d: &Document) {
+    let c = group_children(d);
+    let kinds: Vec<_> = c
+        .iter()
+        .map(|c| match &c.obj {
+            InlineObject::Shape { .. } => "shape",
+            InlineObject::Graphic { graphic, .. } if graphic.kind.noun() == "ink" => "ink",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["shape", "ink", "shape"], "the ink member keeps its place among the members");
+    let ink = &c[1];
+    assert_eq!((ink.x, ink.y), (72.0, 0.0));
+    let InlineObject::Graphic { w, h, .. } = &ink.obj else { panic!() };
+    assert_eq!((*w, *h), (72.0, 36.0));
+}
+
+fn edit_first_para(d: &mut Document) {
+    let p = std::sync::Arc::make_mut(&mut d.body[0]);
+    let Block::Para(p) = p else { panic!() };
+    p.delete(0, p.len()).unwrap();
+    p.insert_text(0, "Edited", &Default::default()).unwrap();
+}
+
+#[test]
+fn native_ink_in_a_group_or_canvas_survives_unrelated_edit_and_two_saves() {
+    for canvas in [false, true] {
+        for fallback in [false, true] {
+            let what = format!("canvas {canvas}, fallback {fallback}");
+            let mut d = wordcraft_docx::read(&nested_ink_docx(canvas, &ink_member(914400, fallback), fallback)).unwrap();
+            assert_ink_between_rects(&d);
+            edit_first_para(&mut d);
+            for _ in 0..2 {
+                let out = wordcraft_docx::write(&d).unwrap();
+                let files = unzip(&out);
+                check_ink(&files);
+                let body = text(&files, "word/document.xml");
+                assert!(body.contains("Edited"));
+                let at = |s: &str| body.find(s).unwrap_or_else(|| panic!("{s} missing ({what}): {body}"));
+                let ink = at("<w14:contentPart");
+                assert!(at("<wps:wsp") < ink && body.rfind("<wps:wsp").unwrap() > ink, "member order lost ({what}): {body}");
+                assert!(body.contains("<w14:nvContentPartPr>") && body.contains(r#"name="Ink 9""#), "{what}: {body}");
+                let xfrm = &body[ink..];
+                let xfrm = &xfrm[xfrm.find("<w14:xfrm").unwrap()..];
+                assert_eq!(attr_values(xfrm, "a:off", "x").first().map(String::as_str), Some("914400"), "{what}");
+                assert_eq!(attr_values(xfrm, "a:ext", "cx").first().map(String::as_str), Some("914400"), "{what}");
+                if fallback {
+                    assert!(body.contains("<mc:Fallback>"), "{what}: {body}");
+                    let [id] = attr_values(&body, "a:blip", "r:embed").try_into().unwrap();
+                    let (_, target) = rel(&text(&files, "word/_rels/document.xml.rels"), &id);
+                    assert_eq!(text(&files, &part_at("word", &target)), "original preview bytes");
+                }
+                d = wordcraft_docx::read(&out).unwrap();
+                assert_ink_between_rects(&d);
+            }
+        }
+    }
+}
+
+#[test]
+fn native_ink_in_a_group_shows_its_fallback_picture() {
+    let d = wordcraft_docx::read(&nested_ink_docx(false, &ink_member(914400, true), true)).unwrap();
+    let c = group_children(&d);
+    let InlineObject::Graphic { graphic, .. } = &c[1].obj else { panic!() };
+    assert!(
+        graphic.items.iter().any(|item| matches!(item, wordcraft_doc::graphic::GraphicItem::Image { media, .. } if d.media.contains_key(media))),
+        "{:?}",
+        graphic.items
+    );
+}
+
+#[test]
+fn native_ink_in_a_nested_group_is_written_at_its_place_in_the_outer_group() {
+    // The inner group doubles its members: 1 inch of its space is 2 inches of the outer group's.
+    let inner = format!(
+        r#"<wpg:grpSp><wpg:cNvGrpSpPr/><wpg:grpSpPr><a:xfrm><a:off x="914400" y="0"/><a:ext cx="1828800" cy="1828800"/><a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></wpg:grpSpPr>{}</wpg:grpSp>"#,
+        ink_member(0, false)
+    );
+    let d = wordcraft_docx::read(&nested_ink_docx(false, &inner, false)).unwrap();
+    let c = group_children(&d);
+    let ink = c.iter().find(|c| matches!(c.obj, InlineObject::Graphic { .. })).expect("ink member kept");
+    let InlineObject::Graphic { w, h, .. } = &ink.obj else { panic!() };
+    assert_eq!((ink.x, ink.y, *w, *h), (72.0, 0.0, 144.0, 72.0));
+    let files = unzip(&wordcraft_docx::write(&d).unwrap());
+    check_ink(&files);
+    let body = text(&files, "word/document.xml");
+    let xfrm = &body[body.find("<w14:xfrm").unwrap()..];
+    assert_eq!(attr_values(xfrm, "a:off", "x").first().map(String::as_str), Some("914400"));
+    assert_eq!(attr_values(xfrm, "a:ext", "cx").first().map(String::as_str), Some("1828800"));
+    assert_eq!(attr_values(xfrm, "a:ext", "cy").first().map(String::as_str), Some("914400"));
+}
+
+/// Ink parts share the custom XML relationship type with real custom XML stores: the store is
+/// carried as before, the ink part only with the ink that refers to it.
+#[test]
+fn custom_xml_store_beside_native_ink_is_kept_and_ink_leaves_no_orphan() {
+    const STORE: &str = r#"<?xml version="1.0" encoding="UTF-8"?><data xmlns="urn:example:store"><item>kept</item></data>"#;
+    let types = INK_TYPES.replace("<Default ", r#"<Override PartName="/customXml/item1.xml" ContentType="application/xml"/><Default "#);
+    let mut files = unzip(&nested_ink_docx(false, &ink_member(914400, false), false));
+    let rels = text(&files, "word/_rels/document.xml.rels").replace(
+        "</Relationships>",
+        r#"<Relationship Id="rStore" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml" Target="../customXml/item1.xml"/></Relationships>"#,
+    );
+    files.insert("word/_rels/document.xml.rels".into(), rels.into_bytes());
+    files.insert("[Content_Types].xml".into(), types.into_bytes());
+    files.insert("customXml/item1.xml".into(), STORE.as_bytes().to_vec());
+    let entries: Vec<_> = files.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+    let mut d = wordcraft_docx::read(&zip(&entries)).unwrap();
+    let out = unzip(&wordcraft_docx::write(&d).unwrap());
+    check_ink(&out);
+    assert!(out.values().any(|b| b == STORE.as_bytes()), "the store is kept");
+    assert_eq!(out.values().filter(|b| *b == INK_XML.as_bytes()).count(), 1, "one ink part, not a second copy as a store");
+    // Without the ink the store stays and the ink part goes.
+    d.body.truncate(1);
+    let out = unzip(&wordcraft_docx::write(&d).unwrap());
+    assert!(out.values().any(|b| b == STORE.as_bytes()), "the store is kept");
+    assert!(!out.values().any(|b| b == INK_XML.as_bytes()), "orphan ink part: {:?}", out.keys().collect::<Vec<_>>());
+    assert!(!text(&out, "[Content_Types].xml").contains("inkml"));
+    assert_eq!(text(&out, "word/_rels/document.xml.rels").matches("/customXml\"").count(), 1, "only the store's relationship");
+}
+
+#[test]
+fn deleting_drawing_level_native_ink_writes_no_orphan_ink_part() {
+    for fallback in [false, true] {
+        let mut d = wordcraft_docx::read(&ink_docx(fallback, false)).unwrap();
+        assert_eq!(graphics(&d).len(), 1);
+        d.body.truncate(1);
+        let files = unzip(&wordcraft_docx::write(&d).unwrap());
+        assert!(!files.values().any(|b| b == INK_XML.as_bytes()), "orphan ink part: {:?}", files.keys().collect::<Vec<_>>());
+        assert!(!text(&files, "[Content_Types].xml").contains("inkml"));
+        assert!(!text(&files, "word/_rels/document.xml.rels").contains("customXml"));
+    }
+}
+
+/// A group member's ink taken out of its group (not something WordCraft's commands do: Ungroup
+/// refuses such a group) can't be written as a stand-alone drawing: it is left out whole, never
+/// written in the wrong place, and its parts aren't written either.
+#[test]
+fn group_member_ink_on_its_own_is_left_out_without_orphans() {
+    for fallback in [false, true] {
+        let d = wordcraft_docx::read(&nested_ink_docx(false, &ink_member(914400, fallback), fallback)).unwrap();
+        let ink = group_children(&d).into_iter().find(|c| matches!(c.obj, InlineObject::Graphic { .. })).expect("ink member").obj;
+        let mut d = d;
+        d.body.truncate(1);
+        let mut p = Paragraph::new();
+        p.insert_object(0, ink, &Default::default()).unwrap();
+        d.body.push(wordcraft_doc::para_block(p));
+        let files = unzip(&wordcraft_docx::write(&d).unwrap());
+        let body = text(&files, "word/document.xml");
+        assert!(!body.contains("contentPart"), "fallback {fallback}: {body}");
+        assert!(!files.values().any(|b| b == INK_XML.as_bytes()), "orphan ink part: {:?}", files.keys().collect::<Vec<_>>());
+        assert!(!text(&files, "word/_rels/document.xml.rels").contains("customXml"));
+    }
+}
+
+#[test]
+fn deleting_a_group_with_native_ink_writes_no_orphan_ink_part() {
+    let mut d = wordcraft_docx::read(&nested_ink_docx(false, &ink_member(914400, true), true)).unwrap();
+    d.body.truncate(1);
+    let files = unzip(&wordcraft_docx::write(&d).unwrap());
+    assert!(!text(&files, "word/document.xml").contains("contentPart"));
+    assert!(!files.values().any(|b| b == INK_XML.as_bytes()), "orphan ink part: {:?}", files.keys().collect::<Vec<_>>());
+    assert!(!text(&files, "[Content_Types].xml").contains("inkml"));
+    assert!(!text(&files, "word/_rels/document.xml.rels").contains("customXml"));
+}
+
+#[test]
+fn hostile_native_ink_in_a_group_never_panics() {
+    // A dangling relationship, a missing part, or a part that isn't InkML: the ink member is
+    // dropped (as drawing-level ink is), the other members stay.
+    for fallback in [false, true] {
+        for case in ["dangling", "missing", "wrong type"] {
+            let mut files = unzip(&nested_ink_docx(false, &ink_member(914400, fallback), fallback));
+            match case {
+                "dangling" => {
+                    let body = text(&files, "word/document.xml").replace(r#"r:id="rInk""#, r#"r:id="rNowhere""#);
+                    files.insert("word/document.xml".into(), body.into_bytes());
+                }
+                "missing" => {
+                    files.remove("word/ink/ink1.xml");
+                }
+                _ => {
+                    let types = text(&files, "[Content_Types].xml").replace("application/inkml+xml", "application/xml");
+                    files.insert("[Content_Types].xml".into(), types.into_bytes());
+                }
+            }
+            let entries: Vec<_> = files.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+            let d = wordcraft_docx::read(&zip(&entries)).unwrap();
+            let c = group_children(&d);
+            assert!(!c.iter().any(|c| matches!(c.obj, InlineObject::Graphic { .. })), "{case}");
+            // With a picture fallback the picture takes the ink's place.
+            let pictures = c.iter().filter(|c| matches!(c.obj, InlineObject::Image { .. })).count();
+            assert_eq!(c.len(), if fallback { 3 } else { 2 }, "{case}, fallback {fallback}");
+            assert_eq!(pictures, usize::from(fallback), "{case}");
+            let out = unzip(&wordcraft_docx::write(&d).unwrap());
+            assert!(!text(&out, "word/document.xml").contains("contentPart"), "{case}");
+        }
+    }
+    // A garbled ink part is kept as it is: InkML stays opaque.
+    let mut files = unzip(&nested_ink_docx(true, &ink_member(914400, false), false));
+    files.insert("word/ink/ink1.xml".into(), vec![0xff, 0x00, b'<', 0xfe]);
+    let entries: Vec<_> = files.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+    let d = wordcraft_docx::read(&zip(&entries)).unwrap();
+    let out = unzip(&wordcraft_docx::write(&d).unwrap());
+    assert!(out.values().any(|b| b == &[0xff, 0x00, b'<', 0xfe]));
+}
+
 /// Word draws a table of contents' entry links without the Hyperlink character style (measured in
 /// Word for Windows); the import drops the style from them, keeping the link. A Hyperlink-styled run
 /// outside a hyperlink, and a hyperlink in another field, keep it.

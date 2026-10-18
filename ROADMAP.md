@@ -205,6 +205,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-17 | Language dialog keeps inherited proofing language and no-proof choices (#2717). Opening and accepting unchanged no longer replaces style-derived values with English US and proofing enabled. |
 | 2026-10-16 | Text with the legacy Outline, Shadow, Emboss or Engrave font effects (`w:outline`, `w:shadow`, `w:emboss`, `w:imprint`) is drawn with them on screen and in PDFs, no longer as plain text: hollow outlined letters, or a grey copy behind the letters; the PDF keeps the text (#2534) |
 | 2026-10-15 | Table Layout › Cell Margins opens an editable dialog initialized from the table defaults; confirming an unchanged dialog preserves imported margins, and changing one side retains the others (#1960) |
+| 2026-10-15 | Word's native ink inside groups and drawing canvases survives DOCX saves (gap 2): the ink member keeps its InkML part, relationship, content type and picture fallback, stays in its place among the members, moves with the group and is drawn from its fallback picture; deleting the group drops its part |
 | 2026-10-14 | Consistent preferred cell widths override a stale table grid when both totals agree, for fixed and AutoFit tables. Conflicting widths, spans and percentages remain unchanged. |
 | 2026-10-14 | Legacy VML freeforms (`v:shape` with its own `path`), such as the rule lines in many older headers, are read as freeform shapes: they show on screen and in PDFs and are saved back as DrawingML custom geometry instead of vanishing |
 | 2026-10-14 | Field instructions spanning paragraphs no longer add blank lines during pagination; empty result paragraphs still take a line. |
@@ -527,6 +528,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-16 | trivial | Zero-extent drawing anchors contribute no inline font height. Synthetic regressions. |
 | 2026-10-16 | trivial | Control keyboard/text input works in the inactive native window (#2420) |
 | 2026-10-15 | trivial | Progress log: Hide Quick Access Toolbar (#1945) |
+| 2026-10-15 | trivial | Progress log: native ink nested in groups and drawing canvases kept on save |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
