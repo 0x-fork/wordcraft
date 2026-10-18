@@ -9010,3 +9010,185 @@ fn header_table_collision() {
         }
     }
 }
+
+const SHARED_BAND: f32 = 2.0;
+
+#[derive(Clone, Copy)]
+enum KeepAfter {
+    Next,
+    Separate,
+}
+
+fn band_row_table(top: Option<Border>) -> Table {
+    use wordcraft_doc::props::{HeightRule, LineSpacing};
+    let line = Border { style: BorderStyle::Single, width: SHARED_BAND, color: None, space: 0.0 };
+    let mut table = Table::new(4, 1, 200.0);
+    table.props.style = None;
+    table.props.borders = Some(Borders::default());
+    table.props.cell_margins = Some([0.0; 4]);
+    for (i, row) in table.rows.iter_mut().enumerate() {
+        row.props.height = Some(20.0);
+        row.props.height_rule = HeightRule::AtLeast;
+        row.props.cant_split = true;
+        row.cells[0].props.borders = Some(Borders { top: if i == 0 { Some(line) } else { top }, bottom: Some(line), ..Default::default() });
+        let mut para = Paragraph::with_text("Original cell", Default::default());
+        para.props =
+            ParaProps { space_before: Some(0.0), space_after: Some(0.0), line_spacing: Some(LineSpacing::Exactly(10.0)), ..Default::default() };
+        row.cells[0].blocks = vec![wordcraft_doc::para_block(para)];
+    }
+    table
+}
+
+#[test]
+fn shared_band_row_minimum() {
+    let hidden = Border { style: BorderStyle::None, width: 0.0, color: None, space: 0.0 };
+    let shown = Border { style: BorderStyle::Single, width: SHARED_BAND, color: None, space: 0.0 };
+    // The previous row already paints the shared edge. Its band still clears the next cell.
+    for top in [None, Some(hidden), Some(shown)] {
+        let mut doc = Document::new();
+        doc.body = vec![std::sync::Arc::new(Block::Table(band_row_table(top)))];
+        let laid = lay(&doc);
+        let heights: Vec<_> = laid.pages[0]
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                Placed::Cell { rect, table, .. } if *table == Path::top(0) => Some(rect.h),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(heights, [22.0, 22.0, 22.0, 24.0], "top {top:?}");
+    }
+}
+
+#[test]
+fn shared_band_carries_heading() {
+    use wordcraft_doc::props::{HeightRule, LineSpacing};
+    for (page_height, heading_page) in [(150.0, 1), (156.0, 0)] {
+        let mut doc = Document::new();
+        doc.last_section.page_h = page_height;
+        doc.last_section.margin_top = 20.0;
+        doc.last_section.margin_bottom = 20.0;
+        let para = |text: &str, height, keep: KeepAfter| {
+            let mut p = Paragraph::with_text(text, Default::default());
+            p.props = ParaProps {
+                space_before: Some(0.0),
+                space_after: Some(0.0),
+                line_spacing: Some(LineSpacing::Exactly(height)),
+                keep_next: Some(matches!(keep, KeepAfter::Next)),
+                ..Default::default()
+            };
+            wordcraft_doc::para_block(p)
+        };
+        let mut next = Table::new(1, 1, 200.0);
+        next.props.style = None;
+        next.props.borders = Some(Borders::default());
+        next.props.cell_margins = Some([0.0; 4]);
+        next.rows[0].props.height = Some(60.0);
+        next.rows[0].props.height_rule = HeightRule::Exact;
+        doc.body = vec![
+            std::sync::Arc::new(Block::Table(band_row_table(None))),
+            para("", 5.0, KeepAfter::Separate),
+            para("Heading", 10.0, KeepAfter::Next),
+            para("", 8.0, KeepAfter::Separate),
+            std::sync::Arc::new(Block::Table(next)),
+        ];
+        let laid = lay(&doc);
+        assert_eq!(laid.pages.len(), 2);
+        assert_eq!(laid.caret(&Pos::body(2, 0)).unwrap().page, heading_page);
+        assert!(laid.pages[1].items.iter().any(|it| matches!(it, Placed::Cell { table, .. } if *table == Path::top(4))));
+    }
+}
+
+#[test]
+fn shared_band_exact_rows() {
+    let mut table = band_row_table(None);
+    for row in &mut table.rows {
+        row.props.height_rule = wordcraft_doc::props::HeightRule::Exact;
+    }
+    let mut doc = Document::new();
+    doc.body = vec![std::sync::Arc::new(Block::Table(table))];
+    let laid = lay(&doc);
+    let heights: Vec<_> = laid.pages[0]
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Placed::Cell { rect, .. } => Some(rect.h),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(heights, [20.0; 4]);
+}
+
+#[test]
+fn shared_band_borderless() {
+    let mut table = band_row_table(None);
+    for row in &mut table.rows {
+        row.cells[0].props.borders = Some(Borders::default());
+    }
+    let mut doc = Document::new();
+    doc.body = vec![std::sync::Arc::new(Block::Table(table))];
+    let laid = lay(&doc);
+    let heights: Vec<_> = laid.pages[0]
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Placed::Cell { rect, .. } => Some(rect.h),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(heights, [20.0; 4]);
+    assert!(!laid.pages[0].items.iter().any(|it| matches!(it, Placed::Rule { .. })));
+}
+
+#[test]
+fn shared_band_merge_boundary() {
+    use wordcraft_doc::props::VMerge;
+    let mut table = band_row_table(None);
+    table.rows[0].cells[0].props.vmerge = VMerge::Restart;
+    table.rows[1].cells[0].props.vmerge = VMerge::Continue;
+    let mut doc = Document::new();
+    doc.body = vec![std::sync::Arc::new(Block::Table(table))];
+    let laid = lay(&doc);
+    let cells: Vec<_> = laid.pages[0]
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Placed::Cell { rect, row, covered, .. } => Some((*row, rect.h, *covered)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cells, [(0, 42.0, false), (1, 20.0, true), (2, 22.0, false), (3, 24.0, false)]);
+}
+
+#[test]
+fn shared_band_grid_spans() {
+    let mut table = band_row_table(None);
+    table.rows.truncate(2);
+    table.grid = vec![100.0; 3];
+    table.props.width = Some(300.0);
+    table.props.fixed = true;
+    let cell = table.rows[0].cells[0].clone();
+    table.rows[0].cells = vec![cell.clone(), cell.clone(), cell];
+    for cell in &mut table.rows[0].cells {
+        cell.props.width = Some(100.0);
+    }
+    table.rows[0].cells[1].props.borders.as_mut().unwrap().bottom = Some(Border::single(6.0));
+    table.merge_right(0, 1, 1);
+    let mut cell = table.rows[1].cells[0].clone();
+    cell.props.width = Some(100.0);
+    cell.props.borders.as_mut().unwrap().bottom = Some(Border::single(1.0));
+    table.rows[1].cells = vec![cell.clone(), cell.clone(), cell];
+    table.merge_right(1, 0, 1);
+    let mut doc = Document::new();
+    doc.body = vec![std::sync::Arc::new(Block::Table(table))];
+    let laid = lay(&doc);
+    let height = laid.pages[0]
+        .items
+        .iter()
+        .find_map(|it| match it {
+            Placed::Cell { rect, row: 1, .. } => Some(rect.h),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(height, 27.0);
+}
