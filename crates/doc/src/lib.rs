@@ -631,11 +631,40 @@ pub struct Watermark {
     pub color: Rgb,
     pub diagonal: bool,
     pub semitransparent: bool,
+    /// The shape's box (its `style` width and height, points), which the text is stretched to
+    /// fill (`v:textpath fitshape`); `None`: the box Word's Design › Watermark gives
+    /// ([`Watermark::frame`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<[f32; 2]>,
 }
 
 impl Default for Watermark {
     fn default() -> Self {
-        Watermark { text: "DRAFT".into(), font: styles::BODY_FONT.into(), color: Rgb(0xC0, 0xC0, 0xC0), diagonal: true, semitransparent: true }
+        Watermark {
+            text: "DRAFT".into(),
+            font: styles::BODY_FONT.into(),
+            color: Rgb(0xC0, 0xC0, 0xC0),
+            diagonal: true,
+            semitransparent: true,
+            size: None,
+        }
+    }
+}
+
+impl Watermark {
+    /// The box the text fills on a page `page_w` × `page_h` (points): its own size, else half the
+    /// page diagonal across (half the page width when not diagonal), as high as the text's length
+    /// makes it. Centred on the margins and, when diagonal, turned 45° counterclockwise (Word's
+    /// `rotation:315`).
+    pub fn frame(&self, page_w: f32, page_h: f32) -> [f32; 2] {
+        if let Some([w, h]) = self.size.filter(|[w, h]| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0) {
+            return [w.min(4000.0), h.min(4000.0)];
+        }
+        let (pw, ph) = (wordcraft_geom::finite(page_w).clamp(72.0, 4000.0), wordcraft_geom::finite(page_h).clamp(72.0, 4000.0));
+        let across = if self.diagonal { (pw * pw + ph * ph).sqrt() } else { pw };
+        let width = (across * 0.5).clamp(36.0, 2000.0);
+        let chars = self.text.chars().take(200).count().max(1) as f32;
+        [width, (width / (0.55 * chars)).clamp(12.0, 400.0)]
     }
 }
 

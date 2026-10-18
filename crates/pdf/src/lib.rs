@@ -809,7 +809,8 @@ impl Exporter<'_> {
         if let Some(wm) = self.doc.settings.watermark.clone()
             && !wm.text.trim().is_empty()
         {
-            self.tagged(s, Role::Artifact(ArtifactType::Watermark), None, |me, s| me.watermark(s, &wm, w, h));
+            let area = page.body;
+            self.tagged(s, Role::Artifact(ArtifactType::Watermark), None, |me, s| me.watermark(s, &wm, w, h, area));
         }
         let dopts = DisplayOptions {
             marks: false,
@@ -1574,7 +1575,11 @@ impl Exporter<'_> {
         Some(o)
     }
 
-    fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32) {
+    /// The watermark text stretched over its box (Word's `v:textpath fitshape`): its advance across
+    /// the box's width, its em down the box's height with the em's foot (the font's descent below
+    /// the baseline) on the box's bottom; the box centred on the margins (`area`, else the page)
+    /// and, when diagonal, turned 45° counterclockwise.
+    fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32, area: Rect) {
         let r = wordcraft_fonts::word::resolve(&wm.font, false, false);
         let face = r.face;
         let text: String = wm.text.chars().take(200).collect();
@@ -1584,13 +1589,14 @@ impl Exporter<'_> {
         if raw_w <= 0.0 || !raw_w.is_finite() {
             return;
         }
-        let hh = h.min(2000.0);
-        let diag = if wm.diagonal { (w * w + hh * hh).sqrt() } else { w };
-        let size = (diag * 0.7 / raw_w).min(300.0);
-        let angle = if wm.diagonal { -(hh / w.max(1.0)).atan() } else { 0.0 };
+        let [bw, bh] = wm.frame(w, h);
+        let size = bh.min(2000.0);
+        let stretch = bw / (raw_w * size);
+        let descent = (wordcraft_fonts::word::line_metrics(&face).1 / face.upem.max(1.0)) as f32;
+        let angle = if wm.diagonal { -std::f32::consts::FRAC_PI_4 } else { 0.0 };
         let (c, sn) = (angle.cos(), angle.sin());
-        let (dx, dy) = (-raw_w * size / 2.0, size * 0.35);
-        let (cx, cy) = (w / 2.0, hh / 2.0);
+        let (dx, dy) = (-bw / 2.0, bh / 2.0 - descent.clamp(0.0, 1.0) * bh);
+        let (cx, cy) = if area.w > 0.0 && area.h > 0.0 { (area.x + area.w / 2.0, area.y + area.h / 2.0) } else { (w / 2.0, h.min(2000.0) / 2.0) };
         let font = self.font(&face);
         if font.is_none() && !self.outlined.contains(&face.id()) {
             return;
@@ -1612,7 +1618,7 @@ impl Exporter<'_> {
                 )
             })
             .collect();
-        s.push_transform(&Transform::from_row(c, sn, -sn, c, c * dx - sn * dy + cx, sn * dx + c * dy + cy));
+        s.push_transform(&Transform::from_row(c * stretch, sn * stretch, -sn, c, c * dx - sn * dy + cx, sn * dx + c * dy + cy));
         s.set_stroke(None);
         s.set_fill(Some(fill(wm.color, if wm.semitransparent { 0.5 } else { 1.0 })));
         match font {

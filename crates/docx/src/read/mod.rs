@@ -257,6 +257,17 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
             r.doc.last_section = r.read_section(s, &rels);
         }
     }
+    // A watermark in the box Word's Design › Watermark gives it for the page keeps no box of its
+    // own: it follows the page, as when it was made.
+    let (pw, ph) = (r.doc.last_section.page_w, r.doc.last_section.page_h);
+    if let Some(wm) = r.doc.settings.watermark.as_mut()
+        && let Some([w, h]) = wm.size
+    {
+        let [dw, dh] = wordcraft_doc::Watermark { size: None, ..wm.clone() }.frame(pw, ph);
+        if (w - dw).abs() < 0.06 && (h - dh).abs() < 0.06 {
+            wm.size = None;
+        }
+    }
 
     let core = root_rels.by_type(rt::CORE).map(|x| x.target.clone()).unwrap_or_else(|| "docProps/core.xml".into());
     r.read_core(&core);

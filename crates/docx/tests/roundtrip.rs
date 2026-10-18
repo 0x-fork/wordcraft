@@ -1511,7 +1511,10 @@ fn watermark_roundtrips() {
             color: Rgb(0x80, 0x10, 0x20),
             diagonal: false,
             semitransparent: false,
+            size: None,
         },
+        // A box of its own (not Word's default for the page) is kept.
+        Watermark { text: "COPY".into(), size: Some([300.0, 80.0]), ..Default::default() },
     ] {
         let mut d = doc_with(vec![Paragraph::with_text("Body", CharProps::default())]);
         d.settings.watermark = Some(wm.clone());

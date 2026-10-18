@@ -1860,3 +1860,55 @@ fn pages_print_scaled_to_other_paper() {
         assert_eq!(size(&bytes), size(&plain));
     }
 }
+
+#[test]
+fn a_watermark_fills_its_box() {
+    // Word stretches the watermark's text over its shape (`fitshape`): one em down the box's
+    // height, the advance across its width, the box centred on the margins. WordCraft made the
+    // text 70 % of the page diagonal, whatever the box.
+    let mut d = Document::new();
+    d.body = vec![para_block(Paragraph::with_text("Body", CharProps::default()))];
+    d.settings.watermark = Some(Watermark { text: "COPY".into(), diagonal: false, size: Some([300.0, 80.0]), ..Default::default() });
+    let frames = glyph_frames(&export(&d, &PdfOptions::default()).unwrap());
+    // (Glyph space is a thousandth of the size.)
+    let wm: Vec<&(f64, f64, f64)> = frames.iter().filter(|f| (f.2 * 1000.0 - 80.0).abs() < 0.01).collect();
+    assert_eq!(wm.len(), 4, "four letters one box high: {frames:?}");
+    let s = &d.last_section;
+    let centre = f64::from(s.margin_left + (s.page_w - s.margin_left - s.margin_right) / 2.0);
+    assert!((wm[0].0 - (centre - 150.0)).abs() < 0.05, "the text starts at the box's left edge: {wm:?}");
+    // Stretched across (the box is wider than the text at 80 pt), the same for every letter.
+    assert!(wm.iter().all(|f| f.1 > f.2 * 1.01 && (f.1 - wm[0].1).abs() < 1e-6), "{wm:?}");
+}
+
+/// Each glyph drawn as text: its origin and its horizontal and vertical scale, in page space.
+fn glyph_frames(bytes: &[u8]) -> Vec<(f64, f64, f64)> {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    struct Frames(Vec<(f64, f64, f64)>);
+    impl Device<'_> for Frames {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, _: &kurbo::BezPath, _: kurbo::Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+        fn push_clip_path(&mut self, _: &ClipPath) {}
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, _: &Glyph<'_>, transform: kurbo::Affine, glyph: kurbo::Affine, _: &Paint<'_>, _: &GlyphDrawMode) {
+            let [a, b, c, d, e, _] = (transform * glyph).as_coeffs();
+            self.0.push((e, a.hypot(b), c.hypot(d)));
+        }
+        fn draw_image(&mut self, _: Image<'_, '_>, _: kurbo::Affine) {}
+        fn pop_clip_path(&mut self) {}
+        fn pop_transparency_group(&mut self) {}
+    }
+    let pdf = Pdf::new(bytes.to_vec()).expect("parse");
+    let cache = InterpreterCache::new();
+    let mut f = Frames(Vec::new());
+    for page in pdf.pages().iter() {
+        let mut ctx = Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+        interpret_page(page, &mut ctx, &mut f);
+    }
+    f.0
+}

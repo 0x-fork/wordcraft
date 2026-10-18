@@ -648,15 +648,23 @@ fn draw_watermark(ctx: &mut RenderContext, view: Affine, page: &Page, wm: &wordc
     if raw_w <= 0.0 {
         return;
     }
-    // The document page, not a Print Markup area beside it.
+    // The document page, not a Print Markup area beside it. The text stretched over its box
+    // (Word's `v:textpath fitshape`): its advance across the box, its em down it with the em's foot
+    // on the box's bottom; the box centred on the margins and, when diagonal, turned 45°.
     let pw = (page.w - page.markup.max(0.0)).max(1.0) as f64;
-    let diag = if wm.diagonal { (pw.powi(2) + (page.h.min(2000.0) as f64).powi(2)).sqrt() } else { pw };
-    let size = (diag * 0.5 / raw_w).min(200.0);
+    let [bw, bh] = wm.frame(pw as f32, page.h).map(f64::from);
+    let size = bh.min(2000.0);
     let k = size / upem;
-    let angle = if wm.diagonal { -((page.h.min(2000.0) as f64) / pw).atan() } else { 0.0 };
-    let base = Affine::translate((pw / 2.0, page.h.min(2000.0) as f64 / 2.0))
+    let stretch = bw / (raw_w * size);
+    let descent = (wordcraft_fonts::word::line_metrics(&face).1 / upem).clamp(0.0, 1.0);
+    let angle = if wm.diagonal { -std::f64::consts::FRAC_PI_4 } else { 0.0 };
+    let b = page.body;
+    let (cx, cy) =
+        if b.w > 0.0 && b.h > 0.0 { (f64::from(b.x + b.w / 2.0), f64::from(b.y + b.h / 2.0)) } else { (pw / 2.0, page.h.min(2000.0) as f64 / 2.0) };
+    let base = Affine::translate((cx, cy))
         * Affine::rotate(angle)
-        * Affine::translate((-raw_w * size / 2.0, size * 0.35));
+        * Affine::translate((-bw / 2.0, bh / 2.0 - descent * bh))
+        * Affine::scale_non_uniform(stretch, 1.0);
     ctx.set_paint(color(opts.ink(wm.color), if wm.semitransparent { 0.35 } else { 0.8 }));
     let db = FontDb::global();
     let mut x = 0.0;
