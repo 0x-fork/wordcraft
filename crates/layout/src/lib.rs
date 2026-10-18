@@ -503,7 +503,7 @@ struct Key {
     rev: u64,
     width: u32,
     label: Option<String>,
-    page: Option<(u32, u32, u32, u32, u64)>,
+    page: Option<(u32, u32, u32, u32, u64, wordcraft_doc::section::NumFormat)>,
     /// The pages a split paragraph's fields are on after its first (`FieldCtx::page_from`).
     page_from: u64,
     table: u64,
