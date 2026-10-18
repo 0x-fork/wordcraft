@@ -378,10 +378,14 @@ fn select_sentence(s: &mut Session, _: &Value) -> CmdResult {
     select_unit(s, Unit::Sentence)
 }
 
-/// A triple-click on the last paragraph of a table cell selects the cell (Word takes its end
-/// mark too, which shades it), so its borders then move on their own (`table.resizeDrag`).
-fn select_paragraph(s: &mut Session, _: &Value) -> CmdResult {
+/// A triple-click (`cell: true`) on the last paragraph of a table cell selects the cell (Word
+/// takes its end mark too, which shades it), so its borders then move on their own
+/// (`table.resizeDrag`). Without `cell` (the ribbon's Select Paragraph) only the paragraph is selected.
+fn select_paragraph(s: &mut Session, v: &Value) -> CmdResult {
     let r = select_unit(s, Unit::Paragraph);
+    if v.get("cell").and_then(Value::as_bool) != Some(true) {
+        return r;
+    }
     let (a, b) = (s.sel.anchor.clone(), s.sel.focus.clone());
     let n = a.path.0.len();
     if a.story == b.story

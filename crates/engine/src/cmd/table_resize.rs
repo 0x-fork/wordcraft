@@ -1028,7 +1028,7 @@ mod tests {
             }
             "triple" => {
                 s.run("caret.set", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": y})).unwrap();
-                s.run("select.paragraph", &json!({})).unwrap();
+                s.run("select.paragraph", &json!({"cell": true})).unwrap();
             }
             _ => {
                 s.run("caret.set", &json!({"page": 0, "x": b.x + b.w / 2.0, "y": y})).unwrap();
@@ -1131,6 +1131,9 @@ mod tests {
             s.run("text.insert", &json!({"text": "Two"})).unwrap();
             s.run("select.text", &json!({"text": if last { "Two" } else { "One" }})).unwrap();
             s.run("select.paragraph", &json!({})).unwrap();
+            assert!(s.cell_range().is_none(), "the ribbon's Select Paragraph never selects the cell");
+            s.run("select.text", &json!({"text": if last { "Two" } else { "One" }})).unwrap();
+            s.run("select.paragraph", &json!({"cell": true})).unwrap();
             assert_eq!(s.cell_range().is_some(), last);
             let b = cell_rect(&mut s, 1, 1);
             let y = b.y + b.h / 2.0;

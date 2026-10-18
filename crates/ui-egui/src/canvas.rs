@@ -2372,7 +2372,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         return;
     }
     if resp.triple_clicked() {
-        let _ = app.run("select.paragraph", json!({}));
+        let _ = app.run("select.paragraph", json!({"cell": true}));
         return;
     }
     let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);
