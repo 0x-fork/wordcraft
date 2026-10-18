@@ -2686,3 +2686,5 @@ template	Letter	Thư
 	Other:	Khác:
 	The number must be between 1 and {max}.	Số phải nằm trong khoảng từ 1 đến {max}.
 	The measurement must be between {min} and {max}.	Số đo phải nằm trong khoảng từ {min} đến {max}.
+	Recently Used Fonts	Phông chữ dùng gần đây
+	All Fonts	Tất cả phông chữ

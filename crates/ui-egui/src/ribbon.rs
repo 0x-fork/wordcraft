@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::colors::{Remember, Target};
 use crate::options::MeasureExt;
 use crate::theme::{Tokens, medium, regular, semibold};
-use crate::widgets::{CONTENT_H, LABEL_H, big, big_toggle, combo, font_combo, group, menu_button, small, split};
+use crate::widgets::{CONTENT_H, LABEL_H, big, big_toggle, combo, font_combo_with_recent, group, menu_button, small, split};
 use crate::{WordApp, icons};
 
 pub const TABS: [&str; 13] = wordcraft_engine::ribbon::TABS;
@@ -927,8 +927,9 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 let font = st.get("font").and_then(Value::as_str).unwrap_or("").to_string();
                 let font = app.previews.font_shown(&font);
                 let fams = app.previews.families();
+                let recent: Vec<String> = app.ui.recent_fonts.iter().map(|f| app.previews.font_shown(f)).collect();
                 let prev = app.previews.font_preview_fn();
-                if let Some(f) = font_combo(ui, "font", 150.0, &font, &fams, Some(&*prev)) {
+                if let Some(f) = font_combo_with_recent(ui, "font", 150.0, &font, &fams, &recent, Some(&*prev)) {
                     let _ = if f == crate::widgets::ADD_FONT {
                         app.run("font.add", json!({}))
                     } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
