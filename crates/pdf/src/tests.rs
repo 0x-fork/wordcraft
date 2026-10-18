@@ -1461,6 +1461,32 @@ fn right_to_left_clusters_are_written_whole_left_to_right() {
     assert_eq!(visual_order(text, &glyphs, &ranges, &parts), [5, 4, 2, 3, 0, 1]);
 }
 
+/// A PNG signature, an IHDR declaring `w`×`h` 8-bit RGBA and a short IDAT (all CRCs valid, so
+/// the header parses), with no real pixel data.
+fn ihdr_only_png(w: u32, h: u32) -> Vec<u8> {
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        let mut crc = 0xFFFF_FFFFu32;
+        for b in &body {
+            crc ^= *b as u32;
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            }
+        }
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(&body);
+        out.extend_from_slice(&(!crc).to_be_bytes());
+    }
+    let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    let mut ihdr = w.to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&h.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+    chunk(&mut out, b"IHDR", &ihdr);
+    chunk(&mut out, b"IDAT", &[0x78, 0x9c, 0, 0]);
+    out
+}
+
 #[test]
 fn extreme_page_index_returns_an_error() {
     let d = Document::from_text("Hostile page selection");
@@ -1622,4 +1648,17 @@ fn zero_width_connector_dashes() {
         assert!(raw.contains("0.75 w"), "effective width for {kind:?}");
         assert!(raw.contains("[3 2.25]0 d"), "stroke-relative dash array for {kind:?}");
     }
+}
+
+#[test]
+fn image_budget_is_checked_from_the_header() {
+    let data = Arc::new(png());
+    // The decoded image and its RGBA conversion are charged: two buffers at peak.
+    assert!(load_image_within(&data, 1024).is_some());
+    assert!(load_image_within(&data, 1023).is_none());
+    // A header (valid CRC) claiming 30000x30000 with no pixel data reads fine, then the budget refuses it.
+    let hdr = ihdr_only_png(30_000, 30_000);
+    let dims = image::ImageReader::new(std::io::Cursor::new(hdr.as_slice())).with_guessed_format().unwrap().into_dimensions().unwrap();
+    assert_eq!(dims, (30_000, 30_000));
+    assert!(load_image(&Arc::new(hdr)).is_none());
 }
