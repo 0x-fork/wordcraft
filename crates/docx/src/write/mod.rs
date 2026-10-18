@@ -1,5 +1,6 @@
 //! [`Document`] → DOCX.
 
+mod bidi;
 mod embed;
 mod glossary;
 mod settings_merge;

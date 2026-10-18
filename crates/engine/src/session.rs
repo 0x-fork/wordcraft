@@ -1354,8 +1354,18 @@ impl Session {
         self.sel.focus.story
     }
 
-    /// Formatting typing would use at the caret.
+    /// Formatting typing would use at the caret: the caret's, except run direction. New text
+    /// takes its direction from its own letters, as on screen, so Latin typed or inserted into
+    /// reopened Hebrew isn't saved as right-to-left; the DOCX writer marks right-to-left pieces
+    /// itself (#1543). The bidi language stays (it only applies to complex-script text).
     pub fn typing_props(&self) -> CharProps {
+        let mut c = self.caret_props();
+        c.rtl = None;
+        c
+    }
+
+    /// The caret's formatting, as Reveal Formatting shows it.
+    pub fn caret_props(&self) -> CharProps {
         if let Some(p) = &self.pending {
             return p.clone();
         }
