@@ -104,7 +104,7 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Spanish | es | partial | ~95% |
 | Hindi | hi | none | 0% |
 | Arabic | ar | none (document shaping and bidi work; no mirrored UI) | 0% |
-| French | fr | partial (interface) | ~95% |
+| French | fr | partial (interface complete, native-speaker reviewed; no proofing) | 100% (2,615 entries) |
 | Portuguese | pt-br (pt-PT none) | partial | ~95% |
 | Indonesian | id | none | 0% |
 | Japanese | ja | partial | ~95% |
@@ -190,6 +190,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-17 | DOCX glossary documents (building blocks) open into the model: Insert › Quick Parts and AutoText list and insert the document's own entries, and saving an entry with `"in": "document"` keeps it in the file (undoable). An untouched glossary is saved back byte for byte; an edited one is written from the model |
 | 2026-10-16 | Indonesian proofing (#498): id-ID spelling reads the installed Hunspell `id_ID` dictionary (`hunspell-id` on Debian/Ubuntu, LibreOffice's `dict-id`, or the Dictionaries folder), suggestions use its MAP/REP/TRY/KEY tables, generic repeated-word (offering `anak-anak`) and spacing checks explain in Indonesian; Review › Language, Set Proofing Language and File › Options › Proofing offer Indonesian. No dictionary data bundled; hyphenation keeps the English fallback; parity estimates unchanged |
 | 2026-10-17 | A table inserted in a right-to-left paragraph is a right-to-left table, like Word, so Tab moves right to left through its cells (#2634) |
+| 2026-10-16 | French interface catalog completed: 402 entries added (equation gallery, built-in style and table-style names, citation styles, paper sizes, watermarks, Bookmark / Go To / Print dialogs), 2,615 in all, with a native-speaker review of the terminology; no French proofing yet |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-15 | Layout › Columns with text selected puts only that text in columns, as in Word (#2024): a continuous section break goes where the selection starts and one where it ends (splitting a paragraph there; none at the document's start or end, or where a section already begins or ends), and the columns go on the section between, one undo step; More Columns… offers "Selected text" and picks it. Before, the whole section took the columns |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
