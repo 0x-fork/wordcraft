@@ -595,7 +595,7 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 9] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 10] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("pl-PL", "Polish"),
@@ -605,6 +605,7 @@ pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 9] = [
     ("tr-TR", "Turkish"),
     ("ru-RU", "Russian"),
     ("cs-CZ", "Czech"),
+    ("id-ID", "Indonesian"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -644,6 +645,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
             wordcraft_engine::proof::ProofLang::Tr => "Turkish".into(),
             wordcraft_engine::proof::ProofLang::Ru => "Russian".into(),
             wordcraft_engine::proof::ProofLang::Cs => "Czech".into(),
+            wordcraft_engine::proof::ProofLang::Id => "Indonesian".into(),
             wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
             _ => tag.to_string(),
         },
@@ -759,6 +761,7 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
             || (tag == "hr-HR" && current.eq_ignore_ascii_case("hr"))
             || (tag == "tr-TR" && current.eq_ignore_ascii_case("tr"))
             || (tag == "cs-CZ" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Cs)
+            || (tag == "id-ID" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Id)
             || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
     };
     let checks = language_checks(&current, listed);
@@ -834,6 +837,29 @@ pub(crate) fn wrap_text_items(ui: &mut Ui, app: &mut WordApp) {
     mi_check(ui, app, "Fix Position on Page", with_text == Some(false), "arrange.moveWithText", json!({"value": false}));
 }
 
+/// The Format Painter button. A click arms it for one use (blue border only); a double-click keeps
+/// it on across several uses (full checked look), like Word. Esc or another click turns it off.
+fn format_painter_button(ui: &mut Ui, app: &mut WordApp) {
+    let sticky = matches!(app.session.painter, Some((_, _, true)));
+    let armed = app.session.painter.is_some();
+    let resp = small(ui, app, "painter", Some("Format"), "Format Painter", "edit.formatPainter", json!({}), sticky);
+    if resp.double_clicked() {
+        painter_double_click(app);
+    } else if armed && !sticky {
+        let t = Tokens::get(ui.ctx());
+        ui.painter().rect_stroke(resp.rect, egui::CornerRadius::same(4), Stroke::new(1.0, t.accent.linear_multiply(0.5)), egui::StrokeKind::Inside);
+    }
+}
+
+/// A double-click fires `clicked()` twice, so by now the painter has been armed and disarmed again.
+/// Arm it once more, this time sticky.
+fn painter_double_click(app: &mut WordApp) {
+    if app.session.painter.is_some() {
+        let _ = app.run("edit.formatPainter", json!({}));
+    }
+    let _ = app.run("edit.formatPainter", json!({"sticky": true}));
+}
+
 fn home(app: &mut WordApp, ui: &mut Ui) {
     let st = app.session.run("format.state", &json!({})).unwrap_or_default();
     let flag = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
@@ -847,8 +873,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
         stack(ui, |ui| {
             small(ui, app, "cut", Some("Cut"), "Cut", "edit.cut", json!({}), false);
             small(ui, app, "copy", Some("Copy"), "Copy", "edit.copy", json!({}), false);
-            let active = app.session.painter.is_some();
-            small(ui, app, "painter", Some("Format"), "Format Painter", "edit.formatPainter", json!({}), active);
+            format_painter_button(ui, app);
         });
     });
     group(ui, "Font", Some("format.fontDialog"), app, |ui, app| {
@@ -2766,6 +2791,18 @@ mod tests {
     use super::*;
     use wordcraft_engine::Session;
 
+    /// Two clicks arm and disarm the painter; the double-click handling then leaves it sticky (#2785).
+    #[test]
+    fn double_click_on_format_painter_makes_it_sticky() {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        app.run("edit.formatPainter", json!({})).unwrap();
+        assert!(matches!(app.session.painter, Some((_, _, false))), "one click arms it for one use");
+        app.run("edit.formatPainter", json!({})).unwrap();
+        assert!(app.session.painter.is_none(), "the second click of a double-click turns it off");
+        painter_double_click(&mut app);
+        assert!(matches!(app.session.painter, Some((_, _, true))), "the double-click leaves it sticky");
+    }
+
     fn png_data() -> String {
         let img = image::RgbaImage::from_fn(20, 10, |x, y| {
             if x > 2 && x < 17 && y > 2 && y < 7 { image::Rgba([200, 30, 30, 255]) } else { image::Rgba([255, 255, 255, 255]) }
@@ -2822,16 +2859,31 @@ mod tests {
         h.get_by_label("None").click();
         h.run_steps(2);
         assert_eq!(run(&h).underline, Some(Underline::None));
-        h.state_mut().run("format.underlineColor", json!({"color": "C00000"})).unwrap();
-        assert_eq!(run(&h).underline_color, wordcraft_doc::Rgb::parse("C00000"));
+        h.get_by_label("Double").click();
+        h.run_steps(2);
         // The submenu opens on a click once the pointer is on it.
-        h.get_by_label("Underline Color").hover();
-        h.run();
-        h.get_by_label("Underline Color").click();
-        h.run();
+        let open_colors = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            h.get_by_label("Underline Color").hover();
+            h.run();
+            h.get_by_label("Underline Color").click();
+            h.run();
+        };
+        open_colors(&mut h);
+        // Standard Colors' first swatch (C00000) sits just under its heading; swatches have no label.
+        let heading = h.get_by_label("Standard Colors").rect();
+        let at = egui::pos2(heading.left() + 7.0, heading.bottom() + 10.0);
+        h.event(egui::Event::PointerMoved(at));
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+        h.step();
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+        h.run_steps(3);
+        assert_eq!(run(&h).underline_color, wordcraft_doc::Rgb::parse("C00000"));
+        assert_eq!(run(&h).underline, Some(Underline::Double), "a colour keeps the style");
+        open_colors(&mut h);
         h.get_by_label_contains("Automatic").click();
         h.run_steps(2);
         assert_eq!(run(&h).underline_color, None);
+        assert_eq!(run(&h).underline, Some(Underline::Double));
     }
 
     /// #658: menu buttons grey out (and don't open) while the command their menu is about is
@@ -2901,6 +2953,14 @@ mod tests {
         let c = language_checks("PT-br-x-test", |_| false);
         assert_eq!(c.extra, None);
         assert_eq!(c.listed, PROOFING_LANGUAGES.map(|(t, _)| t == "pt-BR"));
+    }
+
+    #[test]
+    fn indonesian_has_a_name_in_the_language_menu() {
+        assert!(PROOFING_LANGUAGES.contains(&("id-ID", "Indonesian")));
+        for tag in ["id", "id-ID", "ID-id", "ind", "in"] {
+            assert_eq!(language_name(Some(tag)), "Indonesian", "{tag}");
+        }
     }
 
     #[test]
