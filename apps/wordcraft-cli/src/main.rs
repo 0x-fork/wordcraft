@@ -1125,7 +1125,9 @@ mod tests {
         assert!(!dir.join("a.docx").exists());
     }
 
-    #[cfg(unix)]
+    /// APFS refuses file names that aren't valid UTF-8, so the fixture can't be made on macOS
+    /// (as in `tests/non_utf8_args.rs`).
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn script_file_name_need_not_be_unicode() {
         use std::os::unix::ffi::OsStringExt;
