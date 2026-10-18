@@ -188,6 +188,45 @@ fn the_scan_reads_names_without_loading_the_font() {
     assert!(file_face_names(&dir.join("missing.ttf")).is_empty());
 }
 
+/// [`renamed`]`(file)` with its `glyf` table record tagged `tag`.
+fn with_glyf_as(file: &str, tag: &[u8; 4]) -> Vec<u8> {
+    let mut data = renamed(file);
+    let tables = u16::from_be_bytes([data[4], data[5]]) as usize;
+    let glyf = (0..tables).map(|r| 12 + r * 16).find(|&at| &data[at..at + 4] == b"glyf").unwrap();
+    data[glyf..glyf + 4].copy_from_slice(tag);
+    data
+}
+
+#[test]
+fn faces_without_outlines_are_not_cataloged() {
+    // The Bold's `glyf` table is tagged `hvgl` here, as in a face with outlines only in Apple's
+    // `hvgl` table. Its cmap maps characters, and skrifa reads no outline from it.
+    let hvgl = with_glyf_as("SourceSans3-Bold.ttf", b"hvgl");
+    let font = skrifa::FontRef::new(&hvgl).unwrap();
+    assert!(font.outline_glyphs().get(font.charmap().map('A').unwrap()).is_none());
+    let dir = font_dir("outlines");
+    std::fs::write(dir.join("Sub/Sysfont-Bold.TTF"), &hvgl).unwrap();
+    assert!(file_face_names(&dir.join("Sub/Sysfont-Bold.TTF")).is_empty());
+    // In a collection, the Semibold, which has outlines, is listed.
+    std::fs::write(dir.join("Sysfont.ttc"), collection(&[hvgl, renamed("SourceSans3-Semibold.ttf")])).unwrap();
+    let semibold = format!("{FAMILY} Semibold");
+    assert_eq!(names(&dir.join("Sysfont.ttc")), [(FAMILY.to_string(), "Semibold".to_string(), semibold)]);
+    let db = FontDb::with_font_dirs(vec![dir]);
+    assert_eq!(db.styles(FAMILY), ["Regular", "Semibold"]);
+    assert_eq!(db.load_system_fonts(), 2);
+}
+
+#[test]
+fn faces_with_color_bitmaps_are_cataloged_without_outlines() {
+    // A face with a `CBDT` or `sbix` table, the color bitmap tables the renderer draws, and no
+    // outline table is listed.
+    let dir = font_dir("color-bitmaps");
+    std::fs::write(dir.join("Sysfont-Regular.ttf"), with_glyf_as("SourceSans3-Regular.ttf", b"CBDT")).unwrap();
+    std::fs::write(dir.join("Sub/Sysfont-Bold.TTF"), with_glyf_as("SourceSans3-Bold.ttf", b"sbix")).unwrap();
+    let db = FontDb::with_font_dirs(vec![dir]);
+    assert_eq!(db.styles(FAMILY), ["Regular", "Bold"]);
+}
+
 #[test]
 fn installed_weights_are_found_by_their_legacy_family_name() {
     // Semibold is not one of Regular, Bold and Italic: the font names it "Sysfont Sans3 Semibold"
