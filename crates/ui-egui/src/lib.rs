@@ -2550,10 +2550,14 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "format.enclose" if params.get("shape").is_none() => Some("enclose"),
         // Footnote and Endnote without settings shows its dialog (#385).
         "references.noteOptions" if params.as_object().is_none_or(|m| m.is_empty()) => Some("noteOptions"),
-        // References dialogs (#402): Insert Caption, Insert Index, Mark Entry, Manage Sources and
-        // Insert Citation without a source.
-        "references.caption" | "references.index" if params.as_object().is_none_or(|m| m.is_empty()) => {
-            Some(if id == "references.caption" { "caption" } else { "index" })
+        // References dialogs (#402): Insert Caption, Insert Index, Insert Table of Figures (#3013),
+        // Mark Entry, Manage Sources and Insert Citation without a source.
+        "references.caption" | "references.index" | "references.tableOfFigures" if params.as_object().is_none_or(|m| m.is_empty()) => {
+            Some(match id {
+                "references.caption" => "caption",
+                "references.index" => "index",
+                _ => "tableOfFigures",
+            })
         }
         "references.markEntry" if !has("entry") => Some("markEntry"),
         // Cross-reference without a target shows its dialog (#916); scripts get the target list.

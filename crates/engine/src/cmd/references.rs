@@ -149,6 +149,11 @@ impl FieldCode {
         self.switches.iter().any(|(k, _)| *k == c)
     }
 
+    /// A table of figures (`TOC \c` or `TOC \a`, ECMA-376 §17.16.5.68), not a table of contents.
+    pub fn is_table_of_figures(&self) -> bool {
+        self.name == "TOC" && (self.has('c') || self.has('a'))
+    }
+
     /// The argument of switch `c`, if the switch is there with one.
     pub fn arg(&self, c: char) -> Option<&str> {
         self.switches.iter().find(|(k, _)| *k == c).and_then(|(_, a)| a.as_deref())
@@ -360,7 +365,7 @@ fn convertible_toc_range(s: &Session, r: &wordcraft_doc::FieldRange) -> bool {
     let field = FieldCode::parse(&r.instr);
     toc_range(s).is_none()
         && field.name == "TOC"
-        && !field.has('c')
+        && !field.is_table_of_figures()
         && r.depth == 0
         && !r.locked
         && r.start.path.depth() == 0
@@ -425,7 +430,7 @@ fn toc_field(p: &Paragraph) -> Option<String> {
     p.objects.iter().find_map(|o| match o {
         InlineObject::Field { instr, .. } => {
             let f = FieldCode::parse(instr);
-            (f.name == "TOC" && !f.has('c')).then(|| instr.clone())
+            (f.name == "TOC" && !f.is_table_of_figures()).then(|| instr.clone())
         }
         _ => None,
     })
@@ -436,7 +441,7 @@ fn cached_toc_tabs(s: &Session) -> Vec<(String, Vec<TabStop>)> {
     let span = toc_range(s).map(|(start, end)| (start.saturating_add(1), end)).or_else(|| {
         s.doc.field_ranges(StoryRef::Body).into_iter().find_map(|r| {
             let f = FieldCode::parse(&r.instr);
-            (r.depth == 0 && !r.locked && r.start.path.depth() == 0 && r.end.path.depth() == 0 && f.name == "TOC" && !f.has('c'))
+            (r.depth == 0 && !r.locked && r.start.path.depth() == 0 && r.end.path.depth() == 0 && f.name == "TOC" && !f.is_table_of_figures())
                 .then_some((r.start.path.last(), r.end.path.last()))
         })
     });
@@ -560,7 +565,7 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>, tabs: &[(String, V
         for o in &mut p.objects {
             if let InlineObject::Field { instr, result, .. } = o {
                 let f = FieldCode::parse(instr);
-                if f.name == "TOC" && !f.has('c') {
+                if f.name == "TOC" && !f.is_table_of_figures() {
                     result.clear();
                 }
             }

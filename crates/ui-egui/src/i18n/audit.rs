@@ -238,6 +238,7 @@ fn untranslated_interface_text() {
         "index",
         "markEntry",
         "toc",
+        "tableOfFigures",
         "sourceManager",
         "createSource",
     ];
