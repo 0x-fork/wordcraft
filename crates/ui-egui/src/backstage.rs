@@ -20,6 +20,14 @@ const PAGES: [(&str, &str); 11] = [
     ("options", "Options"),
 ];
 
+/// The Backstage back chevron's centre on macOS (#1873): beside the traffic lights in a
+/// window (the title bar's content edge), at the plain control inset in full screen, where the
+/// lights aren't docked top-left and the reserved offset would leave dead space.
+fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left: f32) -> egui::Pos2 {
+    let x = if fullscreen { 26.0 } else { content_left + 3.0 };
+    pos2(band_min_x + x, center_y)
+}
+
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let recovery = app.ui.backstage_page == "recover";
@@ -49,7 +57,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
                 // The chevron's stroke starts at the content edge.
-                let c = pos2(band.min.x + app.mac_titlebar.content_left + 3.0, band.center().y);
+                let c = back_chevron_c(band.min.x, band.center().y, app.session.view.full_screen, app.mac_titlebar.content_left);
                 let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, band.height())), ui.id().with("backstage_back"), Sense::click());
                 icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
                 resp
@@ -486,6 +494,17 @@ mod tests {
 
     use super::matching_templates;
     use crate::{Services, WordApp};
+
+    /// #1873: the macOS back chevron sits beside the traffic lights windowed, at the plain
+    /// control inset in full screen.
+    #[test]
+    fn back_chevron_keeps_clear_of_traffic_lights_only_windowed() {
+        let windowed = super::back_chevron_c(0.0, 14.0, false, 70.0);
+        assert_eq!((windowed.x, windowed.y), (73.0, 14.0));
+        let full = super::back_chevron_c(0.0, 14.0, true, 70.0);
+        assert_eq!((full.x, full.y), (26.0, 14.0));
+        assert!(full.x < windowed.x);
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn recovery_app() -> (WordApp, std::path::PathBuf) {
