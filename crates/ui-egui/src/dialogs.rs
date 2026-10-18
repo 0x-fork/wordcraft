@@ -1431,6 +1431,24 @@ fn page_paper_group(ui: &mut Ui, paper: &mut (f32, f32), landscape: &mut bool, c
     });
 }
 
+/// Cancel key for dialogs: Escape everywhere, plus ⌘. (Command+Period) on macOS.
+pub(crate) fn cancel_key_pressed(ui: &Ui) -> bool {
+    ui.input(|i| i.key_pressed(egui::Key::Escape) || (cfg!(target_os = "macos") && i.modifiers.command && i.key_pressed(egui::Key::Period)))
+}
+
+/// Lays out an OK and a Cancel button right-to-left, in the platform's order:
+/// macOS puts Cancel left of the default OK button; Windows and Linux put OK left of Cancel.
+/// Returns `(ok, cancel)` responses. Call inside a right-to-left layout.
+pub(crate) fn ok_cancel_responses(ui: &mut Ui, draw_ok: impl FnOnce(&mut Ui) -> egui::Response, cancel: &str) -> (egui::Response, egui::Response) {
+    if cfg!(target_os = "macos") {
+        let okb = draw_ok(ui);
+        (okb, ui.button(cancel))
+    } else {
+        let cancelb = ui.button(cancel);
+        (draw_ok(ui), cancelb)
+    }
+}
+
 pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
     let mut r = (false, false);
     ui.add_space(8.0);
@@ -1438,10 +1456,10 @@ pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Enter and Escape belong to the Colors dialog while it is open above this one.
             let keys = !crate::colors::is_open(ui.ctx());
-            if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+            let (okb, cancelb) = ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, ok)), tl!("Cancel"));
+            if cancelb.clicked() || (keys && cancel_key_pressed(ui)) {
                 r.1 = true;
             }
-            let okb = ui.add(crate::widgets::primary_button(ui, ok));
             if okb.clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                 r.0 = true;
             }
