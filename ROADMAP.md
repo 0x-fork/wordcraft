@@ -138,6 +138,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 | 2026-10-14 | RTF export writes every section (gap 19): `\sect` ends each section and `\sectd` carries its break type, page size and orientation, margins, columns, page numbering and title page, so multi-section documents survive an RTF round trip |
+| 2026-10-14 | `ASK` and `SET` fields no longer show their stored result on the page or in PDFs (#1765): like Word, they only assign text to a bookmark and draw nothing; the stored result is kept and saved |
 | 2026-10-14 | ODT export writes sections (gap 19): every new-page section gets its own page layout and master page (the first stays "Standard"), named by its first paragraph or table with the page-numbering restart; a continuous section with columns is written as a columned `text:section`, so a landscape, two-column or restarted part survives a save as .odt |
 | 2026-10-14 | A bulleted or numbered list item that starts with a lower-case word no longer gets the grammar squiggle for a missing sentence capital (#1741): list items are often fragments, so the sentence-capital rule (every proofed language) skips the first word of a list paragraph (own or style numbering); later sentences in the item are still checked |
 | 2026-10-16 | The Spike, as in Word: Ctrl+F3 (⌘F3 on macOS) cuts the selection and adds it to the end of the Spike, each piece followed by a paragraph mark; Ctrl+Shift+F3 (⌘⇧F3) inserts everything collected, in order and with its formatting, and empties the Spike. The clipboard is left alone; each is one undo step. The Spike is the AutoText entry "Spike", so Insert › Quick Parts inserts it without emptying it. It lasts for the session (Word keeps it in Normal.dotm) |
@@ -468,6 +469,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-15 | trivial | Progress log: image size limits checked before allocation (#1321) |
 | 2026-10-17 | trivial | Progress log: Read Aloud speaks each sentence in its own language, #1843 |
 | 2026-10-17 | trivial | Language dialog keeps inherited proofing language and no-proof choices (#2717); readiness estimates unchanged |
+| 2026-10-14 | trivial | Progress log: ASK and SET fields show nothing (#1765) |
 | 2026-10-14 | trivial | Progress log: ODT sections on export (gap 19) |
 | 2026-10-17 | trivial | Explicit DrawingML preset/custom outline dashes survive import/save and paint in raster/PDF, scaled to the effective stroke width even for zero-width paths. Synthetic controls; theme-inherited dashes and line caps remain unverified. |
 | 2026-10-15 | trivial | `wordcraft-cli convert --update-fields` explicitly refreshes unlocked fields before conversion; ordinary conversion keeps cached results. Field refresh can change pagination |
