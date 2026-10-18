@@ -172,6 +172,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | Grouped `flowChartOr` shapes draw their circle and crossing spokes, as in Word |
 | 2026-10-14 | Deleting a comment removes its anchors from headers, footers, notes and text boxes too, not just the body, and deletes the whole thread below it, replies to replies included; no anchor or reply is left pointing at a deleted comment (#1345) |
 | 2026-10-14 | Legacy DOC DIB conversion checks the BMP header and copy before allocation, uses the caller's decode allowance, and caps PNG output while encoding; a BMP fallback is kept when it fits. A generated 1-pixel regression covers 57/58/512-byte limits. Resource-exhaustion consequences remain unmeasured. Related: #1334 and #1554 |
+| 2026-10-15 | Draw: Ink to Shape makes two-stroke arrows and arrows with a closed triangle head. A line plus a separate head stroke (an open V or a small closed triangle, drawn after the line or before it) whose apex sits at one of the line's ends becomes one straight arrow connector, and the head stroke goes, in one undo step; this works while drawing with Ink to Shape on and on lasso-selected strokes with Convert to Shapes. A shaft with a small triangle drawn round its tip in the same stroke is an arrow too; a triangle without a shaft stays a triangle. Our own design (Word for Mac has no Ink to Shape). |
 | 2026-10-13 | Justified vertical page alignment (#1320): a section set to Justified spreads each page's paragraphs and tables from the top margin to the bottom one, as Word does, including the last page and pages ending in a manual page break. DOCX `w:vAlign="both"` opens as Justified (it showed centred) and saves back; `layout.verticalAlign` takes `justify`, and Page Setup has a Vertical alignment box |
 | 2026-10-13 | macOS shortcuts as in Word for Mac: ⌘⇧S Save As, ⌘⌥E Insert Endnote, ⌘⌥A New Comment, ⌃H Replace, ⌘⌥R collapse the ribbon |
 | 2026-10-13 | The status bar flags a proofing language whose Hunspell dictionary isn't installed (Polish, Portuguese): "Polish (no dictionary)", with a tooltip naming the dictionary and where it is looked up (#1167) |
@@ -464,6 +465,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | trivial | Floating-table overlap checks use visible line content; empty line-break lines no longer move a table |
 | 2026-10-14 | trivial | Progress log: deleting a comment leaves no dangling anchors or replies (#1345) |
 | 2026-10-14 | minor | Legacy DOC DIB conversion byte limits only; related #1334/#1554, stage and readiness estimates unchanged |
+| 2026-10-15 | trivial | Progress log: Ink to Shape two-stroke and closed-head arrows |
 | 2026-10-13 | trivial | Progress log: justified vertical page alignment (#1320) |
 | 2026-10-14 | trivial | Progress log: file names that aren't valid Unicode (#1440) |
 | 2026-10-13 | trivial | Behind Text pictures and shapes drag over overlapping text in the body and headers, selected or not, while ordinary clicks keep editing text; In Front of Text drag covered too |
