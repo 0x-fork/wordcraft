@@ -405,8 +405,9 @@ pub struct ParaEnv<'a> {
     pub show_hidden: bool,
     /// Show field codes instead of results ([`crate::LayoutOptions::field_codes`]).
     pub field_codes: bool,
-    /// Leave tracked deletions out, like hidden text (the final, "No Markup" text).
-    pub hide_deleted: bool,
+    /// Which tracked deletions to leave out, like hidden text (all of them in the final, "No
+    /// Markup" text).
+    pub hide_deleted: crate::HideDeleted,
     /// The table style's formatting for text in this paragraph's cell (`None` outside tables).
     pub table: Option<&'a CellText>,
     /// Check spelling (and grammar, as the options say) for squiggles; `None` = no squiggles.
@@ -633,6 +634,27 @@ pub(crate) fn remap_range(map_starts: &[usize], orig_of: &[usize], orig_len: usi
     (s.min(e), s.max(e))
 }
 
+/// The bidi levels a piece of text is shaped by.
+#[derive(Clone, Copy)]
+enum Dir<'l> {
+    /// Paragraph text: the paragraph's levels at the piece's offset.
+    Para,
+    /// Text laid out on its own (a field result): these levels, by byte of the text.
+    Own(&'l [u8]),
+    /// Each strong run in its own direction (list labels, ruby, left-to-right results).
+    Guess,
+}
+
+/// The direction of `c` if it is a strong letter (UAX #9 P2): `Some(true)` right to left.
+fn strong_rtl(c: char) -> Option<bool> {
+    use unicode_bidi::BidiClass::{AL, L, R};
+    match unicode_bidi::bidi_class(c) {
+        R | AL => Some(true),
+        L => Some(false),
+        _ => None,
+    }
+}
+
 /// Bidi embedding levels per byte of `text` (UAX #9 rules up to I2), or empty when the
 /// paragraph is left to right and has no right-to-left characters.
 pub fn bidi_levels(text: &str, rtl_para: bool) -> Vec<u8> {
@@ -791,12 +813,11 @@ impl<'a> Builder<'a> {
 
     /// Shape `text` (a piece of the paragraph starting at byte `base`) in one style and append clusters.
     fn shape(&mut self, text: &str, base: usize, rc: &Arc<ResolvedChar>, kind_override: Option<ClKind>) {
-        self.shape_with(text, base, rc, kind_override, true);
+        self.shape_with(text, base, rc, kind_override, Dir::Para);
     }
 
-    /// `para_text`: `text` is paragraph text at `base`, so the paragraph's bidi levels apply
-    /// (false for field results and list labels, which are shaped on their own).
-    fn shape_with(&mut self, text: &str, base: usize, rc: &Arc<ResolvedChar>, kind_override: Option<ClKind>, para_text: bool) {
+    /// `dir`: the bidi levels `text` is shaped by (see [`Dir`]).
+    fn shape_with(&mut self, text: &str, base: usize, rc: &Arc<ResolvedChar>, kind_override: Option<ClKind>, dir: Dir<'_>) {
         if text.is_empty() {
             return;
         }
@@ -818,8 +839,14 @@ impl<'a> Builder<'a> {
             .map(|f| wordcraft_fonts::word::resolve(f, rc.bold, rc.italic))
             .filter(|r| !r.substituted)
             .map(|r| r.face);
-        let use_levels = para_text && !self.levels.is_empty();
-        let context = if self.env.numeral == NumeralMode::Context && use_levels { context_digit_dirs(text, &self.levels, base) } else { Vec::new() };
+        // The levels by byte of `text`, from `lbase` on.
+        let (levels, lbase): (&[u8], usize) = match dir {
+            Dir::Para => (&self.levels, base),
+            Dir::Own(l) => (l, 0),
+            Dir::Guess => (&[], 0),
+        };
+        let use_levels = !levels.is_empty();
+        let context = if self.env.numeral == NumeralMode::Context && use_levels { context_digit_dirs(text, levels, lbase) } else { Vec::new() };
         // A missing Thai font: one face for the run's Thai and Latin text (#1549). A run with its
         // own complex-script font keeps that font for the Thai letters.
         let run_face: Option<FaceRef> = if primary_cs.is_none_or(|f| f.id() == primary.id()) {
@@ -848,7 +875,7 @@ impl<'a> Builder<'a> {
         let mut cur: Option<SegKey> = None;
         let mut segs: Vec<(usize, usize, SegKey)> = Vec::new();
         for (i, c) in text.char_indices() {
-            let rtl = use_levels && self.levels.get(base + i).is_some_and(|l| l % 2 == 1);
+            let rtl = use_levels && levels.get(lbase + i).is_some_and(|l| l % 2 == 1);
             // A symbol-font character becomes its Unicode symbol (#776).
             let c = show(c);
             // Displayed form (Word › Numeral): one char in, one char out. Coverage and the
@@ -1002,8 +1029,14 @@ impl<'a> Builder<'a> {
 
     /// One cluster for a whole object with its display text (fields, note references).
     fn shape_atomic(&mut self, text: &str, start: usize, end: usize, rc: &Arc<ResolvedChar>) {
+        // Right-to-left text in the result reads like ordinary text (UAX #9, #1670): the result is
+        // an isolate whose direction is its first strong letter's (else the text's around the
+        // field), and each level run is shaped (mirrored, joined) and placed in that direction.
+        let around = self.levels.get(start).is_some_and(|l| l % 2 == 1);
+        let rtl_base = text.chars().find_map(strong_rtl).unwrap_or(around);
+        let lv = bidi_levels(text, rtl_base);
         let before = self.clusters.len();
-        self.shape_with(text, start, rc, None, false);
+        self.shape_with(text, start, rc, None, if lv.is_empty() { Dir::Guess } else { Dir::Own(&lv) });
         let added: Vec<Cluster> = self.clusters.drain(before..).collect();
         let Some(first) = added.first() else {
             let si = self.style(rc, None, false);
@@ -1023,15 +1056,23 @@ impl<'a> Builder<'a> {
             });
             return;
         };
-        // Merge into one cluster: rebase glyph dx onto the first cluster, and keep each glyph's
-        // text (a ligature's glyph takes the letters of the clusters after it that have none).
+        let order = if lv.is_empty() {
+            (0..added.len()).collect()
+        } else {
+            let cl_lv: Vec<u8> = added.iter().map(|c| lv.get(c.start.saturating_sub(start)).copied().unwrap_or(u8::from(rtl_base))).collect();
+            visual_order(&cl_lv)
+        };
+        // Merge into one cluster: rebase glyph dx onto the first cluster drawn, and keep each
+        // glyph's text (a ligature's glyph takes the letters of the clusters after it that have none).
         let mut x = 0.0;
-        let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
-        for c in &added {
+        for c in order.iter().filter_map(|&i| added.get(i)) {
             for g in self.glyphs.get_mut(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
                 g.dx += x;
             }
             x += c.adv;
+        }
+        let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+        for c in &added {
             let (a, b) = (c.start.saturating_sub(start), c.end.saturating_sub(start));
             if c.g1 <= c.g0 {
                 let from = ranges.last().map(|r| r.start);
@@ -1206,7 +1247,7 @@ impl Builder<'_> {
         self.shape_atomic(base, start, end, rc);
         let ci = self.clusters.len().checked_sub(1)?;
         let (bc, bg) = (self.clusters.len(), self.glyphs.len());
-        self.shape_with(ruby, 0, ruby_rc, None, false);
+        self.shape_with(ruby, 0, ruby_rc, None, Dir::Guess);
         let cl: Vec<Cluster> = self.clusters.drain(bc..).collect();
         let ruby_w: f32 = cl.iter().map(|c| c.adv).sum();
         let base_w = self.clusters.get(ci).map_or(0.0, |c| c.adv);
@@ -1249,8 +1290,8 @@ impl Builder<'_> {
 
 /// Whether text with this formatting is left out of the layout: hidden text unless it is shown, and
 /// tracked deletions in the final text. It takes no room, draws nothing and is no place to break.
-pub(crate) fn left_out(rc: &ResolvedChar, show_hidden: bool, hide_deleted: bool) -> bool {
-    (rc.hidden && !show_hidden) || (rc.del.is_some() && hide_deleted)
+pub(crate) fn left_out(doc: &Document, rc: &ResolvedChar, show_hidden: bool, hide_deleted: crate::HideDeleted) -> bool {
+    (rc.hidden && !show_hidden) || hide_deleted.hides(doc, rc.del)
 }
 
 /// Lay out one paragraph.
@@ -1319,7 +1360,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         let rc = resolve(props);
         runs.push(ProofRun::of(range.clone(), &rc));
         let Some(text) = p.text.get(range.clone()) else { continue };
-        if left_out(&rc, b.env.show_hidden, b.env.hide_deleted) {
+        if left_out(doc, &rc, b.env.show_hidden, b.env.hide_deleted) {
             match left.last_mut() {
                 Some(last) if last.end == range.start => last.end = range.end,
                 _ => left.push(range.clone()),
@@ -1328,7 +1369,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             let g = b.glyphs.len() as u32;
             // Word still prints the note of a hidden reference mark (and numbers it); a deleted
             // reference is gone from the final text, note and all.
-            let keeps_notes = !(rc.del.is_some() && b.env.hide_deleted);
+            let keeps_notes = !b.env.hide_deleted.hides(doc, rc.del);
             for (i, c) in text.char_indices() {
                 let mut note = None;
                 if c == OBJ {
@@ -1588,7 +1629,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         let shown = |t: &str| -> String { wordcraft_doc::symbol_fonts::map_text(&rc.font, t) };
         let before_c = b.clusters.len();
         let before_g = b.glyphs.len();
-        b.shape_with(text, 0, &rc, None, false);
+        b.shape_with(text, 0, &rc, None, Dir::Guess);
         let mut cl: Vec<Cluster> = b.clusters.drain(before_c..).collect();
         // A right-to-left paragraph's label reads right to left too ("1." shows as ".1").
         if rp.bidi {
@@ -1652,6 +1693,9 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     };
     let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
     pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps, &runs);
+    // A paragraph whose text and mark are all a deletion the layout leaves out (a deleted
+    // paragraph in the final text, or moved-away text marked Hidden) is gone: it takes no room.
+    let gone = env.hide_deleted.hides(doc, mark_rc.del) && (p.text.is_empty() || left.first() == Some(&(0..p.text.len())));
     pl.left_out = left;
     for k in pl.hyph_after.clone() {
         if let Some(c) = pl.clusters.get_mut(k as usize) {
@@ -1659,7 +1703,27 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         }
     }
     break_lines(&mut pl, env, mark_style, env.label.as_ref().map(|(_, l)| l));
+    if gone {
+        collapse(&mut pl);
+    }
     pl
+}
+
+/// Lays a paragraph out as nothing: no height, no spacing, no label, its lines (kept for the
+/// caret and hit testing) all at its top with no height.
+fn collapse(pl: &mut ParaLayout) {
+    for l in &mut pl.lines {
+        l.top = 0.0;
+        l.height = 0.0;
+        l.baseline = 0.0;
+    }
+    pl.height = 0.0;
+    pl.rp.space_before = 0.0;
+    pl.rp.space_after = 0.0;
+    pl.label = None;
+    // Its shading and borders would be drawn across the page at no height.
+    pl.rp.shading = None;
+    pl.rp.borders = None;
 }
 
 /// Next tab stop after `x` (column coordinates): explicit stops, the hanging-indent implicit stop,
@@ -2805,7 +2869,7 @@ mod label_spacing_tests {
             width: 100.0,
             label: Some(("•".into(), level.clone())),
             show_hidden: false,
-            hide_deleted: false,
+            hide_deleted: Default::default(),
             table: None,
             proofing: None,
             field_codes: false,

@@ -1935,6 +1935,20 @@ fn layout_size_refuses_a_page_its_margins_dont_fit() {
     assert_eq!((s.doc.last_section.page_w, s.doc.last_section.page_h), (180.0, 180.0), "exactly 36 pt of room is enough");
 }
 
+/// A negative margin (or gutter) counts as zero, so it can't offset an oversized one past the
+/// text-room check: `layout.margins` refuses and changes nothing.
+#[test]
+fn layout_margins_negative_cannot_hide_an_oversized_margin() {
+    let mut s = s();
+    run(&mut s, "layout.margins", json!({"preset": "normal"}));
+    let before = s.doc.last_section.clone();
+    for v in [json!({"top": 2000, "bottom": -2000}), json!({"left": 2000, "right": -2000}), json!({"left": 600, "right": 0, "gutter": -600})] {
+        let e = s.run("layout.margins", &v).unwrap_err().to_string();
+        assert!(e.contains("margins leave no room for text"), "{v}: {e}");
+        assert_eq!(s.doc.last_section, before, "{v} changes nothing");
+    }
+}
+
 /// #1433: the smallest page there can be (0.1" wide, no margins, set straight through Page
 /// Setup's section) still lays out and exports text, a table and two columns.
 #[test]
@@ -4287,6 +4301,26 @@ fn navigation_pane_opens_without_changing_view_mode() {
         run(&mut s, "view.navigationPane", json!({"value": true}));
         assert!(s.view.nav_pane);
         assert_eq!((s.view.mode, s.view.read_mode), before, "{command}");
+    }
+}
+
+#[test]
+fn interface_theme_queues_a_front_end_request_and_rejects_junk() {
+    // #1861: the session can't paint, so the command asks the front end; the document,
+    // view state and undo stack are untouched.
+    let mut s = s();
+    let dirty = s.dirty;
+    for value in ["light", "dark", "system"] {
+        let r = run(&mut s, "view.interfaceTheme", json!({"value": value}));
+        assert_eq!(r["value"], value);
+        assert_eq!(s.ui_requests.last().unwrap()["interfaceTheme"], value);
+    }
+    let r = run(&mut s, "view.interfaceTheme", json!({}));
+    assert_eq!(r["value"], "toggle");
+    assert_eq!(s.ui_requests.last().unwrap()["toggle"], "interfaceTheme");
+    assert_eq!(s.dirty, dirty);
+    for bad in [json!({"value": "midnight"}), json!({"value": 3})] {
+        assert!(s.run("view.interfaceTheme", &bad).is_err(), "{bad}");
     }
 }
 
