@@ -841,11 +841,15 @@ pub fn split_row(row: &RowLayout, cut: f32) -> Option<(RowLayout, RowLayout)> {
         .collect();
     // A cell that widow/orphan control leaves with nothing on this page, though its first line
     // would fit there, takes the whole row on with it: Word doesn't leave the other cells behind
-    // beside an empty one (observed with synthetic documents).
+    // beside an empty one (observed with synthetic documents). Trailing space alone can move
+    // the last paragraph without deferring the whole row.
     for (items, splits) in cells.iter().zip(&splits) {
         let first = items.iter().zip(splits).find_map(|(it, &split)| text_lines(it).map(|t| (t, split)));
-        if let Some(((para, l0, _, y), split)) = first
+        if let Some(((para, l0, l1, y), split)) = first
             && split == l0
+            && para.rp.widow_control
+            && l1.saturating_sub(l0) > 1
+            && crate::item_bottom(y, para, l0, l1).is_some_and(|bottom| !fits(bottom))
             && para.lines.get(l0).is_some_and(|l| fits(y + l.top - para.lines.get(l0).map_or(0.0, |f| f.top) + l.height))
         {
             return None;

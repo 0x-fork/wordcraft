@@ -2567,6 +2567,71 @@ fn a_cell_emptied_by_widow_control_takes_its_row_to_the_next_page() {
     assert_eq!(pages_of(45, 4, true)[..2], [(0, 0), (1, 4)], "an orphan: the whole row moves");
 }
 
+// Use real paragraph and table layout to distinguish content from trailing spacing.
+fn row_content_pieces(text: &str, props: ParaProps, room: f32) -> Vec<(usize, usize)> {
+    use wordcraft_doc::props::LineSpacing;
+
+    let exact = ParaProps { line_spacing: Some(LineSpacing::Exactly(14.0)), space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+    let mut d = Document::from_text("Filler");
+    *para_props(&mut d, 0) = ParaProps { line_spacing: Some(LineSpacing::Exactly(d.last_section.text_height() - room)), ..exact.clone() };
+    let mut table = Table::new(1, 2, 400.0);
+    table.props.style = None;
+    table.props.cell_margins = Some([0.0; 4]);
+    let neighbor = ["First", "Second", "Third", "Fourth"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    for (cell, text) in [text, neighbor.as_str()].into_iter().enumerate() {
+        let mut p = Paragraph::with_text(text, Default::default());
+        p.props = exact.clone();
+        if cell == 0 {
+            p.props.space_after = props.space_after;
+            p.props.widow_control = props.widow_control;
+        } else {
+            p.props.widow_control = Some(false);
+        }
+        table.rows[0].cells[cell].blocks = vec![wordcraft_doc::para_block(p)];
+    }
+    d.body.push(std::sync::Arc::new(Block::Table(table)));
+    lay(&d)
+        .pages
+        .iter()
+        .map(|page| {
+            let count = |cell| {
+                page.items
+                    .iter()
+                    .filter_map(|item| match item {
+                        Placed::Lines { path, l0, l1, .. } if path.0 == [1, 0, cell, 0] => Some(l1 - l0),
+                        _ => None,
+                    })
+                    .sum::<usize>()
+            };
+            (count(0), count(1))
+        })
+        .collect()
+}
+
+#[test]
+fn row_split_ignores_afterspace() {
+    let two = ["Top", "Bottom"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    for (text, room, expected) in [("Label", 18.0, vec![(0, 1), (1, 3)]), (two.as_str(), 32.0, vec![(0, 2), (2, 2)])] {
+        let props = ParaProps { space_after: Some(8.0), widow_control: Some(true), ..Default::default() };
+        assert_eq!(row_content_pieces(text, props, room), expected, "text={text:?}, room={room}");
+    }
+}
+
+#[test]
+fn row_split_respects_widows() {
+    let two = ["Top", "Bottom"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    let three = ["Top", "Middle", "Bottom"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    for (text, widow, room, expected) in [
+        (two.as_str(), true, 18.0, vec![(0, 0), (2, 4)]),
+        (two.as_str(), false, 18.0, vec![(1, 1), (1, 3)]),
+        (three.as_str(), true, 32.0, vec![(0, 0), (3, 4)]),
+        (three.as_str(), false, 32.0, vec![(2, 2), (1, 2)]),
+    ] {
+        let props = ParaProps { space_after: Some(0.0), widow_control: Some(widow), ..Default::default() };
+        assert_eq!(row_content_pieces(text, props, room), expected, "text={text:?}, widow={widow}, room={room}");
+    }
+}
+
 /// The cell's last paragraph needs its space after on the page too: a row ending in an empty
 /// paragraph with 8pt after, whose text fits but whose space after doesn't, splits before it
 /// (Word keeps the "Remarks:" line on the page) instead of moving whole.
