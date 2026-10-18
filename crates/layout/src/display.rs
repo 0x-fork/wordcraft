@@ -409,10 +409,41 @@ fn stroke_of(u: Underline) -> Stroke {
 /// Draw items for a page.
 pub fn page_display(doc: &Document, page: &Page, opts: &DisplayOptions) -> Vec<Draw> {
     let mut out = Vec::new();
+    let (ha, ba) = dimming(opts);
+    stories_display(doc, &[&page.header, &page.footer], opts, ha, &mut out);
+    stories_display(doc, &[&page.items], opts, ba, &mut out);
+    body_change_bars(doc, page, opts, ba, &mut out);
+    out
+}
+
+/// A page's draw items as two layers, its headers and footers then its body, each at full
+/// strength with the opacity to draw it at. A dimmed layer is faded as one picture, as Word dims
+/// it: where its lines or fills overlap (a table's borders meeting) they don't darken each other.
+pub fn page_layers(doc: &Document, page: &Page, opts: &DisplayOptions) -> [(f32, Vec<Draw>); 2] {
+    let (ha, ba) = dimming(opts);
+    let (mut hf, mut body) = (Vec::new(), Vec::new());
+    stories_display(doc, &[&page.header, &page.footer], opts, 1.0, &mut hf);
+    stories_display(doc, &[&page.items], opts, 1.0, &mut body);
+    body_change_bars(doc, page, opts, 1.0, &mut body);
+    [(ha, hf), (ba, body)]
+}
+
+/// The opacity of the headers/footers and of the body.
+fn dimming(opts: &DisplayOptions) -> (f32, f32) {
+    let a = |dim: bool| if dim { 0.45 } else { 1.0 };
+    (a(opts.dim_header), a(opts.dim_body))
+}
+
+fn body_change_bars(doc: &Document, page: &Page, opts: &DisplayOptions, alpha: f32, out: &mut Vec<Draw>) {
+    if opts.markup && (opts.revisions.insertions_deletions || opts.revisions.formatting) && opts.revisions.changed_lines != ChangeBar::None {
+        change_bars(doc, page, &opts.revisions, alpha, out);
+    }
+}
+
+/// Draw items for the placed items of `stories`, faded by `a`.
+fn stories_display(doc: &Document, stories: &[&Vec<Placed>], opts: &DisplayOptions, a: f32, out: &mut Vec<Draw>) {
     let hidden = opts.hide_object.as_ref().map(|p| Hidden::new(doc, p));
-    let ha = if opts.dim_header { 0.45 } else { 1.0 };
-    let ba = if opts.dim_body { 0.45 } else { 1.0 };
-    for (items, a) in [(&page.header, ha), (&page.footer, ha), (&page.items, ba)] {
+    for items in stories {
         let warps = warped_boxes(doc, items);
         let clips = clipped_cells(items);
         let mut done: Vec<u32> = Vec::new();
@@ -439,17 +470,13 @@ pub fn page_display(doc: &Document, page: &Page, opts: &DisplayOptions) -> Vec<D
                     if let Some((_, rect, warp)) = warps.iter().find(|(w, ..)| w == id) {
                         let lines: Vec<&Placed> =
                             items.iter().filter(|i| matches!(i, Placed::Lines { story: StoryRef::Part(s), .. } if s == id)).collect();
-                        warped_text(doc, &lines, *rect, warp, opts, a, &mut out);
+                        warped_text(doc, &lines, *rect, warp, opts, a, out);
                     }
                 }
-                _ => item(doc, it, opts, a, &mut out),
+                _ => item(doc, it, opts, a, out),
             }
         }
     }
-    if opts.markup && (opts.revisions.insertions_deletions || opts.revisions.formatting) && opts.revisions.changed_lines != ChangeBar::None {
-        change_bars(doc, page, &opts.revisions, ba, &mut out);
-    }
-    out
 }
 
 /// One object drawn alone, as its page draws it: the picture, shape or group `o` in `rect` (its

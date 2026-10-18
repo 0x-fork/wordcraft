@@ -12,7 +12,7 @@ use wordcraft_doc::para::ShapeKind;
 use wordcraft_doc::props::Rgb;
 use wordcraft_fonts::FontDb;
 use wordcraft_layout::Page;
-use wordcraft_layout::display::{DisplayOptions, Draw, Stroke, page_display};
+use wordcraft_layout::display::{DisplayOptions, Draw, Stroke, page_layers};
 use wordcraft_layout::wordart::ArtPaint;
 use wordcraft_metafile::{Item, Picture, PlacedItem, Seg};
 
@@ -524,13 +524,22 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
     ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64));
     draw_page_picture(&mut ctx, doc, page, view);
-    let items = page_display(doc, page, &opts.display);
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     if let Some(wm) = &doc.settings.watermark {
         draw_watermark(&mut ctx, view, page, wm, opts);
     }
-    for it in &items {
-        draw(&mut ctx, doc, it, view, &visible, opts);
+    // A dimmed layer is drawn whole, then faded once, so its overlaps don't darken.
+    for (alpha, items) in page_layers(doc, page, &opts.display) {
+        let faded = alpha < 1.0 && !items.is_empty();
+        if faded {
+            ctx.push_opacity_layer(alpha);
+        }
+        for it in &items {
+            draw(&mut ctx, doc, it, view, &visible, opts);
+        }
+        if faded {
+            ctx.pop_layer();
+        }
     }
     ctx.flush();
     let mut pixels = vec![0u8; w16 as usize * h16 as usize * 4];
@@ -551,8 +560,14 @@ pub fn background_at(doc: &Document, page: &Page, opts: &RenderOptions, x: f32, 
         return paper;
     }
     let mut bg = [paper.0 as f32, paper.1 as f32, paper.2 as f32];
-    let items = page_display(doc, page, &opts.display);
-    blend_backgrounds(&items, wordcraft_geom::Point::new(x, y), opts, &mut bg, 0);
+    for (alpha, items) in page_layers(doc, page, &opts.display) {
+        // A faded layer: its own colour there, blended in at its opacity.
+        let mut layer = bg;
+        blend_backgrounds(&items, wordcraft_geom::Point::new(x, y), opts, &mut layer, 0);
+        for (v, n) in bg.iter_mut().zip(layer) {
+            *v += (n - *v) * alpha;
+        }
+    }
     let c = |v: f32| v.round().clamp(0.0, 255.0) as u8;
     Rgb(c(bg[0]), c(bg[1]), c(bg[2]))
 }
@@ -1187,6 +1202,7 @@ pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wordcraft_layout::display::page_display;
     use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
 
     /// The first and last pixel rows with ink in a black-on-white [`render_text_line`] raster.
@@ -1552,6 +1568,34 @@ mod tests {
         let img = shot(Stroke::Double);
         assert!(ink(&img, 15, 3), "the double rule's upper strand is drawn");
         assert!(!ink(&img, 31, 3), "the upper strand ends at x=30");
+    }
+
+    /// A dimmed header is its full-strength picture faded once, as Word dims it: where a header
+    /// table's borders meet they are the tone of the borders, not darker.
+    #[test]
+    fn dimmed_header_borders_dont_darken_where_they_meet() {
+        let mut d = Document::from_text("");
+        let t = wordcraft_doc::Table::new(2, 2, 200.0);
+        let blocks = vec![std::sync::Arc::new(wordcraft_doc::Block::Table(t)), wordcraft_doc::para_block(wordcraft_doc::Paragraph::new())];
+        let id = d.add_part(wordcraft_doc::PartKind::Header, blocks);
+        d.last_section.headers.default = Some(id);
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let render = |dim_header: bool| {
+            let mut opts = RenderOptions::default();
+            opts.display.dim_header = dim_header;
+            render_page(&d, &l.pages[0], 3.0, &opts)
+        };
+        let (full, dim) = (render(false), render(true));
+        let mut ink = 0;
+        for y in 0..full.height {
+            for x in 0..full.width {
+                let (f, g) = (full.pixel(x, y)[0] as f32, dim.pixel(x, y)[0] as f32);
+                ink += usize::from(f < 128.0);
+                let want = 255.0 - 0.45 * (255.0 - f);
+                assert!((g - want).abs() <= 2.0, "({x}, {y}): {g} dimmed, {want} wanted ({f} at full strength)");
+            }
+        }
+        assert!(ink > 100, "the borders are drawn: {ink}");
     }
 
     #[test]
