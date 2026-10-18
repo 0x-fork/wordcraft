@@ -1510,7 +1510,7 @@ impl Reader<'_> {
         let style = grp.attr("style").unwrap_or("");
         let len = |k: &str| vml_style(style, k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0).clamp(0.0, crate::units::MAX_LEN_PT);
         let (w, h) = (len("width"), len("height"));
-        let float = vml_float(grp, style);
+        let float = vml_float(grp, style, sc.in_hf);
         // The members' space; without a usable `coordsize` it is the group's own box.
         let (ch_w, ch_h) = vml_coordpair(grp, "coordsize").filter(|(cw, ch)| *cw > 0.0 && *ch > 0.0).unwrap_or((w.max(1.0), h.max(1.0)));
         let (cx, cy) = vml_coordpair(grp, "coordorigin").unwrap_or((0.0, 0.0));
@@ -1590,7 +1590,7 @@ impl Reader<'_> {
                 f.set_spin(vml_spin(style));
                 f
             }
-            None => vml_float(shape, style),
+            None => vml_float(shape, style, sc.in_hf),
         };
         if let Some(img) = shape.find("v:imagedata") {
             let id = img.attr("r:id").or_else(|| img.attr("r:pict"))?;
@@ -1930,6 +1930,8 @@ fn anchor_float(c: &El) -> Float {
     f.dist = dist("distL").max(dist("distR"));
     f.dist_top = dist("distT");
     f.dist_bottom = dist("distB");
+    // Required by the schema; a file leaving it out lays out in the cell, as before.
+    f.outside_cell = !on_off_attr(c, "layoutInCell") && c.attr("layoutInCell").is_some();
     f
 }
 
@@ -2000,7 +2002,7 @@ fn vml_style<'a>(style: &'a str, key: &str) -> Option<&'a str> {
 /// `mso-position-horizontal` / `mso-position-vertical`), wrapped as its `w10:wrap` says. Without
 /// wrapping (`none`, or no `w10:wrap`) it's in front of the text, or behind it at a negative
 /// `z-index`. Anything else stays inline.
-fn vml_float(shape: &El, style: &str) -> Float {
+fn vml_float(shape: &El, style: &str, in_hf: bool) -> Float {
     let get = |k: &str| vml_style(style, k);
     let hidden = get("visibility").is_some_and(|v| v.eq_ignore_ascii_case("hidden"));
     if !get("position").is_some_and(|p| p.eq_ignore_ascii_case("absolute")) {
@@ -2053,6 +2055,9 @@ fn vml_float(shape: &El, style: &str) -> Float {
         dist_top: dist("mso-wrap-distance-top"),
         dist_bottom: dist("mso-wrap-distance-bottom"),
         hidden,
+        // Word for Mac draws a VML shape anchored in a header table cell on the page whatever
+        // `o:allowincell` says (user-checked), as for Word's picture and text watermarks.
+        outside_cell: in_hf,
         ..Float::default()
     };
     f.set_spin(vml_spin(style));
