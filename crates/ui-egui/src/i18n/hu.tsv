@@ -2662,3 +2662,10 @@
 	{added}; {count} couldn't be read: {names}	{added}; {count} nem olvasható: {names}
 	{names} and {n} more	{names} és még {n}
 	{added}; {n} skipped (limit {max})	{added}; {n} kihagyva (korlát: {max})
+	nothing is selected	nincs kijelölve semmi
+	select a picture or shape first	előbb jelöljön ki egy képet vagy alakzatot
+	select recipients first	előbb válasszon címzetteket
+	select two or more pictures or shapes first (Shift+click)	jelöljön ki két vagy több képet vagy alakzatot (Shift+kattintás)
+	text boxes can't go inside a text box	szövegdoboz nem kerülhet szövegdobozba
+	the cursor isn't in a table	a kurzor nem táblázatban van
+	{name} options	{name} beállításai

@@ -2671,3 +2671,10 @@ preview	Title	Tytuł
 	{added}; {count} couldn't be read: {names}	{added}; nie udało się odczytać ({count}): {names}
 	{names} and {n} more	{names} i {n} więcej
 	{added}; {n} skipped (limit {max})	{added}; pominięto: {n} (limit {max})
+	nothing is selected	nic nie jest zaznaczone
+	select a picture or shape first	najpierw zaznacz obraz lub kształt
+	select recipients first	najpierw wybierz adresatów
+	select two or more pictures or shapes first (Shift+click)	zaznacz co najmniej dwa obrazy lub kształty (Shift+kliknięcie)
+	text boxes can't go inside a text box	pola tekstowego nie można umieścić w polu tekstowym
+	the cursor isn't in a table	kursor nie jest w tabeli
+	{name} options	{name}: opcje

@@ -2666,3 +2666,10 @@ preview	Title	Naslov
 	{added}; {count} couldn't be read: {names}	{added}; nije moguće pročitati ({count}): {names}
 	{names} and {n} more	{names} i još {n}
 	{added}; {n} skipped (limit {max})	{added}; preskočeno: {n} (ograničenje {max})
+	nothing is selected	ništa nije odabrano
+	select a picture or shape first	najprije odaberite sliku ili oblik
+	select recipients first	najprije odaberite primatelje
+	select two or more pictures or shapes first (Shift+click)	odaberite dvije ili više slika ili oblika (Shift+klik)
+	text boxes can't go inside a text box	tekstni okviri ne mogu biti unutar tekstnog okvira
+	the cursor isn't in a table	kursor nije u tablici
+	{name} options	Mogućnosti: {name}

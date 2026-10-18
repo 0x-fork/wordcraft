@@ -2681,3 +2681,10 @@ preview	Title	Titel
 	{added}; {count} couldn't be read: {names}	{added}; {count} kunde inte läsas: {names}
 	{names} and {n} more	{names} och {n} till
 	{added}; {n} skipped (limit {max})	{added}; {n} hoppades över (gräns {max})
+	nothing is selected	inget är markerat
+	select a picture or shape first	markera först en bild eller form
+	select recipients first	markera först mottagare
+	select two or more pictures or shapes first (Shift+click)	markera två eller fler bilder eller former (Skift+klick)
+	text boxes can't go inside a text box	textrutor kan inte placeras i en textruta
+	the cursor isn't in a table	markören är inte i en tabell
+	{name} options	Alternativ för {name}

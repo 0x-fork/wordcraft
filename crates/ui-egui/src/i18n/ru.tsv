@@ -2664,3 +2664,10 @@ preview	Title	Пример
 	{added}; {count} couldn't be read: {names}	{added}; не удалось прочитать ({count}): {names}
 	{names} and {n} more	{names} и ещё {n}
 	{added}; {n} skipped (limit {max})	{added}; пропущено: {n} (лимит {max})
+	nothing is selected	ничего не выделено
+	select a picture or shape first	сначала выделите рисунок или фигуру
+	select recipients first	сначала выберите получателей
+	select two or more pictures or shapes first (Shift+click)	выделите два или больше рисунков или фигур (Shift+щелчок)
+	text boxes can't go inside a text box	надпись нельзя поместить внутрь надписи
+	the cursor isn't in a table	курсор не в таблице
+	{name} options	{name}: параметры

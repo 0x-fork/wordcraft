@@ -2658,3 +2658,10 @@ preview	Title	Ukázka
 	{added}; {count} couldn't be read: {names}	{added}; nelze přečíst ({count}): {names}
 	{names} and {n} more	{names} a dalších {n}
 	{added}; {n} skipped (limit {max})	{added}; přeskočeno: {n} (limit {max})
+	nothing is selected	nic není vybráno
+	select a picture or shape first	nejdřív vyberte obrázek nebo tvar
+	select recipients first	nejdřív vyberte příjemce
+	select two or more pictures or shapes first (Shift+click)	vyberte dva nebo více obrázků či tvarů (Shift+klepnutí)
+	text boxes can't go inside a text box	textové pole nelze vložit do textového pole
+	the cursor isn't in a table	kurzor není v tabulce
+	{name} options	Možnosti: {name}
