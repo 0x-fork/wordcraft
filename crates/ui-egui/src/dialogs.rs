@@ -3211,6 +3211,10 @@ fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_location: &mut
                 ui.set_width(232.0);
                 ui.set_height(150.0);
                 egui::ScrollArea::vertical().id_salt("bookmark_list").max_height(150.0).auto_shrink([false, false]).show(ui, |ui| {
+                    if marks.is_empty() {
+                        // #1904: a blank box says nothing; reuse the Field dialog's wording.
+                        ui.label(egui::RichText::new(tl!("The document has no bookmarks yet.")).small().color(t.text_dim));
+                    }
                     for n in &marks {
                         if ui.selectable_label(*n == *name, n.as_str()).clicked() {
                             *name = n.clone();
@@ -3757,6 +3761,34 @@ mod tests {
         assert!(h.state().dialog.is_none());
         let _ = h.state_mut().run("edit.undo", json!({}));
         assert_eq!(h.state().session.doc.bookmarks().len(), 3, "one undo step");
+    }
+
+    /// #1904: with no bookmarks the list says so instead of a blank box.
+    #[test]
+    fn the_bookmark_dialog_says_when_there_are_no_bookmarks() {
+        let mut app = app_with("Alpha beta gamma");
+        app.dialog = Dialog::open("bookmark", &mut app);
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..4 {
+            h.step();
+        }
+        let texts: Vec<String> = h
+            .output()
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.iter().any(|t| t.contains("The document has no bookmarks yet.")), "placeholder shown");
     }
 
     /// Find, Replace and Go To are one dialog with three tabs (#712).
