@@ -1717,6 +1717,22 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             found.push(i);
         }
     }
+    // UAX #14 (LB13) also forbids a break between a space and a slash, so with the break after the
+    // slash gone as well, "caption /word" had no break at all and the word split mid-letter. Word
+    // wraps "/word" whole to the next line: break before a slash that starts a word.
+    let before_slash: Vec<usize> = text
+        .match_indices('/')
+        .filter(|&(i, _)| {
+            text.get(..i).and_then(|t| t.chars().next_back()).is_some_and(|c| c.is_whitespace() && !matches!(c, '\u{a0}' | '\u{2007}' | '\u{202f}'))
+                && text.get(i + 1..).and_then(|t| t.chars().next()).is_some_and(char::is_alphanumeric)
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if !before_slash.is_empty() {
+        found.extend(before_slash);
+        found.sort_unstable();
+        found.dedup();
+    }
     // Myanmar has no spaces between words: it wraps between syllables.
     if text.chars().any(|c| matches!(u32::from(c), 0x1000..=0x109F | 0xA9E0..=0xA9FF | 0xAA60..=0xAA7F)) {
         found.extend(wordcraft_doc::cluster::myanmar_breaks(&text));
