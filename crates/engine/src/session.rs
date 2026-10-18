@@ -1436,8 +1436,25 @@ impl Session {
     /// takes its direction from its own letters, as on screen, so Latin typed or inserted into
     /// reopened Hebrew isn't saved as right-to-left; the DOCX writer marks right-to-left pieces
     /// itself (#1543). The bidi language stays (it only applies to complex-script text).
+    /// Over a selection, as in Word, typing takes the first selected character's formatting,
+    /// whichever way the selection was made (#2879).
     pub fn typing_props(&self) -> CharProps {
-        let mut c = self.caret_props();
+        let (a, _) = self.sel.ordered();
+        let first = match self.doc.para_at(&a) {
+            Some(p) if self.pending.is_none() && !self.sel.is_collapsed() && a.off < p.len() => Some(p.props_of_char(a.off)),
+            _ => None,
+        };
+        let mut c = match first {
+            Some(props) => {
+                // The selection is replaced, so the new text isn't part of a link or a note number.
+                let mut out = if props.link.is_some() { props.unlinked() } else { props.clone() };
+                if matches!(out.style.as_deref(), Some("FootnoteReference" | "EndnoteReference")) {
+                    out.style = None;
+                }
+                out
+            }
+            None => self.caret_props(),
+        };
         c.rtl = None;
         c
     }

@@ -2116,3 +2116,21 @@ fn text_commands_that_edit_nothing_leave_an_existing_word_marked() {
     assert_eq!(squiggles(&mut s, 1), ["helo"], "Shift+Tab");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "Fine\nThe helo");
 }
+
+#[test]
+fn typing_over_backward_selection_keeps_its_font() {
+    // As in Word, text typed over a selection takes the first selected character's formatting,
+    // whichever way the selection was made (#2879).
+    for (anchor, focus) in [(6, 11), (11, 6)] {
+        let mut s = s();
+        typ(&mut s, "Hello world");
+        run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 6}, "focus": {"block": 0, "off": 11}}));
+        run(&mut s, "format.font", json!({"name": "Courier New"}));
+        run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": anchor}, "focus": {"block": 0, "off": focus}}));
+        typ(&mut s, "X");
+        let p = s.doc.body.first().and_then(|b| b.as_para()).unwrap();
+        assert_eq!(p.text, "Hello X", "anchor={anchor} focus={focus}");
+        assert_eq!(p.props_of_char(6).font.as_deref(), Some("Courier New"), "anchor={anchor} focus={focus}");
+        assert_eq!(p.props_of_char(0).font, None, "anchor={anchor} focus={focus}");
+    }
+}
