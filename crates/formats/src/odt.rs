@@ -1173,12 +1173,15 @@ fn events(xml: &[u8], mut f: impl FnMut(Ev)) {
 struct Styles {
     map: HashMap<String, StyleInfo>,
     lists: HashMap<String, Vec<bool>>,
+    /// Font of `style:default-style` for paragraphs (the document default, ODF 1.3 §16.4).
+    default_font: Option<String>,
 }
 
 impl Styles {
     fn read(&mut self, xml: &[u8], auto_section_is_auto: bool) {
         let mut in_auto = false;
         let mut cur: Option<(String, StyleInfo)> = None;
+        let mut in_default = false;
         let mut list: Option<(String, Vec<bool>)> = None;
         events(xml, |ev| match ev {
             Ev::Start(q, a) => match local(&q) {
@@ -1194,6 +1197,15 @@ impl Styles {
                             ..Default::default()
                         };
                         cur = Some((name.to_string(), info));
+                    }
+                }
+                "default-style" if q.starts_with("style:") => in_default = get(&a, "style:family") == Some("paragraph"),
+                "text-properties" if in_default && cur.is_none() => {
+                    if let Some(fam) = get(&a, "fo:font-family").or_else(|| get(&a, "style:font-name")) {
+                        let fam = fam.split(',').next().unwrap_or("").trim().trim_matches(['\'', '"']);
+                        if !fam.is_empty() && !model::is_mono(fam) {
+                            self.default_font = Some(fam.to_string());
+                        }
                     }
                 }
                 "text-properties" => {
@@ -1297,6 +1309,7 @@ impl Styles {
             },
             Ev::End(q) => match local(&q) {
                 "automatic-styles" => in_auto = false,
+                "default-style" if q.starts_with("style:") => in_default = false,
                 "style" if q.starts_with("style:") => {
                     if let Some((n, s)) = cur.take()
                         && self.map.len() < 100_000
@@ -1313,6 +1326,11 @@ impl Styles {
             },
             Ev::Text(_) => {}
         });
+    }
+
+    /// The document's default font: the Standard paragraph style's, else the default style's.
+    fn doc_font(&self) -> Option<String> {
+        self.map.get("Standard").filter(|s| !s.auto).and_then(|s| s.fmt.font.clone()).or_else(|| self.default_font.clone())
     }
 
     fn chain<'a>(&'a self, name: &'a str) -> Vec<(&'a str, &'a StyleInfo)> {
@@ -2297,11 +2315,11 @@ pub fn parse(bytes: &[u8]) -> Result<Flow, String> {
 
 /// [`parse`], with the last section's properties (the others are on the paragraphs that end them).
 fn parse_full(bytes: &[u8]) -> Result<(Flow, SectionProps), String> {
-    parse_tracked(bytes).map(|(f, last, _)| (f, last))
+    parse_tracked(bytes).map(|(f, last, _, _)| (f, last))
 }
 
 /// [`parse_full`], plus whether change tracking is on (`None`: the document has no tracked changes).
-fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), String> {
+fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>, Option<String>), String> {
     let mut z = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("ODT: not a valid package ({e})"))?;
     if let Some(mt) = read_entry(&mut z, "mimetype") {
         let mt = String::from_utf8_lossy(&mt);
@@ -2399,13 +2417,16 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
         blocks.push(FBlock::Para(Para::default()));
     }
     let track = body.track;
-    Ok((Flow { blocks, meta }, last, track))
+    Ok((Flow { blocks, meta }, last, track, styles.doc_font()))
 }
 
 /// Parse an `.odt` package into a document.
 pub fn import(bytes: &[u8]) -> Result<Document, String> {
-    let (flow, last, track) = parse_tracked(bytes)?;
+    let (flow, last, track, font) = parse_tracked(bytes)?;
     let mut doc = model::to_doc(&flow);
+    if font.is_some() {
+        doc.styles.default_chr.font = font;
+    }
     doc.last_section = last;
     if let Some(t) = track {
         doc.settings.track_changes = t;
@@ -2522,6 +2543,25 @@ mod tests {
         assert_eq!(length("12pt"), Some(12.0));
         assert!((length("2.54cm").unwrap() - 72.0).abs() < 0.01);
         assert_eq!(length("x"), None);
+    }
+
+    #[test]
+    fn default_paragraph_style_font_becomes_document_font() {
+        // LibreOffice keeps the font in the Standard style or in `style:default-style`; the import
+        // used to skip both and the text fell back to the built-in body font.
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>Hi</text:p></office:text></office:body></office:document-content>"#
+        );
+        let standard = format!(
+            r#"<office:document-styles {NS_T}><office:styles><style:default-style style:family="paragraph"><style:text-properties style:font-name="DejaVu Serif"/></style:default-style><style:style style:name="Standard" style:family="paragraph"><style:text-properties style:font-name="Times New Roman"/></style:style></office:styles></office:document-styles>"#
+        );
+        let doc = import(&package(&content, Some(&standard))).unwrap();
+        assert_eq!(doc.styles.default_chr.font.as_deref(), Some("Times New Roman"));
+        let only_default = format!(
+            r#"<office:document-styles {NS_T}><office:styles><style:default-style style:family="paragraph"><style:text-properties style:font-name="DejaVu Serif"/></style:default-style></office:styles></office:document-styles>"#
+        );
+        let doc = import(&package(&content, Some(&only_default))).unwrap();
+        assert_eq!(doc.styles.default_chr.font.as_deref(), Some("DejaVu Serif"));
     }
 
     #[test]
