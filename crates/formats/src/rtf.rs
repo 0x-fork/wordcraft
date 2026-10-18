@@ -2839,6 +2839,9 @@ mod tests {
         assert_eq!(texts(&f), ["Normal:ÒÚÛ"]);
         let f = parse(br"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}{\f1\fcharset77 Geneva;}}caf\'e9 {\f1 caf\'8e \'d2ok\'d3}\par}").unwrap();
         assert_eq!(texts(&f), ["Normal:café café “ok”"]);
+        // \fcharset255 is the standard OEM character set (CP437).
+        let f = parse(br"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}{\f1\fcharset255 Terminal;}}caf\'e9 {\f1 caf\'82}\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:café café"]);
         // DOS documents: `\pc` is code page 437, `\pca` 850; a font can name one with `\cpg`.
         let f = parse(br"{\rtf1\pc\deff0{\fonttbl{\f0 Courier;}}caf\'82 \'a0 la carte\par}").unwrap();
         assert_eq!(texts(&f), ["Normal:café á la carte"]);
