@@ -55,6 +55,8 @@ Document title opens Rename Document; the account badge opens Options › Genera
 | Screen readers (VoiceOver, Narrator, Orca) | AccessKit on; the document canvas describes paragraphs, headings (level), list items, tables, links, pictures (alt text) and the caret and selection, for the pages on screen (#488); Windows Magnifier follows the caret, also onto an empty line after Enter or Shift+Enter (#1119); not yet tried with real screen readers | full | 50% | 5–8 |
 | Right-to-left (mirrored) interface | ❌ | ✅ (Arabic, Hebrew Word) | 0% | in localization |
 
+Save Changes exposes the document-specific question as an alert-dialog name and the loss warning plus any failed-save explanation as its description (#1015). Full-app AccessKit coverage checks the focused choice's dialog ancestry, all three choices and cancellation. This is accessibility-tree evidence; native Windows screen-reader and spoken VoiceOver verification remain pending. Visual layout, wording and save policy are unchanged.
+
 The Language dialog reads effective character formatting, including document defaults, paragraph styles and character styles. Accepting it unchanged keeps inherited language and no-proof choices (#2717); explicit direct formatting still takes precedence. Other proofing and Windows-specific reports remain separate.
 
 ## Find navigation (#2096)
@@ -66,6 +68,7 @@ Find selects the Results tab, including when it prefills selected text. Editing 
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-15 | trivial | File › Close (Mod+W, Mod+F4) closes the document and keeps the window, showing no page, as Word does (it quit the whole app); the window's close button still asks to save and quits (#1712) |
+| 2026-10-16 | trivial | Save Changes exposes an alert-dialog role, the document-specific question and loss/failure context to accessibility; full-app focus/ancestry regression. Native screen-reader verification remains pending. |
 | 2026-10-15 | trivial | Dialogs, the Read Aloud player and the file browser: the close control is a box at the title bar's right end, the full title-bar height and 1.6× as wide, all of it clickable; red with a white ✕ while the pointer is over it, darker red pressed, in both themes; Escape as before (#1885) |
 | 2026-10-15 | trivial | Font box (ribbon and mini toolbar): a Recently Used Fonts section at the top of the list holds the fonts applied from the box, the mini toolbar or the Font dialog, most recent first, once each, ten at most, kept between runs in `ui.json`; All Fonts follows; the sections show while nothing is typed and a query lists its matches only; Up/Down walk the recent entries then the list, Enter applies the highlighted one; a recent font no longer installed stays listed (#2068) |
 | 2026-10-16 | trivial | Web Layout text fills the window width and re-wraps once a resize settles or at once on a zoom, instead of a fixed 800 pt column; Draft and Outline keep their 800 pt column (#1876) |

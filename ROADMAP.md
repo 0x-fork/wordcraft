@@ -168,6 +168,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-15 | Exact line spacing keeps the run font baseline around tall equations; automatic and minimum spacing still grow for math. |
 | 2026-10-16 | Zero-extent drawing anchors contribute no inline font height. |
 |---|---|
+| 2026-10-16 | Save Changes gives assistive technology a named alert dialog with the loss warning and any save failure; visual layout and save policy unchanged (#1015). Native screen-reader verification remains pending. |
 | 2026-10-15 | The font family caches are bounded (4096 families for text, 1024 for math, names over 256 bytes aren't remembered), so a document naming thousands of missing fonts can't grow memory; equation fonts are looked up again after a font is added or removed instead of keeping the old choice (#1354) |
 | 2026-10-15 | AutoCorrect recognizes `-->` as `→` (#2223), respecting replacement settings and undo without changing paragraph-start arrow bullets. |
 | 2026-10-15 | Numbered headings (#1793): the Multilevel List gallery offers four lists linked to Heading 1–9 (1 / 1.1 / 1.1.1, Article I. / Section 1.01 / (a), I. / A. / 1., Chapter 1; `list.multilevelPreset`). The heading styles carry the numbers, so paragraphs already in a Heading style keep their style and level, any other selected paragraph (Normal, Quote, Title) becomes Heading 1 (checked in Word), a new Heading 2 is numbered 2.1 by itself and body text stays unnumbered; Numbering or typing `1. ` keeps a heading a heading |
@@ -471,6 +472,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-14 | trivial | Progress log: a list item's first word is not flagged for a missing capital (#1741) |
 | 2026-10-18 | trivial | #2445: pending Save As answers keep their originating document identity, so a replacement document is never written to an old picker destination; real Save-button and focused-editor shortcut controls verified |
 | 2026-10-16 | trivial | #2445: interactive Save on import-only .doc/.dot paths uses the existing DOCX Save As flow; cancel and failed writes keep the draft, and Close waits for a successful save. Explicit/script saves still report unsupported legacy output |
+| 2026-10-16 | trivial | Save Changes exposes an alert-dialog role, the document-specific question and loss/failure context to accessibility; full-app focus/ancestry regression. Native screen-reader verification remains pending. |
 | 2026-10-16 | trivial | Progress log: the Spike |
 | 2026-10-16 | trivial | Progress log: `w:eastAsianLayout` kept on save |
 | 2026-10-15 | trivial | Progress log: undrawable private-use list bullets show the level's default bullet (#1683) |
