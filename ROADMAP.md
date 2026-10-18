@@ -471,6 +471,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-13 | The interface-translation audit runs in CI again (#1128): the size labels of Envelopes, Labels and Layout › Size are translated (`4,13 × 9,5 дюйма`) and use the region's decimal separator, and status-bar messages (table split and merge, ink replay, citations, SmartArt, Researcher, Design defaults), the Reading Mode toolbar, Go To and Search's Suggested heading are translated in every interface language, and the Read Aloud player no longer shows a speech error a frame before the status bar does, the race behind the audit's rare failure under load |
 | 2026-10-15 | Lists (#1683): a bullet stored as a private-use character its font can't draw (the font isn't installed) shows the level's default bullet (• ○ ▪); it used to be whatever an installed icon font has at that code, such as Font Awesome's Twitter logo |
 | 2026-10-15 | The web app keeps its preferences between visits (#2132): theme (dark mode), interface size, editing options and the rest of what the desktop app saves in `ui.json` are kept in the browser's `localStorage`, written as soon as they change |
+| 2026-10-17 | Saving into a folder that refuses a temporary file (macOS privacy protection, read-only folders, #2138) never overwrites an existing document in place: it is left untouched and the error says to use Save As to another folder or allow WordCraft access to the folder (System Settings › Privacy & Security › Files and Folders on macOS). A new file is created directly. Unit tests on Linux; not yet confirmed on a Mac |
 
 ## Revision history
 
@@ -721,3 +722,4 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-15 | trivial | Progress log: dialog close box (#1885) |
 | 2026-10-15 | trivial | Progress log: mixed Hebrew/Latin text keeps its order in Word (#1543) |
 | 2026-10-15 | trivial | Progress log: ruler numbers by zoom, rulers follow the caret's page (#1878) |
+| 2026-10-17 | trivial | Progress log: saving into a folder that refuses a temporary file (#2138) |
