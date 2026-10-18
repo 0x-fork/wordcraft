@@ -12,6 +12,8 @@ first (`gh pr list`), and update this file and the parity doc when a gap closes.
 Native save reliability: synthetic cases on macOS reproduced loss through the predictable temporary-file name. Saves now use owned, exclusively created siblings, synchronize before replacement and clean up on failure; originals survive pre-replacement errors. This narrows save-path reliability under gap #3; the listed field failures and broader stability work remain open. See [save-path guarantees](file-format-parity.md#native-save-path-guarantees).
 Row table border exceptions (`w:tblPrEx/w:tblBorders`) are read, drawn and saved. Other row table exceptions, including widths and cell margins, remain unsupported.
 
+An otherwise empty section at page start retains its line before continuous content. Shared-section page totals and wrapping earlier text around later floating tables remain open.
+
 Consistent cell widths override stale table grid proportions when their totals agree. Conflicting widths, spans and percentages still need the shared-grid algorithm.
 
 Local desktop recovery now covers unsaved drafts and edits to existing files; see
@@ -126,6 +128,7 @@ The Language dialog reads effective character formatting, including document def
 | 2026-10-15 | trivial | #2 narrowed: native ink in groups and drawing canvases (`w14:contentPart` members, with their picture fallback) survives DOCX edits and repeated saves; native ink rendering remains |
 | 2026-10-16 | trivial | Body and active note text keep normal opacity while editing footnotes or endnotes (#2545); header/footer dimming is unchanged |
 | 2026-10-18 | minor | #7: Drop Cap Options dialog (#2601), 59 modal dialogs |
+| 2026-10-16 | trivial | An otherwise empty section at page start retains its line before continuous content; later closing marks stay quiet |
 | 2026-10-14 | trivial | Row table border exceptions fixed; other row table exceptions remain unsupported |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
