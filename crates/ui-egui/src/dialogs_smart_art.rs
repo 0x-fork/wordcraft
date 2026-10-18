@@ -151,12 +151,24 @@ pub fn swatches(p: &Painter, r: Rect, colors: SmartArtColors, theme: &[Rgb]) {
     }
 }
 
+/// Height of the picker's three columns, points: three rows of 96 pt tiles and the gaps between them.
+const PICKER_HEIGHT: f32 = 3.0 * 96.0 + 2.0 * 8.0;
+
+/// The picker's columns side by side. A separator in a row takes all the height it is offered,
+/// which for a dialog is the whole window, so the row is offered only [`PICKER_HEIGHT`].
+fn picker_row(ui: &mut Ui, columns: impl FnOnce(&mut Ui)) {
+    ui.scope(|ui| {
+        ui.set_max_height(PICKER_HEIGHT);
+        ui.horizontal_top(columns);
+    });
+}
+
 /// The picker; returns true to close.
 pub fn picker_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SmartArtForm) -> bool {
     let t = Tokens::get(ui.ctx());
     let theme = app.session.doc.settings.theme_colors.clone();
     let mut chosen = None;
-    ui.horizontal_top(|ui| {
+    picker_row(ui, |ui| {
         ui.vertical(|ui| {
             ui.set_width(120.0);
             for cat in CATEGORIES {
@@ -396,5 +408,24 @@ mod tests {
         let levels: Vec<u64> = v["items"].as_array().unwrap().iter().map(|i| i["level"].as_u64().unwrap()).collect();
         assert_eq!(levels, [0, 1, 1, 2, 2]);
         assert_eq!(items_with(&g, 0, "Boss")["items"][0]["text"], "Boss");
+    }
+
+    /// #2832: the separators between the picker's columns made the dialog as tall as the window.
+    #[test]
+    fn the_picker_row_stays_within_its_height() {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1920.0, 1080.0))), ..Default::default() };
+        let mut height = f32::MAX;
+        ctx.run_ui(input, |ui| {
+            let top = ui.cursor().top();
+            picker_row(ui, |ui| {
+                ui.label("a");
+                ui.separator();
+                ui.label("b");
+            });
+            height = ui.min_rect().bottom() - top;
+        })
+        .drop_without_applying_deltas();
+        assert!(height <= PICKER_HEIGHT + 1.0, "the row is {height} pt tall");
     }
 }
