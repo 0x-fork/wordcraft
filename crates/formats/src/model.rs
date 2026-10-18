@@ -873,6 +873,7 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
 fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
     let (kind, list) = para_kind(doc, p);
     let mut done: Vec<Para> = Vec::new();
+    let borders = if kind == Kind::Rule { None } else { p.props.borders.filter(|b| b.any_visible()) };
     let mut out = Para {
         kind,
         list,
@@ -880,7 +881,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         page_break: p.props.page_break_before.unwrap_or(false),
         inlines: Vec::new(),
         spacing: Spacing::default(),
-        borders: None,
+        borders,
         section: None,
         mark_ins: None,
         mark_del: None,
@@ -910,7 +911,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         page_break: true,
                         inlines: Vec::new(),
                         spacing: Spacing::default(),
-                        borders: None,
+                        borders,
                         section: None,
                         mark_ins: None,
                         mark_del: None,

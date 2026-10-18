@@ -160,7 +160,51 @@ fn style_num(k: Kind) -> Option<u32> {
     }
 }
 
+fn rtf_border_style(s: wordcraft_doc::props::BorderStyle) -> &'static str {
+    use wordcraft_doc::props::BorderStyle;
+    match s {
+        BorderStyle::None => "\\brdrnone",
+        BorderStyle::Single => "\\brdrs",
+        BorderStyle::Double => "\\brdrdb",
+        BorderStyle::Dotted => "\\brdrdot",
+        BorderStyle::Dashed => "\\brdrdash",
+        BorderStyle::Thick => "\\brdrth",
+        BorderStyle::Triple => "\\brdrtriple",
+        BorderStyle::DotDash => "\\brdrdashd",
+        BorderStyle::Wave => "\\brdrwavy",
+    }
+}
+
 impl Writer {
+    fn write_border(&mut self, prefix: &str, side: char, b: wordcraft_doc::props::Border, out: &mut String) {
+        out.push_str(&format!("\\{prefix}{side}"));
+        out.push_str(rtf_border_style(b.style));
+        let w = ((b.width * 20.0).round() as i64).clamp(1, 150);
+        out.push_str(&format!("\\brdrw{w}"));
+        if prefix == "brdr" {
+            let sp = (b.space * 20.0).round() as i64;
+            if sp > 0 {
+                out.push_str(&format!("\\brsp{sp}"));
+            }
+        }
+        if let Some(c) = b.color {
+            let i = self.t.color(c);
+            out.push_str(&format!("\\brdrcf{i}"));
+        }
+    }
+
+    fn cell_borders(&mut self, borders: Option<&wordcraft_doc::props::Borders>, borderless: bool, out: &mut String) {
+        if let Some(b) = borders {
+            for (side, opt) in [('t', &b.top), ('l', &b.left), ('b', &b.bottom), ('r', &b.right)] {
+                if let Some(border) = opt.filter(|x| x.is_visible()) {
+                    self.write_border("clbrdr", side, border, out);
+                }
+            }
+        } else if !borderless {
+            out.push_str("\\clbrdrt\\brdrs\\brdrw10\\clbrdrl\\brdrs\\brdrw10\\clbrdrb\\brdrs\\brdrw10\\clbrdrr\\brdrs\\brdrw10");
+        }
+    }
+
     /// `\revtbl` index of a tracked change's author (0 = "Unknown").
     fn author(&mut self, a: &str) -> usize {
         let authors = self.authors.get_or_insert_with(Vec::new);
@@ -379,6 +423,15 @@ impl Writer {
             let words = self.rev_words("\\prauth", "\\prdate", &c.mark);
             out.push_str(&words);
         }
+        if p.kind != Kind::Rule
+            && let Some(b) = &p.borders
+        {
+            for (side, opt) in [('t', &b.top), ('l', &b.left), ('b', &b.bottom), ('r', &b.right)] {
+                if let Some(border) = opt.filter(|x| x.is_visible()) {
+                    self.write_border("brdr", side, border, out);
+                }
+            }
+        }
         if let (Some(li), Some((n, label))) = (p.list, &ls) {
             let lv = li.level.min(8);
             out.push_str(&format!("\\ls{n}\\ilvl{lv}\\fi-360\\li{}", 720 * (u32::from(lv) + 1)));
@@ -543,7 +596,7 @@ impl Writer {
                 } else if c.rowspan > 1 {
                     out.push_str("\\clvmgf");
                 }
-                out.push_str("\\clbrdrt\\brdrs\\brdrw10\\clbrdrl\\brdrs\\brdrw10\\clbrdrb\\brdrs\\brdrw10\\clbrdrr\\brdrs\\brdrw10");
+                self.cell_borders(c.borders.as_ref(), t.borderless, out);
                 if let Some(s) = c.shading {
                     let i = self.t.color(s);
                     out.push_str(&format!("\\clcbpat{i}"));
@@ -2649,6 +2702,13 @@ mod tests {
         let d = import(rtf).unwrap();
         let first = d.body.iter().find_map(|b| if let wordcraft_doc::Block::Para(p) = &**b { Some(p) } else { None }).unwrap();
         assert!(first.props.borders.and_then(|b| b.bottom).is_some());
+        // Paragraph borders round-trip through export and import.
+        let exported = export(&d);
+        assert!(exported.contains("\\brdrb\\brdrs\\brdrw10\\brdrcf1"), "{exported}");
+        let back = import(exported.as_bytes()).unwrap();
+        let first = back.body.iter().find_map(|b| if let wordcraft_doc::Block::Para(p) = &**b { Some(p) } else { None }).unwrap();
+        let b = first.props.borders.unwrap().bottom.unwrap();
+        assert_eq!((b.style, b.width, b.color), (wordcraft_doc::props::BorderStyle::Single, 0.5, Some(Rgb(216, 216, 216))));
     }
 
     #[test]
@@ -2808,6 +2868,25 @@ mod tests {
         let t = d.body.iter().find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t) } else { None }).unwrap();
         assert!(t.props.style.is_none());
         assert!(t.rows[0].cells[0].props.borders.and_then(|b| b.bottom).is_some());
+        // Borderless tables export without cell borders and round-trip borderless.
+        let d = import(br"{\rtf1\ansi\trowd\cellx2000\pard\intbl a\cell\row}").unwrap();
+        let exported = export(&d);
+        assert!(!exported.contains("\\clbrdr"), "{exported}");
+        let back = import(exported.as_bytes()).unwrap();
+        let tb = back.body.iter().find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t) } else { None }).unwrap();
+        assert!(tb.props.style.is_none());
+        assert!(tb.rows[0].cells[0].props.borders.is_none());
+
+        // Cell borders round-trip through export and import.
+        let d = import(br"{\rtf1\ansi{\colortbl;\red174\green174\blue174;}\trowd\clbrdrb\brdrdb\brdrw15\brdrcf1\cellx2000\pard\intbl a\cell\row}")
+            .unwrap();
+        let exported = export(&d);
+        assert!(exported.contains("\\clbrdrb\\brdrdb\\brdrw15\\brdrcf1"), "{exported}");
+        let back = import(exported.as_bytes()).unwrap();
+        let tb = back.body.iter().find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t) } else { None }).unwrap();
+        let b = tb.rows[0].cells[0].props.borders.unwrap().bottom.unwrap();
+        assert_eq!((b.style, b.width, b.color), (wordcraft_doc::props::BorderStyle::Double, 0.75, Some(Rgb(174, 174, 174))));
+
         // The table sizes to the document's page, not Letter.
         let d = import(br"{\rtf1\ansi\paperw11906\margl1134\margr1134\trowd\cellx4818\cellx9638\pard\intbl a\cell b\cell\row}").unwrap();
         let t = d.body.iter().find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t) } else { None }).unwrap();
