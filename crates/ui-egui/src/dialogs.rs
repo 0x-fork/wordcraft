@@ -768,6 +768,10 @@ pub struct RecipientFilter {
     /// The grid cell that had the keyboard last frame.
     #[serde(skip)]
     pub(crate) editing: Option<egui::Id>,
+    /// The last merge order worked out, keyed by a hash of the list, filter and sort, so a long
+    /// list isn't filtered and sorted again on every frame.
+    #[serde(skip)]
+    pub(crate) order_cache: Option<(u64, Vec<Option<usize>>)>,
 }
 
 /// One filter condition row: `field op value`, joined to the row above with And or Or.
@@ -796,24 +800,54 @@ impl RecipientFilter {
         RecipientFilter { open: !rules.is_empty() || !m.sort.is_empty(), rules, sort, ..Default::default() }
     }
 
-    fn engine(&self) -> (Vec<FilterRule>, Vec<SortKey>) {
+    /// The rules and sort keys on `fields` (a rule on a field renamed or removed in the table
+    /// drops, as the engine drops it when the list is edited).
+    fn engine(&self, fields: &[String]) -> (Vec<FilterRule>, Vec<SortKey>) {
+        let known = |f: &str| !f.trim().is_empty() && fields.iter().any(|h| h.trim().eq_ignore_ascii_case(f.trim()));
         let rules = self
             .rules
             .iter()
-            .filter(|r| !r.field.is_empty())
+            .filter(|r| known(&r.field))
             .map(|r| FilterRule { field: r.field.clone(), op: r.op, value: r.value.clone(), or: r.or })
             .collect();
-        let sort = self.sort.iter().filter(|(f, _)| !f.is_empty()).map(|(f, d)| SortKey { field: f.clone(), descending: *d }).collect();
+        let sort = self.sort.iter().filter(|(f, _)| known(f)).map(|(f, d)| SortKey { field: f.clone(), descending: *d }).collect();
         (rules, sort)
+    }
+
+    /// Each record's place in the merge (None: filtered out), from the cache when the list,
+    /// filter and sort haven't changed.
+    fn order(&mut self, fields: &[String], rows: &[Vec<String>]) -> &[Option<usize>] {
+        use std::hash::{Hash, Hasher};
+        let (rules, sort) = self.engine(fields);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        fields.hash(&mut h);
+        rows.hash(&mut h);
+        for r in &rules {
+            (&r.field, r.op.id(), &r.value, r.or).hash(&mut h);
+        }
+        for k in &sort {
+            (&k.field, k.descending).hash(&mut h);
+        }
+        let key = h.finish();
+        if self.order_cache.as_ref().is_none_or(|(k, _)| *k != key) {
+            let mut order = vec![None; rows.len()];
+            for (n, i) in wordcraft_engine::cmd::mailings::select_records(fields, rows, &rules, &sort).into_iter().enumerate() {
+                if let Some(slot) = order.get_mut(i) {
+                    *slot = Some(n + 1);
+                }
+            }
+            self.order_cache = Some((key, order));
+        }
+        self.order_cache.as_ref().map_or(&[], |(_, o)| o.as_slice())
     }
 
     fn is_empty(&self) -> bool {
         self.rules.iter().all(|r| r.field.is_empty()) && self.sort.iter().all(|(f, _)| f.is_empty())
     }
 
-    /// `mailings.filterRecipients` params.
-    pub fn params(&self) -> Value {
-        let (rules, sort) = self.engine();
+    /// `mailings.filterRecipients` params for a list with `fields`.
+    pub fn params(&self, fields: &[String]) -> Value {
+        let (rules, sort) = self.engine(fields);
         json!({
             "rules": rules.iter().map(|r| json!({"field": r.field, "op": r.op.id(), "value": r.value, "join": if r.or { "or" } else { "and" }})).collect::<Vec<_>>(),
             "sort": sort.iter().map(|k| json!({"field": k.field, "descending": k.descending})).collect::<Vec<_>>(),
@@ -822,9 +856,10 @@ impl RecipientFilter {
 }
 
 /// Each record's place in the merge (None: filtered out), when `filter` filters or sorts.
+#[cfg(test)]
 pub(crate) fn merge_order(fields: &[String], rows: &[Vec<String>], filter: &RecipientFilter) -> Option<Vec<Option<usize>>> {
     (!filter.is_empty()).then(|| {
-        let (rules, sort) = filter.engine();
+        let (rules, sort) = filter.engine(fields);
         let mut order = vec![None; rows.len()];
         for (k, i) in wordcraft_engine::cmd::mailings::select_records(fields, rows, &rules, &sort).into_iter().enumerate() {
             if let Some(slot) = order.get_mut(i) {
@@ -3025,7 +3060,8 @@ pub(crate) fn recipient_list(
     const X_W: f32 = 18.0;
     const ROW_H: f32 = 24.0;
     const NUM_W: f32 = 34.0;
-    let order = merge_order(fields, rows, filter);
+    // Each record's place in the merge (None: filtered out), when there is a filter or sort.
+    let order: Option<Vec<Option<usize>>> = (!filter.is_empty()).then(|| filter.order(fields, rows).to_vec());
     // Wide enough for every field (up to a limit; more scroll sideways).
     let gap = ui.spacing().item_spacing.x;
     // Plus the rows' scroll bar, so each row's remove button stays in view (#1576).
@@ -3184,7 +3220,7 @@ pub(crate) fn recipient_list(
     }
     let r = recipient_table(fields, rows).map_err(|e| tl!(e).to_string()).and_then(|params| app.load_recipients(params));
     // A new list starts unfiltered; the dialog's filter and sort apply to it.
-    let r = r.and_then(|_| if filter.is_empty() { Ok(Value::Null) } else { app.run("mailings.filterRecipients", filter.params()) });
+    let r = r.and_then(|_| if filter.is_empty() { Ok(Value::Null) } else { app.run("mailings.filterRecipients", filter.params(fields)) });
     match r {
         Ok(_) => true,
         Err(e) => {

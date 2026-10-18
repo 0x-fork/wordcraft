@@ -7266,10 +7266,12 @@ mod tests {
         )
         .unwrap();
         a.run("mailings.editRecipients", json!({})).unwrap();
-        let Some(dialogs::Dialog::RecipientList { rows, filter, .. }) = &a.dialog else { panic!() };
+        let Some(dialogs::Dialog::RecipientList { rows, filter, fields, .. }) = &a.dialog else { panic!() };
         assert_eq!(rows.len(), 3, "every record, not only the filtered ones");
         assert!(filter.open);
-        let params = filter.params();
+        let params = filter.params(fields);
+        // A rule or sort key on a field renamed or removed in the table drops (#1287).
+        assert_eq!(filter.params(&["Name".to_string()]), json!({"rules": [], "sort": [{"field": "Name", "descending": true}]}));
         assert_eq!(params["rules"], json!([{"field": "City", "op": "equal", "value": "London", "join": "and"}]));
         assert_eq!(params["sort"], json!([{"field": "Name", "descending": true}]));
         // Applying the dialog's filter to a reloaded list gives the same records.
