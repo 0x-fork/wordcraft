@@ -733,8 +733,9 @@ fn export_with(m: &Meta, w: &Writer, body: &str, sec: &wordcraft_doc::SectionPro
     }
     out.push_str("}\n");
     let tw = |v: f32| (v * 20.0).round() as i64;
+    let landscape = if sec.landscape { "\\landscape" } else { "" };
     out.push_str(&format!(
-        "\\paperw{}\\paperh{}\\margl{}\\margr{}\\margt{}\\margb{}\\viewkind4\n",
+        "\\paperw{}\\paperh{}\\margl{}\\margr{}\\margt{}\\margb{}{landscape}\\viewkind4\n",
         tw(sec.page_w),
         tw(sec.page_h),
         tw(sec.margin_left),
@@ -2702,6 +2703,8 @@ mod tests {
         assert!(!s.landscape);
         let d = import(br"{\rtf1\ansi\paperw11906\paperh16838\landscape x\par}").unwrap();
         assert!(d.last_section.landscape && d.last_section.page_w > d.last_section.page_h);
+        let exported = export(&d);
+        assert!(exported.contains("\\landscape"), "exported RTF must include \\landscape: {exported}");
         // Nonsense keeps Word's defaults.
         let d = import(br"{\rtf1\ansi\paperw0\margl99999 x\par}").unwrap();
         assert_eq!(d.last_section, wordcraft_doc::SectionProps::default());
