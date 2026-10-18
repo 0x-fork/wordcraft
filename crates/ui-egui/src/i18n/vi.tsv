@@ -2729,3 +2729,10 @@ template	Letter	Thư
 # Drop Cap disabled reasons (#2601)
 	the paragraph is empty	đoạn văn trống
 	the paragraph starts with a space	đoạn văn bắt đầu bằng dấu cách
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Khóa tỷ lệ khung hình
+	Relative to original picture size	So với kích thước gốc của ảnh
+	Original size	Kích thước gốc
+	{width} × {height} pixels	{width} × {height} điểm ảnh
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Nhập kích thước theo đơn vị bất kỳ, ví dụ 5 cm hoặc 300 px. Cạnh còn lại thay đổi theo, nên ảnh giữ nguyên tỷ lệ.

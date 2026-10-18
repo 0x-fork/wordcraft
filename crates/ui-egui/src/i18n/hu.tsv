@@ -2685,3 +2685,10 @@
 # Drop Cap disabled reasons (#2601)
 	the paragraph is empty	a bekezdés üres
 	the paragraph starts with a space	a bekezdés szóközzel kezdődik
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Méretarány zárolása
+	Relative to original picture size	Az eredeti képmérethez viszonyítva
+	Original size	Eredeti méret
+	{width} × {height} pixels	{width} × {height} képpont
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Írj be egy méretet bármilyen mértékegységben, például 5 cm vagy 300 px. A másik oldal követi, így a kép megtartja az arányait.

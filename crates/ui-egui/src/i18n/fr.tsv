@@ -2691,3 +2691,10 @@ template	Letter	Lettre
 	Lines to drop:	Hauteur (lignes) :
 	Distance from text:	Distance du texte :
 	Distance from text	Distance du texte
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Verrouiller les proportions
+	Relative to original picture size	Proportionnellement à la taille d'origine de l'image
+	Original size	Taille d'origine
+	{width} × {height} pixels	{width} × {height} pixels
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Tapez une taille dans n'importe quelle unité, par exemple 5 cm ou 300 px. L'autre côté suit, et l'image garde ses proportions.

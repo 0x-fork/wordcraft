@@ -2686,3 +2686,10 @@ preview	Title	Örnek
 # Drop Cap disabled reasons (#2601)
 	the paragraph is empty	paragraf boş
 	the paragraph starts with a space	paragraf boşlukla başlıyor
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	En boy oranını kilitle
+	Relative to original picture size	Özgün resim boyutuna göre
+	Original size	Özgün boyut
+	{width} × {height} pixels	{width} × {height} piksel
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Herhangi bir birimde bir boyut yazın, örneğin 5 cm veya 300 px. Diğer kenar da buna uyar, böylece resim oranlarını korur.

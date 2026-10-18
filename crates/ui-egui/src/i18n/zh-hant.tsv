@@ -2280,3 +2280,10 @@
 	Lines to drop:	放大行數：
 	Distance from text:	與本文距離：
 	Distance from text	與本文距離
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	鎖定長寬比
+	Relative to original picture size	相對於原始圖片大小
+	Original size	原始大小
+	{width} × {height} pixels	{width} × {height} 像素
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	可用任何單位輸入大小，例如 5 cm 或 300 px。另一邊隨之調整，圖片保持原有比例。

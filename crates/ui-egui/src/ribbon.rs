@@ -598,6 +598,23 @@ fn edge_cue(ui: &mut Ui, rect: Rect, glyph: &str, hint: &str, t: &Tokens) -> boo
     resp.clicked()
 }
 
+/// Whether Esc just ended typing in a field (`r`, remembered under `id`). egui 0.36 keeps a
+/// `DragValue`'s typed text after Esc and applies it a frame later, when the field still counts as
+/// having just lost focus but Esc is no longer pressed: a change reported within two frames of the
+/// Esc is that late value, to be dropped so that Esc cancels as in Word.
+fn esc_cancelled(ui: &Ui, r: &egui::Response, id: egui::Id) -> bool {
+    let now = ui.ctx().cumulative_pass_nr();
+    let (focus_key, esc_key) = (id.with("focused"), id.with("esc"));
+    // Read outside `data_mut`: both lock the context.
+    let focused = r.has_focus();
+    let had_focus = ui.data(|d| d.get_temp::<bool>(focus_key)).unwrap_or(false);
+    ui.data_mut(|d| d.insert_temp(focus_key, focused));
+    if had_focus && !focused && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        ui.data_mut(|d| d.insert_temp(esc_key, now));
+    }
+    ui.data(|d| d.get_temp::<u64>(esc_key)).is_some_and(|at| now.saturating_sub(at) <= 2)
+}
+
 fn stack(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(1.0, 0.0);
@@ -2317,8 +2334,10 @@ fn chart_design(app: &mut WordApp, ui: &mut Ui) {
                 crate::widgets::row(ui, |ui| {
                     ui.label(egui::RichText::new(tl!(label)).small());
                     let mut v = v0;
-                    let r = ui.add(egui::DragValue::new(&mut v).speed(1.0).range(36.0..=2000.0).suffix(" pt"));
-                    if r.changed() {
+                    // The range bounds what is typed or dragged; a size outside it is shown as it
+                    // is (clamped, egui would report a change and resize the chart unasked).
+                    let r = ui.add(egui::DragValue::new(&mut v).speed(1.0).range(36.0..=2000.0).clamp_existing_to_range(false).suffix(" pt"));
+                    if r.changed() && v != v0 {
                         if r.dragged() && !r.drag_started() {
                             app.session.join_next_undo();
                         }
@@ -2405,8 +2424,10 @@ fn shape_format(app: &mut WordApp, ui: &mut Ui) {
                 for (label, key, v0) in [("W:", "width", w0), ("H:", "height", h0)] {
                     ui.label(egui::RichText::new(tl!(label)).small());
                     let mut v = v0;
-                    let r = ui.add(egui::DragValue::new(&mut v).speed(1.0).range(4.0..=2000.0).suffix(" pt"));
-                    if r.changed() {
+                    // `picture.size`'s own range; a size outside it (a thin line) is shown as it
+                    // is (clamped, egui would report a change and resize the shape unasked).
+                    let r = ui.add(egui::DragValue::new(&mut v).speed(1.0).range(1.0..=4000.0).clamp_existing_to_range(false).suffix(" pt"));
+                    if r.changed() && v != v0 {
                         if r.dragged() && !r.drag_started() {
                             app.session.join_next_undo();
                         }
@@ -2572,31 +2593,44 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
             group_menu(ui, app, Some("Group"));
         });
     });
-    group(ui, "Size", None, app, |ui, app| {
+    // The launcher opens the Size dialog: scale, Lock aspect ratio, the original size (#2573).
+    group(ui, "Size", Some("picture.size"), app, |ui, app| {
         let (media, off, w0, h0, crop0, alt0) = match wordcraft_engine::cmd::objects::selected(&app.session) {
             Some((pos, wordcraft_doc::para::InlineObject::Image { media, w, h, alt, crop, .. })) => (media, pos.off, w, h, crop, alt),
             _ => (String::new(), 0, 0.0, 0.0, [0.0; 4], String::new()),
         };
         // `picture.size` locks the aspect ratio unless told otherwise, so one dimension suffices.
+        // The fields show the interface unit and take a size typed in any unit, pixels too
+        // (`300 px`, #1901), applied once typed (Enter, Tab or a click elsewhere; Esc cancels),
+        // never per keystroke; a drag applies as it goes, one undo step.
+        let unit = crate::options::unit();
+        let k = unit.pt_per_unit();
         stack(ui, |ui| {
             crate::widgets::row(ui, |ui| {
-                ui.label(egui::RichText::new(tl!("W:")).small());
-                let mut w = w0;
-                let r = ui.add(egui::DragValue::new(&mut w).speed(1.0).range(4.0..=2000.0).suffix(format!(" {}", tl!("pt"))));
-                if r.changed() {
-                    if r.dragged() && !r.drag_started() {
-                        app.session.join_next_undo();
+                for (label, key, pt) in [("W:", "width", w0), ("H:", "height", h0)] {
+                    let name = ui.label(egui::RichText::new(tl!(label)).small());
+                    let was = pt / k;
+                    let mut v = was;
+                    // Not `clamp_existing_to_range`: egui would clamp a size outside the range (a 1 px
+                    // picture is 0.75 pt) and report it as a change, resizing the picture unasked.
+                    let field = egui::DragValue::new(&mut v)
+                        .speed(1.0 / k)
+                        .range(1.0 / k..=4000.0 / k)
+                        .clamp_existing_to_range(false)
+                        .measure(unit)
+                        .max_decimals(2);
+                    let r = ui.add(field.update_while_editing(false)).labelled_by(name.id).on_hover_text(tl!(
+                        "Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions."
+                    ));
+                    // While typing, the field reports each keystroke as a change; only a new
+                    // value (Enter, Tab, a click elsewhere, a drag) resizes, and Esc cancels.
+                    let cancelled = esc_cancelled(ui, &r, egui::Id::new(("picture_size_field", key)));
+                    if r.changed() && v != was && !cancelled {
+                        if r.dragged() && !r.drag_started() {
+                            app.session.join_next_undo();
+                        }
+                        let _ = app.run("picture.size", json!({key: v * k}));
                     }
-                    let _ = app.run("picture.size", json!({"width": w}));
-                }
-                ui.label(egui::RichText::new(tl!("H:")).small());
-                let mut h = h0;
-                let r = ui.add(egui::DragValue::new(&mut h).speed(1.0).range(4.0..=2000.0).suffix(format!(" {}", tl!("pt"))));
-                if r.changed() {
-                    if r.dragged() && !r.drag_started() {
-                        app.session.join_next_undo();
-                    }
-                    let _ = app.run("picture.size", json!({"height": h}));
                 }
                 rotation_field(ui, app);
             });
@@ -3286,5 +3320,115 @@ mod tests {
         assert_eq!(resolve_tab("Picture Format", &["Home"]), "Home");
         assert_eq!(resolve_tab("Table Design", &["Home"]), "Home");
         assert_eq!(resolve_tab("Home", &["Home"]), "Home");
+    }
+
+    /// #2573, #1901: Picture Format › Size's width shows the interface unit and takes a size typed
+    /// in pixels. It applies once typed (Enter), not while typing, keeping the picture's proportions, as one
+    /// undo step.
+    #[test]
+    fn picture_width_typed_in_pixels_keeps_the_proportions() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut a = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("file.options", json!({"units": "centimeters"})).unwrap();
+        a.run("insert.picture", json!({"data": png_data()})).unwrap();
+        a.run("ui.tab", json!({"tab": "Picture Format"})).unwrap();
+        let size = |a: &crate::WordApp| wordcraft_engine::cmd::objects::selected(&a.session).and_then(|(_, o)| o.frame().map(|(w, h, _)| (w, h)));
+        assert_eq!(size(&a), Some((15.0, 7.5)), "20×10 px at 96 ppi");
+        // Wide enough for the whole tab: the Size group is its last.
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(2560.0, 900.0)).build_ui_state(
+            |ui, app: &mut crate::WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let shown = h.get_by_role_and_label(Role::SpinButton, "W:").value().unwrap_or_default();
+        assert!(shown.ends_with(" cm"), "the interface unit: {shown:?}");
+        h.get_by_role_and_label(Role::SpinButton, "W:").click();
+        h.run_steps(2);
+        // Editing, the field is still a spin button, now showing the bare number to type over.
+        let editing = h.get_by_role_and_label(Role::SpinButton, "W:");
+        assert!(editing.is_focused() && editing.value().is_some_and(|v| !v.ends_with(" cm")), "a click starts typing");
+        editing.type_text("300 px");
+        h.run_steps(2);
+        assert_eq!(size(h.state()), Some((15.0, 7.5)), "nothing applies while typing");
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        let (w, ht) = size(h.state()).unwrap();
+        assert!((w - 225.0).abs() < 0.01 && (ht - 112.5).abs() < 0.01, "300 px = 225 pt, the height follows: {w}×{ht}");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(size(h.state()), Some((15.0, 7.5)), "one undo step");
+        // Esc throws a typed size away.
+        h.get_by_role_and_label(Role::SpinButton, "W:").click();
+        h.run_steps(2);
+        h.get_by_role_and_label(Role::SpinButton, "W:").type_text("500 px");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert_eq!(size(h.state()), Some((15.0, 7.5)), "Esc cancels the typing");
+    }
+
+    /// #2573 review: showing Picture Format never resizes a picture whose size is outside the
+    /// fields' range (a 1×1 px spacer is 0.75 pt): egui clamps such a value by default and reports
+    /// it as a change.
+    #[test]
+    fn picture_format_leaves_a_tiny_picture_alone() {
+        let mut a = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 255]));
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        a.run("insert.picture", json!({"data": wordcraft_engine::cmd::insert::base64_encode(&png)})).unwrap();
+        a.run("ui.tab", json!({"tab": "Picture Format"})).unwrap();
+        let size = |a: &crate::WordApp| wordcraft_engine::cmd::objects::selected(&a.session).and_then(|(_, o)| o.frame().map(|(w, h, _)| (w, h)));
+        assert_eq!(size(&a), Some((0.75, 0.75)));
+        let undo = a.session.undo_depth();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(2560.0, 900.0)).build_ui_state(
+            |ui, app: &mut crate::WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(6);
+        assert_eq!(size(h.state()), Some((0.75, 0.75)), "shown, not resized");
+        assert_eq!(h.state().session.undo_depth(), undo, "no undo step");
+    }
+
+    /// #2573 review: Shape Format and Chart Design leave sizes outside their fields' ranges alone
+    /// too (a 0.5 pt high line; a chart narrower than 36 pt), as Picture Format does.
+    #[test]
+    fn shape_and_chart_formats_leave_out_of_range_sizes_alone() {
+        let size = |a: &crate::WordApp| wordcraft_engine::cmd::objects::selected(&a.session).and_then(|(_, o)| o.frame().map(|(w, h, _)| (w, h)));
+        let shown = |a: crate::WordApp| {
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(2560.0, 900.0)).build_ui_state(
+                |ui, app: &mut crate::WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            h.run_steps(6);
+            let a = h.state();
+            (size(a), a.session.undo_depth())
+        };
+        let mut a = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("insert.shape", json!({"kind": "rectangle"})).unwrap();
+        a.run("picture.size", json!({"width": 3000.0, "height": 1.0, "lockAspect": false})).unwrap();
+        a.run("ui.tab", json!({"tab": "Shape Format"})).unwrap();
+        let before = (size(&a), a.session.undo_depth());
+        assert_eq!(before.0, Some((3000.0, 1.0)));
+        assert_eq!(shown(a), before, "Shape Format shown, the shape untouched");
+
+        let mut a = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("insert.chart", json!({"type": "doughnut"})).unwrap();
+        a.run("picture.size", json!({"width": 20.0, "height": 2500.0, "lockAspect": false})).unwrap();
+        a.run("ui.tab", json!({"tab": "Chart Design"})).unwrap();
+        let before = (size(&a), a.session.undo_depth());
+        assert_eq!(before.0, Some((20.0, 2500.0)));
+        assert_eq!(shown(a), before, "Chart Design shown, the chart untouched");
     }
 }

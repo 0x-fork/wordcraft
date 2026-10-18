@@ -2694,3 +2694,10 @@ preview	Title	Tytuł
 # Drop Cap disabled reasons (#2601)
 	the paragraph is empty	akapit jest pusty
 	the paragraph starts with a space	akapit zaczyna się od spacji
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Zablokuj proporcje
+	Relative to original picture size	Względem oryginalnego rozmiaru obrazu
+	Original size	Rozmiar oryginalny
+	{width} × {height} pixels	{width} × {height} pikseli
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Wpisz rozmiar w dowolnej jednostce, np. 5 cm lub 300 px. Druga strona dopasuje się, więc obraz zachowa proporcje.

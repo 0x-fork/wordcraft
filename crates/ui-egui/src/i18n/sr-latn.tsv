@@ -2289,3 +2289,10 @@
 	Lines to drop:	Broj redova:
 	Distance from text:	Rastojanje od teksta:
 	Distance from text	Rastojanje od teksta
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Zaključaj odnos širine i visine
+	Relative to original picture size	U odnosu na originalnu veličinu slike
+	Original size	Originalna veličina
+	{width} × {height} pixels	{width} × {height} piksela
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Unesite veličinu u bilo kojoj jedinici, na primer 5 cm ili 300 px. Druga strana se prilagođava, pa slika zadržava svoje proporcije.

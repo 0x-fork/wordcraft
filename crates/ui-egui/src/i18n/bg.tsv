@@ -2678,3 +2678,10 @@
 # Drop Cap disabled reasons (#2601)
 	the paragraph is empty	абзацът е празен
 	the paragraph starts with a space	абзацът започва с интервал
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Заключване на пропорциите
+	Relative to original picture size	Спрямо оригиналния размер на картината
+	Original size	Оригинален размер
+	{width} × {height} pixels	{width} × {height} пиксела
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Въведете размер в произволна единица, например 5 cm или 300 px. Другата страна се променя съответно, така че картината запазва пропорциите си.

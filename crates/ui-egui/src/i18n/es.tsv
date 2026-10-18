@@ -2645,3 +2645,10 @@ preview	Title	Título
 	Lines to drop:	Líneas que ocupa:
 	Distance from text:	Distancia del texto:
 	Distance from text	Distancia del texto
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Bloquear relación de aspecto
+	Relative to original picture size	Relativo al tamaño original de la imagen
+	Original size	Tamaño original
+	{width} × {height} pixels	{width} × {height} píxeles
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Escribe un tamaño en cualquier unidad, como 5 cm o 300 px. El otro lado se ajusta, así que la imagen conserva sus proporciones.

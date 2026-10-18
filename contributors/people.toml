@@ -154,3 +154,6 @@ sync_github_name = true
 [people.C00kieMonsta]
 real_name = "Antoine Boxho"
 sync_github_name = true
+
+[people.matteo-andreuzza]
+sync_github_name = true
