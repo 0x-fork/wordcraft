@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use wordcraft_doc::math::MathJc;
 use wordcraft_doc::numbering::{Level, LevelSuffix};
-use wordcraft_doc::para::{COLUMN_BREAK, InlineObject, LINE_BREAK, NoteKind, OBJ, PAGE_BREAK, RubyAlign, SOFT_HYPHEN, WrapText};
+use wordcraft_doc::para::{COLUMN_BREAK, InlineObject, LINE_BREAK, NoteKind, OBJ, PAGE_BREAK, PTabAlign, PTabBase, RubyAlign, SOFT_HYPHEN, WrapText};
 use wordcraft_doc::props::{Align, CharProps, LineSpacing, ParaProps, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::resolve::{ResolvedChar, ResolvedPara};
 use wordcraft_doc::section::NumFormat;
@@ -362,6 +362,8 @@ pub struct ParaLayout {
     pub rubies: Vec<RubyLayout>,
     /// Display equations (on lines of their own): cluster index and justification.
     pub displays: Vec<(usize, wordcraft_doc::math::MathJc)>,
+    /// Positional tabs (laid out as tab clusters): cluster index, alignment, base and leader.
+    pub ptabs: Vec<(usize, PTabAlign, PTabBase, TabLeader)>,
     /// Byte ranges of the text laid out as nothing ([`left_out`]): hidden text that is not shown,
     /// tracked deletions in the final text. Resolved as laid out, table formatting included.
     pub left_out: Vec<std::ops::Range<usize>>,
@@ -371,6 +373,9 @@ pub struct ParaLayout {
     pub shown: Vec<(usize, String, Vec<std::ops::Range<usize>>)>,
     /// Shapes drawn around overstruck field text (enclosed characters, `EQ \o`), by cluster index.
     pub enclosures: Vec<(usize, Enclosed)>,
+    /// Room after a cluster between Asian text and Latin text or digits ([`auto_space`]), by
+    /// cluster index, sorted. It is part of the cluster's advance, but takes no room at a line's end.
+    pub auto_space: Vec<(usize, f32)>,
 }
 
 /// A shape drawn over a cluster (an enclosed character's circle, square, triangle or diamond),
@@ -496,6 +501,54 @@ fn snap_chars(b: &mut Builder, text: &str, grid: &Grid) {
         }
         c.adv = adv;
     }
+}
+
+/// Automatic spacing (`w:autoSpaceDE`, `w:autoSpaceDN`): a quarter of the Asian character's font
+/// size between Asian text and Latin text or digits that touch, across runs. Measured on Word's
+/// PDF of a Chinese document at 16 pt (#2358), as JIS X 4051 asks. A field or note number is
+/// classed by the text it shows. The room goes after the first of the two characters; returns it
+/// by cluster index.
+fn auto_space(b: &mut Builder, text: &str, de: bool, dn: bool) -> Vec<(usize, f32)> {
+    let mut out = Vec::new();
+    if !de && !dn {
+        return out;
+    }
+    let mut shown = b.shown.iter().map(|s| (s.0, s.1.as_str())).peekable();
+    // The previous text cluster: index, its last character, its font size.
+    let mut prev: Option<(usize, char, f32)> = None;
+    for k in 0..b.clusters.len() {
+        let Some(c) = b.clusters.get(k) else { break };
+        match c.kind {
+            ClKind::Text => {}
+            ClKind::Marker if c.adv == 0.0 => continue,
+            _ => {
+                prev = None;
+                continue;
+            }
+        }
+        while shown.next_if(|s| s.0 < k).is_some() {}
+        let s = match shown.peek() {
+            Some(&(i, t)) if i == k => t,
+            _ => text.get(c.start..c.end).unwrap_or(""),
+        };
+        let (Some(first), Some(last)) = (s.chars().next(), s.chars().next_back()) else {
+            prev = None;
+            continue;
+        };
+        let size = b.styles.get(c.style as usize).map_or(0.0, |st| st.size);
+        if let Some((pk, pc, psize)) = prev
+            && let Some(side) = crate::kinsoku::auto_space(pc, first, de, dn)
+        {
+            let asian = if side == crate::kinsoku::AsianSide::Left { psize } else { size };
+            let gap = if asian.is_finite() { (asian / 4.0).clamp(0.0, 400.0) } else { 0.0 };
+            if let Some(pc) = b.clusters.get_mut(pk) {
+                pc.adv += gap;
+                out.push((pk, gap));
+            }
+        }
+        prev = Some((k, last, size));
+    }
+    out
 }
 
 /// An area text wraps around.
@@ -1350,6 +1403,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let mut enclosures = Vec::new();
     let mut rubies = Vec::new();
     let mut displays = Vec::new();
+    let mut ptabs = Vec::new();
     let mut eq_counter = env.eq_number;
     let math_props = doc.settings.math.clone().unwrap_or_default();
     // The byte ranges of runs left out of the layout, in order, adjacent runs merged.
@@ -1552,6 +1606,10 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                             }
                         }
                         Some(InlineObject::Opaque { text, .. }) => b.shape_atomic(text, start, end, &rc),
+                        Some(InlineObject::PositionalTab { align, relative_to, leader }) => {
+                            push(&mut b, ClKind::Tab, 0.0, 0.0);
+                            ptabs.push((b.clusters.len() - 1, *align, *relative_to, *leader));
+                        }
                         _ => push(&mut b, ClKind::Marker, 0.0, 0.0),
                     }
                 }
@@ -1564,6 +1622,9 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     if rp.snap_to_grid {
         snap_chars(&mut b, &p.text, &env.grid);
     }
+    // Text on a character grid keeps to its cells.
+    let auto_space =
+        if rp.snap_to_grid && env.grid.chars.is_some() { Vec::new() } else { auto_space(&mut b, &p.text, rp.auto_space_de, rp.auto_space_dn) };
     // Break opportunities and hyphenation points come from the text as laid out: hidden text that is
     // not shown and, without markup, tracked deletions are left out, so a space or soft hyphen there
     // is no place to break, and words are hyphenated as they read.
@@ -1688,8 +1749,10 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         maths,
         rubies,
         displays,
+        ptabs,
         left_out: Vec::new(),
         enclosures,
+        auto_space,
     };
     let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
     pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps, &runs);
@@ -1746,6 +1809,21 @@ fn next_tab(x: f32, tabs: &[TabStop], default_tab: f32, hanging_at: Option<f32>)
         let n = if x < -0.01 { ((x - 0.01) / d).ceil() } else { ((x + 0.01) / d).floor() + 1.0 };
         TabStop { pos: (n * d).min(1e6), align: TabAlign::Left, leader: TabLeader::None }
     })
+}
+
+/// A positional tab's stop (column coordinates): the left edge, centre or right edge of the
+/// column (`margin`) or of the space between the indents (`indent`), whatever the tab stops.
+fn ptab_stop(align: PTabAlign, base: PTabBase, leader: TabLeader, width: f32, indents: (f32, f32)) -> TabStop {
+    let (lo, hi) = match base {
+        PTabBase::Margin => (0.0, width),
+        PTabBase::Indent => (indents.0, width - indents.1),
+    };
+    let (pos, align) = match align {
+        PTabAlign::Left => (lo, TabAlign::Left),
+        PTabAlign::Center => ((lo + hi) / 2.0, TabAlign::Center),
+        PTabAlign::Right => (hi, TabAlign::Right),
+    };
+    TabStop { pos, align, leader }
 }
 
 fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Option<&Level>) {
@@ -1901,9 +1979,16 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 ClKind::Tab => {
                     has_tab = true;
                     resolve_tab(pl, &mut pending_tab, &mut xs, c0, x, &mut x);
-                    let stop = next_tab(x, &rp.tabs, default_tab, hanging_at);
+                    let ptab = pl.ptabs.iter().find(|t| t.0 == j).map(|&(_, a, b, l)| ptab_stop(a, b, l, width, (rp.indent_left, rp.indent_right)));
+                    let stop = ptab.unwrap_or_else(|| next_tab(x, &rp.tabs, default_tab, hanging_at));
+                    // A positional tab whose place the text has passed goes there on the next line
+                    // (ECMA-376 §17.3.3.23); a line with nothing but markers on it is empty.
+                    if ptab.is_some() && stop.pos < x - 0.01 && (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker)) {
+                        end = LineEnd::Wrap;
+                        break;
+                    }
                     xs.push(x);
-                    if stop.pos > right_edge + 0.01 && j > c0 && stop.align == TabAlign::Left {
+                    if ptab.is_none() && stop.pos > right_edge + 0.01 && j > c0 && stop.align == TabAlign::Left {
                         // Tab past the right indent wraps (Word moves it to the next line).
                         if let Some(c) = pl.clusters.get_mut(j) {
                             c.adv = 0.0;
@@ -1953,7 +2038,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 }
             });
             let shrink = if shrink_spaces && !has_tab { space_w * MAX_SPACE_SHRINK } else { 0.0 };
-            let fits = absorbs || x + c.adv <= right_edge + shrink + 0.01 || c.kind == ClKind::Space || c.kind == ClKind::Marker;
+            let fits =
+                absorbs || x + c.adv - pl.auto_space_after(j) <= right_edge + shrink + 0.01 || c.kind == ClKind::Space || c.kind == ClKind::Marker;
             // A line's first item stays on it even when it doesn't fit; markers before it
             // (a content control's start, a bookmark) take no room and don't count (Word).
             if !fits && (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker)) {
@@ -2186,7 +2272,11 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 Some(ClKind::Space) | Some(ClKind::Marker) | Some(ClKind::LineBreak) | Some(ClKind::PageBreak) | Some(ClKind::ColumnBreak) => {
                     content_end = xs.get(k - c0).copied().unwrap_or(content_end);
                 }
-                _ => break,
+                _ => {
+                    // The automatic space after the line's last character goes with the wrap.
+                    content_end -= pl.auto_space_after(k);
+                    break;
+                }
             }
         }
         let slack = right_edge - content_end;
@@ -2637,6 +2727,10 @@ fn resolve_tab(pl: &mut ParaLayout, pending: &mut Option<(usize, TabStop, f32)>,
 }
 
 impl ParaLayout {
+    /// The automatic space in cluster `k`'s advance ([`auto_space`]), 0 without one.
+    fn auto_space_after(&self, k: usize) -> f32 {
+        self.auto_space.binary_search_by_key(&k, |a| a.0).ok().and_then(|i| self.auto_space.get(i)).map_or(0.0, |a| a.1)
+    }
     /// The line the list label is drawn on: the first, unless the paragraph opens with a page
     /// break, when Word draws it with the text on the next page.
     pub fn label_line(&self) -> usize {

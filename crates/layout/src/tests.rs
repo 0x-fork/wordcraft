@@ -879,6 +879,79 @@ fn right_tab_aligns_text_end() {
     assert!((end - 472.0).abs() < 1.0, "{end}");
 }
 
+/// A paragraph `before` + positional tab + `after`, with left and right indents and a custom
+/// left tab stop at 50 pt that the positional tab must ignore.
+fn ptab_doc(before: &str, after: &str, ptab: InlineObject, indents: (f32, f32)) -> Document {
+    let mut d = Document::from_text(&format!("{before}{after}"));
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| {
+        p.indent_left = Some(indents.0);
+        p.indent_right = Some(indents.1);
+        p.tabs = Some(vec![wordcraft_doc::props::TabStop { pos: 50.0, align: Default::default(), leader: Default::default() }]);
+    })
+    .unwrap();
+    d.insert_object(&Pos::body(0, before.len()), ptab, &Default::default()).unwrap();
+    d
+}
+
+fn ptab(align: wordcraft_doc::para::PTabAlign, relative_to: wordcraft_doc::para::PTabBase, leader: wordcraft_doc::props::TabLeader) -> InlineObject {
+    InlineObject::PositionalTab { align, relative_to, leader }
+}
+
+/// ECMA-376 §17.3.3.23: a right positional tab relative to the margin ends the text after it on
+/// the right margin, past the right indent, whatever the paragraph's tab stops; its leader fills
+/// the gap.
+#[test]
+fn right_positional_tab_ends_text_on_the_right_margin() {
+    use wordcraft_doc::para::{PTabAlign, PTabBase};
+    let d = ptab_doc("Left", "Right", ptab(PTabAlign::Right, PTabBase::Margin, wordcraft_doc::props::TabLeader::Dot), (0.0, 36.0));
+    let l = lay(&d);
+    let end = l.caret(&Pos::body(0, d.body[0].as_para().unwrap().len())).unwrap().x;
+    assert!((end - 540.0).abs() < 1.0, "end of the text after the tab: {end}");
+    let para = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None }).unwrap();
+    assert!(para.lines[0].leaders.iter().any(|(_, ld)| *ld == wordcraft_doc::props::TabLeader::Dot), "{:?}", para.lines[0].leaders);
+}
+
+/// Relative to the indents, a centre positional tab centres the text after it between the left
+/// and right indents, not between the margins.
+#[test]
+fn center_positional_tab_relative_to_indents_centres_between_them() {
+    use wordcraft_doc::para::{PTabAlign, PTabBase};
+    let d = ptab_doc("a", "Mid", ptab(PTabAlign::Center, PTabBase::Indent, wordcraft_doc::props::TabLeader::None), (36.0, 108.0));
+    let l = lay(&d);
+    let from = l.caret(&Pos::body(0, 1 + wordcraft_doc::para::OBJ.len_utf8())).unwrap().x;
+    let to = l.caret(&Pos::body(0, d.body[0].as_para().unwrap().len())).unwrap().x;
+    // Indents at 36 and 468 - 108 = 360 from the margin: centre 198, page x 270.
+    assert!(((from + to) / 2.0 - 270.0).abs() < 1.0, "centre of the text after the tab: {}", (from + to) / 2.0);
+}
+
+/// Text already past the positional tab's place sends it to the next line, where it goes to
+/// that place.
+#[test]
+fn positional_tab_behind_the_text_moves_to_the_next_line() {
+    use wordcraft_doc::para::{PTabAlign, PTabBase};
+    let before = "word ".repeat(14);
+    let d = ptab_doc(&before, "X", ptab(PTabAlign::Left, PTabBase::Margin, wordcraft_doc::props::TabLeader::None), (0.0, 0.0));
+    let l = lay(&d);
+    let first = l.caret(&Pos::body(0, 0)).unwrap();
+    let x = l.caret(&Pos::body(0, before.len() + wordcraft_doc::para::OBJ.len_utf8())).unwrap();
+    assert!(x.top > first.top + 1.0, "X on the next line: {} vs {}", x.top, first.top);
+    assert!((x.x - 72.0).abs() < 0.5, "X at the left margin: {}", x.x);
+}
+
+/// A line holding only markers (a bookmark) before the positional tab is still empty: the tab
+/// doesn't leave it blank to go to the next line, even when its place is behind the indent.
+#[test]
+fn positional_tab_after_only_a_bookmark_stays_on_its_line() {
+    use wordcraft_doc::para::{PTabAlign, PTabBase};
+    let mut d = ptab_doc("", "X", ptab(PTabAlign::Left, PTabBase::Margin, wordcraft_doc::props::TabLeader::None), (36.0, 0.0));
+    d.insert_object(&Pos::body(0, 0), InlineObject::BookmarkStart { name: "top".into() }, &Default::default()).unwrap();
+    let l = lay(&d);
+    let para = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None }).unwrap();
+    assert_eq!(para.lines.len(), 1);
+    let x = l.caret(&Pos::body(0, 2 * wordcraft_doc::para::OBJ.len_utf8())).unwrap().x;
+    assert!((x - 108.0).abs() < 0.5, "X at the indent: {x}");
+}
+
 #[test]
 fn lists_get_labels_and_indent() {
     let mut d = Document::from_text("one\ntwo\nthree");
@@ -7553,4 +7626,180 @@ fn split_cell_moves_image_frame() {
         }
         assert!((rest.height - (50.0 + top)).abs() < 0.01);
     }
+}
+
+fn row_keep_doc() -> Document {
+    use wordcraft_doc::props::{HeightRule, LineSpacing};
+    let plain = ParaProps {
+        space_before: Some(0.0),
+        space_after: Some(0.0),
+        line_spacing: Some(LineSpacing::Exactly(12.0)),
+        widow_control: Some(false),
+        ..Default::default()
+    };
+    let para = |text: &str, props: ParaProps| {
+        let mut p = Paragraph::with_text(text, Default::default());
+        p.props = props;
+        wordcraft_doc::para_block(p)
+    };
+    let mut d = Document::new();
+    d.last_section.page_w = 400.0;
+    d.last_section.page_h = 360.0;
+    d.last_section.margin_top = 36.0;
+    d.last_section.margin_bottom = 36.0;
+    d.last_section.margin_left = 36.0;
+    d.last_section.margin_right = 36.0;
+    d.styles.upsert(wordcraft_doc::Style {
+        id: "KeptRow".into(),
+        name: "Kept row".into(),
+        para: ParaProps { keep_next: Some(true), keep_lines: Some(true), ..Default::default() },
+        ..Default::default()
+    });
+    let mut t = Table::new(2, 1, 328.0);
+    t.props.style = None;
+    t.props.cell_margins = Some([0.0; 4]);
+    t.rows[0].props.height = Some(24.0);
+    t.rows[0].props.height_rule = HeightRule::Exact;
+    t.rows[0].cells[0].blocks = vec![para("Heading", ParaProps { style: Some("KeptRow".into()), ..plain.clone() })];
+    t.rows[1].props.height = Some(180.0);
+    t.rows[1].props.height_rule = HeightRule::AtLeast;
+    t.rows[1].cells[0].blocks = vec![para("", plain.clone()), para("Following row", plain.clone())];
+    d.body = vec![para("Filler", ParaProps { line_spacing: Some(LineSpacing::Exactly(190.0)), ..plain }), Arc::new(Block::Table(t))];
+    d
+}
+
+fn row_keep_pages(d: &Document) -> Vec<usize> {
+    let l = lay(d);
+    (0..d.table(StoryRef::Body, &Path::top(1)).unwrap().rows.len())
+        .map(|row| {
+            l.pages
+                .iter()
+                .position(|page| {
+                    page.items.iter().any(|item| matches!(item, Placed::Lines { path, .. } if path.0.len() == 4 && path.0[..3] == [1, row as u32, 0]))
+                })
+                .unwrap()
+        })
+        .collect()
+}
+
+#[test]
+fn kept_row_moves_with_next() {
+    for rule in [wordcraft_doc::props::HeightRule::AtLeast, wordcraft_doc::props::HeightRule::Exact] {
+        let mut d = row_keep_doc();
+        d.table_mut(StoryRef::Body, &Path::top(1)).unwrap().rows[1].props.height_rule = rule;
+        d.para_mut(StoryRef::Body, &Path(vec![1, 0, 0, 0])).unwrap().props.keep_next = Some(false);
+        assert_eq!(row_keep_pages(&d), [0, 1], "unkept control, {rule:?}");
+        d.para_mut(StoryRef::Body, &Path(vec![1, 0, 0, 0])).unwrap().props.keep_next = None;
+        assert_eq!(row_keep_pages(&d), [1, 1], "inherited keep, {rule:?}");
+    }
+}
+
+#[test]
+fn kept_row_allows_next_split() {
+    let mut d = row_keep_doc();
+    let t = d.table_mut(StoryRef::Body, &Path::top(1)).unwrap();
+    t.rows[1].props.height = None;
+    let p = d.para_mut(StoryRef::Body, &Path(vec![1, 1, 0, 0])).unwrap();
+    let props = p.props.clone();
+    *p = Paragraph::with_text(&"Next\n".repeat(30), Default::default());
+    p.props = props;
+    assert_eq!(row_keep_pages(&d), [0, 0]);
+}
+
+#[test]
+fn kept_rows_move_as_chain() {
+    let mut d = row_keep_doc();
+    d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().props.line_spacing = Some(wordcraft_doc::props::LineSpacing::Exactly(170.0));
+    let t = d.table_mut(StoryRef::Body, &Path::top(1)).unwrap();
+    let mut middle = t.rows[0].clone();
+    middle.props.height = Some(80.0);
+    middle.props.height_rule = wordcraft_doc::props::HeightRule::AtLeast;
+    let mut p = Paragraph::with_text("Middle", Default::default());
+    p.props = middle.cells[0].blocks[0].as_para().unwrap().props.clone();
+    middle.cells[0].blocks = vec![wordcraft_doc::para_block(p)];
+    t.rows.insert(1, middle);
+    assert_eq!(row_keep_pages(&d), [1, 1, 1]);
+    d.para_mut(StoryRef::Body, &Path(vec![1, 0, 0, 0])).unwrap().props.keep_next = Some(false);
+    assert_eq!(row_keep_pages(&d), [0, 1, 1]);
+}
+
+#[test]
+fn oversized_kept_rows_finish() {
+    let mut d = row_keep_doc();
+    d.table_mut(StoryRef::Body, &Path::top(1)).unwrap().rows[1].props.height = Some(400.0);
+    let l = lay(&d);
+    assert!(l.pages.len() <= 4, "{} pages", l.pages.len());
+    assert_eq!(row_keep_pages(&d), [1, 2], "Word starts the oversized kept group on a fresh page");
+}
+
+#[test]
+fn kept_row_can_split_itself() {
+    let mut d = row_keep_doc();
+    let t = d.table_mut(StoryRef::Body, &Path::top(1)).unwrap();
+    t.rows[0].props.height = None;
+    t.rows[0].props.height_rule = wordcraft_doc::props::HeightRule::Auto;
+    t.rows[1].props.height = Some(20.0);
+    let p = d.para_mut(StoryRef::Body, &Path(vec![1, 0, 0, 0])).unwrap();
+    let mut props = p.props.clone();
+    props.keep_lines = Some(false);
+    *p = Paragraph::with_text(&"Heading\n".repeat(10), Default::default());
+    p.props = props;
+    assert_eq!(row_keep_pages(&d), [0, 1]);
+}
+
+#[test]
+fn first_cell_controls_keep() {
+    for (first, last, pages) in [(true, false, [1, 1]), (false, true, [0, 1]), (true, true, [1, 1]), (false, false, [0, 1])] {
+        let mut d = row_keep_doc();
+        let t = d.table_mut(StoryRef::Body, &Path::top(1)).unwrap();
+        t.grid = vec![164.0, 164.0];
+        for (ri, row) in t.rows.iter_mut().enumerate() {
+            row.cells.push(row.cells[0].clone());
+            for (ci, cell) in row.cells.iter_mut().enumerate() {
+                let mut p = Paragraph::with_text("Cell", Default::default());
+                p.props = cell.blocks[0].as_para().unwrap().props.clone();
+                p.props.keep_next = Some(ri == 0 && if ci == 0 { first } else { last });
+                cell.blocks = vec![wordcraft_doc::para_block(p)];
+            }
+        }
+        assert_eq!(row_keep_pages(&d), pages, "first={first}, last={last}");
+    }
+}
+
+#[test]
+fn first_para_controls_row_keep() {
+    let mut d = row_keep_doc();
+    let mut p = Paragraph::with_text("Last paragraph", Default::default());
+    p.props = d.para(StoryRef::Body, &Path(vec![1, 0, 0, 0])).unwrap().props.clone();
+    p.props.keep_next = Some(false);
+    d.table_mut(StoryRef::Body, &Path::top(1)).unwrap().rows[0].cells[0].blocks.push(wordcraft_doc::para_block(p));
+    assert_eq!(row_keep_pages(&d), [1, 1], "Word honors the first paragraph even when the last opts out");
+    d.para_mut(StoryRef::Body, &Path(vec![1, 0, 0, 0])).unwrap().props.keep_next = Some(false);
+    d.para_mut(StoryRef::Body, &Path(vec![1, 0, 0, 1])).unwrap().props.keep_next = Some(true);
+    assert_eq!(row_keep_pages(&d), [0, 1], "a later paragraph cannot keep its row");
+}
+
+#[test]
+fn nested_keep_leaves_outer_row() {
+    let mut d = row_keep_doc();
+    let t = d.table_mut(StoryRef::Body, &Path::top(1)).unwrap();
+    t.rows[0].props.height = Some(60.0);
+    let mut nested = Table::new(1, 1, 328.0);
+    nested.rows[0].cells[0].blocks = vec![t.rows[0].cells[0].blocks[0].clone()];
+    let mut p = Paragraph::with_text("Outer tail", Default::default());
+    p.props.keep_next = Some(false);
+    t.rows[0].cells[0].blocks = vec![Arc::new(Block::Table(nested)), wordcraft_doc::para_block(p)];
+    assert_eq!(row_keep_pages(&d), [0, 1]);
+}
+
+#[test]
+fn kept_prefix_stays_together() {
+    let mut d = row_keep_doc();
+    let t = d.table_mut(StoryRef::Body, &Path::top(1)).unwrap();
+    t.rows[1].props.height = Some(400.0);
+    let mut middle = t.rows[0].clone();
+    middle.props.height = Some(80.0);
+    middle.props.height_rule = wordcraft_doc::props::HeightRule::AtLeast;
+    t.rows.insert(1, middle);
+    assert_eq!(row_keep_pages(&d), [1, 1, 2], "an oversized follower cannot separate an already placed kept prefix");
 }

@@ -1027,6 +1027,14 @@ fn bookmark_destination_is_the_page_of_its_start() {
     assert_eq!(page, 1, "the bookmark is on the second page");
     assert!((x - 72.0).abs() < 1.0 && y < 150.0, "{x} {y}");
     assert_eq!(ex.bookmark("first").map(|b| b.0), Some(0));
+
+    // Case-insensitive lookup matches
+    let (page_ci, x_ci, y_ci) = ex.bookmark("TARGET").unwrap();
+    assert_eq!(page_ci, 1);
+    assert_eq!((x_ci, y_ci), (x, y));
+
+    // Whitespace in ISO date string is parsed successfully
+    assert!(parse_iso("  2024-05-06T07:08:09Z \n").is_some());
 }
 
 #[test]
@@ -1074,6 +1082,71 @@ fn ref_fields_export_cached_links() {
             .collect();
         let expected: Vec<_> = expected.map(|i| pdf.pages()[i].raw().obj_id()).into_iter().collect();
         assert_eq!(targets, expected, "{instr}, enclosing={outer:?}, code={code}");
+    }
+}
+
+#[test]
+fn outline_after_leading_breaks() {
+    use hayro_syntax::object::{Array, Dict};
+
+    for (lead, marker) in [
+        ("\u{c}", None),
+        ("\u{c}\u{c}", None),
+        ("\u{c}", Some(InlineObject::BookmarkStart { name: "leading".into() })),
+        ("\u{c}\u{c}", Some(InlineObject::CommentStart { id: 0 })),
+    ] {
+        let mut d = Document::from_text("Earlier page");
+        let mut heading = Paragraph::with_text(&format!("{lead}Navigation target"), CharProps::default()).styled("Heading1");
+        heading.insert_object(lead.len(), InlineObject::BookmarkStart { name: "target".into() }, &CharProps::default()).unwrap();
+        if let Some(marker) = marker {
+            heading.insert_object(0, marker, &CharProps::default()).unwrap();
+        }
+        d.body.push(para_block(heading));
+        let bytes = export(&d, &PdfOptions::default()).unwrap();
+        let text = extract_text(&bytes);
+        let target = text.iter().position(|t| squash(t).contains("Navigation target")).unwrap();
+        assert!(target > 0, "the heading follows a page break");
+        for pages in [None, Some(vec![target]), Some(vec![target, 0]), Some(vec![0])] {
+            let expected = pages.as_ref().map_or(Some(target), |p| p.iter().position(|i| *i == target));
+            let bytes = export(&d, &PdfOptions { pages, ..Default::default() }).unwrap();
+            let pdf = hayro_syntax::Pdf::new(bytes).unwrap();
+            let catalog = pdf.xref().get::<Dict<'_>>(pdf.xref().root_id()).unwrap();
+            let outlines = catalog.get::<Dict<'_>>(b"Outlines");
+            let Some(expected) = expected else {
+                assert!(outlines.is_none(), "a page containing only the break has no heading outline");
+                continue;
+            };
+            let first = outlines.unwrap().get::<Dict<'_>>(b"First").unwrap();
+            let dest = first.get::<Array<'_>>(b"Dest").unwrap();
+            assert_eq!(dest.iter::<Dict<'_>>().next().unwrap(), *pdf.pages()[expected].raw(), "outline must reach the visible heading");
+            assert!(first.get::<Dict<'_>>(b"Next").is_none(), "one outline entry per heading");
+        }
+    }
+}
+
+#[test]
+fn outline_keeps_visible_objects() {
+    use hayro_syntax::object::{Array, Dict};
+
+    let mut base = Document::from_text("Earlier text");
+    let media = base.add_media(png(), "png");
+    for object in [
+        InlineObject::Field { instr: "QUOTE Visible".into(), result: "Visible".into(), locked: true, dirty: false, code: false, form: String::new() },
+        InlineObject::Image { media, w: 16.0, h: 8.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+    ] {
+        let mut d = base.clone();
+        let mut heading = Paragraph::with_text("\u{c}After break", CharProps::default()).styled("Heading1");
+        heading.insert_object(0, object, &CharProps::default()).unwrap();
+        heading.insert_object(0, InlineObject::BookmarkStart { name: "leading".into() }, &CharProps::default()).unwrap();
+        d.body.push(para_block(heading));
+        let bytes = export(&d, &PdfOptions::default()).unwrap();
+        assert!(squash(&extract_text(&bytes)[1]).contains("After break"));
+        let pdf = hayro_syntax::Pdf::new(bytes).unwrap();
+        let catalog = pdf.xref().get::<Dict<'_>>(pdf.xref().root_id()).unwrap();
+        let outlines = catalog.get::<Dict<'_>>(b"Outlines").unwrap();
+        let first = outlines.get::<Dict<'_>>(b"First").unwrap();
+        let dest = first.get::<Array<'_>>(b"Dest").unwrap();
+        assert_eq!(dest.iter::<Dict<'_>>().next().unwrap(), *pdf.pages()[0].raw(), "visible objects before the break anchor the heading");
     }
 }
 
