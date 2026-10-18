@@ -823,6 +823,14 @@ impl WordApp {
         }
     }
 
+    /// `run` for a command a mouse drag on a table sends: the view stays where it is.
+    pub(crate) fn run_keep_view(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        self.canvas.keep_view = true;
+        let r = self.run(id, params);
+        self.canvas.keep_view = false;
+        r
+    }
+
     /// Run a command the user asked for (ribbon, shortcut, Backstage, file drop). New, Open,
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
@@ -1264,7 +1272,8 @@ impl WordApp {
             self.canvas.read_first_visible = None;
         }
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
-        if self.session.selects_whole_story() || id == "select.all" {
+        // A mouse drag on a table (`run_keep_view`) does the same (#1738).
+        if self.session.selects_whole_story() || id == "select.all" || self.canvas.keep_view {
             self.canvas.scroll_to_caret = false;
         } else if !["ui.", "view.", "document.", "format.state", "draw."].iter().any(|p| id.starts_with(p)) {
             self.canvas.scroll_to_caret = true;
