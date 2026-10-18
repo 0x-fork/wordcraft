@@ -167,7 +167,8 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut ControlForm) -> bool {
             if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 done = true;
             }
-            if ui.button(egui::RichText::new(tl!("OK")).color(egui::Color32::WHITE)).clicked() {
+            // #1906: no forced label color; the theme button text reads on the theme fill.
+            if ui.button(tl!("OK")).clicked() {
                 match app.run("developer.properties", f.params()) {
                     Ok(_) => done = true,
                     Err(e) => app.status(e),
