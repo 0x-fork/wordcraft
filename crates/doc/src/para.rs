@@ -936,7 +936,7 @@ impl Paragraph {
                 k += 1;
                 continue;
             }
-            let font = runs.peek().filter(|(r, _)| r.contains(&i)).and_then(|(_, p)| p.font.as_deref());
+            let font = runs.peek().filter(|(r, _)| r.contains(&i)).and_then(|(_, p)| p.shown_font());
             out.push(font.and_then(|f| crate::symbol_fonts::symbol_char(f, c)).unwrap_or(c));
         }
         out

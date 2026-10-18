@@ -758,7 +758,7 @@ fn fmt_of(doc: &Document, cp: &CharProps, in_code: bool) -> Fmt {
             _ => None,
         },
         size: e.size,
-        font: if code || in_code { None } else { e.font.clone() },
+        font: if code || in_code { None } else { e.shown_font().map(str::to_string) },
         background: e.highlight.and_then(|h| h.rgb()).or(e.shading),
         ins: None,
         del: None,

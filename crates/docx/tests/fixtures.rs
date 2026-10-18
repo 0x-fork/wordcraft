@@ -227,7 +227,7 @@ fn hyperlink_runs_and_wrappers() {
     assert_eq!(p[0].props_of_char(0).style.as_deref(), Some("Hyperlink"));
     assert_eq!(p[0].props_of_char(4).link.as_deref(), Some("https://example.org/#frag"));
     let sym_off = p[0].text.find('\u{F04A}').unwrap();
-    assert_eq!(p[0].props_of_char(sym_off).font.as_deref(), Some("Wingdings"));
+    assert_eq!(p[0].props_of_char(sym_off).sym_font.as_deref(), Some("Wingdings"), "the symbol keeps its own font");
     let t = p[0].props_of_char(p[0].text.len() - 1);
     assert_eq!((t.bold, t.italic, t.caps, t.strike, t.color), (Some(false), Some(false), Some(false), Some(true), Some(TextColor::Auto)));
     assert_eq!(p[1].plain_text(), "in block sdt");
@@ -258,6 +258,73 @@ fn symbol_font_text_reads_as_unicode_and_round_trips_unchanged() {
     assert_eq!(q[0].shown_text(), p[0].shown_text());
 }
 
+/// The `w:sym` elements of a document's main part, as written.
+fn sym_elements(bytes: &[u8]) -> Vec<String> {
+    let parts = unzip(bytes);
+    let xml = String::from_utf8_lossy(parts.get("word/document.xml").unwrap()).to_string();
+    xml.match_indices("<w:sym ").map(|(i, _)| xml[i..].split("/>").next().unwrap().to_string() + "/>").collect()
+}
+
+#[test]
+fn a_sym_character_keeps_its_symbol_font_when_the_text_font_changes() {
+    // #2036: ECMA-376 §17.3.3.30 — a `w:sym` character's font is its own `w:font`, whatever the
+    // run's font. Setting the whole paragraph in Times New Roman keeps the check mark.
+    let body = r#"<w:p><w:r><w:t>a</w:t></w:r><w:r><w:sym w:font="Wingdings" w:char="F0FC"/></w:r><w:r><w:t>b</w:t></w:r></w:p>"#;
+    let mut d = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let len = paras(&d)[0].text.len();
+    d.format_range(&wordcraft_doc::Pos::body(0, 0), &wordcraft_doc::Pos::body(0, len), &|c| c.font = Some("Times New Roman".into())).unwrap();
+    let p = paras(&d)[0];
+    assert_eq!(p.plain_text(), "a\u{F0FC}b", "the stored character is unchanged");
+    assert_eq!(p.props_of_char(1).font.as_deref(), Some("Times New Roman"), "the run font did change");
+    assert_eq!(p.shown_text(), "a\u{2713}b");
+    assert_eq!(d.shown_text(wordcraft_doc::StoryRef::Body), "a\u{2713}b");
+    // Written back as a `w:sym` in its symbol font, so Word shows the symbol too.
+    let bytes = wordcraft_docx::write(&d).unwrap();
+    assert_eq!(sym_elements(&bytes), vec![r#"<w:sym w:font="Wingdings" w:char="F0FC"/>"#.to_string()]);
+    let again = wordcraft_docx::read(&bytes).unwrap();
+    let q = paras(&again)[0];
+    assert_eq!(q.plain_text(), "a\u{F0FC}b");
+    assert_eq!(q.shown_text(), "a\u{2713}b");
+    assert_eq!(q.props_of_char(1).font.as_deref(), Some("Times New Roman"));
+}
+
+#[test]
+fn a_sym_character_round_trips_as_w_sym() {
+    let body = r#"<w:p><w:r><w:t xml:space="preserve">Done </w:t></w:r><w:r><w:sym w:font="Wingdings" w:char="F0FC"/><w:sym w:font="Symbol" w:char="F061"/></w:r></w:p>"#;
+    let d = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let bytes = wordcraft_docx::write(&d).unwrap();
+    assert_eq!(
+        sym_elements(&bytes),
+        vec![r#"<w:sym w:font="Wingdings" w:char="F0FC"/>"#.to_string(), r#"<w:sym w:font="Symbol" w:char="F061"/>"#.to_string()]
+    );
+    let again = wordcraft_docx::read(&bytes).unwrap();
+    assert_eq!(paras(&again)[0].shown_text(), "Done \u{2713}\u{3B1}");
+    assert_eq!(sym_elements(&wordcraft_docx::write(&again).unwrap()), sym_elements(&bytes));
+}
+
+#[test]
+fn hostile_sym_fonts_never_panic() {
+    // Built in the model (an XML file couldn't even hold some of these names).
+    let huge = "W".repeat(100_000);
+    for font in ["", " ", "\u{1}", huge.as_str(), "Wingdings\u{FFFF}", "<&\"'>"] {
+        let mut d = Document::from_text("a\u{F0FC}\u{1}\u{1F600}b");
+        let len = paras(&d)[0].text.len();
+        let f = font.to_string();
+        d.format_range(&wordcraft_doc::Pos::body(0, 0), &wordcraft_doc::Pos::body(0, len), &|c| c.sym_font = Some(f.clone())).unwrap();
+        let _ = d.shown_text(wordcraft_doc::StoryRef::Body);
+        let bytes = wordcraft_docx::write(&d).unwrap();
+        let _ = wordcraft_docx::read(&bytes).unwrap();
+    }
+}
+
+#[test]
+fn only_printable_characters_are_written_as_w_sym() {
+    // `w:sym` holds a character code from U+0020 (the reader drops lower ones), like `w:t`.
+    let mut d = Document::from_text("a\u{7}");
+    d.format_range(&wordcraft_doc::Pos::body(0, 0), &wordcraft_doc::Pos::body(0, 2), &|c| c.sym_font = Some("Wingdings".into())).unwrap();
+    assert_eq!(sym_elements(&wordcraft_docx::write(&d).unwrap()), vec![r#"<w:sym w:font="Wingdings" w:char="0061"/>"#.to_string()]);
+}
+
 #[test]
 fn pcl6_symbol_roundtrip() {
     let body = r#"<w:p><w:r><w:sym w:font="Symbol (PCL6)" w:char="F0B3"/></w:r></w:p>"#;
@@ -266,7 +333,7 @@ fn pcl6_symbol_roundtrip() {
     for doc in [&d, &again] {
         let p = paras(doc)[0];
         assert_eq!(p.text, "\u{F0B3}");
-        assert_eq!(p.props_of_char(0).font.as_deref(), Some("Symbol (PCL6)"));
+        assert_eq!(p.props_of_char(0).sym_font.as_deref(), Some("Symbol (PCL6)"));
         assert_eq!(p.shown_text(), "≥");
     }
 }
