@@ -1448,8 +1448,11 @@ pub fn count_words(s: &str) -> usize {
     s.split(|c: char| c.is_whitespace() || c == para::OBJ).filter(|w| w.chars().any(char::is_alphanumeric)).count()
 }
 
+/// How deep in nested tables [`Document::para_paths`] goes: cells below this are skipped.
+pub(crate) const PARA_WALK_DEPTH: usize = 16;
+
 fn walk(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, depth: usize) {
-    if depth > 16 {
+    if depth > PARA_WALK_DEPTH {
         return;
     }
     for (i, b) in bl.iter().enumerate() {

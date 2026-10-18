@@ -1608,3 +1608,190 @@ fn typing_1_dot_in_a_heading_keeps_the_heading_style() {
         assert_eq!(got[0].1, style);
     }
 }
+
+// Backspace and Delete on selected tables, rows and columns (Word for Mac, #1844).
+
+/// "before", a 3×3 table with cells `a1`…`c3` (column letter, row number), "after"; the caret
+/// in the cell at row `r`, column `c`.
+fn table_between(r: u32, c: u32) -> Session {
+    let mut s = typed("before\n");
+    run(&mut s, "insert.table", json!({"rows": 3, "cols": 3}));
+    typ(&mut s, "a1\tb1\tc1\ta2\tb2\tc2\ta3\tb3\tc3");
+    run(&mut s, "caret.docEnd", json!({}));
+    typ(&mut s, "after");
+    let shape: Vec<&str> = s.doc.body.iter().map(|b| if b.as_table().is_some() { "table" } else { "para" }).collect();
+    assert_eq!(shape, ["para", "table", "para"], "setup");
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, r, c, 0], "off": 0}}));
+    s
+}
+
+fn tables(s: &Session) -> usize {
+    s.doc.body.iter().filter(|b| b.as_table().is_some()).count()
+}
+
+/// The first top-level table's cells, row by row (tracked deletions included).
+fn table_cells(s: &Session) -> Vec<Vec<String>> {
+    s.doc
+        .body
+        .iter()
+        .find_map(|b| b.as_table())
+        .map(|t| {
+            t.rows
+                .iter()
+                .map(|r| r.cells.iter().map(|c| c.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect()).collect())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn backspace_with_the_whole_table_selected_removes_the_table() {
+    let mut s = table_between(1, 1);
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(tables(&s), 0, "the table stays: {:?}", table_cells(&s));
+    assert_eq!(texts(&s), ["before", "after"]);
+    // The caret is in the paragraph that followed the table.
+    assert_eq!(s.sel.focus, Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(1), off: 0 });
+    assert!(s.sel.is_collapsed());
+    // One undo brings it back.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(tables(&s), 1);
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]]);
+}
+
+#[test]
+fn delete_with_the_whole_table_selected_clears_the_cells_and_keeps_the_table() {
+    let mut s = table_between(0, 0);
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(tables(&s), 1);
+    assert_eq!(table_cells(&s), [["", "", ""], ["", "", ""], ["", "", ""]]);
+    assert_eq!(texts(&s), ["before", "after"]);
+}
+
+#[test]
+fn delete_or_backspace_with_the_table_and_the_paragraph_after_selected_removes_the_table() {
+    for key in ["text.delete", "text.backspace"] {
+        // From the first cell to the end of the document: Word's rule widens it to whole rows.
+        let mut s = table_between(0, 0);
+        run(&mut s, "caret.docEnd", json!({"extend": true}));
+        run(&mut s, key, json!({}));
+        assert_eq!(tables(&s), 0, "{key}: {:?}", table_cells(&s));
+        assert_eq!(texts(&s), ["before", ""], "{key}");
+    }
+}
+
+#[test]
+fn delete_or_backspace_with_the_paragraph_before_and_the_table_selected_removes_the_table() {
+    for key in ["text.delete", "text.backspace"] {
+        // From the start of "before" down into the last row: the rows are taken whole.
+        let mut s = table_between(0, 0);
+        run(&mut s, "caret.docStart", json!({}));
+        for _ in 0..3 {
+            run(&mut s, "caret.down", json!({"extend": true}));
+        }
+        assert_eq!(s.sel.focus.path.cell().map(|(_, r, _)| r), Some(2), "{key}: the selection reaches the last row");
+        run(&mut s, key, json!({}));
+        assert_eq!(tables(&s), 0, "{key}: {:?}", table_cells(&s));
+        assert_eq!(texts(&s), ["after"], "{key}");
+        assert_eq!(s.sel.focus, Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 0 }, "{key}");
+    }
+}
+
+#[test]
+fn backspace_deletes_selected_rows_and_delete_clears_them() {
+    let mut s = table_between(1, 0);
+    run(&mut s, "table.selectRow", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["a3", "b3", "c3"]]);
+
+    let mut s = table_between(1, 0);
+    run(&mut s, "table.selectRow", json!({}));
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["", "", ""], ["a3", "b3", "c3"]]);
+}
+
+#[test]
+fn backspace_deletes_selected_columns_and_delete_clears_them() {
+    let mut s = table_between(0, 1);
+    run(&mut s, "table.selectColumn", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "c1"], ["a2", "c2"], ["a3", "c3"]]);
+
+    let mut s = table_between(0, 1);
+    run(&mut s, "table.selectColumn", json!({}));
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "", "c1"], ["a2", "", "c2"], ["a3", "", "c3"]]);
+}
+
+#[test]
+fn backspace_on_a_selected_nested_table_removes_only_it() {
+    let mut s = table_between(1, 1);
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 1, 1, 0], "off": 2}}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    typ(&mut s, "x");
+    let cell_blocks = |s: &Session| {
+        s.doc
+            .body
+            .iter()
+            .find_map(|b| b.as_table())
+            .and_then(|t| t.rows.get(1)?.cells.get(1))
+            .map(|c| c.blocks.iter().filter(|b| b.as_table().is_some()).count())
+    };
+    assert_eq!(cell_blocks(&s), Some(1), "setup: a table nested in b2");
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(cell_blocks(&s), Some(0), "the nested table stays");
+    assert_eq!(tables(&s), 1, "the outer table goes too");
+    // The caret is in the cell's paragraph after where the nested table was.
+    assert_eq!(s.sel.focus.path.cell().map(|(t, r, c)| (t.0, r, c)), Some((vec![1], 1, 1)));
+    assert!(s.doc.para_at(&s.sel.focus).is_some());
+}
+
+#[test]
+fn backspace_on_a_selected_table_that_is_the_only_block_leaves_an_empty_paragraph() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    typ(&mut s, "x");
+    s.doc.body.retain(|b| b.as_table().is_some());
+    assert_eq!(s.doc.body.len(), 1, "setup: the table is the only block");
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(tables(&s), 0);
+    assert_eq!(texts(&s), [""]);
+    assert!(s.doc.para_at(&s.sel.focus).is_some(), "the caret is in a paragraph: {:?}", s.sel.focus);
+}
+
+#[test]
+fn tracked_backspace_on_a_selected_table_marks_its_text_deleted_like_delete_table() {
+    let mut s = table_between(0, 0);
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    // Like Table Layout › Delete Table with tracking on: the structure stays, the text is marked deleted.
+    assert_eq!(tables(&s), 1);
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]]);
+    assert_eq!(s.doc.final_text(StoryRef::Body).replace(['\t', '\n'], ""), "Beforeafter");
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(s.doc.final_text(StoryRef::Body).replace(['\t', '\n'], ""), "Beforea1b1c1a2b2c2a3b3c3after");
+    assert!(s.doc.revisions.is_empty());
+}
+
+/// One selected cell isn't a whole row or column, even in a one-row or one-column table:
+/// Backspace clears it (Word's cell selection has no end-of-row mark).
+#[test]
+fn backspace_on_one_selected_cell_of_a_one_row_or_one_column_table_clears_it() {
+    for (rows, cols, at) in [(1, 3, [0, 1]), (3, 1, [1, 0])] {
+        let mut s = typed("before\n");
+        run(&mut s, "insert.table", json!({"rows": rows, "cols": cols}));
+        typ(&mut s, "x\ty\tz");
+        run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, at[0], at[1], 0], "off": 0}}));
+        run(&mut s, "table.selectCell", json!({}));
+        run(&mut s, "text.backspace", json!({}));
+        let want: Vec<Vec<String>> =
+            if rows == 1 { vec![vec!["x".into(), "".into(), "z".into()]] } else { vec![vec!["x".into()], vec!["".into()], vec!["z".into()]] };
+        assert_eq!(table_cells(&s), want, "{rows}×{cols}");
+    }
+}
