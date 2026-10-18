@@ -910,7 +910,12 @@ impl SplitCellsForm {
         } else {
             return None;
         };
-        (self.rows > limit).then(|| crate::i18n::fmt(tl!("The number must be between 1 and {max}."), &[("max", &limit.to_string())]))
+        if self.rows > limit {
+            return Some(crate::i18n::fmt(tl!("The number must be between 1 and {max}."), &[("max", &limit.to_string())]));
+        }
+        // A merged cell splits into a divisor of its height, as in Word (the engine refuses the rest).
+        let divides = self.cells <= 1 && self.height > 1 && self.rows > 1 && !self.height.is_multiple_of(self.rows);
+        divides.then(|| crate::i18n::fmt(tl!("The number must be a divisor of {max}."), &[("max", &self.height.to_string())]))
     }
 
     /// `table.split` parameters for OK.
@@ -1603,6 +1608,30 @@ mod tests {
         let mut a = app();
         a.run("ui.dialog", json!({"name": "splitCells"})).unwrap();
         assert!(a.dialog.is_none(), "no dialog outside a table");
+    }
+
+    /// #2592, as Word does: for a merged cell the dialog's message says the row count must
+    /// divide its height (or lie in 1 to the height); the engine refuses the same counts and the
+    /// document stays as it was.
+    #[test]
+    fn split_cells_dialog_checks_a_merged_cells_row_count() {
+        let cell = |r: u32, c: u32| json!({"story": "body", "path": [0, r, c, 0], "off": 0});
+        let mut a = table_app(3, &["A", "B", "C", "D", "E", "F", "G", "H", "I"]);
+        a.run("select.range", json!({"anchor": cell(0, 0), "focus": cell(2, 0)})).unwrap();
+        a.run("table.merge", json!({})).unwrap();
+        a.run("caret.set", json!({"pos": cell(0, 0)})).unwrap();
+        a.run("ui.dialog", json!({"name": "splitCells"})).unwrap();
+        let LayoutDialog::SplitCells(mut f) = form(&mut a) else { panic!("split cells") };
+        assert_eq!(f.height, 3);
+        for (rows, ok) in [(1, true), (2, false), (3, true), (4, false)] {
+            f.rows = rows;
+            assert_eq!(f.check().is_none(), ok, "rows {rows}");
+        }
+        f.rows = 2;
+        assert!(f.check().is_some_and(|m| m.contains("divisor of 3")));
+        let (depth, shape) = (a.session.undo_depth(), table_shape(&a));
+        assert!(a.run("table.split", f.params()).is_err());
+        assert_eq!((a.session.undo_depth(), table_shape(&a)), (depth, shape));
     }
 
     /// #2592, as Word does: Split Cells starts with twice the selected columns and the selected
