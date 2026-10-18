@@ -2694,3 +2694,5 @@ template	Letter	Thư
 	The measurement must be between {min} and {max}.	Số đo phải nằm trong khoảng từ {min} đến {max}.
 	Recently Used Fonts	Phông chữ dùng gần đây
 	All Fonts	Tất cả phông chữ
+	Spike	Bộ gom
+	Insert Spike	Chèn bộ gom
