@@ -743,6 +743,29 @@ pub(crate) fn wrap_text_items(ui: &mut Ui, app: &mut WordApp) {
     mi_check(ui, app, "Fix Position on Page", with_text == Some(false), "arrange.moveWithText", json!({"value": false}));
 }
 
+/// The Format Painter button. A click arms it for one use (blue border only); a double-click keeps
+/// it on across several uses (full checked look), like Word. Esc or another click turns it off.
+fn format_painter_button(ui: &mut Ui, app: &mut WordApp) {
+    let sticky = matches!(app.session.painter, Some((_, _, true)));
+    let armed = app.session.painter.is_some();
+    let resp = small(ui, app, "painter", Some("Format"), "Format Painter", "edit.formatPainter", json!({}), sticky);
+    if resp.double_clicked() {
+        painter_double_click(app);
+    } else if armed && !sticky {
+        let t = Tokens::get(ui.ctx());
+        ui.painter().rect_stroke(resp.rect, egui::CornerRadius::same(4), Stroke::new(1.0, t.accent.linear_multiply(0.5)), egui::StrokeKind::Inside);
+    }
+}
+
+/// A double-click fires `clicked()` twice, so by now the painter has been armed and disarmed again.
+/// Arm it once more, this time sticky.
+fn painter_double_click(app: &mut WordApp) {
+    if app.session.painter.is_some() {
+        let _ = app.run("edit.formatPainter", json!({}));
+    }
+    let _ = app.run("edit.formatPainter", json!({"sticky": true}));
+}
+
 fn home(app: &mut WordApp, ui: &mut Ui) {
     let st = app.session.run("format.state", &json!({})).unwrap_or_default();
     let flag = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
@@ -756,8 +779,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
         stack(ui, |ui| {
             small(ui, app, "cut", Some("Cut"), "Cut", "edit.cut", json!({}), false);
             small(ui, app, "copy", Some("Copy"), "Copy", "edit.copy", json!({}), false);
-            let active = app.session.painter.is_some();
-            small(ui, app, "painter", Some("Format"), "Format Painter", "edit.formatPainter", json!({}), active);
+            format_painter_button(ui, app);
         });
     });
     group(ui, "Font", Some("format.fontDialog"), app, |ui, app| {
@@ -2687,6 +2709,18 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
 mod tests {
     use super::*;
     use wordcraft_engine::Session;
+
+    /// Two clicks arm and disarm the painter; the double-click handling then leaves it sticky (#2785).
+    #[test]
+    fn double_click_on_format_painter_makes_it_sticky() {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        app.run("edit.formatPainter", json!({})).unwrap();
+        assert!(matches!(app.session.painter, Some((_, _, false))), "one click arms it for one use");
+        app.run("edit.formatPainter", json!({})).unwrap();
+        assert!(app.session.painter.is_none(), "the second click of a double-click turns it off");
+        painter_double_click(&mut app);
+        assert!(matches!(app.session.painter, Some((_, _, true))), "the double-click leaves it sticky");
+    }
 
     fn png_data() -> String {
         let img = image::RgbaImage::from_fn(20, 10, |x, y| {
