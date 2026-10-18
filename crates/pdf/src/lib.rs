@@ -942,8 +942,19 @@ impl Exporter<'_> {
                     self.draw(s, d);
                 }
             }
-            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, .. } => {
-                self.glyphs(s, face, *size, glyphs, *color, *alpha, *synth_bold, *synth_italic, text, ranges);
+            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, x_scale, .. } => {
+                match glyphs.first().map(|g| g.1).filter(|_| x_scale.is_finite() && *x_scale > 0.0 && (x_scale - 1.0).abs() > 1e-4) {
+                    // Scaled letters (`w:w`): drawn stretched across from the run's start, their
+                    // positions brought back so the stretch puts each where the layout has it.
+                    Some(x0) => {
+                        let k = *x_scale;
+                        let moved: Vec<(u32, f32, f32)> = glyphs.iter().map(|&(g, x, y)| (g, x0 + (x - x0) / k, y)).collect();
+                        s.push_transform(&Transform::from_row(k, 0.0, 0.0, 1.0, x0 * (1.0 - k), 0.0));
+                        self.glyphs(s, face, *size, &moved, *color, *alpha, *synth_bold, *synth_italic, text, ranges);
+                        s.pop();
+                    }
+                    None => self.glyphs(s, face, *size, glyphs, *color, *alpha, *synth_bold, *synth_italic, text, ranges),
+                }
                 if let Some(l) = link {
                     self.link_rect(face, *size, glyphs, l);
                 }

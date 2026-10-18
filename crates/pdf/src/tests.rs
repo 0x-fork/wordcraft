@@ -1860,3 +1860,57 @@ fn pages_print_scaled_to_other_paper() {
         assert_eq!(size(&bytes), size(&plain));
     }
 }
+
+/// Each glyph drawn as text: its origin and its horizontal and vertical scale, in page space.
+fn glyph_frames(bytes: &[u8]) -> Vec<(f64, f64, f64)> {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    struct Frames(Vec<(f64, f64, f64)>);
+    impl Device<'_> for Frames {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, _: &kurbo::BezPath, _: kurbo::Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+        fn push_clip_path(&mut self, _: &ClipPath) {}
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, _: &Glyph<'_>, transform: kurbo::Affine, glyph: kurbo::Affine, _: &Paint<'_>, _: &GlyphDrawMode) {
+            let [a, b, c, d, e, _] = (transform * glyph).as_coeffs();
+            self.0.push((e, a.hypot(b), c.hypot(d)));
+        }
+        fn draw_image(&mut self, _: Image<'_, '_>, _: kurbo::Affine) {}
+        fn pop_clip_path(&mut self) {}
+        fn pop_transparency_group(&mut self) {}
+    }
+    let pdf = Pdf::new(bytes.to_vec()).expect("parse");
+    let cache = InterpreterCache::new();
+    let mut f = Frames(Vec::new());
+    for page in pdf.pages().iter() {
+        let mut ctx = Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+        interpret_page(page, &mut ctx, &mut f);
+    }
+    f.0
+}
+
+#[test]
+fn scaled_letters_are_stretched_not_spaced() {
+    // `w:w` 200: the letters are twice as wide and stand where the layout put them (their
+    // advances doubled), as in Word; at 100 they are drawn as they are.
+    let frames = |scale: Option<f32>| {
+        let mut d = Document::new();
+        d.body = vec![para_block(Paragraph::with_text("HHH", CharProps { scale, ..Default::default() }))];
+        glyph_frames(&export(&d, &PdfOptions::default()).unwrap())
+    };
+    let plain = frames(None);
+    let wide = frames(Some(200.0));
+    assert_eq!((plain.len(), wide.len()), (3, 3), "{plain:?} {wide:?}");
+    for ((x, sx, sy), (wx, wsx, wsy)) in plain.iter().zip(&wide) {
+        assert!((sx / sy - 1.0).abs() < 1e-3, "plain letters keep their shape: {sx} {sy}");
+        assert!((wsx / wsy - 2.0).abs() < 1e-3, "scaled letters are twice as wide: {wsx} {wsy}");
+        assert!((wsy - sy).abs() < 1e-3, "and as high");
+        let (x0, w0) = (plain[0].0, wide[0].0);
+        assert!(((wx - w0) - 2.0 * (x - x0)).abs() < 0.01, "pen positions follow the doubled advances: {wide:?} {plain:?}");
+    }
+}

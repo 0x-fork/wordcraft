@@ -41,6 +41,9 @@ pub enum Draw {
         /// The text background (highlight or character shading) these glyphs are drawn on, if
         /// any: a dark page dims it, so it picks the text colour against the dimmed colour.
         text_bg: Option<Rgb>,
+        /// Horizontal scale of the letters (`w:w`, 1 = 100 %): each glyph is stretched across
+        /// from its pen position. The positions already have the scaled advances.
+        x_scale: f32,
     },
     Fill {
         rect: Rect,
@@ -798,6 +801,7 @@ fn lines(
                     link: None,
                     ranges: Vec::new(),
                     text_bg: None,
+                    x_scale: 1.0,
                 });
             }
         }
@@ -818,6 +822,7 @@ fn lines(
                 link: None,
                 ranges: Vec::new(),
                 text_bg: None,
+                x_scale: st.rc.scale / 100.0,
             });
         }
         // Glyph runs grouped by style.
@@ -1011,6 +1016,7 @@ fn lines(
                     link: rc.link.clone(),
                     ranges,
                     text_bg,
+                    x_scale: rc.scale / 100.0,
                 });
             }
             // Decorations across the run (underline skips trailing spaces of the line). Right-to-left
@@ -1111,6 +1117,7 @@ fn lines(
                 link: None,
                 ranges: Vec::new(),
                 text_bg: None,
+                x_scale: 1.0,
             });
         }
         // Inline objects.
@@ -1198,6 +1205,7 @@ fn lines(
                     link: None,
                     ranges,
                     text_bg: st.rc.highlight.or(st.rc.shading),
+                    x_scale: 1.0,
                 });
             }
         }
@@ -1349,6 +1357,7 @@ fn equation(items: &[MItem], x: f32, base: f32, alpha: f32, screen: bool, out: &
                 // Equation text maps back through the font (no per-glyph ranges from the math layout).
                 ranges: Vec::new(),
                 text_bg: None,
+                x_scale: 1.0,
             }),
             MItem::Rect { x: rx, y, w, h, color } => {
                 out.push(Draw::Fill { rect: Rect::new(x + rx, base - y - h, *w, *h), color: *color, alpha, text_bg: false })
@@ -1643,6 +1652,7 @@ fn text_glyphs(doc: &Document, r: Rect, it: &GraphicItem, alpha: f32, k: f32) ->
         link: None,
         ranges: Vec::new(),
         text_bg: None,
+        x_scale: 1.0,
     })
 }
 
@@ -1840,13 +1850,13 @@ pub fn upright_in_vertical(c: char) -> bool {
 fn upright_east_asian(items: Vec<Draw>) -> Vec<Draw> {
     let mut out = Vec::with_capacity(items.len());
     for d in items {
-        let Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg } = d else {
+        let Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg, x_scale } = d else {
             out.push(d);
             continue;
         };
         let up = |k: usize| ranges.get(k).and_then(|r| text.get(r.clone())).and_then(|t| t.chars().next()).is_some_and(upright_in_vertical);
         if ranges.len() != glyphs.len() || !(0..glyphs.len()).any(up) {
-            out.push(Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg });
+            out.push(Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg, x_scale });
             continue;
         }
         let piece = |k0: usize, k1: usize| -> Draw {
@@ -1855,7 +1865,7 @@ fn upright_east_asian(items: Vec<Draw>) -> Vec<Draw> {
             let (b0, b1) = (rs.iter().map(|r| r.start).min().unwrap_or(0), rs.iter().map(|r| r.end).max().unwrap_or(0));
             let t = text.get(b0..b1).unwrap_or("").to_string();
             let rs = rs.iter().map(|r| r.start.saturating_sub(b0)..r.end.saturating_sub(b0)).collect();
-            Draw::Glyphs { face, size, glyphs: gs, color, alpha, synth_bold, synth_italic, text: t, link: link.clone(), ranges: rs, text_bg }
+            Draw::Glyphs { face, size, glyphs: gs, color, alpha, synth_bold, synth_italic, text: t, link: link.clone(), ranges: rs, text_bg, x_scale }
         };
         let mut k0 = 0;
         while k0 < glyphs.len() {

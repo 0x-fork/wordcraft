@@ -774,7 +774,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_stroke(st);
             line(ctx, 0.0, 0.0);
         }
-        Draw::Glyphs { face, size, glyphs, color: c, alpha, synth_bold, synth_italic, text_bg, .. } => {
+        Draw::Glyphs { face, size, glyphs, color: c, alpha, synth_bold, synth_italic, text_bg, x_scale, .. } => {
             // Invisible glyphs (WordArt letters are drawn from their outlines) carry text only.
             if *alpha <= 0.0 {
                 return;
@@ -783,6 +783,9 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             let k = *size as f64 / face.upem.max(1.0);
             ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
             let skew = if *synth_italic { Affine::new([1.0, 0.0, -0.21, 1.0, 0.0, 0.0]) } else { Affine::IDENTITY };
+            // Scaled letters (`w:w`): each glyph stretched across from its pen position.
+            let sx = if x_scale.is_finite() && *x_scale > 0.0 { f64::from(*x_scale) } else { 1.0 };
+            let skew = Affine::scale_non_uniform(sx, 1.0) * skew;
             // Outline strokes, in font units: synthetic bold, then on-screen stem darkening (a
             // stroke grows the outline by half its width on each side). Darkening is skipped for
             // translucent text, where the stroke overlapping the fill would show as a darker rim.
