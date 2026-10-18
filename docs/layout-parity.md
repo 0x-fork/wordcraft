@@ -182,6 +182,9 @@ and save, in raster output and in PDF. Synthetic controls cover red rectangles, 
 connectors. Custom lists are capped at 64 pairs; painted spans are bounded to 0.01–20000 pt.
 Theme-inherited dash styles, line caps, ink and open freeform strokes are not covered by this change.
 When content exceeds a preferred column width, AutoFit donors lose equal widths until they reach their content minima. Original synthetic Word probes cover donor reductions; cached field refresh and wrapping remain separate gaps.
+
+Behind-text pictures in table cells participate in centre and bottom vertical alignment without increasing row flow height.
+
 ## Revision history
 
 | Date | Change | Summary |
@@ -201,6 +204,7 @@ When content exceeds a preferred column width, AutoFit donors lose equal widths 
 | 2026-10-16 | trivial | Hint-reliant CJK fonts execute TrueType contour assembly; Windows DFKai-SB no longer loses strokes. Synthetic local-font regression; no font binaries bundled. |
 | 2026-10-16 | trivial | `w:autoSpaceDE` and `w:autoSpaceDN` are laid out: a quarter em between Asian text and Latin text or digits (#2358) |
 | 2026-10-16 | trivial | AutoFit donors lose equal widths, bounded by content minima |
+| 2026-10-16 | trivial | Behind-text pictures in table cells participate in centre and bottom vertical alignment without increasing row flow height. |
 | 2026-10-14 | trivial | Row table border exceptions draw without leaking into other rows |
 | 2026-10-14 | trivial | Consistent cell widths override a stale table grid |
 | 2026-10-14 | trivial | Paragraphs inside complex-field instructions take no flow height; empty result paragraphs keep their line. |
