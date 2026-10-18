@@ -112,6 +112,11 @@ pub struct AutoCorrectPrefs {
     pub exceptions_removed: Vec<String>,
     /// The user's words that keep two initial capitals (besides the built-in ones).
     pub initial_caps_exceptions: Vec<String>,
+    /// Undoing (or backspacing and retyping) an automatic sentence capital adds the word before
+    /// it to the exceptions (First Letter's "Automatically add words to list").
+    pub auto_add_first_letter: bool,
+    /// The same for undoing a TWo INitial CApitals fix (INitial CAps's switch).
+    pub auto_add_initial_caps: bool,
 }
 
 impl Default for AutoCorrectPrefs {
@@ -137,6 +142,8 @@ impl Default for AutoCorrectPrefs {
             exceptions: Vec::new(),
             exceptions_removed: Vec::new(),
             initial_caps_exceptions: Vec::new(),
+            auto_add_first_letter: true,
+            auto_add_initial_caps: true,
         }
     }
 }
@@ -212,6 +219,30 @@ impl AutoCorrectPrefs {
         v
     }
 
+    /// Add a First Letter exception (lowercase; one the built-in list has just stops being deleted).
+    fn add_exception(&mut self, e: String) {
+        if !plain_word(&e) {
+            return;
+        }
+        self.exceptions_removed.retain(|r| *r != e);
+        if !NOT_SENTENCE_END.contains(&e.as_str()) && !self.exceptions.contains(&e) && self.exceptions.len() < MAX_ENTRIES {
+            self.exceptions.push(e);
+        }
+    }
+
+    /// Add a word that keeps its two initial capitals.
+    fn add_initial_caps_exception(&mut self, w: &str) {
+        if !plain_word(w) {
+            return;
+        }
+        if !INITIAL_CAPS_EXCEPTIONS.contains(&w)
+            && !self.initial_caps_exceptions.iter().any(|e| e == w)
+            && self.initial_caps_exceptions.len() < MAX_ENTRIES
+        {
+            self.initial_caps_exceptions.push(w.to_string());
+        }
+    }
+
     /// Abbreviations after which a sentence doesn't end, lowercase.
     pub fn exception_list(&self) -> Vec<String> {
         let mut v: Vec<String> = NOT_SENTENCE_END
@@ -223,6 +254,50 @@ impl AutoCorrectPrefs {
         v.sort();
         v.dedup();
         v
+    }
+}
+
+/// Is `w` a word an exception list may hold: one short line, no spaces or object characters?
+fn plain_word(w: &str) -> bool {
+    !w.trim().is_empty() && w.chars().count() <= MAX_FROM && !w.contains(|c: char| c.is_whitespace() || c == '\u{FFFC}')
+}
+
+/// The newest automatic capitalisation (a sentence capital, a TWo INitial CApitals fix), kept so
+/// that undoing it, or backspacing it and typing the word again, makes an exception (#1857).
+#[derive(Clone, Debug)]
+pub struct AutoCap {
+    /// Undo steps pushed (ever) right after the change (`u64::MAX` until the caller has pushed its step).
+    pub(crate) depth: u64,
+    story: wordcraft_doc::StoryRef,
+    path: wordcraft_doc::Path,
+    /// Byte offset of the word in its paragraph.
+    start: usize,
+    /// The token before a sentence capital's word, lowercase ("there."); empty when none or when
+    /// the capital wasn't a sentence one.
+    prev: String,
+    /// The TWo INitial CApitals word as typed ("TWo").
+    two_caps: Option<String>,
+    /// The user backspaced into the word after the change.
+    backspaced: bool,
+}
+
+impl AutoCap {
+    pub(crate) fn add_exceptions(self, ac: &mut AutoCorrectPrefs) {
+        if ac.auto_add_first_letter && !self.prev.is_empty() {
+            ac.add_exception(self.prev);
+        }
+        if ac.auto_add_initial_caps
+            && let Some(w) = self.two_caps
+        {
+            ac.add_initial_caps_exception(&w);
+        }
+    }
+
+    /// A Backspace deleted `a..f`; it reached back over the capitalised word's first letter.
+    pub(crate) fn note_backspace(&mut self, a: &Pos, f: &Pos) {
+        if f.story == self.story && f.path == self.path && a.off <= self.start && f.off > self.start {
+            self.backspaced = true;
+        }
     }
 }
 
@@ -252,6 +327,8 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         ("bullets", &mut ac.bullets),
         ("numbering", &mut ac.numbering),
         ("borderLines", &mut ac.border_lines),
+        ("autoAddFirstLetter", &mut ac.auto_add_first_letter),
+        ("autoAddInitialCaps", &mut ac.auto_add_initial_caps),
     ] {
         if let Some(b) = p::bool(v, k) {
             *f = b;
@@ -286,10 +363,7 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         if bad(&e, MAX_FROM) || e.contains(char::is_whitespace) {
             return Err(CmdError::Params("an exception is one abbreviation, like \"approx.\"".into()));
         }
-        ac.exceptions_removed.retain(|r| *r != e);
-        if !NOT_SENTENCE_END.contains(&e.as_str()) && !ac.exceptions.contains(&e) && ac.exceptions.len() < MAX_ENTRIES {
-            ac.exceptions.push(e);
-        }
+        ac.add_exception(e);
     }
     if let Some(e) = p::str(v, "deleteException") {
         let e = e.trim().to_lowercase();
@@ -303,12 +377,7 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         if bad(w, MAX_FROM) || w.contains(char::is_whitespace) {
             return Err(CmdError::Params("an INitial CAps exception is one word, like \"IDs\"".into()));
         }
-        if !INITIAL_CAPS_EXCEPTIONS.contains(&w)
-            && !ac.initial_caps_exceptions.iter().any(|e| e == w)
-            && ac.initial_caps_exceptions.len() < MAX_ENTRIES
-        {
-            ac.initial_caps_exceptions.push(w.to_string());
-        }
+        ac.add_initial_caps_exception(w);
     }
     if let Some(w) = p::str(v, "deleteInitialCapsException") {
         let w = w.trim();
@@ -331,6 +400,8 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         "bullets": ac.bullets,
         "numbering": ac.numbering,
         "borderLines": ac.border_lines,
+        "autoAddFirstLetter": ac.auto_add_first_letter,
+        "autoAddInitialCaps": ac.auto_add_initial_caps,
         "entries": ac.list().into_iter().map(|(a, b, builtin)| json!({"from": a, "to": b, "builtIn": builtin})).collect::<Vec<_>>(),
         "user": ac.entries,
         "exceptions": ac.exception_list(),
@@ -366,7 +437,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .pure(),
         CommandSpec::new("tools.autocorrect", "AutoCorrect Options", "File › Options › Proofing", autocorrect_options)
             .params(
-                r#"{"enabled"?: bool (all of AutoCorrect), "replaceText"|"twoInitialCaps"|"capSentences"|"capCells"|"capDays"|"capsLock"|"smartQuotes"|"fractions"|"ordinals"|"dashes"|"links"|"bullets"|"numbering"|"borderLines"?: bool, "add"?: {"from": string, "to": string} (adds or replaces an entry), "delete"?: string (an entry's "from", built in or added), "addException"?: string, "deleteException"?: string, "addInitialCapsException"?: string (keeps TWo INitial CApitals, like "IDs"), "deleteInitialCapsException"?: string} → options, entries and exceptions"#,
+                r#"{"enabled"?: bool (all of AutoCorrect), "replaceText"|"twoInitialCaps"|"capSentences"|"capCells"|"capDays"|"capsLock"|"smartQuotes"|"fractions"|"ordinals"|"dashes"|"links"|"bullets"|"numbering"|"borderLines"?: bool, "autoAddFirstLetter"|"autoAddInitialCaps"?: bool (Automatically add words to the exception lists when an automatic capital is undone; default true), "add"?: {"from": string, "to": string} (adds or replaces an entry), "delete"?: string (an entry's "from", built in or added), "addException"?: string, "deleteException"?: string, "addInitialCapsException"?: string (keeps TWo INitial CApitals, like "IDs"), "deleteInitialCapsException"?: string} → options, entries and exceptions"#,
             )
             .pure(),
         CommandSpec::new("tools.customizeKeyboard", "Customize Keyboard", "File › Options", customize_keyboard)
@@ -793,6 +864,18 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
             }
             end = from;
         }
+        s.autocap = Some(AutoCap {
+            depth: u64::MAX,
+            story: f.story,
+            path: f.path.clone(),
+            start,
+            prev: String::new(),
+            two_caps: (ac.two_initial_caps
+                && letters.chars().nth(1).is_some_and(char::is_uppercase)
+                && letters.chars().next().is_some_and(char::is_uppercase))
+            .then(|| letters.clone()),
+            backspaced: false,
+        });
         let fixed: String = reps.concat();
         f.off = (f.off + fixed.len()).saturating_sub(letters.len());
         s.sel = Selection::caret(f.clone());
@@ -818,6 +901,7 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
         },
         None => (start, None),
     };
+    let replaced = rep.is_some();
     let mut caret = f.off;
     if let Some(rep) = rep {
         let end = start + word.len();
@@ -866,7 +950,18 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     } else {
         last
     };
-    let sentence = sentence_on && starts_sentence(before_word, &exceptions) && should_capitalize(first, next);
+    let mut sentence = sentence_on && starts_sentence(before_word, &exceptions) && should_capitalize(first, next);
+    let prev = if sentence { prev_token(before_word) } else { String::new() };
+    // Typing the word again after backspacing an automatic capital: the user doesn't want it
+    // (Word's "Automatically add words to list"); an exception, so no capital this time either.
+    if sentence
+        && !prev.is_empty()
+        && s.autocap.take_if(|c| c.backspaced && c.story == f.story && c.path == f.path && c.start == start && c.prev == prev).is_some()
+        && ac.auto_add_first_letter
+    {
+        s.prefs.autocorrect.add_exception(prev.clone());
+        sentence = false;
+    }
     let day = ac.cap_days && DAYS.contains(&first);
     if sentence || day {
         let para = s.doc.para_mut(f.story, &f.path)?;
@@ -876,10 +971,29 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
             para.delete(start, start + c.len_utf8())?;
             para.insert_text(start, &up, &props)?;
             let off = (caret + up.len()).saturating_sub(c.len_utf8());
-            s.sel = Selection::caret(Pos { off, ..f });
+            s.sel = Selection::caret(Pos { off, ..f.clone() });
+            if sentence && !prev.is_empty() && !replaced {
+                match s.autocap.as_mut().filter(|c| c.depth == u64::MAX) {
+                    Some(c) => c.prev = prev,
+                    None => {
+                        s.autocap = Some(AutoCap { depth: u64::MAX, story: f.story, path: f.path, start, prev, two_caps: None, backspaced: false })
+                    }
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// The lowercase token before a word that starts a sentence ("there." in "there. world"), as
+/// [`starts_sentence`] reads it; empty at the start of a paragraph.
+fn prev_token(before: &str) -> String {
+    let t = before.trim_end().trim_end_matches(|c: char| "\"'”’)]".contains(c));
+    // Only full stops: Word's exception was observed with "there." (`there?` isn't added).
+    if !t.ends_with('.') {
+        return String::new();
+    }
+    t.rsplit(char::is_whitespace).next().unwrap_or("").trim_start_matches(|c: char| "\"'“‘([".contains(c)).to_lowercase()
 }
 
 /// Built-in words that keep their two initial capitals (plurals of two-letter abbreviations).

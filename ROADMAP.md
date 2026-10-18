@@ -137,6 +137,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
 
 | Date | What landed |
+| 2026-10-15 | Reversing an automatic sentence capital (Undo, or Backspace and retype) adds the word before it to AutoCorrect's First Letter exceptions, as Word does; "Automatically add words to list" switches for First Letter and INitial CAps (#1857). |
 | 2026-10-15 | Dialog close control: a Windows-style box at the title bar's right end, the whole box clickable, red on hover, in both themes (#1885) |
 | 2026-10-15 | Font box: a Recently Used Fonts section at the top of the list (the fonts applied lately, most recent first, ten at most, kept between runs), then All Fonts, as in Word (#2068) |
 | 2026-10-15 | A missing Thai document font (TH Sarabun New, Angsana New, Cordia New, the UPC families…) is substituted by one Thai face for the whole run, Latin letters and digits included, as Word substitutes Cordia New; Thai no longer sits in one font next to larger Latin in another (#1549) |

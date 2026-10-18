@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-18 · **Change:** trivial (smart quotes open after guillemets and low quotes and nest; previously trivial: Enter on an empty list item numbered by its paragraph style moves it up a level, #2143; previously trivial: Backspace after a section break and Delete before it remove the break, also on the last paragraph, #2127; previously trivial: a table inserted in right-to-left text is right to left, so Tab moves left, #2634; previously trivial: Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-18 · **Change:** trivial (reversing an automatic capital adds an exception, #1857; previously trivial: smart quotes open after guillemets and low quotes and nest; previously trivial: Enter on an empty list item numbered by its paragraph style moves it up a level, #2143; previously trivial: Backspace after a section break and Delete before it remove the break, also on the last paragraph, #2127; previously trivial: a table inserted in right-to-left text is right to left, so Tab moves left, #2634; previously trivial: Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -96,6 +96,28 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
   the rest lowercase loses its second capital (`WOrd`→`Word`, `TEh`→`The`); not the exceptions
   (`IDs`, `CDs`, `PCs`, `TVs`, … plus the user's, `tools.autocorrect {"addInitialCapsException"}`)
   (`two_initial_capitals_are_corrected`).
+- Reversing an automatic capital makes an exception (Word's "Automatically add words to list",
+  observed on the Mac, #1857): Undo of the sentence capital's own step adds the word before it
+  to the First Letter list (`there.`; only words ending in a full stop, the one form seen in
+  Word), and so does Backspacing over the capitalised word and typing it again; the word is then
+  not capitalised after `there.` any more. Any other Undo (of later typing, of a paste) adds
+  nothing, and the capital is forgotten once another Undo runs, a new document is opened, or the
+  undo history is cleared. Each list has its own switch
+  (`tools.autocorrect {"autoAddFirstLetter", "autoAddInitialCaps"}`, on by default); words over
+  255 characters or with spaces are never added. Undoing a replacement (`teh`→`the`) adds
+  nothing: Word doesn't either. Undoing a TWo INitial CApitals fix adds the word to the INitial
+  CAps list (as in Word, checked on the Mac: `TWo ` typed again isn't corrected; same switch rule as First Letter). The first word of a
+  paragraph has no word before it, so nothing is added there; Word also left the retyped first
+  word ("hello") lowercase in that paragraph, which WordCraft doesn't (paragraph-level
+  suppression, only for the paragraph where the Undo happened: Word capitalises the first word
+  of a new paragraph again; a separate follow-up). Word adds nothing in bulleted-list paragraphs; not covered
+  (`undoing_a_sentence_capital_adds_a_first_letter_exception`,
+  `backspacing_a_sentence_capital_and_retyping_adds_a_first_letter_exception`,
+  `automatic_exceptions_can_be_turned_off`, `undoing_a_replacement_adds_no_exception`,
+  `undoing_an_initial_caps_fix_adds_an_initial_caps_exception`,
+  `undoing_other_edits_after_a_capital_adds_no_exception`,
+  `a_full_undo_history_does_not_match_later_undos`, `a_new_document_forgets_the_capital`,
+  `an_overlong_word_is_not_added_as_an_exception`).
 - Correct accidental usage of cAPS LOCK: `wORD`→`Word` (three or more letters; not `iOS`,
   `mRNA`, …). Word also switches Caps Lock off; we only correct the word
   (`accidental_caps_lock_is_corrected`).
@@ -207,6 +229,7 @@ Word.
 | 2026-10-15 | trivial | Backspace after a section break and Delete before it remove the break, also one on the last paragraph's mark; the text takes the following section's setup and keeps the headers it showed (#2127) |
 | 2026-10-15 | trivial | Enter on an empty nested list item whose numbering comes from its paragraph style (List Number 2) moves it up a level instead of adding another item (#2143) |
 | 2026-10-18 | trivial | Smart quotes open after `«` `‹` `„` `‚` and after the other kind of opening quote, so nested quotes curl correctly |
+| 2026-10-15 | minor | AutoCorrect: undoing the capital's own step (or backspacing it and retyping) adds an exception; "Automatically add words to list" switches (#1857) |
 | 2026-10-14 | trivial | Shift+Delete cuts the selection, and does nothing without one, on macOS and Linux too, as in Word for Windows (#1669); Shift+Backspace already erased (#707) |
 | 2026-10-13 | trivial | Select All then Delete or Backspace removes a table the document starts with (#1198) |
 | 2026-10-12 | trivial | Editing keys: Down and Up from the start of a line beside a table go into it instead of skipping it (#1007) |

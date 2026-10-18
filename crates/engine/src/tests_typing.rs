@@ -1385,3 +1385,104 @@ fn delete_removes_a_section_break_on_the_last_paragraph() {
         assert_eq!((sections[0].1.headers.default, sections[1].1.headers.default), (header, None), "{then:?}: undo");
     }
 }
+
+fn first_letter_list(s: &Session) -> Vec<String> {
+    s.prefs.autocorrect.exceptions.clone()
+}
+
+/// Undoing an automatic sentence capital adds the word before it to the First Letter exceptions
+/// (Word: "Automatically add words to list", #1857); typing the line again isn't capitalised.
+#[test]
+fn undoing_a_sentence_capital_adds_a_first_letter_exception() {
+    let mut s = typed("hello there. world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. World ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world ");
+    assert_eq!(first_letter_list(&s), ["there."]);
+    run(&mut s, "text.newParagraph", json!({}));
+    typ(&mut s, "x there. world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world \nX there. world ");
+}
+
+#[test]
+fn backspacing_a_sentence_capital_and_retyping_adds_a_first_letter_exception() {
+    let mut s = typed("hello there. world ");
+    typ(&mut s, "\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world ");
+    assert_eq!(first_letter_list(&s), ["there."]);
+}
+
+#[test]
+fn automatic_exceptions_can_be_turned_off() {
+    let mut s = typed("");
+    run(&mut s, "tools.autocorrect", json!({"autoAddFirstLetter": false}));
+    typ(&mut s, "hello there. world ");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+    let mut s = typed("");
+    run(&mut s, "tools.autocorrect", json!({"autoAddFirstLetter": false}));
+    typ(&mut s, "hello there. world \u{8}\u{8}\u{8}\u{8}\u{8}\u{8}world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. World ");
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn undoing_a_replacement_adds_no_exception() {
+    let mut s = typed("so teh ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So the ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So teh ");
+    assert!(first_letter_list(&s).is_empty());
+    assert!(s.prefs.autocorrect.entries.is_empty() && s.prefs.autocorrect.removed.is_empty());
+    typ(&mut s, "and teh ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So teh and the ");
+}
+
+/// Checked in Word for Mac: the same rule as First Letter.
+#[test]
+fn undoing_an_initial_caps_fix_adds_an_initial_caps_exception() {
+    let mut s = typed("so TWo ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.prefs.autocorrect.initial_caps_exceptions, ["TWo"]);
+    typ(&mut s, "and TWo ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So TWo and TWo ");
+}
+
+#[test]
+fn undoing_other_edits_after_a_capital_adds_no_exception() {
+    // Typing more, then one Undo, and a second Undo that reverses the capital's step later.
+    let mut s = typed("hello there. world more text");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty(), "only the Undo that reverses the capital itself counts");
+}
+
+#[test]
+fn a_full_undo_history_does_not_match_later_undos() {
+    let mut s = typed("");
+    for _ in 0..300 {
+        typ(&mut s, "x\n");
+    }
+    typ(&mut s, "hello there. world more text\nand more");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn a_new_document_forgets_the_capital() {
+    let mut s = typed("hello there. world ");
+    run(&mut s, "file.new", json!({}));
+    typ(&mut s, "abc\ndef\nghi\njkl");
+    for _ in 0..8 {
+        let _ = s.run("edit.undo", &json!({}));
+    }
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn an_overlong_word_is_not_added_as_an_exception() {
+    let mut s = typed(&format!("hi {}. world ", "a".repeat(5000)));
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+}

@@ -79,6 +79,7 @@ Find selects the Results tab, including when it prefills selected text. Editing 
 | 2026-10-16 | trivial | Comment and revision balloons are readable in the dark theme: the card, the markup area, the author stripes and the leader lines come from theme tokens, and the text reaches 4.5:1 (#2045) |
 | 2026-10-15 | trivial | Layout › Columns works on the selected text, as in Word: section breaks around it, the rest of the document unchanged; More Columns… adds "Selected text" to Apply to and picks it when text is selected (#2024) |
 | 2026-10-15 | trivial | Navigation Find and query edits expose Results (#2096) |
+| 2026-10-15 | trivial | AutoCorrect Options › Exceptions: "Automatically add words to list" switches for First Letter and INitial CAps (#1857) |
 | 2026-10-13 | trivial | New/Modify Table Style: No Border on a part that inherits its lines hides them; emptying the font box makes the part's font inherited again (#1288) |
 | 2026-10-14 | trivial | Tab stops edited on the ruler: corner kind selector, click to set, drag to move or off to clear, per-kind markers mirrored for RTL; each gesture one `para.tabs` call and one undo step; Rulers 85% → 90% |
 | 2026-10-12 | trivial | Tables on the page: one selected cell (Select Cell, or a click along its left edge) is a cell selection when its border is dragged: the border moves in its row only (#962) |
