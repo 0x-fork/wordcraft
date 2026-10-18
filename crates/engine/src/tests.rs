@@ -8400,3 +8400,15 @@ fn drop_cap_options_set_position_lines_distance_and_font() {
     assert!(s.sel.focus.path.cell().is_some());
     assert!(s.run("insert.dropCap", &json!({})).is_err(), "off in a table cell");
 }
+
+#[test]
+fn rtf_list_round_trip_keeps_text() {
+    for cmd in ["para.bullets", "para.numbering", "para.multilevel", "para.defineBullet"] {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("first\nsecond"));
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, cmd, json!({}));
+        let bytes = crate::io::save_bytes("x.rtf", &s.doc).unwrap();
+        let d = crate::io::open_bytes("x.rtf", &bytes).unwrap();
+        assert_eq!(d.plain_text(StoryRef::Body), "first\nsecond", "{cmd}");
+    }
+}

@@ -435,9 +435,11 @@ impl Writer {
         if let (Some(li), Some((n, label))) = (p.list, &ls) {
             let lv = li.level.min(8);
             out.push_str(&format!("\\ls{n}\\ilvl{lv}\\fi-360\\li{}", 720 * (u32::from(lv) + 1)));
+            // The closing brace ends the label; a space after it would be text.
             out.push_str(&format!(" {{\\listtext\\pard\\plain {}\\tab}}", esc(label)));
+        } else {
+            out.push(' ');
         }
-        out.push(' ');
         self.base = style_fmt(p.kind);
         self.inlines(&p.inlines, out);
         self.base = Fmt::default();
