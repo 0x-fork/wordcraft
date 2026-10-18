@@ -2836,6 +2836,31 @@ mod tests {
         assert!(!b.ui.backstage && b.has_document());
     }
 
+    /// #1908: with no document open the Home ribbon's split buttons grey out like the plain
+    /// buttons beside them, and their drop-down arrow opens no menu.
+    #[test]
+    fn split_buttons_are_disabled_with_no_document() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let mut a = app();
+        a.start_screen();
+        a.run("ui.backstage", json!({"value": false})).unwrap();
+        assert!(!a.has_document());
+        let mut h = harness(a);
+        h.run_steps(4);
+        for tip in ["Underline", "Text Highlight Color", "Font Color", "Bullets", "Numbering", "Shading", "Borders"] {
+            let node = h.query_by_role_and_label(Role::Button, tip);
+            assert!(node.is_some_and(|n| n.accesskit_node().is_disabled()), "{tip} is greyed out with no document");
+        }
+        let r = h.get_by_role_and_label(Role::Button, "Underline").rect();
+        let arrow = egui::pos2(r.max.x + 6.5, r.center().y);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: arrow, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+        }
+        h.run_steps(3);
+        assert!(!egui::Popup::is_any_open(&h.ctx), "the disabled split button's arrow opens no menu");
+    }
+
     /// #1129: the empty window's File tab goes back to the Backstage with only Home, New, Open
     /// and Options; picking Blank document there opens one, ready for typing.
     #[test]
