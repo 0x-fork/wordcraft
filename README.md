@@ -199,7 +199,8 @@ check and the wasm build. Contributor and agent instructions: [AGENTS.md](AGENTS
 
 ## Roadmap
 
-WordCraft is in **alpha**. It covers 88% of the ribbon features tracked in [`docs/gaps.md`](docs/gaps.md) with commands today; counting
+WordCraft is in **alpha**. It has commands for 97% of the ribbon and menu features in its feature catalog
+([`docs/parity-checklist.md`](docs/parity-checklist.md)) today; counting
 depth, file fidelity, stability and the rest, we estimate it is about 60% ready for real work,
 about 55% for a typical professional's weekly work and about 63% for everyday essentials. Beta
 needs testing against real-world .docx files, keeping charts and SmartArt through a round trip,
@@ -248,8 +249,9 @@ also avoids DirectX 12 altogether.
 
 **If the app is slow on an older Windows PC:** when DirectX 12 finds no graphics card with a
 driver for it (for example Intel 4th-generation graphics on Windows 11), it only offers the built-in
-software renderer, which draws every frame on the processor. In that case WordCraft uses OpenGL
-instead, without setting anything. The log file records the choice (lines starting with
+software renderer, which draws every frame on the processor. WordCraft normally uses OpenGL instead,
+without setting anything. If OpenGL has no usable adapter, it can use DirectX 12's WARP software
+adapter. The log file records the choice (lines starting with
 `graphics:`). `WGPU_BACKEND` still overrides it, e.g. `$env:WGPU_BACKEND = "gl"` or `"dx12"`.
 
 ### macOS
