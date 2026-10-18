@@ -216,6 +216,12 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 
 
 
+## Saving legacy Word imports
+
+Word 97–2003 `.doc` and `.dot` remain import-only. A user Save without an explicit destination opens the existing Save As flow suggesting DOCX (#2445), including before Close. The original stays unchanged. Cancelling retains the draft, revision and path; a failed write keeps the draft open, and successful DOCX save/reopen retains the edited text. Uppercase extensions follow the same route. Scripts and explicitly supplied legacy destinations still receive an unsupported-format error and never open a dialog. Late Save As answers are rejected before writing if automation has replaced the document.
+
+Original binary fixtures and actual WordApp/Session file I/O cover Save, toolbar dispatch, a Mod+S input event, cancel, failure, retry, close continuation and repeated DOCX saves. The picker service is controlled in these tests; a native Windows picker and broad legacy-document fidelity remain unqualified.
+
 ## Cached field result formatting
 
 Imported text fields use the first nonempty cached result run's formatting on their paragraph span, including character styles. Empty results retain begin-marker formatting. Synthetic fixtures cover simple and complex fields, default inheritance and repeated saves. Mixed-format results remain represented by one span; field refresh policy is unchanged.
@@ -228,6 +234,8 @@ Imported text fields use the first nonempty cached result run's formatting on th
 | 2026-10-14 | trivial | `ASK` and `SET` fields keep their result but show nothing (#1765) |
 | 2026-10-16 | trivial | Strict OOXML line heights: `w:line="13.90pt"` under `lineRule="auto"` is read as Word renders it — through twips (13.90 × 20 = 278; the 1.1583 multiple), not as 240ths of a line — so a Word 2024 strict file opens at Word's line spacing and page count (#2329) |
 | 2026-10-14 | trivial | ODT export writes sections: each new-page section gets its own page layout and master page (the first stays "Standard"), named by its first paragraph or table with the page-numbering restart; a continuous section with columns is a columned `text:section` (gap 19) |
+| 2026-10-18 | trivial | #2445: pending Save As answers keep their originating document identity, so a replacement document is never written to an old picker destination; real Save-button and focused-editor shortcut controls verified |
+| 2026-10-16 | trivial | #2445: interactive Save on import-only .doc/.dot paths uses the existing DOCX Save As flow; cancel and failed writes keep the draft, and Close waits for a successful save. Explicit/script saves still report unsupported legacy output |
 | 2026-10-17 | trivial | Paste: an HTML `<blockquote>` (LibreOffice's both-sides indent) pastes as a Normal paragraph with its margins as indents, not the centred italic Quote style; opening .html unchanged (#1270) |
 | 2026-10-15 | trivial | `wordcraft-cli convert --update-fields` explicitly refreshes unlocked fields before conversion; ordinary conversion keeps cached results. Field refresh can change pagination |
 | 2026-10-16 | trivial | Cached textual `REF` results with `\h` export links to their bookmarks. Code view and existing enclosing hyperlinks remain unchanged; unresolved bookmarks emit no PDF link. |

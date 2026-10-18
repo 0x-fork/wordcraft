@@ -24,6 +24,8 @@ Additive paragraph spacing retains the full before-space after a section page br
 
 Exact line spacing keeps the run font baseline around tall equations; automatic and minimum spacing still grow for math. Other pagination gaps remain open.
 
+Legacy Word imports (#2445): interactive Save for `.doc`/`.dot` uses the existing DOCX Save As dialog. Cancel and write failures retain the draft and original path; Save before Close continues only after a successful supported-format save. This narrows save reliability under gap #3; binary `.doc` writing remains unsupported. Late Save As answers are rejected before writing if automation has replaced the document.
+
 ## Ranked
 
 | # | Gap | B | Evidence | Impact | Hours | Doc |
@@ -94,6 +96,8 @@ The Language dialog reads effective character formatting, including document def
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | trivial | #2445: pending Save As answers keep their originating document identity, so a replacement document is never written to an old picker destination; real Save-button and focused-editor shortcut controls verified |
+| 2026-10-16 | trivial | #2445: interactive Save on import-only .doc/.dot paths uses the existing DOCX Save As flow; cancel and failed writes keep the draft, and Close waits for a successful save. Explicit/script saves still report unsupported legacy output |
 | 2026-10-16 | trivial | #24: the Spike (Ctrl+F3, Ctrl+Shift+F3) |
 | 2026-10-17 | trivial | Glossary/building blocks closed (DOCX glossary read, kept and written); `w:altChunk` and sub-documents remain |
 | 2026-10-15 | trivial | #5 narrowed: Track Changes Options › Moves (Moved from / Moved to marks and colours) and Track moves (`w:doNotTrackMoves`) landed; drag-and-drop moves remain |
