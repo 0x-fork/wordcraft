@@ -851,8 +851,17 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     if word.is_empty() {
         return Ok(());
     }
+    // The word's language (run, paragraph style, document default) picks the replacement list
+    // (#835) and the case mapping (#1923). Text with no language at all is in the editing
+    // language (a Polish interface writes Polish), else English.
+    let lang: Option<String> = s.doc.para_at(&f).and_then(|p| {
+        let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(start));
+        rc.lang.clone()
+    });
+    let lang = lang.or_else(|| s.editing_lang.clone());
+    let turkic = is_turkic(lang.as_deref());
     // TWo INitial CApitals and cAPS LOCK come first, so "TEh" is still a replacement's typo.
-    if let Some((at, reps)) = case_fix(&ac, &word) {
+    if let Some((at, reps)) = case_fix(&ac, &word, turkic) {
         let para = s.doc.para_mut(f.story, &f.path)?;
         let letters = word.get(at..).unwrap_or("").chars().take(reps.len()).collect::<String>();
         let mut end = start + at + letters.len();
@@ -882,15 +891,9 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
         s.sel = Selection::caret(f.clone());
         word = format!("{}{fixed}{}", word.get(..at).unwrap_or(""), word.get(at + letters.len()..).unwrap_or(""));
     }
-    // A whole-word replacement, else "wait..." → "wait…".
-    // The word's language (run, paragraph style, document default) picks the list (#835).
-    // Text with no language at all is in the editing language (a Polish interface writes Polish),
-    // else English. Proofing decides what is English the same way.
-    let english = s.doc.para_at(&f).is_none_or(|p| {
-        let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(start));
-        let lang = rc.lang.as_deref().or(s.editing_lang.as_deref());
-        wordcraft_proof::ProofLang::from_tag(lang) == wordcraft_proof::ProofLang::En
-    });
+    // A whole-word replacement, else "wait..." → "wait…". Proofing decides what is English the
+    // same way (#835).
+    let english = s.doc.para_at(&f).is_none_or(|_| wordcraft_proof::ProofLang::from_tag(lang.as_deref()) == wordcraft_proof::ProofLang::En);
     let found = if ac.replace_text { ac.replacement_in(&word, english) } else { None };
     let (from, rep) = match found {
         Some(r) => (start, Some(r)),
@@ -967,7 +970,7 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     if sentence || day {
         let para = s.doc.para_mut(f.story, &f.path)?;
         if let Some(c) = word.chars().next() {
-            let up: String = c.to_uppercase().collect();
+            let up = upper_char(c, turkic);
             let props = para.props_of_char(start).clone();
             para.delete(start, start + c.len_utf8())?;
             para.insert_text(start, &up, &props)?;
@@ -997,6 +1000,34 @@ fn prev_token(before: &str) -> String {
     t.rsplit(char::is_whitespace).next().unwrap_or("").trim_start_matches(|c: char| "\"'“‘([".contains(c)).to_lowercase()
 }
 
+/// Turkish, Azerbaijani (and Crimean Tatar) map `i`/`İ` and `ı`/`I` as pairs (#1923).
+fn is_turkic(lang: Option<&str>) -> bool {
+    if wordcraft_proof::ProofLang::from_tag(lang) == wordcraft_proof::ProofLang::Tr {
+        return true; // tr, tur, any region, same normalisation as proofing
+    }
+    let Some(tag) = lang.map(str::trim) else { return false };
+    let primary = tag.split(['-', '_']).next().unwrap_or("");
+    ["az", "aze", "crh"].iter().any(|c| primary.eq_ignore_ascii_case(c))
+}
+
+/// A letter in capitals: `i` → `İ` in Turkic languages, otherwise the Unicode default.
+fn upper_char(c: char, turkic: bool) -> String {
+    if turkic && c == 'i' {
+        return "\u{130}".to_string();
+    }
+    c.to_uppercase().collect()
+}
+
+/// A letter in lowercase: `I` → `ı` in Turkic languages. `İ` is always the single letter `i`,
+/// never `i` plus a combining dot.
+fn lower_char(c: char, turkic: bool) -> String {
+    match c {
+        'I' if turkic => "\u{131}".to_string(),
+        '\u{130}' => "i".to_string(),
+        _ => c.to_lowercase().collect(),
+    }
+}
+
 /// Built-in words that keep their two initial capitals (plurals of two-letter abbreviations).
 pub const INITIAL_CAPS_EXCEPTIONS: &[&str] = &["CDs", "IDs", "PCs", "TVs", "DJs", "GBs", "KBs", "MBs", "TBs", "VMs"];
 
@@ -1006,7 +1037,7 @@ const CAPS_LOCK_EXCEPTIONS: &[&str] = &["iOS", "mRNA", "tRNA", "rRNA", "cDNA", "
 /// The capitalisation fix for a finished word: TWo INitial CApitals ("WOrd" → "Word") or cAPS
 /// LOCK ("wORD" → "Word"). Returns the byte offset of the word's letters and each letter's
 /// replacement. Only words of three or more letters, optionally in quotes or brackets.
-fn case_fix(caps: &AutoCorrectPrefs, word: &str) -> Option<(usize, Vec<String>)> {
+fn case_fix(caps: &AutoCorrectPrefs, word: &str, turkic: bool) -> Option<(usize, Vec<String>)> {
     if !caps.two_initial_caps && !caps.caps_lock {
         return None;
     }
@@ -1023,7 +1054,7 @@ fn case_fix(caps: &AutoCorrectPrefs, word: &str) -> Option<(usize, Vec<String>)>
         _ => return None,
     };
     let one = |c: char| c.to_string();
-    let lower = |c: char| c.to_lowercase().collect::<String>();
+    let lower = |c: char| lower_char(c, turkic);
     if caps.two_initial_caps
         && a.is_uppercase()
         && b.is_uppercase()
@@ -1034,7 +1065,7 @@ fn case_fix(caps: &AutoCorrectPrefs, word: &str) -> Option<(usize, Vec<String>)>
         return Some((at, std::iter::once(one(a)).chain(std::iter::once(lower(b))).chain(more.iter().map(|&c| one(c))).collect()));
     }
     if caps.caps_lock && a.is_lowercase() && b.is_uppercase() && more.iter().all(|c| c.is_uppercase()) && !CAPS_LOCK_EXCEPTIONS.contains(&letters) {
-        let up = a.to_uppercase().collect::<String>();
+        let up = upper_char(a, turkic);
         return Some((at, std::iter::once(up).chain(std::iter::once(lower(b))).chain(more.iter().map(|&c| lower(c))).collect()));
     }
     None
