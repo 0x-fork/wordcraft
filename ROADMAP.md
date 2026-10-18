@@ -16,7 +16,6 @@ agent control. This page is the summary; the assessment is
 
 | Number | Value | Kind |
 | --- | --- | --- |
-| 2026-10-12 | Table formulas: cell references and ranges (`=B2+B3`, `=SUM(B2:C3)`), arithmetic and comparisons, IF, AND, OR, NOT, TRUE, FALSE, DEFINED and the `\#` number format; ABOVE and LEFT sum the run of numbers next to the cell as Word does; an unknown function or a syntax error is an error instead of a sum; Update Field (F9) recalculates formula fields |
 | Ribbon/menu catalog coverage | **487 / 502 (97.0%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | **Feature breadth** (weighted, incl. dialog options, styles, languages beyond the ribbon) | **~80%** | estimated |
 | **Ready for real work** (full target) | **~60%** (55–63%) | estimated, additive weighted sum over the dimensions |
@@ -136,12 +135,12 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 ## Progress log
 
 | Date | What landed |
+|---|---|
 | 2026-10-17 | Paste from LibreOffice: a paragraph indented on both sides (HTML `<blockquote>` on the clipboard) pastes as an indented Normal paragraph with LibreOffice's margins, not centred and italic in the Quote style (#1270). |
 | 2026-10-17 | DrawingML shape outlines retain explicit preset/custom dashes on screen and in PDF, including zero-width path strokes. |
 | 2026-10-17 | Missing Arial Unicode MS tries Arial and its proportional substitutes before code-font heuristics. |
 | 2026-10-16 | Web Layout text fills the window width and re-wraps once a resize settles, or at once on a zoom, instead of a fixed 800 pt column; Draft and Outline keep their 800 pt column (#1876). |
 | 2026-10-16 | Create Source: the automatic Tag is three letters of the first author and the last two digits of the year (`Smi20`), with 1, 2… added when taken, as Word for Mac 16.113.4 does (user-checked). Editing Author or Year keeps the Tag, as in Word, and the citations in the text show the new author and year (#2094; the reporter expected the Tag to follow). |
-|---|---|
 | 2026-10-18 | Split Cells and Convert Text to Table dialogs (#2592), matched to Word: Split Cells starts from the selection (twice its columns, its rows; Merge cells before split offered for several cells or one cell merged across columns); `table.split` gains `rows` and `mergeFirst`, a merged cell splits into 1 to its height rows (its height or 1 × 1 unmerges it, more is refused with Word's message) and column splits make equal parts without moving other rows' grid lines. Convert Text to Table guesses columns live, shows the row count, and offers Initial column width (Auto or up to 22 in, kept as each column's preferred width), AutoFit to contents/window and Paragraphs/Commas/Tabs/Other separators; `table.fromText` gains `paragraph`/`other` + `char`, `columns`, `autofit` and `width`. |
 | 2026-10-16 | Font list entries of fonts with a very tall ascent (Amiri, Amiri Quran) sit in their row like the others instead of low or cut in half (#2570) |
 | 2026-10-16 | Read Mode draws documents cleanly (#1772): the arrows, Page Up/Down and Escape work as soon as it opens (the canvas kept a stable widget id, so it no longer lost the keyboard), only whole columns show, centred, at any column width, text size or window size, and the columns end above the page-turn bar instead of under it. |
@@ -151,6 +150,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-17 | A table inserted in a right-to-left paragraph is a right-to-left table, like Word, so Tab moves right to left through its cells (#2634) |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
+| 2026-10-12 | Table formulas: cell references and ranges (`=B2+B3`, `=SUM(B2:C3)`), arithmetic and comparisons, IF, AND, OR, NOT, TRUE, FALSE, DEFINED and the `\#` number format; ABOVE and LEFT sum the run of numbers next to the cell as Word does; an unknown function or a syntax error is an error instead of a sum; Update Field (F9) recalculates formula fields |
 | 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
 | 2026-10-18 | Different First Page works from page 1 (#2826): Insert › Header and Edit Header with the caret on page 1, and a double-click there while another header is being edited, go into page 1's own header instead of the default one page 1 no longer shows. |
 | 2026-10-17 | Language dialog keeps inherited proofing language and no-proof choices (#2717). Opening and accepting unchanged no longer replaces style-derived values with English US and proofing enabled. |
@@ -300,7 +300,6 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | Symbol fonts (#776): text in Wingdings, Wingdings 2, Wingdings 3, Webdings and Symbol (proprietary, never bundled) shows its intended symbols — full code tables from Unicode's published correspondence, both storage forms (`w:sym` private-use codes and plain codes); PDF text, copy and TXT export use the Unicode characters; the saved text is unchanged |
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
-|---|---|
 | 2026-10-12 | Czech proofing: cs-CZ spelling reads the installed Hunspell dictionary (`hunspell-cs` on Debian/Ubuntu), suggestions use runtime MAP/REP/TRY/KEY tables, generic repeated-word and spacing checks explain in Czech; Review › Language offers Czech/Čeština; the Czech interface writes new documents and opened TXT/Markdown in cs-CZ. Affix headers accept trailing comments. No system dictionary data or Czech hyphenation patterns bundled; parity estimates unchanged |
 | 2026-10-12 | Tables: dragging the border of one selected cell (Select Cell, or a click along its left edge) moves it in that cell's row only, as in Word, like the border of cells selected across (#962) |
 | 2026-10-13 | Korean interface catalog completed: all 2,463 entries translated; the ko-KR system locale and saved language choice select the interface. The UI prefers Korean embedded/system font faces so Hangul renders instead of boxes, and print settings and printer feedback are translated. Korean proofing remains unavailable; macOS Korean IME fixes are still pending (#163, #164) |
