@@ -22,7 +22,6 @@ const PAGES: [(&str, &str); 11] = [
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    let recovery = app.ui.backstage_page == "recover";
     // No document open (#1129): only the pages that open or create one, and Options.
     let has_document = app.has_document();
     if !has_document && !works_without_document(&app.ui.backstage_page) {
@@ -33,12 +32,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         .exact_size(200.0)
         // Fixed width, as in Word: without this egui shows a resize handle that does nothing (#502).
         .resizable(false)
-        .frame(egui::Frame::NONE.fill(if recovery { egui::Color32::BLACK } else { APP_COLOR }).inner_margin(egui::Margin {
-            left: 0,
-            right: 0,
-            top: if mac { 0 } else { 12 },
-            bottom: 12,
-        }))
+        .frame(egui::Frame::NONE.fill(APP_COLOR).inner_margin(egui::Margin { left: 0, right: 0, top: if mac { 0 } else { 12 }, bottom: 12 }))
         .show(ui, |ui| {
             let back = if mac {
                 // macOS (#222): the Backstage covers the title bar, so its top band is the title
@@ -135,31 +129,28 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
             });
         });
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE.fill(if recovery { egui::Color32::BLACK } else { t.ribbon }).inner_margin(egui::Margin::symmetric(40, 30)))
-        .show(ui, |ui| {
-            // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
-            if app.ui.backstage_page == "print" {
-                export_page(app, ui);
-                return;
-            }
-            egui::ScrollArea::vertical().show(ui, |ui| match app.ui.backstage_page.as_str() {
-                "home" => home_page(app, ui),
-                "new" => new_page(app, ui),
-                "open" => open_page(app, ui),
-                "saveAs" => save_as_page(app, ui),
-                "info" => info_page(app, ui),
-                "recover" => recovery_page(app, ui),
-                "print" | "export" => export_page(app, ui),
-                "options" => crate::options::page(app, ui),
-                _ => home_page(app, ui),
-            });
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(40, 30))).show(ui, |ui| {
+        // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
+        if app.ui.backstage_page == "print" {
+            export_page(app, ui);
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| match app.ui.backstage_page.as_str() {
+            "home" => home_page(app, ui),
+            "new" => new_page(app, ui),
+            "open" => open_page(app, ui),
+            "saveAs" => save_as_page(app, ui),
+            "info" => info_page(app, ui),
+            "recover" => recovery_page(app, ui),
+            "print" | "export" => export_page(app, ui),
+            "options" => crate::options::page(app, ui),
+            _ => home_page(app, ui),
         });
+    });
 }
 
 /// Recovery is a separate copy. Leaving this page never discards it.
 fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
-    ui.visuals_mut().override_text_color = Some(egui::Color32::WHITE);
     heading(ui, "Recover documents");
     ui.label(tl!("Restore opens an unsaved copy. Your original file stays unchanged."));
     ui.add_space(20.0);
@@ -537,6 +528,42 @@ mod tests {
         // Worker completion is a state boundary; egui needs subsequent frames to finish
         // font installation/layout and expose the resulting buttons to AccessKit.
         h.run_steps(4);
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_does_not_replace_an_explicit_new_document() {
+        for template in ["blank", "report"] {
+            let (mut app, root) = recovery_app();
+            app.run("file.new", json!({"template": template})).unwrap();
+            let document = app.session.document_id();
+            let mut h = recovery_harness(app);
+            settle_recovery(&mut h);
+            assert!(!h.state().ui.backstage, "the requested template must stay visible");
+            assert_eq!(h.state().session.document_id(), document);
+            assert_eq!(h.state().session.recovery_documents().len(), 1, "older copies remain available");
+            h.state_mut().run("file.recover", json!({})).unwrap();
+            h.run_steps(4);
+            assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover");
+            drop(h);
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_does_not_replace_an_explicitly_opened_file() {
+        let (mut app, root) = recovery_app();
+        let path = root.join("Requested.txt");
+        std::fs::write(&path, "Requested synthetic document").unwrap();
+        app.run("file.open", json!({"path": path})).unwrap();
+        let mut h = recovery_harness(app);
+        settle_recovery(&mut h);
+        assert!(!h.state().ui.backstage);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Requested synthetic document");
+        assert_eq!(h.state().session.recovery_documents().len(), 1);
+        drop(h);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
