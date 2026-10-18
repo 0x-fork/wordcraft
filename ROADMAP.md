@@ -140,6 +140,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 
 | Date | What landed |
 | 2026-10-18 | Symbols keep their font (#2036): a `w:sym` or Insert › Symbol character in Wingdings, Symbol or Webdings remembers its symbol font apart from the text's font, so selecting all and changing the font (or Clear Formatting) no longer turns the symbols into boxes; saved back to DOCX as `w:sym`, so Word shows them too. Typed text and the Format Painter don't pick up the symbol font. |
+| 2026-10-16 | `wordcraft-cli run --script FILE.json` (`-` for stdin) runs a JSON list of commands, then saves to one or more outputs (docx and pdf in one run); errors name the command number and id and nothing is saved, #1963 |
 | 2026-10-14 | RTF export writes every section (gap 19): `\sect` ends each section and `\sectd` carries its break type, page size and orientation, margins, columns, page numbering and title page, so multi-section documents survive an RTF round trip |
 | 2026-10-14 | `ASK` and `SET` fields no longer show their stored result on the page or in PDFs (#1765): like Word, they only assign text to a bookmark and draw nothing; the stored result is kept and saved |
 | 2026-10-15 | Table rows with an at-least height start the next page whole when less than their minimum is left on a page that already holds something, so one-row-per-page booklets keep their pages; rows taller than a page split from the top of the next page and repeated header rows go with the row (#1742) |
@@ -498,6 +499,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-15 | trivial | Progress log: move options in Track Changes Options (gap #5) |
 | 2026-10-15 | trivial | Progress log: image size limits checked before allocation (#1321) |
 | 2026-10-17 | trivial | Progress log: Read Aloud speaks each sentence in its own language, #1843 |
+| 2026-10-18 | trivial | Progress log: `wordcraft-cli run --script` (#1963) |
 | 2026-10-17 | trivial | Language dialog keeps inherited proofing language and no-proof choices (#2717); readiness estimates unchanged |
 | 2026-10-14 | trivial | Progress log: ASK and SET fields show nothing (#1765) |
 | 2026-10-15 | trivial | Progress log: at-least table rows start the next page whole (#1742) |
