@@ -141,6 +141,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | Date | What landed |
 | 2026-10-18 | Symbols keep their font (#2036): a `w:sym` or Insert › Symbol character in Wingdings, Symbol or Webdings remembers its symbol font apart from the text's font, so selecting all and changing the font (or Clear Formatting) no longer turns the symbols into boxes; saved back to DOCX as `w:sym`, so Word shows them too. Typed text and the Format Painter don't pick up the symbol font. |
 | 2026-10-16 | `wordcraft-cli run --script FILE.json` (`-` for stdin) runs a JSON list of commands, then saves to one or more outputs (docx and pdf in one run); errors name the command number and id and nothing is saved, #1963 |
+| 2026-10-17 | Restrict Editing holds for structure too (#1327): an exception inside a table cell no longer lets table, row or cell formatting change the protected rest of the table; formatting limited to styles refuses Paste Formatting, table shading, borders, cell alignment, cell margins, text direction, table-style edits and locked table styles; loading, filtering or sorting recipients no longer rewrites merge-field results in a protected document. |
 | 2026-10-14 | RTF export writes every section (gap 19): `\sect` ends each section and `\sectd` carries its break type, page size and orientation, margins, columns, page numbering and title page, so multi-section documents survive an RTF round trip |
 | 2026-10-14 | `ASK` and `SET` fields no longer show their stored result on the page or in PDFs (#1765): like Word, they only assign text to a bookmark and draw nothing; the stored result is kept and saved |
 | 2026-10-15 | Table rows with an at-least height start the next page whole when less than their minimum is left on a page that already holds something, so one-row-per-page booklets keep their pages; rows taller than a page split from the top of the next page and repeated header rows go with the row (#1742) |
@@ -488,6 +489,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-18 | trivial | Progress log: symbols keep their font when the text font changes (#2036) |
+| 2026-10-17 | trivial | Progress log: Restrict Editing guards tables, Paste Formatting and merge fields (#1327) |
 | 2026-10-14 | trivial | Progress log: a list item's first word is not flagged for a missing capital (#1741) |
 | 2026-10-18 | trivial | #2445: pending Save As answers keep their originating document identity, so a replacement document is never written to an old picker destination; real Save-button and focused-editor shortcut controls verified |
 | 2026-10-16 | trivial | #2445: interactive Save on import-only .doc/.dot paths uses the existing DOCX Save As flow; cancel and failed writes keep the draft, and Close waits for a successful save. Explicit/script saves still report unsupported legacy output |

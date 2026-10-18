@@ -101,8 +101,10 @@ The Language dialog reads effective character formatting, including document def
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | trivial | #1327: Restrict Editing exceptions no longer let table, row or cell formatting change protected tables; formatting-only protection refuses Paste Formatting, table shading/borders/alignment/margins/text direction, table-style edits and locked table styles; recipient-list commands no longer rewrite merge-field results in a protected document. No gap row (enforcement fix); estimates unchanged |
 | 2026-10-18 | trivial | #2445: pending Save As answers keep their originating document identity, so a replacement document is never written to an old picker destination; real Save-button and focused-editor shortcut controls verified |
 | 2026-10-16 | trivial | #2445: interactive Save on import-only .doc/.dot paths uses the existing DOCX Save As flow; cancel and failed writes keep the draft, and Close waits for a successful save. Explicit/script saves still report unsupported legacy output |
+| 2026-10-17 | trivial | #1327: Restrict Editing exceptions no longer let table, row or cell formatting change protected tables; formatting-only protection refuses Paste Formatting, table shading/borders/alignment/margins/text direction, table-style edits and locked table styles; recipient-list commands no longer rewrite merge-field results in a protected document. No gap row (enforcement fix); estimates unchanged |
 | 2026-10-16 | trivial | #24: the Spike (Ctrl+F3, Ctrl+Shift+F3) |
 | 2026-10-17 | trivial | Glossary/building blocks closed (DOCX glossary read, kept and written); `w:altChunk` and sub-documents remain |
 | 2026-10-15 | trivial | #5 narrowed: Track Changes Options › Moves (Moved from / Moved to marks and colours) and Track moves (`w:doNotTrackMoves`) landed; drag-and-drop moves remain |
