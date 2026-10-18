@@ -63,6 +63,8 @@ The Language dialog reads effective character formatting, including document def
 
 Find selects the Results tab, including when it prefills selected text. Editing the search query also reveals matching or empty results. Manual Headings and Pages navigation remains available until the next search action.
 
+Footnote and endnote editing keeps body and note text at normal opacity, on light and dark pages. Headers and footers still dim outside their editing context (#2545).
+
 ## Revision history
 
 | Date | Change | Summary |
@@ -99,6 +101,7 @@ Find selects the Results tab, including when it prefills selected text. Editing 
 | 2026-10-15 | trivial | Rulers: numbers thin out with the zoom (every 1, 2, 4… units, at least 30 px apart; ticks at least 4 px apart), give way to the indent, tab and column markers, margins get ticks only; both rulers span the caret's page in every layout and follow the caret (#1878); Rulers 90% → 92% |
 | 2026-10-15 | trivial | Spelling as you type: the word being typed has no red squiggle until the caret leaves it, by a key or a click; misspelled words already there keep theirs (#1552) |
 | 2026-10-15 | trivial | Text Highlight Color: No Color becomes the Highlight button's choice, as in Word, so the next click on the button removes highlighting instead of applying the colour picked before; the ribbon and the mini toolbar share one menu (#2105) |
+| 2026-10-16 | trivial | Body and active note text keep normal opacity while editing footnotes or endnotes (#2545); header/footer dimming is unchanged |
 | 2026-10-13 | trivial | New/Modify Table Style: No Border on a part that inherits its lines hides them; emptying the font box makes the part's font inherited again (#1288) |
 | 2026-10-14 | trivial | Tab stops edited on the ruler: corner kind selector, click to set, drag to move or off to clear, per-kind markers mirrored for RTL; each gesture one `para.tabs` call and one undo step; Rulers 85% → 90% |
 | 2026-10-12 | trivial | Tables on the page: one selected cell (Select Cell, or a click along its left edge) is a cell selection when its border is dragged: the border moves in its row only (#962) |
