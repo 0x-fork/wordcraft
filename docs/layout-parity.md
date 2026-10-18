@@ -193,6 +193,8 @@ Behind-text pictures in table cells participate in centre and bottom vertical al
 
 TOC refresh reuses direct tab formatting from the first cached entry with a number-separator stop at each level for numbered entries, including imported range fields. Page-number tabs still use the TOC section width. No new default number-tab position is inferred.
 
+Explicit cell page breaks (Word for Mac 16.113.2, compatibility modes 14 and 15): leading, interior and trailing breaks take no line height. Ordinary line breaks retain their lines; body page breaks still paginate. Synthetic regressions preserve UTF-8 cluster boundaries, bookmark objects and source offsets, including body/cell cache reuse without table-style formatting. Width, border strokes and residual row metrics remain outside this change.
+
 ## Revision history
 
 | Date | Change | Summary |
@@ -221,6 +223,7 @@ TOC refresh reuses direct tab formatting from the first cached entry with a numb
 | 2026-10-15 | trivial | Exact line spacing keeps the run font baseline around tall equations; automatic and minimum spacing still grow for math. |
 | 2026-10-16 | trivial | Zero-extent drawing anchors contribute no inline font height. Synthetic regressions. |
 | 2026-10-16 | trivial | Preserve direct TOC number tabs during regeneration |
+| 2026-10-16 | trivial | Explicit cell page breaks take no line height; original native Word controls in modes 14 and 15 and synthetic cluster/cache regressions. |
 | 2026-10-14 | trivial | Row table border exceptions draw without leaking into other rows |
 | 2026-10-14 | trivial | Consistent cell widths override a stale table grid |
 | 2026-10-14 | trivial | Paragraphs inside complex-field instructions take no flow height; empty result paragraphs keep their line. |
