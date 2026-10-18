@@ -91,6 +91,7 @@ The Language dialog reads effective character formatting, including document def
 |---|---|---|
 | 2026-10-17 | trivial | Glossary/building blocks closed (DOCX glossary read, kept and written); `w:altChunk` and sub-documents remain |
 | 2026-10-17 | trivial | Language dialog keeps inherited proofing language and no-proof choices (#2717); readiness estimates unchanged |
+| 2026-10-15 | trivial | `wordcraft-cli convert --update-fields` explicitly refreshes unlocked fields before conversion; ordinary conversion keeps cached results. Field refresh can change pagination |
 | 2026-10-17 | trivial | Arial Unicode MS uses Arial and its proportional substitutes; glyph coverage and exact Word line height remain font-dependent. |
 | 2026-10-18 | trivial | #7: Split Cells and Convert Text to Table follow the Word check (#2592) |
 | 2026-10-16 | trivial | #7: Split Cells and Convert Text to Table dialogs (#2592), 58 modal dialogs (matches ui-parity.md) |

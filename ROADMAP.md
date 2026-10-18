@@ -418,6 +418,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-16 | trivial | Progress log: Web Layout fills the window width (#1876) |
 | 2026-10-17 | trivial | Progress log: DOCX glossary documents (building blocks) |
 | 2026-10-17 | trivial | Language dialog keeps inherited proofing language and no-proof choices (#2717); readiness estimates unchanged |
+| 2026-10-15 | trivial | `wordcraft-cli convert --update-fields` explicitly refreshes unlocked fields before conversion; ordinary conversion keeps cached results. Field refresh can change pagination |
 | 2026-10-17 | trivial | Arial Unicode MS uses Arial and its proportional substitutes; glyph coverage and exact Word line height remain font-dependent. |
 | 2026-10-18 | trivial | Progress log: Split Cells and Convert Text to Table dialogs, matched to the Word check (#2592) |
 | 2026-10-16 | trivial | Progress log: tall-ascent font list entries no longer cut off (#2570) |
