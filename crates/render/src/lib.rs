@@ -868,18 +868,20 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 ctx.stroke_path(&path);
             }
         }
-        Draw::Art { path, fx, color: c, alpha } => {
+        Draw::Art { path, fx, color: c, alpha, text_bg } => {
             let Some(b) = wordcraft_layout::wordart::path_box(path) else { return };
             if !b.inflate(200.0, 200.0).overlaps(*visible) {
                 return;
             }
             ctx.set_transform(view);
             for l in wordcraft_layout::wordart::art_layers(path, fx, *c, *alpha) {
+                // The letters read against their highlight like plain text (#1252); shadows don't.
+                let ink = |c: Rgb| if l.letters { opts.ink_text(c, *text_bg) } else { opts.ink(c) };
                 match &l.paint {
-                    ArtPaint::Solid(c, a) => ctx.set_paint(color(opts.ink(*c), *a)),
+                    ArtPaint::Solid(c, a) => ctx.set_paint(color(ink(*c), *a)),
                     ArtPaint::Linear { p0, p1, stops } => {
                         let stops: Vec<peniko::ColorStop> =
-                            stops.iter().map(|(o, c, a)| peniko::ColorStop::from((o.clamp(0.0, 1.0), color(opts.ink(*c), *a)))).collect();
+                            stops.iter().map(|(o, c, a)| peniko::ColorStop::from((o.clamp(0.0, 1.0), color(ink(*c), *a)))).collect();
                         let g = peniko::Gradient::new_linear((f64::from(p0.0), f64::from(p0.1)), (f64::from(p1.0), f64::from(p1.1)))
                             .with_stops(stops.as_slice());
                         ctx.set_paint(g);
@@ -1447,6 +1449,47 @@ mod tests {
         assert!(light > 30, "light {light}");
     }
 
+    /// #2534: legacy font effects are drawn: outlined letters are hollow; shadowed and embossed
+    /// ones have a grey copy down-right, imprinted ones up-left.
+    #[test]
+    fn legacy_font_effects_are_drawn() {
+        use wordcraft_doc::CharProps;
+        // Dark and grey pixel counts, and the grey pixels' mean offset from the dark ones.
+        let shot = |c: CharProps| {
+            let mut d = Document::from_text("x");
+            let cp = CharProps { size: Some(40.0), bold: Some(true), ..c };
+            d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("HHHH", cp))];
+            let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+            let img = render_page(&d, &l.pages[0], 2.0, &RenderOptions::default());
+            let (mut dark, mut grey) = ((0.0, 0.0, 0.0f64), (0.0, 0.0, 0.0f64));
+            for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
+                let v = img.pixel(x, y)[0];
+                let acc = match v {
+                    0..60 => &mut dark,
+                    100..=160 => &mut grey,
+                    _ => continue,
+                };
+                *acc = (acc.0 + 1.0, acc.1 + f64::from(x), acc.2 + f64::from(y));
+            }
+            let mean = |a: (f64, f64, f64)| (a.1 / a.0.max(1.0), a.2 / a.0.max(1.0));
+            let ((dx, dy), (gx, gy)) = (mean(dark), mean(grey));
+            (dark.0, grey.0, (gx - dx, gy - dy))
+        };
+        let (plain_dark, plain_grey, _) = shot(CharProps::default());
+        assert!(plain_dark > 2000.0, "plain {plain_dark}");
+        let (dark, _, _) = shot(CharProps { outline: Some(true), ..Default::default() });
+        assert!(dark < plain_dark / 3.0, "outline is hollow: {dark} vs {plain_dark}");
+        for (c, sign) in [
+            (CharProps { shadow: Some(true), ..Default::default() }, 1.0),
+            (CharProps { emboss: Some(true), ..Default::default() }, 1.0),
+            (CharProps { engrave: Some(true), ..Default::default() }, -1.0),
+        ] {
+            let (_, grey, (ox, oy)) = shot(c);
+            assert!(grey > plain_grey * 2.0, "a grey copy: {grey} vs {plain_grey}");
+            assert!(ox * sign > 1.0 && oy * sign > 1.0, "grey copy offset {ox} {oy}");
+        }
+    }
+
     /// A document whose only text is a yellow-highlighted run.
     fn yellow_highlight_doc() -> (Document, wordcraft_layout::DocLayout) {
         let cp = wordcraft_doc::CharProps { highlight: Some(wordcraft_doc::props::Highlight::Yellow), size: Some(24.0), ..Default::default() };
@@ -1549,6 +1592,34 @@ mod tests {
         let dark = render_page(&d, &l.pages[0], 4.0, &RenderOptions { dark: true, ..Default::default() });
         let [r8, g8, b8, _] = dark.pixel(px * 4, py * 4);
         assert!(r8 > 0xC0 && g8 > 0xC0 && b8 > 0xC0, "underline draws light, got {:?}", (r8, g8, b8));
+    }
+
+    /// #2534 review: Automatic text with a legacy shadow (drawn from its outlines) on a black
+    /// highlight draws light on a dark page, like plain text does, not dark grey on near-black.
+    #[test]
+    fn dark_page_shadowed_text_on_a_dark_highlight_reads() {
+        use wordcraft_doc::props::Highlight;
+        let cp = wordcraft_doc::CharProps { highlight: Some(Highlight::Black), shadow: Some(true), size: Some(24.0), ..Default::default() };
+        let mut d = Document::from_text("x");
+        d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("HHHH HHHH", cp))];
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let items = page_display(&d, &l.pages[0], &DisplayOptions::default());
+        let b = items
+            .iter()
+            .find_map(|i| match i {
+                Draw::Art { path, text_bg, .. } => {
+                    assert!(text_bg.is_some(), "the run's highlight is the letters' background");
+                    wordcraft_layout::wordart::path_box(path)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let dark = render_page(&d, &l.pages[0], 2.0, &RenderOptions { dark: true, ..Default::default() });
+        let light = (b.x0 as u32 * 2..b.x1 as u32 * 2)
+            .flat_map(|x| (b.y0 as u32 * 2..b.y1 as u32 * 2).map(move |y| (x, y)))
+            .filter(|&(x, y)| dark.pixel(x, y)[..3].iter().all(|&v| v > 0xE0))
+            .count();
+        assert!(light > 200, "letters draw light, {light} light pixels");
     }
 
     /// One EMF record: type, size, payload (a multiple of 4 bytes).
