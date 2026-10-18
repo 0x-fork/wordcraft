@@ -9,6 +9,7 @@ use wordcraft_doc::numbering::{Level, LevelSuffix};
 use wordcraft_doc::para::{COLUMN_BREAK, InlineObject, LINE_BREAK, NoteKind, OBJ, PAGE_BREAK, RubyAlign, SOFT_HYPHEN, WrapText};
 use wordcraft_doc::props::{Align, CharProps, LineSpacing, ParaProps, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::resolve::{ResolvedChar, ResolvedPara};
+use wordcraft_doc::section::NumFormat;
 use wordcraft_doc::{Document, Paragraph};
 use wordcraft_fonts::FaceRef;
 
@@ -60,6 +61,21 @@ impl<'a> SymbolRun<'a> {
             _ => u,
         }
     }
+}
+
+/// Whether a bullet level's `text` has a private-use character that no installed font draws:
+/// its font isn't installed (or lacks it) and it isn't a symbol-font code with a Unicode
+/// equivalent. Private-use codes mean something different in every font, so another face's
+/// glyph there is an unrelated icon, not a bullet.
+fn undrawable_bullet(text: &str, lvl: &Level, rc: &ResolvedChar) -> bool {
+    let private = |c: char| matches!(u32::from(c), 0xE000..=0xF8FF | 0xF0000..=0x10FFFF);
+    lvl.format == NumFormat::Bullet
+        && text.chars().any(|c| {
+            private(c) && wordcraft_doc::symbol_fonts::symbol_char(&rc.font, c).is_none() && {
+                let r = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
+                r.substituted || !r.face.covers(c)
+            }
+        })
 }
 
 /// A face at a size with the formatting needed to draw it.
@@ -1561,6 +1577,12 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let label = env.label.as_ref().filter(|_| !break_only).map(|(text, lvl)| {
         let lc = p.mark.clone().overlaid(&lvl.chr);
         let rc = resolve(&lc);
+        // A bullet no installed font can draw would come from whatever icon font has its
+        // private-use code (Font Awesome's Twitter logo at U+F081, #1683): it shows the level's
+        // default bullet instead.
+        let fixed = undrawable_bullet(text, lvl, &rc)
+            .then(|| wordcraft_doc::numbering::default_bullet(usize::from(rp.numbering.map_or(0, |n| n.level))).to_string());
+        let text: &str = fixed.as_deref().unwrap_or(text);
         // A Symbol/Wingdings bullet (U+F0B7…) is drawn as its Unicode equivalent when the font
         // isn't installed (shaping maps it); the label's text reads as that character too.
         let shown = |t: &str| -> String { wordcraft_doc::symbol_fonts::map_text(&rc.font, t) };
