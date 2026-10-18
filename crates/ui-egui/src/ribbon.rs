@@ -1015,25 +1015,17 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     mi(ui, app, "Double Strikethrough", "format.doubleStrikethrough", json!({}));
                 });
                 let hl = app.canvas.last_highlight.clone();
-                split(ui, app, "highlight", "Text Highlight Color", "format.highlight", json!({"color": hl}), false, None, |ui, app| {
-                    let grid = wordcraft_doc::props::Highlight::ALL;
-                    egui::Grid::new("hl").spacing(vec2(3.0, 3.0)).show(ui, |ui| {
-                        for (i, h) in grid.iter().enumerate().skip(1) {
-                            let c = h.rgb().unwrap_or(wordcraft_doc::Rgb::WHITE);
-                            let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
-                            ui.painter().rect_filled(r, 2.0, egui::Color32::from_rgb(c.0, c.1, c.2));
-                            if resp.on_hover_text(h.name()).clicked() {
-                                app.canvas.last_highlight = h.ooxml().to_string();
-                                let _ = app.run("format.highlight", json!({"color": h.ooxml()}));
-                                ui.close();
-                            }
-                            if i % 5 == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
-                    mi(ui, app, "No Color", "format.highlight", json!({"color": "none"}));
-                });
+                split(
+                    ui,
+                    app,
+                    "highlight",
+                    "Text Highlight Color",
+                    "format.highlight",
+                    json!({"color": hl}),
+                    false,
+                    None,
+                    crate::mini_toolbar::highlight_menu,
+                );
                 let fc = app.canvas.last_font_color.clone();
                 let sw = wordcraft_doc::Rgb::parse(&fc).map(crate::theme::c32);
                 split(ui, app, "fontcolor", "Font Color", "format.color", json!({"color": fc}), false, sw, |ui, app| {
