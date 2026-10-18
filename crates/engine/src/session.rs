@@ -908,6 +908,17 @@ impl Session {
         core.last_modified_by = self.author.clone();
         core.revision = core.revision.saturating_add(1);
     }
+    /// Whether typing is still collecting into one undo step (no other command since).
+    pub fn typing_open(&self) -> bool {
+        self.typing_open
+    }
+    /// Reopen the typing group when the last undo step is typing, so the keys typed next join
+    /// it: after an input method's rewrite was joined to it (`join_next_undo` closes the group).
+    pub fn continue_typing(&mut self) {
+        if self.undo_label() == Some("Typing") {
+            self.typing_open = true;
+        }
+    }
     /// Close an open typing group (caret moved, other command).
     pub fn close_typing(&mut self) {
         self.typing_open = false;

@@ -151,6 +151,13 @@ pub struct CanvasState {
     /// The last key ran an Alt shortcut: the text its key sends (it may arrive a frame later)
     /// isn't typed. The next key press clears it.
     pub(crate) swallow_text: bool,
+    /// An input method's `DeleteSurrounding` just erased text with this formatting: the text it
+    /// sends next replaces it, keeps the formatting and joins the same undo step
+    /// (`keys::delete_surrounding`, #1480).
+    pub(crate) ime_join_text: Option<wordcraft_doc::props::CharProps>,
+    /// An automatic change (AutoCorrect, AutoFormat) altered the text around the caret: the
+    /// input method is asked to start afresh (#1480).
+    pub(crate) ime_reset: bool,
     /// Alt+numpad entry in progress: the digits typed while Alt is held (#961).
     pub(crate) alt_code: String,
     /// The character an Alt code just typed: if the platform also sends its own composed
@@ -232,6 +239,8 @@ impl Default for CanvasState {
             mini_dismissed: None,
             pasted: false,
             swallow_text: false,
+            ime_join_text: None,
+            ime_reset: false,
             alt_code: String::new(),
             alt_code_echo: None,
             wheel: Default::default(),
@@ -1417,6 +1426,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
         // Caret.
         let focused = resp.has_focus() || app.canvas.focused;
+        // After an automatic change, the web's text agent starts afresh (`keys::note_automatic_change`).
+        // Only there: on X11 an interrupt recreates the input context and fcitx drops later keys (#1169).
+        let ime_reset = std::mem::take(&mut app.canvas.ime_reset) && cfg!(target_arch = "wasm32") && app.canvas.ime_preedit.is_empty();
         // Editing an equation: shade it and draw the caret inside it.
         let mut math_caret = false;
         if let Some(m) = app.session.math.clone()
@@ -1450,7 +1462,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                             rect: cr,
                             cursor_rect: cr,
                             purpose: Default::default(),
-                            should_interrupt_composition: false,
+                            should_interrupt_composition: ime_reset,
                         });
                     });
                 }
@@ -1488,8 +1500,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let cr = Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1));
             if focused {
                 ui.ctx().output_mut(|o| {
-                    o.ime =
-                        Some(egui::output::IMEOutput { rect: cr, cursor_rect: cr, purpose: Default::default(), should_interrupt_composition: false });
+                    o.ime = Some(egui::output::IMEOutput {
+                        rect: cr,
+                        cursor_rect: cr,
+                        purpose: Default::default(),
+                        should_interrupt_composition: ime_reset,
+                    });
                 });
             }
             if !app.canvas.ime_preedit.is_empty() {
