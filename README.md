@@ -141,6 +141,7 @@ wordcraft-cli text report.docx                      # plain text
 wordcraft-cli inspect report.docx                   # structure as JSON
 wordcraft-cli run --template sample \
   --cmd 'select.text={"text":"Membership"}' --cmd format.bold --save out.docx
+wordcraft-cli run --script job.json                 # the same from a file: commands, then save to docx and pdf
 ```
 
 Web: `cd apps/wordcraft-web && trunk serve`, then open <http://127.0.0.1:8771/?sample>.
@@ -366,7 +367,9 @@ Bundled fonts, icons, images and other assets keep their own open licenses; each
 with its author, source and license in [ATTRIBUTION.md](ATTRIBUTION.md).
 
 The English spelling dictionary and hyphenation come from Grady Ward's public-domain Moby
-Hyphenator II word list. Polish spelling reads the Hunspell `pl_PL` dictionary installed on the system (not bundled) and
+Hyphenator II word list. Polish spelling reads the Hunspell `pl_PL` dictionary installed on the system (not bundled), as
+do Russian, Portuguese, Czech, Italian, Croatian and Turkish spelling (how to install them:
+[docs/spelling-dictionaries.md](docs/spelling-dictionaries.md)), and
 Polish hyphenation the TeX patterns by Hanna Kołodziejska, Bogusław Jackowski and Marek Ryćko (MIT
 option). The sample documents and templates are original text written for WordCraft.
 
