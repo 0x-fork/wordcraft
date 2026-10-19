@@ -3294,6 +3294,8 @@ fn bidi_theme_slots_follow_the_theme_font_language() {
         (Some(r#"w:bidi="ar-SA""#), "Arial", true, "", ["Georgia", "Trebuchet MS"]),
         (Some(r#"w:bidi="he-IL""#), "", true, "", ["Courier New", "Comic Sans MS"]),
         (Some(r#"w:bidi="ur-PK""#), "Arial", true, "", ["Georgia", "Trebuchet MS"]),
+        (Some(r#"w:bidi="pa-PK""#), "Arial", true, "", ["Georgia", "Trebuchet MS"]),
+        (Some(r#"w:bidi="pa-IN""#), "Arial", true, "", ["Arial", "Arial"]),
         (Some(r#"w:bidi="fr-FR""#), "Arial", true, "", ["Verdana", "Impact"]),
         (Some(r#"w:bidi="th-TH""#), "Arial", true, "", ["Arial", "Arial"]),
         (Some(r#"w:bidi="th-TH""#), "", true, "", [tnr, tnr]),

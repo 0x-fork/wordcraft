@@ -99,6 +99,8 @@ pub(crate) fn lang_script(tag: &str) -> &'static str {
         "th" => "Thai",
         "hi" | "mr" | "ne" | "sa" | "kok" => "Deva",
         "bn" | "as" => "Beng",
+        // Measured in Word: Punjabi takes the Arabic-script font in Pakistan, Gurmukhi elsewhere.
+        "pa" if rest.iter().any(|p| p.eq_ignore_ascii_case("pk")) => "Arab",
         "pa" => "Guru",
         "gu" => "Gujr",
         "or" => "Orya",
