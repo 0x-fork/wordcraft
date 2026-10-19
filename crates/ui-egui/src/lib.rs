@@ -2208,6 +2208,10 @@ impl WordApp {
         if self.session.view.focus_mode && self.dialog.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
             let _ = self.run("view.focus", json!({"value": false}));
         }
+        // A failed Recent open is news only until File closes (#2938).
+        if !self.ui.backstage {
+            backstage::forget_open_error(&ctx);
+        }
         if self.ui.backstage {
             backstage::show(self, ui);
         } else if !self.has_document() {

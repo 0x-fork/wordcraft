@@ -358,6 +358,11 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
     ui.add_space(6.0);
+    let error = ui.ctx().data(|d| d.get_temp::<String>(open_error_id())).unwrap_or_default();
+    if !error.is_empty() {
+        ui.label(egui::RichText::new(error).color(ui.visuals().error_fg_color));
+        ui.add_space(6.0);
+    }
     if app.ui.recent.is_empty() {
         ui.label(egui::RichText::new(tl!("Documents you open will show up here.")).color(t.text_dim));
     }
@@ -371,11 +376,28 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
         ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
         ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
         if resp.clicked() {
-            let _ = app.run("file.open", json!({"path": p}));
-            app.ui.backstage = false;
-            app.canvas.want_focus = true;
+            let failed = open_recent(app, &p).err();
+            ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
         }
     }
+}
+
+fn open_error_id() -> egui::Id {
+    egui::Id::new("backstage_open_error")
+}
+
+/// Drop the Recent list's open error once File is closed, so it doesn't come back next time.
+pub(crate) fn forget_open_error(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<String>(open_error_id()));
+}
+
+/// Open a file from the Recent list. A file that can't be opened (deleted, moved, unreadable)
+/// leaves File open so the list can say why, rather than closing it on a greyed-out window.
+fn open_recent(app: &mut WordApp, path: &str) -> Result<(), String> {
+    app.run("file.open", json!({"path": path}))?;
+    app.ui.backstage = false;
+    app.canvas.want_focus = true;
+    Ok(())
 }
 
 fn open_page(app: &mut WordApp, ui: &mut Ui) {
@@ -527,6 +549,19 @@ mod tests {
             assert!(!out.shapes.is_empty(), "{id}: {icon} draws nothing");
             assert!(!out.shapes.iter().any(|s| has_text(&s.shape)), "{id}: {icon} is not a drawn icon");
         }
+    }
+
+    /// #2938: opening a deleted file from Recent keeps File open and reports the error instead of
+    /// closing it on a greyed-out window.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn opening_a_missing_recent_file_keeps_file_open_with_the_error() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        app.ui.backstage = true;
+        let missing = std::env::temp_dir().join(format!("wordcraft-missing-{}.docx", std::process::id()));
+        let err = super::open_recent(&mut app, &missing.to_string_lossy()).unwrap_err();
+        assert!(!err.is_empty());
+        assert!(app.ui.backstage, "File stays open");
     }
 
     /// #1873: the macOS back chevron sits beside the traffic lights windowed, at the plain
