@@ -2646,13 +2646,16 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
                 for (i, side) in ["L", "T", "R", "B"].iter().enumerate() {
                     ui.label(egui::RichText::new(tl!(side)).small());
                     let mut v = crop0[i] * 100.0;
-                    let r = ui.add(egui::DragValue::new(&mut v).speed(0.5).range(0.0..=45.0).suffix("%"));
+                    let r = ui.add(egui::DragValue::new(&mut v).speed(0.5).range(0.0..=95.0).suffix("%"));
                     if r.changed() {
                         if r.dragged() && !r.drag_started() {
                             app.session.join_next_undo();
                         }
                         let mut c = crop0;
-                        c[i] = (v / 100.0).clamp(0.0, 0.45);
+                        c[i] = (v / 100.0).clamp(0.0, 0.95);
+                        // The two sides of an axis keep 5% of the source between them.
+                        let other = c[if i < 2 { i + 2 } else { i - 2 }];
+                        c[i] = c[i].min((0.95 - other).max(0.0));
                         let _ = app.run("picture.crop", json!({"left": c[0], "top": c[1], "right": c[2], "bottom": c[3]}));
                     }
                 }

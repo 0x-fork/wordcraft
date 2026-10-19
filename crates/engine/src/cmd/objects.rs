@@ -98,7 +98,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .when(has_sizable),
         CommandSpec::new("picture.crop", "Crop", "Picture Format › Size", crop)
             .params(
-                r#"{"left"?, "top"?, "right"?, "bottom"? (fractions of the source 0–0.45; a side left out is uncropped), "width"?: pt, "height"?: pt (the new display size, in the same undo step; a floating picture also moves by what a left/top crop trims, so the visible part stays put)}"#,
+                r#"{"left"?, "top"?, "right"?, "bottom"? (fractions of the source 0–0.95; the two sides of an axis keep at least 5% between them; a side left out is uncropped), "width"?: pt, "height"?: pt (the new display size, in the same undo step; a floating picture also moves by what a left/top crop trims, so the visible part stays put)}"#,
             )
             .when(has_picture),
         // Kept for scripts written before every object had alt text: `object.altText` on a picture.
@@ -980,13 +980,17 @@ fn with_float(s: &mut Session, f: impl Fn(&mut Float)) -> CmdResult {
 /// trims (or restores) — for a flipped picture that's the source's right/bottom — so what stays
 /// visible keeps its place on the page: a crop handle drop is one command.
 fn crop(s: &mut Session, v: &Value) -> CmdResult {
-    let c = [p::f32(v, "left"), p::f32(v, "top"), p::f32(v, "right"), p::f32(v, "bottom")].map(|x| x.unwrap_or(0.0).clamp(0.0, 0.45));
+    let mut c = [p::f32(v, "left"), p::f32(v, "top"), p::f32(v, "right"), p::f32(v, "bottom")].map(|x| x.unwrap_or(0.0).clamp(0.0, 0.95));
+    // The two sides of an axis keep at least 5% of the source between them, as the renderer
+    // draws it: the second side stops where the first one already left less than that.
+    c[2] = c[2].min(0.95 - c[0]);
+    c[3] = c[3].min(0.95 - c[1]);
     let size = |k: &str| p::f32(v, k).map(|x| x.clamp(1.0, 4000.0));
     let (nw, nh) = (size("width"), size("height"));
     with_obj(s, |o| {
         if let InlineObject::Image { crop, w, h, float, .. } = o {
             // The source's full size at the new display size (the visible part is 1-lo-hi of it).
-            let full = |len: f32, lo: f32, hi: f32| len / (1.0 - lo - hi).max(0.1);
+            let full = |len: f32, lo: f32, hi: f32| len / (1.0 - lo - hi).max(0.05);
             // Flipped, the source's right (bottom) edge is the one on the page's left (top).
             let (left, top) = (if float.flip_h { 2 } else { 0 }, if float.flip_v { 3 } else { 1 });
             if let Some(nw) = nw {
@@ -1035,7 +1039,7 @@ pub fn original_size(s: &Session, media: &str) -> Option<OriginalSize> {
 pub fn cropped_original_size(s: &Session, o: &InlineObject) -> Option<(f32, f32)> {
     let InlineObject::Image { media, crop, .. } = o else { return None };
     let orig = original_size(s, media)?;
-    let part = |lo: f32, hi: f32| (1.0 - lo - hi).max(0.1);
+    let part = |lo: f32, hi: f32| (1.0 - lo - hi).max(0.05);
     Some((orig.w * part(crop[0], crop[2]), orig.h * part(crop[1], crop[3])))
 }
 
@@ -2273,12 +2277,43 @@ mod tests {
         assert_eq!(image(&s), (150.0, 90.0, [0.25, 0.0, 0.0, 0.1]));
         s.run("edit.undo", &json!({})).unwrap();
         assert_eq!(image(&s), (200.0, 100.0, [0.0; 4]));
-        // Clamps: each side at most 0.45; hostile sizes are ignored or clamped, never applied raw.
+        // Clamps: each side at most 0.95; hostile sizes are ignored or clamped, never applied raw.
         s.run("picture.crop", &json!({"left": 9.0, "right": -3.0, "width": "x", "height": -5.0})).unwrap();
         let (w, h, crop) = image(&s);
-        assert_eq!(crop, [0.45, 0.0, 0.0, 0.0]);
+        assert_eq!(crop, [0.95, 0.0, 0.0, 0.0]);
         assert_eq!(w, 200.0);
         assert!(h >= 1.0, "{h}");
+    }
+
+    /// #3135: a picture can be cropped to any part of itself, not just its middle. A side goes to
+    /// 0.95 (5% stays, as the renderer draws), and the two sides of an axis keep their 5%.
+    #[test]
+    fn a_picture_can_be_cropped_to_any_part_of_itself() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let data = super::super::insert::base64_encode(&png(20, 10));
+        s.run("insert.picture", &json!({"data": data})).unwrap();
+        s.run("picture.size", &json!({"width": 200.0, "height": 100.0, "lockAspect": false})).unwrap();
+        let crop = |s: &Session| match selected(s) {
+            Some((_, InlineObject::Image { crop, .. })) => crop,
+            other => panic!("expected image, got {other:?}"),
+        };
+        let left = |s: &Session| {
+            let (_, o) = selected(s).unwrap();
+            super::cropped_original_size(s, &o).unwrap().0
+        };
+        // 90% off the left keeps the rightmost tenth: the side is not held at 45%.
+        s.run("picture.crop", &json!({"left": 0.9})).unwrap();
+        assert_eq!(crop(&s), [0.9, 0.0, 0.0, 0.0]);
+        assert!((left(&s) - 1.5).abs() < 1e-3, "a tenth of the 15 pt original: {}", left(&s));
+        // With the left at 0.9 the right can take only 5% more, and what the crop leaves of the
+        // original follows the crop down to that 5%.
+        s.run("picture.crop", &json!({"left": 0.9, "right": 0.9})).unwrap();
+        let c = crop(&s);
+        assert!((c[0] - 0.9).abs() < 1e-6 && (c[2] - 0.05).abs() < 1e-5 && c[1] == 0.0 && c[3] == 0.0, "{c:?}");
+        assert!((left(&s) - 0.75).abs() < 1e-3, "5% of the 15 pt original: {}", left(&s));
+        // A single side past the cap stops at 0.95.
+        s.run("picture.crop", &json!({"right": 4.0})).unwrap();
+        assert_eq!(crop(&s), [0.0, 0.0, 0.95, 0.0]);
     }
 
     /// Cropping a floating picture's left or top with its new size keeps the visible part where
