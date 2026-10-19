@@ -1956,7 +1956,8 @@ mod tests {
     fn unsupported_chart_types_draw_a_placeholder() {
         let ser = r#"<c:ser><c:val><c:numLit><c:ptCount val="1"/><c:pt idx="0"><c:v>1</c:v></c:pt></c:numLit></c:val></c:ser>"#;
         let title = r#"<c:title><c:tx><c:rich><a:p><a:r><a:t>Skills</a:t></a:r></a:p></c:rich></c:tx></c:title>"#;
-        let x = format!(r#"<c:chartSpace {NS}><c:chart>{title}<c:plotArea><c:bubbleChart>{ser}</c:bubbleChart></c:plotArea></c:chart></c:chartSpace>"#);
+        let x =
+            format!(r#"<c:chartSpace {NS}><c:chart>{title}<c:plotArea><c:bubbleChart>{ser}</c:bubbleChart></c:plotArea></c:chart></c:chartSpace>"#);
         let bubble = chart_items(&crate::xml::parse(x.as_bytes()).unwrap(), &theme(), 300.0, 200.0);
         assert_eq!(texts(&bubble), ["Skills", "Bubble chart (not supported yet)"]);
         let framed = bubble.iter().any(|it| matches!(it, GraphicItem::Shape { rect, stroke: Some(_), .. } if *rect == [0.0, 0.0, 300.0, 200.0]));
@@ -1985,7 +1986,9 @@ mod tests {
         for c in cats {
             assert!(texts(&std).contains(&c), "category label {c}: {:?}", texts(&std));
         }
-        let stroked = |items: &[GraphicItem], col: Rgb| items.iter().filter(|it| matches!(it, GraphicItem::Path { stroke: Some(c), segs, .. } if *c == col && segs.len() == 6)).count();
+        let stroked = |items: &[GraphicItem], col: Rgb| {
+            items.iter().filter(|it| matches!(it, GraphicItem::Path { stroke: Some(c), segs, .. } if *c == col && segs.len() == 6)).count()
+        };
         assert_eq!(stroked(&std, Rgb(0xFF, 0, 0)), 1, "one closed pentagon per series: {std:?}");
         assert_eq!(stroked(&std, Rgb(0, 0, 0xFF)), 1);
         assert!(filled(&std).is_empty(), "standard radar is not filled");
@@ -2016,7 +2019,8 @@ mod tests {
     #[test]
     fn hostile_radar_charts_never_panic() {
         // No categories and no values.
-        let empty = r#"<c:ser><c:cat><c:strLit><c:ptCount val="0"/></c:strLit></c:cat><c:val><c:numLit><c:ptCount val="0"/></c:numLit></c:val></c:ser>"#;
+        let empty =
+            r#"<c:ser><c:cat><c:strLit><c:ptCount val="0"/></c:strLit></c:cat><c:val><c:numLit><c:ptCount val="0"/></c:numLit></c:val></c:ser>"#;
         let _ = chart_items(&space(&format!("<c:radarChart>{empty}</c:radarChart>")), &theme(), 300.0, 200.0);
         let none = chart_items(&space("<c:radarChart/>"), &theme(), 300.0, 200.0);
         assert!(none.is_empty(), "{none:?}");
@@ -2031,7 +2035,12 @@ mod tests {
         // NaN, infinities, junk and a tiny frame.
         let junk = ser(0, "S", None, &["a", "b", "c"], &["NaN", "inf", "1e999"]);
         let _ = radar_chart("filled", &[junk]);
-        let small = chart_items(&space(&format!("<c:radarChart>{}</c:radarChart>", ser(0, "S", None, &["a", "b", "c"], &["1", "2", "3"]))), &theme(), 20.0, 20.0);
+        let small = chart_items(
+            &space(&format!("<c:radarChart>{}</c:radarChart>", ser(0, "S", None, &["a", "b", "c"], &["1", "2", "3"]))),
+            &theme(),
+            20.0,
+            20.0,
+        );
         let _ = small;
         // Caps: thousands of categories and series stay bounded.
         let cats: Vec<String> = (0..5000).map(|i| format!("c{i}")).collect();
