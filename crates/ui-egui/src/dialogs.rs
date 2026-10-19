@@ -4243,7 +4243,8 @@ mod tests {
 
     /// #2986: a box that keeps the keyboard asks for focus only while it lacks it. `request_focus`
     /// always interrupts IME; on X11 that recreates the XIM context, and Search asking every frame
-    /// left fcitx taking no keys at all. Once the box has focus, no frame interrupts, and typing lands.
+    /// left fcitx taking no keys at all. Once the box has focus, no frame interrupts, and typing lands;
+    /// after Tab takes the keyboard away, the box takes it back with one reset, not one per frame.
     #[test]
     fn boxes_that_keep_focus_do_not_interrupt_ime_every_frame() {
         fn typed(d: Option<&Dialog>) -> Option<&str> {
@@ -4281,6 +4282,33 @@ mod tests {
                 assert_eq!(interrupted(&h), Some(false), "{name}: typing {t} resets the input method");
             }
             assert_eq!(typed(h.state().dialog.as_ref()), Some("ab"), "{name}: the keys reach the box");
+
+            // Tab moves the keyboard to the dialog's next control and the box takes it back. As
+            // egui-winit does, count a reset when IME comes back on or is interrupted while on (each
+            // recreates the XIM context): one or two for the round trip, then none, and the next
+            // key reaches the box.
+            let reset = |h: &egui_kittest::Harness<'_, WordApp>, on: &mut bool| {
+                let ime = h.output().platform_output.ime.as_ref();
+                let reset = ime.is_some_and(|i| !*on || i.should_interrupt_composition);
+                *on = ime.is_some();
+                reset
+            };
+            let mut on = true;
+            h.event(key(egui::Key::Tab));
+            let mut back = 0;
+            for _ in 0..4 {
+                h.step();
+                back += usize::from(reset(&h, &mut on));
+            }
+            assert!((1..=2).contains(&back), "{name}: Tab and back reset the input method {back} times");
+            for frame in 0..4 {
+                h.step();
+                assert!(!reset(&h, &mut on), "{name}: frame {frame} after Tab resets the input method");
+            }
+            h.event(key(egui::Key::C));
+            h.event(egui::Event::Text("c".into()));
+            h.step();
+            assert_eq!(typed(h.state().dialog.as_ref()), Some("abc"), "{name}: the box has the keyboard back after Tab");
         }
     }
 
