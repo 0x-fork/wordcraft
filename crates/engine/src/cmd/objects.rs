@@ -775,27 +775,27 @@ fn move_object_once(s: &mut Session, pos: &Pos, page: usize, x: f32, y: f32, (w,
         s.doc.insert_object(&at, obj, &wordcraft_doc::CharProps::default())?;
         at
     };
-    let (h_rel, v_rel) = if on_page { (Anchor::Page, Anchor::Page) } else { (Anchor::Column, Anchor::Paragraph) };
+    // First on the page where it was dropped, so the text wraps around it as it will in the end.
     edit_float(s, &at, |f| {
         if f.wrap == Wrap::Inline {
             f.wrap = Wrap::Square;
         }
-        f.h_rel = h_rel;
-        f.v_rel = v_rel;
+        f.h_rel = Anchor::Page;
+        f.v_rel = Anchor::Page;
         f.h_align = None;
         f.v_align = None;
-        f.x = 0.0;
-        f.y = 0.0;
+        f.x = x.clamp(-MAX_OFFSET, MAX_OFFSET);
+        f.y = y.clamp(-MAX_OFFSET, MAX_OFFSET);
     })?;
-    // Offsets from where the anchor puts it (its paragraph may have moved with the edit).
-    let origin = if on_page {
-        wordcraft_geom::Point::new(0.0, 0.0)
-    } else {
-        s.touch(); // lay out the edit so far
-        let layout = s.layout();
-        layout.object(&at, page).ok_or_else(|| CmdError::Failed("the object isn't laid out".into()))?.origin
-    };
+    if on_page {
+        return Ok(at);
+    }
+    // Then offsets from its paragraph, as laid out with the object there.
+    s.touch();
+    let origin = s.layout().object(&at, page).ok_or_else(|| CmdError::Failed("the object isn't laid out".into()))?.origin;
     edit_float(s, &at, |f| {
+        f.h_rel = Anchor::Column;
+        f.v_rel = Anchor::Paragraph;
         f.x = (x - origin.x).clamp(-MAX_OFFSET, MAX_OFFSET);
         f.y = (y - origin.y).clamp(-MAX_OFFSET, MAX_OFFSET);
     })?;
