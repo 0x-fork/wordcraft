@@ -928,6 +928,38 @@ fn decorative_pictures_are_artifacts_not_figures() {
     }
 }
 
+/// In a rotated group, each picture is tagged on its own: the decorative one is an artifact, the
+/// other stays a Figure with its alt text.
+#[test]
+fn rotated_group_tags_each_picture_on_its_own() {
+    use wordcraft_doc::para::{AltText, Float, GroupChild};
+    let mut d = Document::new();
+    let media = d.add_media(red_right_half_emf(), "emf");
+    let picture =
+        |alt: &str, float: Float| InlineObject::Image { media: media.clone(), w: 70.0, h: 70.0, alt: alt.into(), float, crop: [0.0; 4], ole: None };
+    let decorative = Float { alt: AltText { decorative: true, ..Default::default() }, ..Default::default() };
+    let group = InlineObject::Group {
+        w: 160.0,
+        h: 70.0,
+        float: Float { rot: 30.0, ..Default::default() },
+        ch_w: 160.0,
+        ch_h: 70.0,
+        children: vec![
+            GroupChild { x: 0.0, y: 0.0, obj: picture("A decorative border", decorative) },
+            GroupChild { x: 90.0, y: 0.0, obj: picture("A red square", Float::default()) },
+        ],
+        canvas: None,
+    };
+    let mut p = Paragraph::with_text("Group: ", CharProps::default());
+    let n = p.len();
+    p.insert_object(n, group, &CharProps::default()).unwrap();
+    d.body = vec![para_block(p)];
+    let raw = String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned();
+    assert!(raw.contains("/Alt(A red square)"), "the picture not marked decorative is a Figure with its alt text");
+    assert!(!raw.contains("A decorative border"), "the decorative picture has no Figure and no alt text");
+    assert_eq!(raw.matches("/Alt(").count(), 1, "one Figure, for the picture not marked decorative");
+}
+
 /// An EMF file of the given records, with a 25 mm frame and 1000 device pixels across (0.04 per 0.01 mm).
 fn emf_file(records: &[Vec<u8>]) -> Vec<u8> {
     let le32 = |vals: &[i32]| -> Vec<u8> { vals.iter().flat_map(|v| v.to_le_bytes()).collect() };
