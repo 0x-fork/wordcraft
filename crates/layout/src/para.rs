@@ -156,6 +156,9 @@ pub struct Line {
     pub top: f32,
     pub height: f32,
     pub baseline: f32,
+    /// The text's own ascent and descent on this line, without line-spacing leading (the caret's extent).
+    pub text_asc: f32,
+    pub text_desc: f32,
     /// Cluster index range.
     pub c0: usize,
     pub c1: usize,
@@ -2312,6 +2315,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             desc = st.descent;
         }
         let text_natural = asc + desc;
+        let (text_asc, text_desc) = (asc.max(obj_asc), desc);
         let text_pictures = if obj_asc > asc { obj_asc + desc } else { 0.0 };
         let mut label_extra = 0.0;
         if first && let Some(lab) = &pl.label {
@@ -2436,6 +2440,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             top,
             height,
             baseline,
+            text_asc,
+            text_desc,
             c0,
             c1,
             xs,
@@ -2482,6 +2488,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     top,
                     height: h,
                     baseline: top + if grid.is_some() { h - desc } else { baseline_offset(rp.line_spacing, asc, h, desc) },
+                    text_asc: asc,
+                    text_desc: desc,
                     c0: n,
                     c1: n,
                     xs: vec![x0],
@@ -2956,10 +2964,10 @@ impl ParaLayout {
         }
         best
     }
-    /// Line ascent/descent of the paragraph mark (for empty paragraphs and caret height).
+    /// The caret's ascent/descent on a line: the text's own, without line-spacing leading, kept inside the line box.
     pub fn caret_metrics(&self, li: usize) -> (f32, f32) {
         let Some(l) = self.lines.get(li) else { return (10.0, 3.0) };
-        (l.baseline - l.top, l.top + l.height - l.baseline)
+        (l.text_asc.min(l.baseline - l.top), l.text_desc.min(l.top + l.height - l.baseline))
     }
 }
 
