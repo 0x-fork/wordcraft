@@ -918,6 +918,28 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
             i += 1;
             continue;
         }
+        // A table of figures from Word can hold the list it saved as the field's result, in the
+        // field's own paragraph: the rebuilt entries replace it, keeping its leader.
+        let mut saved_leader = None;
+        if figures_label(&kind).is_some()
+            && let Ok(p) = s.doc.para_mut(StoryRef::Body, &Path::top(i))
+        {
+            let leader = p.props.tabs.as_ref().and_then(|t| t.last()).map(|t| t.leader);
+            let mut cleared = false;
+            for o in &mut p.objects {
+                if let InlineObject::Field { instr, result, .. } = o
+                    && !result.is_empty()
+                    && figures_label(instr).is_some()
+                {
+                    result.clear();
+                    cleared = true;
+                }
+            }
+            if cleared {
+                saved_leader = leader;
+                p.touch();
+            }
+        }
         // Remove old entries, keeping their tab leader.
         let leader = s
             .doc
@@ -926,6 +948,7 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
             .and_then(|b| b.as_para())
             .filter(|p| p.props.style.as_deref() == Some(ENTRY_STYLE))
             .and_then(|p| p.props.tabs.as_ref()?.last().map(|t| t.leader))
+            .or(saved_leader)
             .unwrap_or(TabLeader::Dot);
         while s.doc.body.get(i + 1).and_then(|b| b.as_para()).is_some_and(|p| p.props.style.as_deref() == Some(ENTRY_STYLE)) {
             s.doc.remove_block(StoryRef::Body, &Path::top(i + 1))?;
@@ -1529,6 +1552,36 @@ mod tests {
         let want = [("Figure 1: Kiln\t1", TabLeader::Dot), ("Figure 2: Rock\t1", TabLeader::Dot), ("Table 1: Press\t1", TabLeader::Hyphen)];
         let want: Vec<(String, Option<TabLeader>)> = want.iter().map(|(t, l)| (t.to_string(), Some(*l))).collect();
         assert_eq!(list_entries(&s), want);
+    }
+
+    /// #3013 review: a table of figures from Word whose saved list sits in the field's result (one
+    /// paragraph) is replaced by the rebuilt entries, not listed twice, and keeps its leader.
+    #[test]
+    fn table_of_figures_from_word_replaces_its_saved_list() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Kiln\nList"));
+        s.run("select.text", &json!({"text": "Kiln"})).unwrap();
+        s.run("references.caption", &json!({"label": "Figure", "text": "Kiln"})).unwrap();
+        let last = s.doc.body.len() - 1;
+        let p = s.doc.para_mut(StoryRef::Body, &Path::top(last)).unwrap();
+        p.props.style = Some("TableofFigures".into());
+        p.props.tabs = Some(vec![TabStop { pos: 400.0, align: TabAlign::Right, leader: TabLeader::Hyphen }]);
+        let end = p.len();
+        p.delete(0, end).unwrap();
+        let field = InlineObject::Field {
+            instr: r#"TOC \h \z \c "Figure""#.into(),
+            result: "Figure 1: Kiln\t1".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        };
+        p.insert_object(0, field, &CharProps::default()).unwrap();
+        for _ in 0..2 {
+            s.run("references.updateFigures", &json!({})).unwrap();
+            let text = s.doc.plain_text(StoryRef::Body);
+            assert_eq!(text.matches("Figure 1: Kiln\t1").count(), 1, "{text:?}");
+            assert_eq!(list_entries(&s), [("Figure 1: Kiln\t1".to_string(), Some(TabLeader::Hyphen))]);
+        }
     }
 
     /// #3013 review: `\c` picks captions by their SEQ identifier, as Word does, not by the text
