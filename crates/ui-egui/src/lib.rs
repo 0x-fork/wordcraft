@@ -1348,8 +1348,10 @@ impl WordApp {
             self.canvas.read_first_visible = None;
         }
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
-        // A mouse drag on a table (`run_keep_view`) does the same (#1738).
-        if self.session.selects_whole_story() || id == "select.all" || self.canvas.keep_view {
+        // A mouse drag on a table (`run_keep_view`) does the same (#1738). A caret in an empty
+        // story (a footer just made) also spans the whole story: it isn't a selection of it, and
+        // the view follows it.
+        if (self.session.selects_whole_story() && !self.session.sel.is_collapsed()) || id == "select.all" || self.canvas.keep_view {
             self.canvas.scroll_to_caret = false;
         } else if !["ui.", "view.", "document.", "format.state", "draw."].iter().any(|p| id.starts_with(p)) {
             self.canvas.scroll_to_caret = true;
@@ -7716,6 +7718,19 @@ mod tests {
         assert!(!a.canvas.scroll_to_caret, "switching tabs left the view alone");
         a.run("text.insert", json!({"text": "x"})).unwrap();
         assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
+    }
+
+    /// Go to Footer into a footer just made — empty, so the caret at its start also "selects the
+    /// whole story" — brings the footer into view (it stayed at the header).
+    #[test]
+    fn go_to_footer_into_an_empty_footer_scrolls_to_it() {
+        let mut a = typed();
+        a.run("insert.editHeader", json!({})).unwrap();
+        a.run("text.insert", json!({"text": "Umowa nr 7/2026"})).unwrap();
+        a.canvas.scroll_to_caret = false;
+        a.run("insert.editFooter", json!({})).unwrap();
+        assert!(a.session.sel.is_collapsed() && a.session.selects_whole_story(), "the footer is empty");
+        assert!(a.canvas.scroll_to_caret, "the view follows the caret into the footer");
     }
 
     #[test]
