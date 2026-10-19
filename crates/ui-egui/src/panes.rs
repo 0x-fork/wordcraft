@@ -216,18 +216,20 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
 }
 
 /// Constrain each heading to the available pane width so long document text cannot
-/// enlarge the panel. The full heading stays accessible on hover.
+/// enlarge the panel. A heading too long for the width wraps onto further lines — a word
+/// wider than the pane is broken too — and the row grows with it, so the label reads whole
+/// instead of ending in an ellipsis (#3015).
 fn nav_heading(ui: &mut Ui, level: u8, text: &str, selected: bool) -> egui::Response {
     ui.horizontal(|ui| {
         ui.add_space(level as f32 * 14.0);
         let label = egui::RichText::new(text).font(if level == 0 { semibold(12.5) } else { regular(12.5) });
-        ui.add_sized(
-            vec2(ui.available_width(), ui.spacing().interact_size.y),
+        let width = ui.available_width();
+        ui.add(
             // The trailing grow atom takes the spare width, so the text starts flush left
-            // under its parent instead of centred, as in Word (#1199).
-            egui::Button::selectable(selected, (label, egui::Atom::grow())).truncate(),
+            // under its parent instead of centred, as in Word (#1199). A minimum height
+            // keeps short headings on one row; a wrapped one becomes as tall as it needs.
+            egui::Button::selectable(selected, (label, egui::Atom::grow())).wrap().min_size(vec2(width, ui.spacing().interact_size.y)),
         )
-        .on_hover_text(text)
     })
     .inner
 }
@@ -916,9 +918,12 @@ mod navigation_tests {
     use super::*;
 
     #[test]
-    fn long_headings_truncate_without_stretching_navigation() {
-        let text = "An extremely long heading with words that must stay inside the navigation pane ".repeat(20);
-        for (width, level) in [(260.0, 0), (180.0, 5)] {
+    fn long_headings_wrap_without_stretching_navigation() {
+        // A heading that runs well past the width, and a single word wider than the pane.
+        let headings = ["An extremely long heading with words that must stay inside the navigation pane ".repeat(20), "x".repeat(400)];
+        // Draw one heading in a pane of `width`: the pane rect, the heading row's rect, the label's
+        // line count and whether it was elided.
+        let render = |width: f32, level: u8, text: &str| -> (egui::Rect, egui::Rect, usize, bool) {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 600.0));
@@ -928,23 +933,33 @@ mod navigation_tests {
                 let result = egui::Panel::left("navigation_test")
                     .default_size(width)
                     .resizable(true)
-                    .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| nav_heading(ui, level, &text, true)).inner);
+                    .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| nav_heading(ui, level, text, true)).inner);
                 panel_rect = result.response.rect;
                 heading_rect = result.inner.rect;
             });
-
-            assert!(panel_rect.width() < width + 20.0, "long heading expanded the {width}px pane to {panel_rect:?}");
-            assert!(heading_rect.max.x <= panel_rect.max.x, "heading escaped pane: {heading_rect:?} / {panel_rect:?}");
-            assert!(
-                output.shapes.iter().any(|s| match &s.shape {
-                    egui::Shape::Text(t) => {
-                        t.galley.elided && t.galley.rows.last().is_some_and(|r| r.row.glyphs.last().is_some_and(|g| g.chr == '…'))
-                    }
-                    _ => false,
-                }),
-                "long heading must render a trailing ellipsis at {width}px"
-            );
+            let (rows, elided) = output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) => Some((t.galley.rows.len(), t.galley.elided)),
+                    _ => None,
+                })
+                .unwrap_or((0, false));
             output.drop_without_applying_deltas();
+            (panel_rect, heading_rect, rows, elided)
+        };
+        for (width, level) in [(260.0, 0), (180.0, 5)] {
+            let (_, one_line, _, _) = render(width, level, "Kilns");
+            for text in &headings {
+                let (panel_rect, heading_rect, rows, elided) = render(width, level, text);
+                assert!(panel_rect.width() < width + 20.0, "long heading expanded the {width}px pane to {panel_rect:?}");
+                assert!(heading_rect.max.x <= panel_rect.max.x, "heading escaped pane: {heading_rect:?} / {panel_rect:?}");
+                // The heading wraps onto further lines instead of ending in an ellipsis (#3015).
+                assert!(rows > 1, "long heading must wrap onto further lines at {width}px, got {rows}");
+                assert!(!elided, "long heading must not end in an ellipsis at {width}px");
+                // ... and its row grows with the text, where a short heading keeps one row.
+                assert!(heading_rect.height() > one_line.height(), "a wrapped heading row is taller at {width}px: {heading_rect:?} vs {one_line:?}");
+            }
         }
     }
 
