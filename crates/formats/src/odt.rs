@@ -2012,7 +2012,7 @@ impl Body<'_> {
                     && let Some(fr) = &mut self.frame
                     && fr.4.is_none()
                 {
-                    let path = format!("{}/content.xml", href.trim_start_matches("./"));
+                    let path = format!("{}/content.xml", href.trim_start_matches("./").trim_end_matches('/'));
                     if let Some(xml) = (self.zip)(&path) {
                         fr.4 = read_formula(&xml);
                     }
@@ -2763,6 +2763,25 @@ mod tests {
             .filter_map(|i| if let Inline::Equation { linear, display } = i { Some((linear.clone(), *display)) } else { None })
             .collect();
         assert_eq!(eqs, vec![("E=mc^2".to_string(), true)]);
+    }
+
+    #[test]
+    fn a_trailing_slash_on_the_object_href_still_resolves() {
+        // Some ODF producers write the object folder with a trailing slash
+        // (`xlink:href="./Object 1/"`); that must not double the slash before `content.xml`.
+        let math = r#"<math><mi>x</mi></math>"#;
+        let frame = r#"<draw:frame svg:width="1in" svg:height="1in"><draw:object xlink:href="./Object 1/"/></draw:frame>"#;
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>{frame}</text:p></office:text></office:body></office:document-content>"#
+        );
+        let pkg = zip_of(&[("content.xml", content.as_bytes()), ("Object 1/content.xml", math.as_bytes())]);
+        let flow = parse(&pkg).unwrap();
+        let eqs: Vec<(String, bool)> = paras(&flow)
+            .into_iter()
+            .flat_map(|p| &p.inlines)
+            .filter_map(|i| if let Inline::Equation { linear, display } = i { Some((linear.clone(), *display)) } else { None })
+            .collect();
+        assert_eq!(eqs, vec![("x".to_string(), false)]);
     }
 
     #[test]
