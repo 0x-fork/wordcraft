@@ -3569,11 +3569,17 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     }
     pb.y += before;
     let mut applied_before = before;
+    // Bordered paragraphs: room for their top and bottom borders, those of a group joined in one box.
+    let above = joined(ctx.doc, &ctx.doc.body, block, block.checked_sub(1), None);
+    let below = joined(ctx.doc, &ctx.doc.body, block, Some(block + 1), None);
+    let own = Edges::own(&pl, 0, pl.lines.len());
+    let (top_room, bottom_room) = (if above { 0.0 } else { own.top }, if below { 0.0 } else { own.bottom });
     // Keep lines together: if it doesn't fit but would on an empty column, move it. Keep with
     // next alone moves a paragraph only when it would fit here by itself (Word for Windows): one
     // that doesn't breaks as usual, its last lines going over with the next paragraph.
-    if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + pl.height <= pb.bottom + 0.01) {
-        let need = pl.height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0) } else { 0.0 };
+    let height = pl.height + top_room + bottom_room;
+    if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + height <= pb.bottom + 0.01) {
+        let need = height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
         if pb.y + need > pb.bottom && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
             pb.advance(block, body_top);
@@ -3591,11 +3597,6 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let mut n = pl.lines.len();
     // Worked out only for a last line on a page with notes.
     let mut after_on_page: Option<f32> = None;
-    // Bordered paragraphs: room for their top and bottom borders, those of a group joined in one box.
-    let above = joined(ctx.doc, &ctx.doc.body, block, block.checked_sub(1), None);
-    let below = joined(ctx.doc, &ctx.doc.body, block, Some(block + 1), None);
-    let own = Edges::own(&pl, 0, n);
-    let (top_room, bottom_room) = (if above { 0.0 } else { own.top }, if below { 0.0 } else { own.bottom });
     let mut l0 = 0;
     while l0 < n {
         // The lines going into a new column (or page) were broken around the wrap areas where the
@@ -3901,9 +3902,10 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             _ => {}
         }
     }
-    // A mark that stayed with its page break keeps its space after on that page too: the next page
-    // starts with the next paragraph (Word, compatibility modes 12 to 15).
-    let space_after = if pb.after_break_mark { 0.0 } else { pl.rp.space_after };
+    // A mark that stayed with its page break keeps its space after on that page too, and its
+    // bottom border, drawn there: the next page starts with the next paragraph (Word,
+    // compatibility modes 12 to 15).
+    let (bottom_room, space_after) = if pb.after_break_mark { (0.0, 0.0) } else { (bottom_room, pl.rp.space_after) };
     pb.y += bottom_room + space_after;
     pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, space_after, pl.rp.after_auto, label.is_some()));
 }
@@ -3949,9 +3951,12 @@ fn place_outline_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     pb.y += pl.rp.space_before.max(0.0);
     let n = pl.lines.len();
     let l1 = if o.view.first_line_only && level >= outline::BODY { n.min(1) } else { n };
-    let y = pb.y + pl.lines.first().map(|f| f.top.max(0.0)).unwrap_or(0.0);
+    // Its borders take their room above and below its lines.
+    let edges = Edges::own(&pl, 0, l1);
+    let y = pb.y + pl.lines.first().map(|f| f.top.max(0.0)).unwrap_or(0.0) + edges.top;
+    let bottom_room = edges.bottom;
     let mut items = Vec::new();
-    push_para(&mut items, StoryRef::Body, &[block as u32], &pl, 0, l1, x, y, width, Edges::own(&pl, 0, l1));
+    push_para(&mut items, StoryRef::Body, &[block as u32], &pl, 0, l1, x, y, width, edges);
     let at = ObjFrame {
         page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror }),
         col: (x, width),
@@ -3974,7 +3979,7 @@ fn place_outline_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     if let (Some(f), Some(l)) = (pl.lines.first(), l1.checked_sub(1).and_then(|k| pl.lines.get(k))) {
         pb.y = y + (l.top + l.height - f.top);
     }
-    pb.y += pl.rp.space_after.max(0.0);
+    pb.y += bottom_room + pl.rp.space_after.max(0.0);
 }
 
 /// How far a paragraph with mirrored indents (`w:mirrorIndents`) moves right on page `number`:
@@ -4041,8 +4046,12 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32
             };
             let _ = rp;
             let pl = para::layout_para(p, &env);
+            // Its border room, unless it joins the paragraph before (or after) in one box.
+            let own = Edges::own(&pl, 0, pl.lines.len());
+            let top = if joined(ctx.doc, &ctx.doc.body, block + 1, Some(block), None) { 0.0 } else { own.top };
             if pl.rp.keep_next && depth < 8 {
-                pl.rp.space_before + pl.height + pl.rp.space_after + next_first_line(ctx, block + 1, width, depth + 1)
+                let bottom = if joined(ctx.doc, &ctx.doc.body, block + 1, Some(block + 2), None) { 0.0 } else { own.bottom };
+                pl.rp.space_before + top + pl.height + bottom + pl.rp.space_after + next_first_line(ctx, block + 1, width, depth + 1)
             } else {
                 // The room this one needs to start on the page with the kept paragraph before
                 // it (#966).
@@ -4051,6 +4060,7 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32
                     _ => 0.0,
                 };
                 pl.rp.space_before
+                    + top
                     + if pl.rp.keep_lines {
                         pl.height
                     } else if pl.rp.widow_control && pl.lines.len() >= 2 {
