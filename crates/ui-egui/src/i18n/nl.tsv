@@ -50,7 +50,7 @@
 	AutoFit	Automatisch aanpassen
 	AutoFit Contents	Inhoud automatisch aanpassen
 	AutoFit Window	Venster automatisch aanpassen
-	AutoSave	AutoSave
+	AutoSave	Automatisch opslaan
 	AutoSave saves every change to the file (needs a saved document)	AutoSave slaat elke wijziging op in het bestand (vereist een opgeslagen document)
 	AutoText	AutoTekst
 	Automatic	Automatisch
@@ -161,7 +161,7 @@
 	Custom Margins…	Aangepaste marges…
 	Custom Watermark	Aangepast watermerk
 	Custom Watermark…	Aangepast watermerk…
-	Customize Quick Access Toolbar	Snelle toegangstoolbalk aanpassen
+	Customize Quick Access Toolbar	Sneltoegangslijst aanpassen
 	Cut	Knippen
 	Dark Mode	Donkere modus
 	Dashed	Gestreept
@@ -526,7 +526,7 @@
 	Print	Afdrukken
 	Print Layout	Afdruklay-out
 	Print\nLayout	Afdruk-\nlay-out
-	Proofing	Controleren
+	Proofing	Taalcontrole
 	Proofing Issues	Controleproblemen
 	Properties	Eigenschappen
 	Protect	Beveiligen
@@ -815,7 +815,7 @@
 	➕ New comment	➕ Nieuwe opmerking
 	📂  Browse…	📂  Bladeren…
 	Equation	Vergelijking
-	Review	Review
+	Review	Controleren
 	Track\nChanges	Wijzigingen\nbijhouden
 	Track\nChanges ✓	Wijzigingen\nbijhouden ✓
 	Scroll ribbon left	Lint naar links schuiven
@@ -1218,7 +1218,7 @@
 	Gallery	Galerij
 	Hide Codes	Codes verbergen
 	Hide Ink	Inkt verbergen
-	Hide\nInk	Verbergen\nInkt
+	Hide\nInk	Inkt\nverbergen
 	How many pages the whole document has	Hoeveel pagina's het hele document heeft
 	How many pages this section has	Hoeveel pagina's deze sectie heeft
 	How many words the document holds	Hoeveel woorden het document bevat
@@ -1371,21 +1371,21 @@
 	(Custom)	(Aangepast)
 	<< Remove	<< Verwijderen
 	Add >>	Toevoegen >>
-	Add to Quick Access Toolbar	Toevoegen aan snelkoppelingenlint
-	Customize Quick Access Toolbar…	Snelkoppelingenlint aanpassen…
+	Add to Quick Access Toolbar	Toevoegen aan sneltoegangslijst
+	Customize Quick Access Toolbar…	Sneltoegangslijst aanpassen…
 	Customize Ribbon	Lint aanpassen
 	Customize the Ribbon…	Het lint aanpassen…
 	More Commands…	Meer opdrachten…
 	New Group	Nieuwe groep
 	New Tab	Nieuw tabblad
 	Pick a custom group (New Group makes one)	Kies een eigen groep (Nieuwe groep maakt er een)
-	Put the default commands back on the Quick Access Toolbar?	De standaardopdrachten weer op het snelkoppelingenlint zetten?
+	Put the default commands back on the Quick Access Toolbar?	De standaardopdrachten weer op de sneltoegangslijst zetten?
 	Remove every custom tab and group and show all tabs again?	Alle eigen tabbladen en groepen verwijderen en alle tabbladen weer tonen?
-	Remove from Quick Access Toolbar	Verwijderen uit het snelkoppelingenlint
+	Remove from Quick Access Toolbar	Verwijderen uit de sneltoegangslijst
 	Rename…	Naam wijzigen…
 	Reset…	Herstellen…
 	Ribbon	Lint
-	Ribbon and Quick Access Toolbar:	Lint en snelkoppelingenlint:
+	Ribbon and Quick Access Toolbar:	Lint en sneltoegangslijst:
 	Ribbon tabs	Linttabbladen
 	Align Text	Tekst uitlijnen
 	Apply	Toepassen
@@ -2590,3 +2590,76 @@ preview	Title	Titel
 	Paste function:	Functie plakken:
 	Narrow	Smal
 	Medium	Gemiddeld
+	APA	APA
+	Added 1 font	1 lettertype toegevoegd
+	Added {n} fonts	{n} lettertypen toegevoegd
+	All Fonts	Alle lettertypen
+	Any field	Elk veld
+	Article I.	Artikel I.
+	AutoFit behavior	Automatisch aanpassen
+	AutoFit to contents	Aanpassen aan inhoud
+	AutoFit to window	Aanpassen aan venster
+	Chapter 1	Hoofdstuk 1
+	Chicago	Chicago
+	Commas	Komma's
+	Distance from text	Afstand tot tekst
+	Distance from text:	Afstand tot tekst:
+	Drop Cap Options…	Opties voor verlaagd begin…
+	Dropped	Verlaagd
+	Find in list:	Zoeken in lijst:
+	GB/T 7714	GB/T 7714
+	GOST (name sort)	GOST (op naam)
+	GOST (title sort)	GOST (op titel)
+	Harvard (Anglia)	Harvard (Anglia)
+	Hide Quick Access Toolbar	Sneltoegangslijst verbergen
+	IEEE	IEEE
+	ISO 690 (author-date)	ISO 690 (auteur-datum)
+	ISO 690 (numerical)	ISO 690 (numeriek)
+	Import…	Importeren…
+	In margin	In marge
+	Indonesian	Indonesisch
+	Initial column width:	Beginbreedte kolommen:
+	Insert Spike	Verzamelbak invoegen
+	Kerning for fonts:	Kerning voor lettertypen:
+	Large	Groot
+	Limit and	Limiet en
+	Lines to drop:	Hoogte (in regels):
+	Lock aspect ratio	Hoogte-breedteverhouding vergrendelen
+	Log	log
+	MLA	MLA
+	Matches: {count}	Treffers: {count}
+	Merge cells before split	Cellen samenvoegen vóór splitsen
+	Moved from:	Verplaatst van:
+	Moved to:	Verplaatst naar:
+	Multilevel List Library	Bibliotheek met lijsten met meerdere niveaus
+	No items to show.	Geen items om te tonen.
+	Original size	Oorspronkelijke grootte
+	Other:	Anders:
+	Points and above	punt en groter
+	Recently Used Fonts	Recent gebruikte lettertypen
+	Relative to original picture size	Ten opzichte van oorspronkelijke afbeeldingsgrootte
+	SIST02	SIST02
+	Section 1.01	Sectie 1.01
+	Selected text	Geselecteerde tekst
+	Separate text at	Tekst scheiden bij
+	Show Quick Access Toolbar	Sneltoegangslijst tonen
+	Show only records that will be merged	Alleen records tonen die worden samengevoegd
+	Spike	Verzamelbak
+	Table size	Tabelgrootte
+	The measurement must be between {min} and {max}.	De maat moet tussen {min} en {max} liggen.
+	The number must be between 1 and {max}.	Het getal moet tussen 1 en {max} liggen.
+	Turabian	Turabian
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Typ een grootte in een willekeurige eenheid, zoals 5 cm of 300 px. De andere kant past zich aan, zodat de verhoudingen van de afbeelding gelijk blijven.
+	nothing is selected	er is niets geselecteerd
+	select a picture or shape first	selecteer eerst een afbeelding of vorm
+	select recipients first	selecteer eerst ontvangers
+	select two or more pictures or shapes first (Shift+click)	selecteer eerst twee of meer afbeeldingen of vormen (Shift+klik)
+	text boxes can't go inside a text box	tekstvakken kunnen niet in een tekstvak staan
+	the cursor isn't in a table	de cursor staat niet in een tabel
+	the paragraph is empty	de alinea is leeg
+	the paragraph starts with a space	de alinea begint met een spatie
+	{added}; {count} couldn't be read: {names}	{added}; {count} niet leesbaar: {names}
+	{added}; {n} skipped (limit {max})	{added}; {n} overgeslagen (limiet {max})
+	{names} and {n} more	{names} en nog {n}
+	{name} options	Opties voor {name}
+	{width} × {height} pixels	{width} × {height} pixels
