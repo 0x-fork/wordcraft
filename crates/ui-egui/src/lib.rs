@@ -5270,6 +5270,39 @@ mod tests {
         }
     }
 
+    /// #2958: the Print button leads the settings, above the printer and the settings it prints
+    /// with (as in Word), and it wears the accent the app gives a dialog's primary button, so the
+    /// page's one action is found first and reads as one rather than as another setting.
+    #[test]
+    fn the_print_button_leads_the_settings_and_is_the_primary_action() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{By, Queryable};
+        const BLURB: &str = "Send the document straight to the system print dialog, or save a copy in another format below.";
+        let mut a = app();
+        a.services.print = Some(Box::new(|_| Ok(())));
+        a.run("file.print", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..4 {
+            h.step();
+        }
+        // The page's own Print button (the backstage list has a Print entry too): the last.
+        let print = h.query_all(By::new().role(Role::Button).label("Print")).last().expect("a Print button").rect();
+        let blurb = h.get_by_label(BLURB).rect();
+        assert!(print.min.y < blurb.min.y, "the Print button leads the settings: {print:?} above {blurb:?}");
+        let accent = crate::theme::Tokens::get(&h.ctx).accent;
+        assert!(
+            h.output().shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == print && r.fill == accent)),
+            "the Print button is the primary (accent) button"
+        );
+    }
+
     /// #1156: the Print page's preview fills the pane beside the settings, zooms from its own
     /// bar, scrolls both ways once the page outgrows the pane, and One Page fits it again.
     #[test]
