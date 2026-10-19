@@ -19,6 +19,26 @@ pub enum Stroke {
     Dashed,
     Double,
     Wave,
+    /// Word's border patterns (paragraph, cell and table borders): dots one width on, one off;
+    /// dashes three on, one off; dash and dot.
+    BorderDotted,
+    BorderDashed,
+    BorderDotDash,
+}
+
+impl Stroke {
+    /// Dash and gap lengths, alternately, in line widths; `None` for the strokes that aren't
+    /// dashed.
+    pub fn dashes(self) -> Option<&'static [f32]> {
+        match self {
+            Stroke::Dotted => Some(&[1.0, 2.0]),
+            Stroke::Dashed => Some(&[4.0, 2.0]),
+            Stroke::BorderDotted => Some(&[1.0, 1.0]),
+            Stroke::BorderDashed => Some(&[3.0, 1.0]),
+            Stroke::BorderDotDash => Some(&[3.0, 1.0, 1.0, 1.0]),
+            Stroke::Solid | Stroke::Double | Stroke::Wave => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -606,8 +626,9 @@ fn change_bars(doc: &Document, page: &Page, m: &MarkupOptions, alpha: f32, out: 
 
 fn border_stroke(s: BorderStyle) -> Stroke {
     match s {
-        BorderStyle::Dotted => Stroke::Dotted,
-        BorderStyle::Dashed | BorderStyle::DotDash => Stroke::Dashed,
+        BorderStyle::Dotted => Stroke::BorderDotted,
+        BorderStyle::Dashed => Stroke::BorderDashed,
+        BorderStyle::DotDash => Stroke::BorderDotDash,
         BorderStyle::Double | BorderStyle::Triple => Stroke::Double,
         BorderStyle::Wave => Stroke::Wave,
         _ => Stroke::Solid,

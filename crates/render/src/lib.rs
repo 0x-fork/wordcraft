@@ -743,10 +743,8 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             // every end, blobbing over the neighbouring border at a table's corners (#2892). Wavy
             // underlines keep round ends, as the PDF draws them.
             let mut st = kurbo::Stroke::new(w).with_caps(kurbo::Cap::Butt);
-            match stroke {
-                Stroke::Dotted => st = st.with_dashes(0.0, [w, w * 2.0]),
-                Stroke::Dashed => st = st.with_dashes(0.0, [w * 4.0, w * 2.0]),
-                _ => {}
+            if let Some(d) = stroke.dashes() {
+                st = st.with_dashes(0.0, d.iter().map(|k| f64::from(*k) * w));
             }
             let (x0, y0, x1, y1) = (*x0 as f64, *y0 as f64, *x1 as f64, *y1 as f64);
             let line = |ctx: &mut RenderContext, ox: f64, oy: f64| {

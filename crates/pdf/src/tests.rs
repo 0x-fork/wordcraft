@@ -1860,3 +1860,26 @@ fn pages_print_scaled_to_other_paper() {
         assert_eq!(size(&bytes), size(&plain));
     }
 }
+
+/// The PDF's bytes, uncompressed, as text: content stream operators can be read directly.
+fn raw_pdf(d: &Document) -> String {
+    String::from_utf8_lossy(&export(d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap()).into_owned()
+}
+
+#[test]
+fn borders_are_dashed_with_words_patterns() {
+    // Word draws a border's dots one width on and one off, its dashes three on and one off, and
+    // dash-dot as three, one, one, one; underlines keep their own patterns.
+    use wordcraft_doc::props::{Border, BorderStyle, Borders};
+    let bordered = |style: BorderStyle, width: f32| {
+        let mut p = Paragraph::with_text("Rule", CharProps::default());
+        p.props.borders = Some(Borders { bottom: Some(Border { style, width, ..Default::default() }), ..Default::default() });
+        para_block(p)
+    };
+    let mut d = Document::new();
+    d.body = vec![bordered(BorderStyle::Dotted, 1.0), bordered(BorderStyle::Dashed, 2.0), bordered(BorderStyle::DotDash, 1.0)];
+    let raw = raw_pdf(&d);
+    assert!(raw.contains("[1 1]0 d") || raw.contains("[1 1] 0 d"), "the dotted border");
+    assert!(raw.contains("[6 2]0 d") || raw.contains("[6 2] 0 d"), "the dashed border");
+    assert!(raw.contains("[3 1 1 1]0 d") || raw.contains("[3 1 1 1] 0 d"), "the dash-dot border");
+}

@@ -1151,12 +1151,9 @@ impl Exporter<'_> {
                 s.set_stroke(Some(stroke(w, None, LineCap::Butt)));
                 seg(s, 0.0, 0.0);
             }
-            LineStyle::Dotted => {
-                s.set_stroke(Some(stroke(w, Some(StrokeDash { array: vec![w, w * 2.0], offset: 0.0 }), LineCap::Butt)));
-                seg(s, 0.0, 0.0);
-            }
-            LineStyle::Dashed => {
-                s.set_stroke(Some(stroke(w, Some(StrokeDash { array: vec![w * 4.0, w * 2.0], offset: 0.0 }), LineCap::Butt)));
+            LineStyle::Dotted | LineStyle::Dashed | LineStyle::BorderDotted | LineStyle::BorderDashed | LineStyle::BorderDotDash => {
+                let array = style.dashes().unwrap_or(&[]).iter().map(|k| k * w).collect();
+                s.set_stroke(Some(stroke(w, Some(StrokeDash { array, offset: 0.0 }), LineCap::Butt)));
                 seg(s, 0.0, 0.0);
             }
             LineStyle::Double => {
