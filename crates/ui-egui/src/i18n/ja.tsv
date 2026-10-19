@@ -2294,5 +2294,5 @@
 	Dock Right	右にドッキング
 	Float	フローティング
 	Pane Options	ウィンドウ オプション
-	Move Pane	ウィンドウの移動
+	Move Pane: {title}	ウィンドウの移動: {title}
 	Resize Pane	ウィンドウのサイズ変更

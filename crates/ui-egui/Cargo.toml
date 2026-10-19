@@ -9,7 +9,7 @@ description = "WordCraft egui front end (Word-style ribbon UI); swappable: nothi
 workspace = true
 
 [dependencies]
-craft-ui = { git = "https://github.com/aiongg/craft-libs", rev = "c94ab4d313832ea9a84da721a6d3e7a7838dacef" }
+craft-ui = { git = "https://github.com/aiongg/craft-libs", rev = "f4f9e5b206a721d28ea1214ef8bf85b8e30bb779" }
 wordcraft-geom = { workspace = true }
 wordcraft-doc = { workspace = true }
 unicode-bidi = { workspace = true }

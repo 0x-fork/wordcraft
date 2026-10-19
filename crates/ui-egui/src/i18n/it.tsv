@@ -2713,5 +2713,5 @@ preview	Title	Esempio
 	Dock Right	Ancora a destra
 	Float	Mobile
 	Pane Options	Opzioni riquadro
-	Move Pane	Sposta riquadro
+	Move Pane: {title}	Sposta riquadro: {title}
 	Resize Pane	Ridimensiona riquadro

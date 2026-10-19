@@ -2706,5 +2706,5 @@ template	Letter	Lettre
 	Dock Right	Ancrer à droite
 	Float	Flottant
 	Pane Options	Options du volet
-	Move Pane	Déplacer le volet
+	Move Pane: {title}	Déplacer le volet : {title}
 	Resize Pane	Redimensionner le volet

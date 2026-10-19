@@ -2702,5 +2702,5 @@ preview	Title	Пример
 	Dock Right	Закрепить справа
 	Float	Открепить
 	Pane Options	Параметры области
-	Move Pane	Переместить область
+	Move Pane: {title}	Переместить область: {title}
 	Resize Pane	Изменить размер области

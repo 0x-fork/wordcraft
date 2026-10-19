@@ -6648,7 +6648,7 @@ mod tests {
     fn task_panes_share_an_edge_close_and_keep_the_styles_place() {
         use egui_kittest::kittest::Queryable;
         let bars = |h: &egui_kittest::Harness<'_, WordApp>| {
-            let mut bars: Vec<egui::Rect> = h.get_all_by_label("Move Pane").map(|n| n.rect()).collect();
+            let mut bars: Vec<egui::Rect> = h.get_all_by_label_contains("Move Pane: ").map(|n| n.rect()).collect();
             bars.sort_by(|a, b| a.left().total_cmp(&b.left()));
             bars
         };
@@ -7976,13 +7976,13 @@ mod tests {
         assert!(h.state().session.view.focus_mode);
         assert!(!shown(&h, "Ruler") && !shown(&h, "Focus"), "the ribbon is hidden");
         // The pane's title bar: the only pane open is Navigation.
-        assert!(!shown(&h, "Move Pane"), "and so is the Navigation pane");
+        assert!(!shown(&h, "Move Pane: Navigation"), "and so is the Navigation pane");
         h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
         h.step();
         h.step();
         assert!(!h.state().session.view.focus_mode, "Escape leaves Focus");
         assert!(shown(&h, "Ruler"), "and the ribbon is back");
-        assert!(shown(&h, "Move Pane"), "with the pane");
+        assert!(shown(&h, "Move Pane: Navigation"), "with the pane");
         // Immersive Reader is Read Mode, not Focus: its status bar stays.
         h.state_mut().run("view.immersive", json!({})).unwrap();
         h.step();

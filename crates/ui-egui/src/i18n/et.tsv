@@ -2328,5 +2328,5 @@
 	Dock Right	Dokki paremale
 	Float	Ujuv
 	Pane Options	Paani suvandid
-	Move Pane	Teisalda paan
+	Move Pane: {title}	Teisalda paan: {title}
 	Resize Pane	Muuda paani suurust

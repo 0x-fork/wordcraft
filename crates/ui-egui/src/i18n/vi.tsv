@@ -2744,5 +2744,5 @@ template	Letter	Thư
 	Dock Right	Neo bên phải
 	Float	Nổi
 	Pane Options	Tùy chọn khung
-	Move Pane	Di chuyển khung
+	Move Pane: {title}	Di chuyển khung: {title}
 	Resize Pane	Đổi kích thước khung

@@ -2304,5 +2304,5 @@
 	Dock Right	Usidri desno
 	Float	Plutajuće
 	Pane Options	Opcije okna
-	Move Pane	Premesti okno
+	Move Pane: {title}	Premesti okno: {title}
 	Resize Pane	Promeni veličinu okna

@@ -2660,5 +2660,5 @@ preview	Title	Título
 	Dock Right	Acoplar a la derecha
 	Float	Flotante
 	Pane Options	Opciones del panel
-	Move Pane	Mover panel
+	Move Pane: {title}	Mover panel: {title}
 	Resize Pane	Cambiar tamaño del panel

@@ -2306,5 +2306,5 @@
 	Dock Right	Encaixar à direita
 	Float	Flutuante
 	Pane Options	Opções do painel
-	Move Pane	Mover painel
+	Move Pane: {title}	Mover painel: {title}
 	Resize Pane	Redimensionar painel

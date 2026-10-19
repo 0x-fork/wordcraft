@@ -2709,5 +2709,5 @@ preview	Title	Tytuł
 	Dock Right	Zadokuj po prawej
 	Float	Pływające
 	Pane Options	Opcje okienka
-	Move Pane	Przenieś okienko
+	Move Pane: {title}	Przenieś okienko: {title}
 	Resize Pane	Zmień rozmiar okienka

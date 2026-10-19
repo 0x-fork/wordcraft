@@ -2700,5 +2700,5 @@
 	Dock Right	Rögzítés jobbra
 	Float	Lebegtetés
 	Pane Options	Panel beállításai
-	Move Pane	Panel áthelyezése
+	Move Pane: {title}	Panel áthelyezése: {title}
 	Resize Pane	Panel átméretezése

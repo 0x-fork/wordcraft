@@ -2306,5 +2306,5 @@
 	Dock Right	Закріпити праворуч
 	Float	Відкріпити
 	Pane Options	Параметри панелі
-	Move Pane	Перемістити панель
+	Move Pane: {title}	Перемістити панель: {title}
 	Resize Pane	Змінити розмір панелі

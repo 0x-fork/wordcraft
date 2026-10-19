@@ -2719,5 +2719,5 @@ preview	Title	Titel
 	Dock Right	Docka till höger
 	Float	Flytande
 	Pane Options	Panelalternativ
-	Move Pane	Flytta panel
+	Move Pane: {title}	Flytta panel: {title}
 	Resize Pane	Ändra storlek på panel

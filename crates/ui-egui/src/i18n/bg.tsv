@@ -2693,5 +2693,5 @@
 	Dock Right	Закачане вдясно
 	Float	Откачане
 	Pane Options	Опции на панела
-	Move Pane	Преместване на панела
+	Move Pane: {title}	Преместване на панела: {title}
 	Resize Pane	Преоразмеряване на панела

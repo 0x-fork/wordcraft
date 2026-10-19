@@ -2295,5 +2295,5 @@
 	Dock Right	停駐在右側
 	Float	浮動
 	Pane Options	窗格選項
-	Move Pane	移動窗格
+	Move Pane: {title}	移動窗格：{title}
 	Resize Pane	調整窗格大小

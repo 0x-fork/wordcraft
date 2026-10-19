@@ -2293,5 +2293,5 @@
 	Dock Right	Rechts andocken
 	Float	Unverankert
 	Pane Options	Bereichsoptionen
-	Move Pane	Bereich verschieben
+	Move Pane: {title}	Bereich verschieben: {title}
 	Resize Pane	Bereichsgröße ändern

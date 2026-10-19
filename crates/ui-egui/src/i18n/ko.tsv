@@ -2548,5 +2548,5 @@ preview	Title	제목
 	Dock Right	오른쪽에 고정
 	Float	떠 있음
 	Pane Options	창 옵션
-	Move Pane	창 이동
+	Move Pane: {title}	창 이동: {title}
 	Resize Pane	창 크기 조정

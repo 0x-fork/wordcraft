@@ -113,7 +113,7 @@ fn labels() -> PaneLabels {
         move_end: tl!("Dock Right").into(),
         float: tl!("Float").into(),
         close: tl!("Close").into(),
-        move_pane: tl!("Move Pane").into(),
+        move_pane: tl!("Move Pane: {title}").into(),
         resize: tl!("Resize Pane").into(),
         ..PaneLabels::default()
     }

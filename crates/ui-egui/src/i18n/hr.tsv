@@ -2704,5 +2704,5 @@ preview	Title	Naslov
 	Dock Right	Usidri desno
 	Float	Plutajuće
 	Pane Options	Mogućnosti okna
-	Move Pane	Premjesti okno
+	Move Pane: {title}	Premjesti okno: {title}
 	Resize Pane	Promijeni veličinu okna
