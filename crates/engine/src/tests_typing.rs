@@ -1399,6 +1399,20 @@ fn tab_in_a_table_inserted_in_right_to_left_text_moves_left() {
     }
 }
 
+#[test]
+fn ctrl_tab_inserts_a_tab_inside_a_table_cell() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 1, "cols": 2}));
+    typ(&mut s, "A");
+    run(&mut s, "text.insertTab", json!({}));
+    typ(&mut s, "B");
+    let (_, r, c) = s.sel.focus.path.cell().expect("caret in a cell");
+    assert_eq!((r, c), (0, 0), "Ctrl+Tab stays in the cell");
+    assert_eq!(s.doc.para_at(&s.sel.focus).map(|p| p.text.as_str()), Some("A\tB"));
+    let key = if cfg!(target_os = "macos") { "Alt+Tab" } else { "Mod+Tab" };
+    assert_eq!(s.keymap.resolve(&s.registry, key).map(|c| c.id), Some("text.insertTab"));
+}
+
 /// A .docx of two paragraphs in two sections, as Word writes it: the first section's properties
 /// in the first paragraph's mark (portrait), the last section's in the body (landscape, starting
 /// as `kind`).

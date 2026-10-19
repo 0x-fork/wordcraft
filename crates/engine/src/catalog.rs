@@ -474,6 +474,7 @@ Editing|Keyboard|New Paragraph|text.newParagraph
 Editing|Keyboard|Line Break|text.lineBreak
 Editing|Keyboard|Column Break|text.columnBreak
 Editing|Keyboard|Tab|text.tab
+Editing|Keyboard|Tab Character|text.insertTab
 Editing|Keyboard|Backspace|text.backspace
 Editing|Keyboard|Delete|text.delete
 Editing|Keyboard|Delete Previous Word|text.deleteWordBack
