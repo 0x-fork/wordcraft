@@ -305,7 +305,7 @@ pub(crate) fn highlight_menu(ui: &mut egui::Ui, app: &mut WordApp) {
 fn font_color_menu(ui: &mut egui::Ui, app: &mut WordApp) {
     egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
         if ui.selectable_label(false, "Automatic").clicked() {
-            let _ = app.run("format.color", json!({"color": "auto"}));
+            widgets::run_from_ribbon(app, "format.color", json!({"color": "auto"}));
             ui.close();
             return;
         }
@@ -677,6 +677,28 @@ mod tests {
         let arrow = highlight_arrow(&h);
         click_at(&mut h, pos2(arrow.min.x - 12.0, arrow.center().y));
         assert_eq!(format_state(&mut h).get("highlight"), Some(&Value::Null), "the button applies No Color, not yellow again");
+    }
+
+    /// #3039: picking Automatic from the bar's font-colour menu hands the keyboard back to the
+    /// document.
+    #[test]
+    fn the_font_colour_menus_automatic_returns_focus_to_the_document() {
+        use egui_kittest::kittest::{By, Queryable};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), Default::default());
+        a.run("select.all", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(Vec2::new(400.0, 400.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                egui::Area::new(egui::Id::new("font_colour_probe")).fixed_pos(pos2(50.0, 50.0)).show(ui.ctx(), |ui| {
+                    font_color_menu(ui, app);
+                });
+            },
+            a,
+        );
+        steps(&mut h);
+        let automatic = h.get(By::new().label_contains("Automatic")).rect().center();
+        h.state_mut().canvas.want_focus = false;
+        click_at(&mut h, automatic);
+        assert!(h.state().canvas.want_focus, "Automatic returns focus to the document");
     }
 
     /// #3038: a pick from the bar's highlight grid hands the keyboard back to the document,
