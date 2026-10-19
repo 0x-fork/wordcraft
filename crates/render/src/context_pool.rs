@@ -69,12 +69,29 @@ mod tests {
     use wordcraft_doc::{Document, Pos};
     use wordcraft_layout::{LayoutCache, LayoutOptions, Page, layout};
 
-    /// Draw a scene that uses what the renderer uses (fills, strokes, transforms, the even-odd
-    /// rule, opacity and clip layers) across a `w`×`h` context and rasterise it.
+    /// Draw a scene that uses what the renderer uses (fills, strokes, transforms, a gradient,
+    /// both fill rules, opacity and clip layers) across a `w`×`h` context and rasterise it. It
+    /// leans on the defaults first: nested squares wound the same way fill whole under the
+    /// default non-zero rule (a left-over even-odd rule cuts a hole), and a gradient moves with
+    /// a left-over paint transform.
     fn scene(ctx: &mut RenderContext, w: u16, h: u16) -> Rendered {
         let (fw, fh) = (w as f64, h as f64);
         ctx.set_paint(crate::color(Rgb(0xF4, 0xEE, 0xD8), 1.0));
         ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, fw, fh));
+        let mut nested = BezPath::new();
+        for s in [fw.min(fh) / 2.0, fw.min(fh) / 4.0] {
+            nested.move_to((0.0, 0.0));
+            nested.line_to((s, 0.0));
+            nested.line_to((s, s));
+            nested.line_to((0.0, s));
+            nested.close_path();
+        }
+        ctx.set_paint(crate::color(Rgb(0x10, 0x10, 0x10), 1.0));
+        ctx.fill_path(&nested);
+        let stops =
+            [peniko::ColorStop::from((0.0, crate::color(Rgb(0, 0, 0), 1.0))), peniko::ColorStop::from((1.0, crate::color(Rgb(255, 255, 255), 1.0)))];
+        ctx.set_paint(peniko::Gradient::new_linear((0.0, 0.0), (fw, 0.0)).with_stops(stops.as_slice()));
+        ctx.fill_rect(&kurbo::Rect::new(0.0, fh * 3.0 / 4.0, fw, fh));
         ctx.set_transform(Affine::translate((fw / 2.0, fh / 2.0)) * Affine::rotate(0.3));
         ctx.set_paint(crate::color(Rgb(0x2B, 0x57, 0x9A), 1.0));
         ctx.set_stroke(kurbo::Stroke::new((fw.min(fh) / 20.0).max(1.0)));
@@ -159,6 +176,14 @@ mod tests {
         ctx.stroke_rect(&kurbo::Rect::new(10.0, 10.0, 90.0, 60.0));
         pool.give_back(ctx);
         same(&pooled(&pool, 400, 300), &fresh(400, 300), "after an abandoned scene");
+        // The scene does show a left-over fill rule or paint transform when nothing resets them.
+        let settings = RenderSettings { num_threads: crate::default_threads(), ..Default::default() };
+        let mut stale_rule = RenderContext::new_with(400, 300, settings);
+        stale_rule.set_fill_rule(peniko::Fill::EvenOdd);
+        assert!(scene(&mut stale_rule, 400, 300).pixels != fresh(400, 300).pixels, "a stale even-odd rule shows");
+        let mut stale_paint = RenderContext::new_with(400, 300, settings);
+        stale_paint.set_paint_transform(Affine::translate((40.0, 40.0)));
+        assert!(scene(&mut stale_paint, 400, 300).pixels != fresh(400, 300).pixels, "a stale paint transform shows");
         same(&pooled(&pool, 120, 90), &fresh(120, 90), "smaller, after a full render");
         assert_eq!(pool.built(), 1);
     }
