@@ -125,7 +125,15 @@ pub fn specs() -> Vec<CommandSpec> {
         // membership and drop cap stay. ⌘Q quits on macOS, so Word for Mac uses ⌃Q.
         CommandSpec::new("para.reset", "Reset Paragraph Formatting", "Home › Paragraph", |s, _| {
             fmt(s, &|p| {
-                *p = ParaProps { style: p.style.take(), numbering: p.numbering.take(), drop_cap: p.drop_cap.take(), ..Default::default() }
+                *p = ParaProps {
+                    style: p.style.take(),
+                    numbering: p.numbering.take(),
+                    drop_cap: p.drop_cap.take(),
+                    drop_cap_margin: p.drop_cap_margin.take(),
+                    drop_cap_distance: p.drop_cap_distance.take(),
+                    drop_cap_font: p.drop_cap_font.take(),
+                    ..Default::default()
+                }
             })
         })
         .key(super::mac_or("Ctrl+Q", "Mod+Q")),
@@ -226,7 +234,8 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("styles.apply", "Apply Styles", "Home › Styles", apply_styles)
             .params(r#"{"style"?: string (name or id)}"#)
-            .key("Mod+Shift+S")
+            // On macOS ⌘⇧S is Save As, as in Word for Mac.
+            .key(super::non_mac("Mod+Shift+S"))
             .pure(),
         CommandSpec::new("styles.addToGallery", "Add to Style Gallery", "Home › Styles", |s, v| {
             let id = style_id(s, p::req_str(v, "style")?)?;
@@ -464,10 +473,13 @@ fn apply_style(s: &mut Session, v: &Value) -> CmdResult {
         return super::format::apply(s, &|c| c.style = Some(id.clone()));
     }
     let (a, b) = s.sel.ordered();
+    // A style linked to a list level (a heading in a numbered-headings list) brings its number.
+    let numbered = s.doc.styles.resolve_para(&ParaProps { style: Some(id.clone()), ..Default::default() }).numbering.is_some();
     fmt(s, &|p| {
         p.style = Some(id.clone());
-        // Applying a heading or Normal removes direct list numbering (except list styles).
-        if (id.starts_with("Heading") || id == "Title" || id == "Normal") && p.numbering.is_some_and(|n| n.num != 0) {
+        // Applying a heading or Normal removes direct list numbering (except list styles); a
+        // numbered style's own number replaces any direct numbering, even numbering switched off.
+        if numbered || ((id.starts_with("Heading") || id == "Title" || id == "Normal") && p.numbering.is_some_and(|n| n.num != 0)) {
             p.numbering = None;
         }
     })?;
@@ -536,8 +548,11 @@ fn list(s: &mut Session, v: &Value, default: ListKind) -> CmdResult {
     let num = match prev_num {
         Some(n) => n.num,
         None => match kind {
-            ListKind::Bullet | ListKind::BulletChar(_) => s.doc.numbering.find_kind(kind).unwrap_or_else(|| s.doc.numbering.add_list(kind)),
-            _ => s.doc.numbering.add_list(kind),
+            ListKind::Bullet | ListKind::BulletChar(_) => match s.doc.numbering.find_kind(kind) {
+                Some(n) => n,
+                None => s.doc.numbering.try_add_list(kind)?,
+            },
+            _ => s.doc.numbering.try_add_list(kind)?,
         },
     };
     fmt(s, &|p| {
@@ -615,7 +630,7 @@ fn tabs(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     let styles = s.doc.styles.clone();
-    let near = |a: f32, b: f32| (a - b).abs() < 0.5;
+    let near = |a: f32, b: f32| (a - b).abs() < wordcraft_doc::props::TAB_POS_EPS;
     fmt(s, &|p| {
         // The stops the paragraph inherits from its style.
         let inherited = styles.resolve_para(&ParaProps { tabs: None, ..p.clone() }).tabs;
@@ -751,7 +766,7 @@ pub(crate) fn set_heading(s: &mut Session, story: wordcraft_doc::StoryRef, path:
 
 /// Make sure the built-in `Heading{n}` style (and its linked character style) is in the
 /// document, for files that didn't bring it.
-fn ensure_heading_style(s: &mut Session, n: u8) -> String {
+pub(crate) fn ensure_heading_style(s: &mut Session, n: u8) -> String {
     let id = format!("Heading{n}");
     if s.doc.styles.get(&id).is_none() {
         let builtin = wordcraft_doc::styles::StyleSheet::builtin();
@@ -934,7 +949,8 @@ fn create_style(s: &mut Session, v: &Value) -> CmdResult {
         st.para = para.props.clone();
         st.para.style = None;
         st.para.numbering = None;
-        st.chr = para.props_at(s.sel.focus.off).clone();
+        // A symbol's own font is the symbol's, not the style's.
+        st.chr = para.props_at(s.sel.focus.off).clone().without_symbol();
         st.chr.style = None;
         st.chr.link = None;
         st.chr.ins = None;
@@ -989,7 +1005,8 @@ fn update_to_match(s: &mut Session, v: &Value) -> CmdResult {
     if !matches!(target.kind, StyleKind::Paragraph | StyleKind::Character) {
         return Err(CmdError::Failed(format!("`{}` can't be updated to match the selection", target.name)));
     }
-    let direct = if s.sel.is_collapsed() { para.props_at(a.off) } else { para.props_of_char(a.off) }.clone();
+    // A symbol's own font is the symbol's, not the style's.
+    let direct = if s.sel.is_collapsed() { para.props_at(a.off) } else { para.props_of_char(a.off) }.clone().without_symbol();
     let para_style = para.props.style.clone().unwrap_or_else(|| "Normal".into());
     // How the selection looks: document defaults, its paragraph style chain, its character
     // style chain, direct formatting (the resolve order, before defaults are filled in).

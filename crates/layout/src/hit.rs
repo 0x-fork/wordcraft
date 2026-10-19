@@ -447,6 +447,7 @@ impl DocLayout {
             let first = para.lines.get(*l0)?;
             let l = para.lines.get(li)?;
             let cx = para.x_of(li, pos.off)?;
+            let cx = para.caret_limit(li).map_or(cx, |m| cx.min(m));
             // In the lines' own frame (turned text turns it onto the page).
             let top = l.top - first.top;
             // Caret spans the text height (ascent + descent), not the full line spacing.
@@ -754,7 +755,7 @@ impl DocLayout {
     pub fn cell_at(&self, page: usize, x: f32, y: f32) -> Option<(StoryRef, Path, usize, usize)> {
         let p = self.pages.get(page)?;
         p.items.iter().rev().find_map(|it| match it {
-            Placed::Cell { rect, table, row, cell, story, covered: false } if rect.contains(wordcraft_geom::Point::new(x, y)) => {
+            Placed::Cell { rect, table, row, cell, story, covered: false, .. } if rect.contains(wordcraft_geom::Point::new(x, y)) => {
                 Some((*story, table.clone(), *row, *cell))
             }
             _ => None,

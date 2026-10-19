@@ -216,6 +216,10 @@ pub struct Float {
     /// laid out, as Word for Windows does (Word for Mac draws hidden VML shapes).
     #[serde(skip_serializing_if = "is_false")]
     pub hidden: bool,
+    /// Anchored in a table cell but placed on the page, not in the cell (`wp:anchor/@layoutInCell`
+    /// off, any VML shape in a header or footer): a picture watermark in a header that starts with a table.
+    #[serde(skip_serializing_if = "is_false")]
+    pub outside_cell: bool,
 }
 
 /// Longest alternative text kept (characters): hostile files and commands are capped.
@@ -288,7 +292,11 @@ pub enum ShapeKind {
     Rectangle,
     RoundedRectangle,
     Ellipse,
+    /// Flowchart OR preset: an ellipse with horizontal and vertical spokes.
+    FlowchartOr,
     Triangle,
+    /// A right triangle (DrawingML's `rtTriangle`): the right angle at the bottom left.
+    RightTriangle,
     Diamond,
     Line,
     Arrow,
@@ -310,6 +318,60 @@ pub enum NoteKind {
     #[default]
     Footnote,
     Endnote,
+}
+
+/// Where a positional tab ([`InlineObject::PositionalTab`]) lands on its line, and how the text
+/// after it lines up there (ECMA-376 `ST_PTabAlignment`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PTabAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+impl PTabAlign {
+    pub const ALL: [PTabAlign; 3] = [PTabAlign::Left, PTabAlign::Center, PTabAlign::Right];
+
+    /// The OOXML name (`left`, `center`, `right`).
+    pub fn ooxml(self) -> &'static str {
+        match self {
+            PTabAlign::Left => "left",
+            PTabAlign::Center => "center",
+            PTabAlign::Right => "right",
+        }
+    }
+
+    pub fn from_ooxml(v: &str) -> Option<PTabAlign> {
+        PTabAlign::ALL.into_iter().find(|a| a.ooxml() == v)
+    }
+}
+
+/// What a positional tab's place is measured against (ECMA-376 `ST_PTabRelativeTo`): the text
+/// margins, or the paragraph's indents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PTabBase {
+    #[default]
+    Margin,
+    Indent,
+}
+
+impl PTabBase {
+    pub const ALL: [PTabBase; 2] = [PTabBase::Margin, PTabBase::Indent];
+
+    /// The OOXML name (`margin`, `indent`).
+    pub fn ooxml(self) -> &'static str {
+        match self {
+            PTabBase::Margin => "margin",
+            PTabBase::Indent => "indent",
+        }
+    }
+
+    pub fn from_ooxml(v: &str) -> Option<PTabBase> {
+        PTabBase::ALL.into_iter().find(|a| a.ooxml() == v)
+    }
 }
 
 /// How ruby (phonetic guide) text lines up over its base text (ECMA-376 `ST_RubyAlign`).
@@ -444,6 +506,11 @@ pub enum InlineObject {
         result: String,
         #[serde(default)]
         locked: bool,
+        /// `w:dirty` (ECMA-376 §17.16.5.35): the cached result is stale — another program that
+        /// couldn't compute it set the flag so Word refreshes the field on open. Kept through
+        /// saves; cleared when WordCraft computes a result, like Word's F9.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dirty: bool,
         /// Shows its code (`{ PAGE }`) instead of its result, the other way round from the
         /// document-wide View › Field Codes setting (`fields.toggleCode`, Shift+F9). A view
         /// toggle: never written to files.
@@ -462,6 +529,9 @@ pub enum InlineObject {
         instr: String,
         #[serde(default)]
         locked: bool,
+        /// `w:dirty` on the begin marker, as [`InlineObject::Field::dirty`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dirty: bool,
     },
     /// The end of the innermost open [`InlineObject::FieldStart`].
     FieldEnd,
@@ -536,6 +606,17 @@ pub enum InlineObject {
         /// Formatting of the ruby text over the run's (font, colour…); its size is `size`.
         #[serde(default, skip_serializing_if = "CharProps::is_empty")]
         props: Box<CharProps>,
+    },
+    /// A positional tab (Word's alignment tab, `w:ptab`): it goes to the left edge, centre or
+    /// right edge of the margins or of the indents, whatever the paragraph's tab stops, and the
+    /// text after it lines up there. Text already past that place sends it to the next line.
+    PositionalTab {
+        #[serde(default)]
+        align: PTabAlign,
+        #[serde(default)]
+        relative_to: PTabBase,
+        #[serde(default)]
+        leader: crate::props::TabLeader,
     },
     /// Something we don't model, kept for round-trip (raw XML of the source format).
     Opaque {
@@ -666,6 +747,14 @@ impl InlineObject {
             })
             .collect()
     }
+    /// A legacy form field's definition (`FORMCHECKBOX`, `FORMTEXT`, `FORMDROPDOWN`), read from
+    /// the `w:ffData` it keeps; `None` for anything else.
+    pub fn legacy_form(&self) -> Option<crate::legacy_form::LegacyForm> {
+        match self {
+            InlineObject::Field { form, .. } if !form.is_empty() => crate::legacy_form::LegacyForm::parse(form),
+            _ => None,
+        }
+    }
     /// Zero-width markers don't take part in layout.
     pub fn is_marker(&self) -> bool {
         matches!(
@@ -744,6 +833,7 @@ impl InlineObject {
             InlineObject::Field { result, .. } => result,
             InlineObject::Equation { linear, .. } => linear,
             InlineObject::Ruby { base, .. } => base,
+            InlineObject::PositionalTab { .. } => "\t",
             InlineObject::Opaque { text, .. } => text,
             _ => "",
         }
@@ -858,7 +948,7 @@ impl Paragraph {
                 k += 1;
                 continue;
             }
-            let font = runs.peek().filter(|(r, _)| r.contains(&i)).and_then(|(_, p)| p.font.as_deref());
+            let font = runs.peek().filter(|(r, _)| r.contains(&i)).and_then(|(_, p)| p.shown_font());
             out.push(font.and_then(|f| crate::symbol_fonts::symbol_char(f, c)).unwrap_or(c));
         }
         out
@@ -1033,32 +1123,32 @@ impl Paragraph {
 
     /// Merge adjacent equal runs and drop empty ones.
     pub fn normalize(&mut self) {
+        // Runs must end on character boundaries and cover the text exactly (never expected, but
+        // files lie): clamp each end to the text, push it past a split character, pad the tail.
+        let n = self.text.len();
+        let mut end = 0usize;
         let mut out: Vec<Run> = Vec::with_capacity(self.runs.len());
         for r in self.runs.drain(..) {
-            if r.len == 0 {
+            let mut e = end.saturating_add(r.len).min(n);
+            while !self.text.is_char_boundary(e) {
+                e += 1;
+            }
+            if e == end {
                 continue;
             }
             match out.last_mut() {
-                Some(l) if l.props == r.props => l.len += r.len,
-                _ => out.push(r),
+                Some(l) if l.props == r.props => l.len += e - end,
+                _ => out.push(Run { len: e - end, props: r.props }),
+            }
+            end = e;
+        }
+        if end < n {
+            match out.last_mut() {
+                Some(l) => l.len += n - end,
+                None => out.push(Run { len: n, props: self.mark.clone() }),
             }
         }
         self.runs = out;
-        // Repair a run list that doesn't cover the text exactly (never expected, but files lie).
-        let total: usize = self.runs.iter().map(|r| r.len).sum();
-        if total != self.text.len() {
-            if total < self.text.len() {
-                let p = self.runs.last().map(|r| r.props.clone()).unwrap_or_else(|| self.mark.clone());
-                self.runs.push(Run { len: self.text.len() - total, props: p });
-            } else {
-                let mut keep = self.text.len();
-                for r in &mut self.runs {
-                    r.len = r.len.min(keep);
-                    keep -= r.len;
-                }
-                self.runs.retain(|r| r.len > 0);
-            }
-        }
     }
 
     /// Delete `a..b` (bytes). Objects inside are removed.
@@ -1351,7 +1441,7 @@ mod tests {
         let mut p = Paragraph::with_text("añb€c", CharProps::default());
         p.insert_object(
             3,
-            InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps::default(),
         )
         .unwrap();
@@ -1425,7 +1515,7 @@ mod tests {
         let mut p = Paragraph::with_text("ab", CharProps::default());
         p.insert_object(
             1,
-            InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps::default(),
         )
         .unwrap();
