@@ -1309,7 +1309,7 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
             mi(ui, app, "Bottom of Page", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
             mi(ui, app, "Page X of Y", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
             mi(ui, app, "Current Position", "insert.pageNumber", json!({"position": "current"}));
-            mi(ui, app, "Format Page Numbers…", "layout.pageNumberFormat", json!({}));
+            mi(ui, app, "Format Page Numbers…", "ui.dialog", json!({"name": "pageNumbers"}));
         });
     });
     group(ui, "Text", None, app, |ui, app| {

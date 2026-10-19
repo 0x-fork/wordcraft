@@ -498,6 +498,7 @@
 	Content Control at Selection	Kontrola sadržaja na odabiru
 	Contents can't be edited	Sadržaj se ne može uređivati
 	Context	Kontekst
+	Continue from previous section	Nastavi od prethodnog odjeljka
 	Continuous	Neprekinuto
 	Continuous numbering	Neprekinuto numeriranje
 	Contour Integral	Konturni integral
@@ -1368,6 +1369,8 @@ template	Letter	Pismo
 	Multilevel List Library	Biblioteka višerazinskih popisa
 	Article I.	Članak I.
 	Chapter 1	Poglavlje 1
+	Page Number Format	Format broja stranice
+	Page numbering	Numeriranje stranica
 	Section 1.01	Odjeljak 1.01
 	Multiple Pages	Više stranica
 	Name	Naziv

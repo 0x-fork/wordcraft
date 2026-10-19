@@ -81,6 +81,7 @@
 	Changed lines:	Променени редове:
 	Click level to modify:	Щракнете върху ниво за промяна:
 	Color only	Само цвят
+	Continue from previous section	Продължаване от предишния раздел
 	Define New Multilevel List	Дефиниране на нов многостепенен списък
 	Define New Multilevel List…	Дефиниране на нов многостепенен списък…
 	Deletions:	Изтривания:
@@ -103,6 +104,8 @@
 	Number style for this level:	Стил на номериране за това ниво:
 	Only for the selected text	Само за избрания текст
 	Outside border	Външна граница
+	Page Number Format	Формат на номерата на страниците
+	Page numbering	Номериране на страниците
 	Restart list after:	Рестартиране на списъка след:
 	Right border	Дясна граница
 	Save the document to turn on AutoSave	Запазете документа, за да включите автоматичното запазване

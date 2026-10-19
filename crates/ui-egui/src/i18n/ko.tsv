@@ -76,6 +76,7 @@
 	Click level to modify:	수정할 수준을 클릭하세요:
 	Click to switch back to inserting	클릭하여 삽입 모드로 전환
 	Color only	색만
+	Continue from previous section	이전 구역에서 계속
 	Custom dictionary	사용자 사전
 	Define New Multilevel List	새 다단계 목록 정의
 	Define New Multilevel List…	새 다단계 목록 정의…
@@ -117,7 +118,9 @@
 	Outside border	바깥쪽 테두리
 	Overtype	겹쳐쓰기
 	Overtype (typing replaces the characters after the caret)	겹쳐쓰기(입력한 문자가 커서 뒤의 문자를 대체함)
+	Page Number Format	페이지 번호 서식
 	Page display	페이지 표시
+	Page numbering	페이지 번호 매기기
 	Paragraph marks	단락 기호
 	Personalize	개인 설정
 	Picas	파이카

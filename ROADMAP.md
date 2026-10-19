@@ -141,6 +141,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
 
 | Date | What landed |
+| 2026-10-19 | Format Page Numbers (Insert › Header & Footer › Page Number ▸ Format Page Numbers…, #1113): the dialog sets the number format (1, 2, 3 / I, II, III / i, ii, iii / A, B, C / a, b, c) and whether the pages number on from the section before or start at a number; the ribbon item was a plain command call that did nothing and cleared the section's start |
 | 2026-10-19 | Save As, Export and Open no longer do nothing on Linux desktops whose file chooser portal fails to show its dialog (#2999): a "cancel" quicker than anyone could make one asks again without the parent window, then opens the built-in file browser. |
 | 2026-10-18 | Long navigation headings wrap onto further lines inside the resizable pane instead of ending in an ellipsis: the row grows with the text and the pane keeps its width (#759, #3015). |
 | 2026-10-18 | Clearing a font query with no matches keeps Recently Used Fonts visible at the top of a scrollable list. The initial scroll position no longer skips its heading; measured keyboard scrolling is unchanged (#2068). |
