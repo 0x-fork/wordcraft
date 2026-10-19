@@ -792,28 +792,20 @@ fn seq_ident(label: &str) -> String {
 }
 
 fn table_of_figures(s: &mut Session, v: &Value) -> CmdResult {
-    let at = generated_list(s, &figures_instr(v), "")?;
-    // The leader lives in the entries' tab stops (as in a table of contents); updates keep it.
-    if let Some(l) = p::str(v, "tabLeader").map(super::references::leader) {
-        let mut i = at + 1;
-        while let Ok(p) = s.doc.para_mut(StoryRef::Body, &Path::top(i)) {
-            if p.props.style.as_deref() != Some(ENTRY_STYLE) {
-                break;
-            }
-            if let Some(t) = p.props.tabs.as_mut().and_then(|t| t.last_mut()) {
-                t.leader = l;
-                p.touch();
-            }
-            i += 1;
-        }
-    }
+    generated_list_with(s, &figures_instr(v), "", p::str(v, "tabLeader").map(super::references::leader))?;
     sel_result(s)
 }
 
 /// Generated lists (BIBLIOGRAPHY, INDEX, table of figures, TOA): a heading paragraph holding
-/// the field, then entry paragraphs marked with the "GeneratedEntry" style family. Returns the
-/// heading's body block.
-pub(crate) fn generated_list(s: &mut Session, instr: &str, title: &str) -> Result<usize, CmdError> {
+/// the field, then entry paragraphs marked with the "GeneratedEntry" style family.
+pub(crate) fn generated_list(s: &mut Session, instr: &str, title: &str) -> Result<(), CmdError> {
+    generated_list_with(s, instr, title, None)
+}
+
+/// [`generated_list`] whose entries take `leader`. The leader lives in the entries' tab stops (as
+/// in a table of contents) and an update keeps the first entry's, so a placeholder entry carries
+/// it through the rebuild, however the lists above it change.
+fn generated_list_with(s: &mut Session, instr: &str, title: &str, leader: Option<TabLeader>) -> Result<(), CmdError> {
     let at = delete_selection(s)?;
     if at.story != StoryRef::Body || at.path.depth() > 0 {
         return Err(CmdError::Failed("lists go in the main text".into()));
@@ -827,8 +819,12 @@ pub(crate) fn generated_list(s: &mut Session, instr: &str, title: &str) -> Resul
     )?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) { at.path.last() } else { s.doc.split_paragraph(&at)?.path.last() };
     s.doc.insert_block(StoryRef::Body, &Path::top(i), Block::Para(head))?;
-    update_generated(s)?;
-    Ok(i)
+    if let Some(leader) = leader {
+        let mut seed = Paragraph::new().styled(ENTRY_STYLE);
+        seed.props.tabs = Some(vec![TabStop { pos: 0.0, align: TabAlign::Right, leader }]);
+        s.doc.insert_block(StoryRef::Body, &Path::top(i.saturating_add(1)), Block::Para(seed))?;
+    }
+    update_generated(s)
 }
 
 fn list_kind(p: &Paragraph) -> Option<String> {
@@ -850,9 +846,20 @@ fn figures_label(instr: &str) -> Option<String> {
     Some(f.arg('c').or_else(|| f.arg('a')).map_or_else(|| "Figure".to_string(), seq_ident))
 }
 
-/// Whether `p` is a caption numbered by SEQ identifier `ident` (any case, as Word matches it).
+/// Whether `p` is a caption numbered by SEQ identifier `ident` (any case, as Word matches it). A
+/// caption typed by hand, without a SEQ field, goes by its label.
 fn captioned_as(p: &Paragraph, ident: &str) -> bool {
-    p.props.style.as_deref() == Some("Caption") && caption_label(p, &p.plain_text()).is_some_and(|l| seq_ident(&l).eq_ignore_ascii_case(ident))
+    if p.props.style.as_deref() != Some("Caption") {
+        return false;
+    }
+    let seq = p.objects.iter().find_map(|o| match o {
+        InlineObject::Field { instr, .. } => Some(FieldCode::parse(instr)).filter(|f| f.name == "SEQ"),
+        _ => None,
+    });
+    match seq {
+        Some(f) => f.args.first().is_some_and(|id| id.eq_ignore_ascii_case(ident)),
+        None => caption_label(p, &p.plain_text()).is_some_and(|l| seq_ident(&l).eq_ignore_ascii_case(ident)),
+    }
 }
 
 /// A caption's text without its label and number (`\a`): what follows its SEQ field, or for a
@@ -1500,6 +1507,61 @@ mod tests {
         s.run("references.updateFigures", &json!({})).unwrap();
         let entries: Vec<String> = list_entries(&s).into_iter().map(|(t, _)| t).collect();
         assert_eq!(entries, ["Typed\t1", "Dashed\t1"]);
+    }
+
+    /// #3013 review: the leader asked for lands on the new list even when a list above it is out
+    /// of date and gains entries (moving the new one down) while every list is rebuilt.
+    #[test]
+    fn table_of_figures_leader_survives_a_stale_list_above() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Kiln\nPress\nRock\n"));
+        for (text, label) in [("Kiln", "Figure"), ("Press", "Table")] {
+            s.run("select.text", &json!({"text": text})).unwrap();
+            s.run("references.caption", &json!({"label": label, "text": text})).unwrap();
+        }
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("references.tableOfFigures", &json!({})).unwrap();
+        s.run("select.text", &json!({"text": "Rock"})).unwrap();
+        s.run("references.caption", &json!({"label": "Figure", "text": "Rock"})).unwrap();
+        assert_eq!(list_entries(&s).len(), 1, "the list of figures is out of date");
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("references.tableOfFigures", &json!({"label": "Table", "tabLeader": "hyphen"})).unwrap();
+        let want = [("Figure 1: Kiln\t1", TabLeader::Dot), ("Figure 2: Rock\t1", TabLeader::Dot), ("Table 1: Press\t1", TabLeader::Hyphen)];
+        let want: Vec<(String, Option<TabLeader>)> = want.iter().map(|(t, l)| (t.to_string(), Some(*l))).collect();
+        assert_eq!(list_entries(&s), want);
+    }
+
+    /// #3013 review: `\c` picks captions by their SEQ identifier, as Word does, not by the text
+    /// before the number (`STYLEREF`, " Specimen ", `SEQ Figure` is a figure).
+    #[test]
+    fn table_of_figures_goes_by_the_seq_identifier() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Rock\n"));
+        let field = |instr: &str| InlineObject::Field {
+            instr: instr.into(),
+            result: String::new(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        };
+        let plain = CharProps::default();
+        let mut imported = Paragraph::new().styled("Caption");
+        imported.insert_object(0, field("STYLEREF 1 \\s"), &plain).unwrap();
+        imported.insert_text(imported.len(), " Specimen ", &plain).unwrap();
+        imported.insert_object(imported.len(), field("SEQ Figure \\* ARABIC"), &plain).unwrap();
+        imported.insert_text(imported.len(), ": A rock", &plain).unwrap();
+        s.doc.insert_block(StoryRef::Body, &Path::top(1), Block::Para(imported)).unwrap();
+        for (label, listed) in [("Figure", true), ("Specimen", false)] {
+            let mut s = Session::new(s.doc.clone());
+            s.run("caret.docEnd", &json!({})).unwrap();
+            s.run("text.newParagraph", &json!({})).unwrap();
+            s.run("references.tableOfFigures", &json!({"label": label, "includeLabel": false})).unwrap();
+            let entries: Vec<String> = list_entries(&s).into_iter().map(|(t, _)| t).collect();
+            assert_eq!(entries.len(), usize::from(listed), "{label}: {entries:?}");
+            if listed {
+                assert_eq!(entries.first().map(|t| t.split('\t').next()), Some(Some("A rock")));
+            }
+        }
     }
 
     /// #2940: a caption may start with its chapter number (`STYLEREF`) and carry its label text

@@ -1445,6 +1445,8 @@ mod tests {
     /// labels, so a list of tables (or of a custom label) can be built next to a list of figures.
     #[test]
     fn table_of_figures_dialog_picks_the_caption_label() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{NodeT, Queryable};
         let mut a = app("Kiln\nPress\nRock\n");
         for (text, label) in [("Kiln", "Figure"), ("Press", "Table"), ("Rock", "Specimen")] {
             a.run("select.text", json!({"text": text})).unwrap();
@@ -1457,10 +1459,43 @@ mod tests {
         assert_eq!(f.labels, ["Equation", "Figure", "Table", "Specimen"]);
         f.label = "Table".into();
         f.leader = "underscore".into();
-        a.run("references.tableOfFigures", f.params()).unwrap();
+        a.dialog = Some(Dialog::Refs(Box::new(RefsDialog::Figures(f))));
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_role_and_label(Role::Window, "Table of Figures");
+        // Without page numbers there is nothing to align: the margin choice is off until they are back.
+        let margin = |h: &egui_kittest::Harness<'_, WordApp>| {
+            h.get_by_role_and_label(Role::CheckBox, "Page numbers at the right margin").accesskit_node().is_disabled()
+        };
+        assert!(!margin(&h));
+        h.get_by_role_and_label(Role::CheckBox, "Include page numbers").click();
+        h.run_steps(2);
+        assert!(margin(&h), "no page numbers: no right margin choice");
+        h.get_by_role_and_label(Role::CheckBox, "Include page numbers").click();
+        h.run_steps(2);
+        assert!(!margin(&h));
+        h.get_all_by_role_and_label(Role::Button, "OK").last().expect("the dialog's OK button").click();
+        h.run_steps(3);
+        assert!(h.state().dialog.is_none(), "OK closes the dialog");
+        let mut a = h.into_state();
         assert!(instrs(&a).contains(&r#"TOC \c "Table""#.to_string()), "{:?}", instrs(&a));
-        let text = a.session.doc.plain_text(StoryRef::Body);
-        assert!(text.contains("Table 1: Press\t1") && !text.contains("Figure 1: Kiln\t"), "{text}");
+        let entries: Vec<(String, Option<wordcraft_doc::props::TabLeader>)> = a
+            .session
+            .doc
+            .body
+            .iter()
+            .filter_map(|b| b.as_para())
+            .filter(|p| p.props.style.as_deref() == Some("ListEntry"))
+            .map(|p| (p.plain_text(), p.props.tabs.as_ref().and_then(|t| t.last()).map(|t| t.leader)))
+            .collect();
+        assert_eq!(entries, [("Table 1: Press\t1".to_string(), Some(wordcraft_doc::props::TabLeader::Underscore))]);
         a.run("caret.docEnd", json!({})).unwrap();
         a.run("ui.dialog", json!({"name": "tableOfFigures"})).unwrap();
         let RefsDialog::Figures(mut f) = form(&a) else { panic!() };
