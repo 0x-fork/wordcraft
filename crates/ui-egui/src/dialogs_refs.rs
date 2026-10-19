@@ -251,8 +251,10 @@ impl CaptionForm {
                 .body
                 .get(app.session.sel.focus.path.0.first().copied().unwrap_or(0) as usize)
                 .is_some_and(|b| matches!(&**b, Block::Table(_)));
+        let last = &app.ui.last_caption_label;
+        let label = if labels.contains(last) { last.as_str() } else { "Figure" };
         CaptionForm {
-            label: if in_table { "Table" } else { "Figure" }.into(),
+            label: if in_table { "Table" } else { label }.into(),
             labels,
             text: String::new(),
             position: "below".into(),
@@ -293,6 +295,13 @@ impl CaptionForm {
             v["separator"] = json!(self.separator);
         }
         v
+    }
+
+    /// Insert the caption and remember its label for next time.
+    pub fn insert(&self, app: &mut WordApp) -> Result<(), String> {
+        app.run("references.caption", self.params())?;
+        app.ui.last_caption_label = self.label.clone();
+        Ok(())
     }
 }
 
@@ -339,7 +348,7 @@ fn caption_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) -> Next {
         return go(g);
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
-    if ok && let Err(e) = app.run("references.caption", f.params()) {
+    if ok && let Err(e) = f.insert(app) {
         app.status(e);
     }
     if ok || cancel { Next::Close } else { Next::Stay }
@@ -1219,6 +1228,28 @@ mod tests {
         // The label is offered next time and saved with the preferences.
         assert!(CaptionForm::read(&a).labels.contains(&"Plate".to_string()));
         assert_eq!(a.prefs().caption_labels, vec!["Plate".to_string()]);
+    }
+
+    /// #3120: Insert Caption picks the label used last, and saves it with the preferences.
+    #[test]
+    fn caption_dialog_remembers_the_last_label() {
+        let mut a = app("A chart\nA photo");
+        a.ui.caption_labels.push("Slika".into());
+        a.run("select.text", json!({"text": "A chart"})).unwrap();
+        let mut f = CaptionForm::read(&a);
+        assert_eq!(f.label, "Figure");
+        f.label = "Slika".into();
+        f.insert(&mut a).unwrap();
+        assert!(a.session.doc.plain_text(StoryRef::Body).contains("Slika 1"));
+        a.run("select.text", json!({"text": "A photo"})).unwrap();
+        assert_eq!(CaptionForm::read(&a).label, "Slika");
+        assert_eq!(a.prefs().last_caption_label, "Slika");
+        // In a table it is still Table; a deleted label falls back to Figure.
+        a.run("insert.table", json!({"rows": 1, "cols": 2})).unwrap();
+        assert_eq!(CaptionForm::read(&a).label, "Table");
+        a.run("select.text", json!({"text": "A chart"})).unwrap();
+        a.ui.caption_labels.clear();
+        assert_eq!(CaptionForm::read(&a).label, "Figure");
     }
 
     /// #916: Cross-reference from the ribbon opens a dialog listing the targets of each type

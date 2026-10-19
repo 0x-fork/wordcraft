@@ -313,6 +313,8 @@ pub struct UiState {
     /// Caption labels the user added (References › Insert Caption › New Label), kept between
     /// runs like Word keeps them in its Normal template (#402).
     pub caption_labels: Vec<String>,
+    /// The label of the last caption inserted, picked again next time (#3120).
+    pub last_caption_label: String,
     /// Draw › Add Pen: the pens added to the pen gallery; the session owns them while running.
     /// Entries that aren't pens are dropped on reading.
     #[serde(deserialize_with = "wordcraft_engine::cmd::draw::lenient_pens")]
@@ -390,6 +392,7 @@ impl Default for UiState {
             keyboard: wordcraft_engine::KeyMap::default(),
             ribbon: wordcraft_engine::RibbonLayout::default(),
             caption_labels: Vec::new(),
+            last_caption_label: String::new(),
             ink_pens: Vec::new(),
             initials: String::new(),
             options_pane: "general".into(),
