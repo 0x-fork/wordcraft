@@ -1233,23 +1233,41 @@ mod tests {
     /// #3120: Insert Caption picks the label used last, and saves it with the preferences.
     #[test]
     fn caption_dialog_remembers_the_last_label() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
         let mut a = app("A chart\nA photo");
-        a.ui.caption_labels.push("Slika".into());
+        a.ui.caption_labels.push("Diagram".into());
         a.run("select.text", json!({"text": "A chart"})).unwrap();
-        let mut f = CaptionForm::read(&a);
-        assert_eq!(f.label, "Figure");
-        f.label = "Slika".into();
-        f.insert(&mut a).unwrap();
-        assert!(a.session.doc.plain_text(StoryRef::Body).contains("Slika 1"));
-        a.run("select.text", json!({"text": "A photo"})).unwrap();
-        assert_eq!(CaptionForm::read(&a).label, "Slika");
-        assert_eq!(a.prefs().last_caption_label, "Slika");
+        a.run("references.caption", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_value("Figure").click();
+        h.run_steps(3);
+        h.get_by_label("Diagram").click();
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "OK").click();
+        h.run_steps(3);
+        assert!(h.state().dialog.is_none(), "OK closes the dialog");
+        assert!(h.state().session.doc.plain_text(StoryRef::Body).contains("Diagram 1"));
+        h.state_mut().run("select.text", json!({"text": "A photo"})).unwrap();
+        h.state_mut().run("references.caption", json!({})).unwrap();
+        h.run_steps(4);
+        h.get_by_value("Diagram");
+        assert_eq!(h.state().prefs().last_caption_label, "Diagram");
         // In a table it is still Table; a deleted label falls back to Figure.
+        let a = h.state_mut();
         a.run("insert.table", json!({"rows": 1, "cols": 2})).unwrap();
-        assert_eq!(CaptionForm::read(&a).label, "Table");
+        assert_eq!(CaptionForm::read(a).label, "Table");
         a.run("select.text", json!({"text": "A chart"})).unwrap();
         a.ui.caption_labels.clear();
-        assert_eq!(CaptionForm::read(&a).label, "Figure");
+        assert_eq!(CaptionForm::read(a).label, "Figure");
     }
 
     /// #916: Cross-reference from the ribbon opens a dialog listing the targets of each type
