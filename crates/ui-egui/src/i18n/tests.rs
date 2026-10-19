@@ -992,7 +992,7 @@ fn polish_covers_every_key_of_every_other_catalog() {
     // pieces of gallery labels. Polish matches every other catalog, including the built-in style
     // names, citation styles and equation gallery. French carries newer strings (paper sizes,
     // bookmarks, printing) the Polish catalog hasn't caught up with yet.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr")) {
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "ro")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1559,4 +1559,65 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
         }
     }
     assert!(!lang("vi").uses_cjk());
+}
+
+#[test]
+fn romanian_locales_and_saved_preference_work_without_changing_the_document() {
+    let ro = lang("ro");
+    for tag in ["ro", "ro-RO", "ro_RO.UTF-8", "RO-ro", "ro-Latn-RO", "ro-MD"] {
+        assert_eq!(lang_from_tag(tag), Some(ro), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "ro-RO", "en-US"]), Some(ro));
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "RO"})).unwrap();
+    assert_eq!(result["effective"], "ro");
+    assert_eq!(app.ui.language, "ro");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "ro" && l["name"] == "Română"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), ro);
+    assert_eq!(ro.name(), "Română");
+    assert!(!ro.uses_cjk());
+}
+
+#[test]
+fn romanian_covers_every_key_of_every_other_catalog_and_keeps_placeholders() {
+    use std::collections::HashSet;
+    let ro = lang("ro");
+    let (entries, errors) = parse_entries(ro.0.source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let ro_keys: HashSet<_> = entries.iter().map(|e| (e.context.clone(), e.source.clone())).collect();
+    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "ro") {
+        let (other_entries, other_errors) = parse_entries(other.0.source);
+        assert!(other_errors.is_empty(), "{}: {other_errors:?}", other.code());
+        let mut missing: Vec<_> = other_entries.into_iter().map(|e| (e.context, e.source)).filter(|k| !ro_keys.contains(k)).collect();
+        missing.sort();
+        // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
+        missing.retain(|(_, k)| k != "Style: APA" || !matches!(other.code(), "it" | "hu"));
+        assert!(missing.is_empty(), "ro lacks {}'s {missing:?}", other.code());
+    }
+    assert_eq!(tr(ro, "Home"), "Pornire");
+    assert_eq!(tr(ro, "Save"), "Salvare");
+    assert_eq!(tr(ro, "unknown future label"), "unknown future label");
+    assert_eq!(fmt(tr(ro, "Exported {path}"), &[("path", "draft.docx")]), "Exportat: draft.docx");
+}
+
+#[test]
+fn bundled_interface_fonts_cover_romanian_without_system_fallbacks() {
+    let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    let (entries, errors) = parse_entries(lang("ro").0.source);
+    assert!(errors.is_empty());
+    // Romanian's letters beyond plain ASCII (comma-below ș ț) and its quotation marks.
+    let extra = ['ă', 'â', 'î', 'ș', 'ț', 'Ă', 'Â', 'Î', 'Ș', 'Ț', '„', '”'];
+    let chars: std::collections::HashSet<char> =
+        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| extra.contains(c)).chain(extra).collect();
+    for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
+        let face = db.face(family, style);
+        assert_eq!(face.family, family, "must use the bundled interface face");
+        for ch in &chars {
+            assert_ne!(face.glyph_for(*ch), 0, "{family} {style} lacks {ch}");
+        }
+    }
 }
