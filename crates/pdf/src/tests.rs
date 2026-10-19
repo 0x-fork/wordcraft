@@ -1903,6 +1903,7 @@ fn described_shapes_are_figures_with_their_description() {
     for (name, float) in cases {
         let raw = tagged_shape_pdf(Float { alt: described.clone(), ..float.clone() }, false);
         assert!(raw.contains("/Alt(Arrow pointing to the exit)"), "{name}: a described shape is a Figure with its description");
+        assert_eq!(raw.matches("/Alt(").count(), 1, "{name}: the described shape is one Figure");
         assert!(raw.contains("0 0 1 rg"), "{name}: the shape is drawn");
         assert!(!tagged_shape_pdf(float.clone(), false).contains("/Alt("), "{name}: an undescribed shape stays an artifact");
         let decorative = AltText { decorative: true, ..described.clone() };
