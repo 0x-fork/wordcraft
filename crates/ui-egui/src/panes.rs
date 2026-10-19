@@ -312,18 +312,18 @@ fn styles(app: &mut WordApp, ui: &mut Ui) {
         let _ = app.run("styles.inspector", json!({}));
     }
     ui.separator();
-    let mut list: Vec<(String, String, bool)> = app
+    let mut list: Vec<(String, String, bool, bool)> = app
         .session
         .doc
         .styles
         .styles
         .iter()
         .filter(|s| !s.hidden && s.kind != wordcraft_doc::StyleKind::Table)
-        .map(|s| (s.id.clone(), crate::i18n::style_name(s), s.kind == wordcraft_doc::StyleKind::Character))
+        .map(|s| (s.id.clone(), crate::i18n::style_name(s), s.kind == wordcraft_doc::StyleKind::Character, s.builtin))
         .collect();
     list.sort_by_key(|s| s.1.to_lowercase());
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for (id, name, is_char) in list {
+        for (id, name, is_char, builtin) in list {
             ui.horizontal(|ui| {
                 let r = ui.selectable_label(id == cur, &name);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -343,7 +343,7 @@ fn styles(app: &mut WordApp, ui: &mut Ui) {
                         app.canvas.want_focus = true;
                         ui.close();
                     }
-                    if ui.button(tl!("Delete")).clicked() {
+                    if ui.add_enabled(!builtin, egui::Button::new(tl!("Delete"))).clicked() {
                         let _ = app.run("styles.delete", json!({"style": id}));
                         app.canvas.want_focus = true;
                         ui.close();
@@ -870,6 +870,44 @@ mod tests {
         h.run_steps(4);
         assert!(h.state().canvas.focused, "Delete returns focus to the document");
         assert!(h.state().session.clip_history.items().is_empty(), "the item was deleted");
+    }
+
+    /// #3032: Delete is greyed out for built-in styles in the Styles pane (the engine refuses
+    /// them — `crates/engine/src/cmd/para.rs`), while custom styles keep it enabled.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn built_in_styles_grey_out_delete_in_the_styles_pane() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+
+        /// Draw only the pane, so each style name labels exactly one node — the ribbon's Styles
+        /// gallery shows the same names — right-click the row, and report whether its Delete is
+        /// greyed out.
+        fn delete_is_disabled(style: &str) -> bool {
+            let mut app =
+                crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+            app.run("styles.create", serde_json::json!({"name": "Callout"})).unwrap();
+            // The pane writes in the "semibold" family, which the app installs with the rest of the
+            // interface fonts (`chrome::title_bar`). Fonts take effect the frame after they are set,
+            // so the first frame only installs them and the pane is drawn from the second on.
+            let mut fonts = false;
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 1200.0)).build_ui_state(
+                |ui, app: &mut crate::WordApp| {
+                    if !fonts {
+                        crate::theme::install_fonts(ui.ctx());
+                        fonts = true;
+                        return;
+                    }
+                    super::styles(app, ui);
+                },
+                app,
+            );
+            h.run_steps(4);
+            h.get_by_label(style).click_secondary();
+            h.run_steps(3);
+            h.get_by_label("Delete").accesskit_node().is_disabled()
+        }
+        assert!(delete_is_disabled("Normal"), "the built-in style's Delete is greyed out");
+        assert!(!delete_is_disabled("Callout"), "the custom style's Delete stays enabled");
     }
 }
 
