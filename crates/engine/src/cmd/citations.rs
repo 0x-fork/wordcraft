@@ -889,7 +889,14 @@ fn caption_body(p: &Paragraph, label: &str) -> String {
         }
         None => {
             let text = p.plain_text();
-            let after = text.trim_start().strip_prefix(label).unwrap_or(&text).trim_start();
+            // The label in any case, as captions are matched (ASCII case keeps the byte length).
+            let start = text.trim_start();
+            let after = start
+                .get(..label.len())
+                .filter(|head| head.eq_ignore_ascii_case(label))
+                .and_then(|_| start.get(label.len()..))
+                .unwrap_or(&text)
+                .trim_start();
             // The number: the word after the label, when it starts with a digit.
             match after.find(char::is_whitespace) {
                 Some(n) if after.starts_with(|c: char| c.is_ascii_digit()) => after[n..].to_string(),
@@ -1507,11 +1514,12 @@ mod tests {
     }
 
     /// #3013: a table of figures from Word (`TOC \h \z \c "Figure"`, switches in any order) and
-    /// hand-typed captions are listed; a caption whose label only starts with another's is not.
+    /// hand-typed captions are listed (the label in any case); a caption whose label only starts
+    /// with another's is not.
     #[test]
     fn table_of_figures_from_word_and_typed_captions() {
-        let mut d = wordcraft_doc::Document::from_text("Figure 1: Typed\nFigures 2: Not a figure\nFigure 3 \u{2014} Dashed\nList");
-        for path in d.para_paths(StoryRef::Body).into_iter().take(3) {
+        let mut d = wordcraft_doc::Document::from_text("Figure 1: Typed\nFigures 2: Not a figure\nFigure 3 \u{2014} Dashed\nfigure 4: Lower\nList");
+        for path in d.para_paths(StoryRef::Body).into_iter().take(4) {
             d.para_mut(StoryRef::Body, &path).unwrap().props.style = Some("Caption".into());
         }
         let mut s = Session::new(d);
@@ -1529,7 +1537,7 @@ mod tests {
         s.doc.insert_object(&at, field, &CharProps::default()).unwrap();
         s.run("references.updateFigures", &json!({})).unwrap();
         let entries: Vec<String> = list_entries(&s).into_iter().map(|(t, _)| t).collect();
-        assert_eq!(entries, ["Typed\t1", "Dashed\t1"]);
+        assert_eq!(entries, ["Typed\t1", "Dashed\t1", "Lower\t1"]);
     }
 
     /// #3013 review: the leader asked for lands on the new list even when a list above it is out
