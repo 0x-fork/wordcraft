@@ -31,6 +31,8 @@ pub fn default_threads() -> u16 {
     }
 }
 
+mod context_pool;
+
 /// Largest raster side vello_cpu handles comfortably.
 pub const MAX_SIDE: u32 = 16_000;
 
@@ -519,7 +521,7 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     // Over the cap the whole picture is drawn smaller, not cropped.
     let view = if (cw, ch) == (w, h) { view } else { Affine::scale_non_uniform(cw as f64 / w as f64, ch as f64 / h as f64) * view };
     let (w16, h16) = (cw as u16, ch as u16);
-    let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: default_threads(), ..Default::default() });
+    let mut ctx = context_pool::CONTEXTS.take(w16, h16);
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
     ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64));
@@ -538,6 +540,7 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     if let Some(pm) = vello_cpu::PixmapMut::new(w16, h16, &mut pixels) {
         ctx.render(pm, &mut res);
     }
+    context_pool::CONTEXTS.give_back(ctx);
     Rendered { width: w16 as u32, height: h16 as u32, pixels }
 }
 
