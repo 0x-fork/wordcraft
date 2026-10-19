@@ -248,6 +248,8 @@ pub struct Tokens {
     pub pressed: Color32,
     pub checked: Color32,
     pub accent: Color32,
+    /// The File page's side bar; white text and icons sit on it in both themes.
+    pub nav: Color32,
     pub accent_text: Color32,
     /// Text/icon colour drawn on top of `accent` (e.g. keytip badge letters).
     pub on_accent: Color32,
@@ -314,6 +316,7 @@ impl Tokens {
             pressed: Color32::from_rgb(0xD6, 0xD6, 0xD6),
             checked: Color32::from_rgb(0xDD, 0xE3, 0xF8),
             accent: APP_COLOR,
+            nav: APP_COLOR,
             accent_text: APP_INK,
             on_accent: Color32::WHITE,
             input: Color32::WHITE,
@@ -377,6 +380,7 @@ impl Tokens {
             pressed: Color32::from_rgb(0x4A, 0x4A, 0x4A),
             checked: Color32::from_rgb(0x2E, 0x3A, 0x66),
             accent: Color32::from_rgb(0x7A, 0x93, 0xF0),
+            nav: Color32::from_rgb(0x27, 0x31, 0x5C),
             accent_text: Color32::from_rgb(0x9C, 0xB0, 0xF5),
             // Dark text on the light dark-theme accent: white on #7a93f0 is only 2.9:1 (#655).
             on_accent: Color32::from_rgb(0x11, 0x16, 0x2E),
@@ -812,6 +816,15 @@ mod tests {
                 let r = contrast(t.on_accent, bg);
                 assert!(r >= 4.5, "dark={}: on_accent on {name} is {r:.2}:1", t.dark);
             }
+        }
+    }
+
+    /// White text and icons on the File page's side bar reach 4.5:1 in both themes.
+    #[test]
+    fn the_file_sidebar_reads_in_both_themes() {
+        for t in [super::Tokens::light(), super::Tokens::dark()] {
+            let r = contrast(egui::Color32::WHITE, t.nav);
+            assert!(r >= 4.5, "dark={}: white on the sidebar is {r:.2}:1", t.dark);
         }
     }
 
