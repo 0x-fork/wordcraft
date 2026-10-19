@@ -3908,6 +3908,52 @@ fn justified_lines_shrink_spaces_in_word_2013_mode() {
     }
 }
 
+/// Measured in Word for Mac (compatibility mode 15, justified paragraphs of one repeated word,
+/// the right indent leaving room for N words plus one more that fits only if the spaces shrink):
+/// the spaces give up at most a quarter of their width, and a word with the space before it may
+/// overrun the line by at most 0.355 of its own width ("nn" fitted with its line's spaces 14.5%
+/// shrunk, "nnnn" with 25%). WordCraft allowed 20% whatever the word, so long words wrapped too
+/// early and short ones too late.
+#[test]
+fn justified_spaces_shrink_a_quarter_at_most_and_by_the_word() {
+    let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+    let para = |text: &str, align: Align, right: f32| {
+        let mut d = Document::new();
+        d.settings.compat_mode = 15;
+        let mut p = wordcraft_doc::Paragraph::with_text(text, chr.clone());
+        p.props = ParaProps { align: Some(align), indent_right: Some(right), ..Default::default() };
+        d.body = vec![wordcraft_doc::para_block(p)];
+        d
+    };
+    // Words on the first line.
+    let first = |d: &Document| {
+        let l = lay(d);
+        let para = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None }).unwrap();
+        let line = &para.lines[0];
+        d.para(StoryRef::Body, &Path::top(0)).unwrap().text[line.start..line.stop].split_whitespace().count()
+    };
+    let n = 12;
+    for word in ["nn", "nnnn", "nnnnnnnn"] {
+        // The word's and the space's widths, from a left-aligned line.
+        let probe = para(&format!("{word} {word}"), Align::Left, 0.0);
+        let l = lay(&probe);
+        let pl = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None }).unwrap();
+        let w = pl.x_of(0, word.len()).unwrap() - pl.x_of(0, 0).unwrap();
+        let sw = pl.x_of(0, word.len() + 1).unwrap() - pl.x_of(0, word.len()).unwrap();
+        let spaces = n as f32 * sw;
+        let room = (0.25 * spaces).min(0.355 * (w + sw));
+        let width = |overrun: f32| (n + 1) as f32 * w + spaces - overrun;
+        let text = vec![word; 3 * n].join(" ");
+        let full = probe.last_section.text_width();
+        for (overrun, words) in [(room - 0.1, n + 1), (room + 0.1, n)] {
+            let d = para(&text, Align::Justify, full - width(overrun));
+            assert_eq!(first(&d), words, "'{word}': overrun {overrun:.2} of {room:.2} allowed");
+        }
+        // Left-aligned text never shrinks.
+        assert_eq!(first(&para(&text, Align::Left, full - width(0.1))), n, "'{word}' left-aligned");
+    }
+}
+
 #[test]
 fn space_shrinking_is_only_for_justified_text() {
     let text = "We tie the spend to a pipe and to the books, so it is in an ad hoc view of all of it. ".repeat(40);
