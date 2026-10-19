@@ -384,6 +384,43 @@ fn a_run_no_preferred_face_covers_whole_loads_an_installed_font_that_does() {
 }
 
 #[test]
+fn a_collection_whose_faces_only_together_map_a_run_does_not_end_the_search() {
+    // The index keeps one coverage per file: a collection's faces together may map a run that
+    // none of them covers alone. The search goes on to the font that does.
+    let dir = font_dir("run-collection");
+    let regular = "SourceSans3-Regular.ttf";
+    std::fs::write(dir.join("1-first.ttf"), mapping(regular, "Sysfont Part1", 0xF_0001, 0xF_0001)).unwrap();
+    std::fs::write(dir.join("2-second.ttf"), mapping(regular, "Sysfont Part2", 0xF_0002, 0xF_0002)).unwrap();
+    let split = collection(&[mapping(regular, "Sysfont Coll1", 0xF_0001, 0xF_0001), mapping(regular, "Sysfont Coll2", 0xF_0002, 0xF_0002)]);
+    std::fs::write(dir.join("3-split.ttc"), split).unwrap();
+    std::fs::write(dir.join("4-both.ttf"), mapping(regular, "Sysfont Both4", 0xF_0001, 0xF_0002)).unwrap();
+    let db = FontDb::with_font_dirs(vec![dir]);
+    let latin = db.face(FALLBACK_FAMILY, "Regular");
+    let f = db.fallback_for_run(&['\u{F0001}', '\u{F0002}'], latin.id(), false, false).expect("the font after the collection maps the run");
+    assert_eq!(f.family, "Sysfont Both4");
+}
+
+#[test]
+fn a_family_partly_loaded_by_a_character_fallback_is_loaded_whole_for_a_run() {
+    // A character's fallback loads one file of a family (its Italic); a run that the family maps
+    // must still get the Regular, not the Bold file the search reaches first.
+    let dir = font_dir("run-partly-loaded");
+    std::fs::write(dir.join("1-fam-it.ttf"), mapping("SourceSans3-It.ttf", "Sysfont Famly", 0xF_0005, 0xF_0005)).unwrap();
+    std::fs::write(dir.join("1b-other.ttf"), mapping("SourceSans3-Regular.ttf", "Sysfont Other", 0xF_0006, 0xF_0006)).unwrap();
+    std::fs::write(dir.join("2-fam-bold.ttf"), mapping("SourceSans3-Bold.ttf", "Sysfont Famly", 0xF_0005, 0xF_0006)).unwrap();
+    std::fs::write(dir.join("3-fam.ttf"), mapping("SourceSans3-Regular.ttf", "Sysfont Famly", 0xF_0005, 0xF_0006)).unwrap();
+    let db = FontDb::with_font_dirs(vec![dir]);
+    let latin = db.face(FALLBACK_FAMILY, "Regular");
+    // The character fallback loads the family's Italic file only.
+    let it = db.fallback_for('\u{F0005}', latin.id()).expect("the Italic file maps it");
+    assert_eq!((it.family.as_str(), it.style.as_str()), ("Sysfont Famly", "Italic"));
+    let f = db.fallback_for_run(&['\u{F0005}', '\u{F0006}'], latin.id(), false, false).expect("the family maps the run");
+    assert_eq!((f.family.as_str(), f.style.as_str()), ("Sysfont Famly", "Regular"));
+    // Each of its files loaded once.
+    assert_eq!(db.read_faces().iter().filter(|f| f.family == "Sysfont Famly").count(), 3);
+}
+
+#[test]
 fn coverage_ranges_hold_exactly_the_mapped_characters() {
     let data = renamed("SourceSans3-Regular.ttf");
     let ranges = coverage_ranges(&data);
