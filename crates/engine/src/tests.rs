@@ -7681,6 +7681,12 @@ fn rename_document_preserves_saved_contents_and_rejects_collisions() {
     s.run("file.rename", &json!({"name": ".docm"})).unwrap();
     assert_eq!(s.path.as_ref(), Some(&dir.join(".docm.docm")));
     assert_eq!(std::fs::read(dir.join(".docm.docm")).unwrap(), b"original bytes");
+    // A name whose bytes do not line up with the extension's length: comparing by slicing at
+    // `len - ext.len()` could land inside a character and panic (#2983 review).
+    s.run("file.rename", &json!({"name": "abécde"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("abécde.docm")));
+    s.run("file.rename", &json!({"name": "résumé.docm"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("résumé.docm")));
     // Whatever its case; the file is named as typed, so the extension follows the name.
     s.run("file.rename", &json!({"name": "Report.DOCM"})).unwrap();
     assert_eq!(s.path.as_ref(), Some(&dir.join("Report.DOCM")));

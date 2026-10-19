@@ -50,9 +50,10 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
         // extension alone (".docx") is a stem, not a file name, so it still gets one.
         if let Some(ext) = path.extension() {
             let ext = ext.to_string_lossy();
-            let given = name.len() > ext.len() + 1
-                && name[name.len() - ext.len()..].eq_ignore_ascii_case(ext.as_ref())
-                && name.as_bytes()[name.len() - ext.len() - 1] == b'.';
+            // Split at the name's own last dot rather than counting bytes back from its end: a
+            // name whose characters are more than one byte each ("résumé.docm") would be cut
+            // inside one of them, and slicing there panics (#3128 review).
+            let given = name.rsplit_once('.').is_some_and(|(stem, suffix)| !stem.is_empty() && suffix.eq_ignore_ascii_case(ext.as_ref()));
             destination.set_file_name(if given { name.to_string() } else { format!("{name}.{ext}") });
         }
         if destination != *path {
