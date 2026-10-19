@@ -1088,6 +1088,27 @@ fn right_tab_whose_text_does_not_fit_moves_to_the_next_line_with_it() {
     }
 }
 
+/// A left tab whose only stop is past the right indent wraps; on the next line it still can't
+/// reach that stop, so it takes no room there and its text starts at the indent instead of
+/// going to a line of its own.
+#[test]
+fn left_tab_past_the_right_indent_does_not_add_a_line() {
+    use wordcraft_doc::props::{TabAlign, TabLeader, TabStop};
+    let text = "Name\tPage";
+    let mut d = Document::from_text(text);
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| {
+        p.tabs = Some(vec![TabStop { pos: 500.0, align: TabAlign::Left, leader: TabLeader::None }])
+    })
+    .unwrap();
+    let l = lay(&d);
+    let Some(para) = l.pages[0].items.iter().find_map(|i| if let Placed::Lines { para, .. } = i { Some(para.clone()) } else { None }) else {
+        panic!("no lines")
+    };
+    assert_eq!(para.lines.len(), 2, "{:?}", para.lines.iter().map(|l| (l.c0, l.c1)).collect::<Vec<_>>());
+    let page = l.caret(&Pos::body(0, 5)).unwrap();
+    assert!((page.x - 72.0).abs() < 0.5, "the text after the tab starts at the indent: {}", page.x);
+}
+
 #[test]
 fn lists_get_labels_and_indent() {
     let mut d = Document::from_text("one\ntwo\nthree");

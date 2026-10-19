@@ -2009,6 +2009,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
     let mut row_first = 0usize;
     // Spans skipped in a row because the next word didn't fit (see `skip`).
     let mut skipped = 0;
+    // A left tab past the right indent that wrapped to start the next line.
+    let mut wrapped_tab: Option<usize> = None;
     loop {
         // A line already sits on this row (a span before this one may have been skipped).
         let beside = !row_rest.is_empty() && lines.len() > row_first;
@@ -2110,12 +2112,25 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                         break;
                     }
                     xs.push(x);
-                    if ptab.is_none() && stop.pos > right_edge + 0.01 && j > c0 && stop.align == TabAlign::Left {
-                        // Tab past the right indent wraps: like Word, it starts the next line and
-                        // goes to the first stop there (a TOC entry's leader and page number).
-                        xs.pop();
-                        end = LineEnd::Wrap;
-                        break;
+                    if ptab.is_none() && stop.pos > right_edge + 0.01 && stop.align == TabAlign::Left {
+                        if j > c0 {
+                            // Tab past the right indent wraps: like Word, it starts the next line
+                            // and goes to the first stop there (a TOC entry's leader and page number).
+                            xs.pop();
+                            end = LineEnd::Wrap;
+                            wrapped_tab = Some(j);
+                            break;
+                        }
+                        if wrapped_tab == Some(j) {
+                            // Still past the right indent on the line it wrapped to: it takes no
+                            // room, and its text starts at the indent rather than on a line of its own.
+                            if let Some(c) = pl.clusters.get_mut(j) {
+                                c.adv = 0.0;
+                            }
+                            last_break = Some(j);
+                            j += 1;
+                            continue;
+                        }
                     }
                     match stop.align {
                         TabAlign::Left | TabAlign::Bar | TabAlign::Clear => {
