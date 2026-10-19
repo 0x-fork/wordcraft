@@ -2698,3 +2698,11 @@ preview	Title	Naslov
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Upišite veličinu u bilo kojoj jedinici, npr. 5 cm ili 300 px. Druga se strana prilagođava pa slika zadržava svoje proporcije.
 
 	Import…	Uvezi…
+# Task panes and the Styles pane position (#1756)
+	Styles Pane Position	Položaj okna stilova
+	Dock Left	Usidri lijevo
+	Dock Right	Usidri desno
+	Float	Plutajuće
+	Pane Options	Mogućnosti okna
+	Move Pane	Premjesti okno
+	Resize Pane	Promijeni veličinu okna

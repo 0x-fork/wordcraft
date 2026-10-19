@@ -2302,3 +2302,11 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Унесите величину у било којој јединици, на пример 5 cm или 300 px. Друга страна се прилагођава, па слика задржава своје пропорције.
 
 	Import…	Увези…
+# Task panes and the Styles pane position (#1756)
+	Styles Pane Position	Положај окна стилова
+	Dock Left	Усидри лево
+	Dock Right	Усидри десно
+	Float	Плутајуће
+	Pane Options	Опције окна
+	Move Pane	Премести окно
+	Resize Pane	Промени величину окна

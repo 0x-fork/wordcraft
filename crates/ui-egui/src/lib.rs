@@ -271,6 +271,15 @@ pub struct UiState {
     /// View › Navigation Pane: open or closed as the person left it, kept between runs (#2526).
     /// The session owns it while running (see [`WordApp::prefs`]).
     pub nav_pane: bool,
+    /// Where the Styles pane sits (#1756). The session owns it while running (see [`WordApp::prefs`]).
+    #[serde(deserialize_with = "lenient_styles_pane_dock")]
+    pub styles_pane_dock: wordcraft_engine::StylesPaneDock,
+    /// The floating Styles pane's `[x, y, width, height]`, also kept while it is docked.
+    #[serde(deserialize_with = "lenient_float_rect")]
+    pub styles_pane_float: Option<[f32; 4]>,
+    /// The docked Styles pane's width this run; like the other panes' widths, not kept between runs.
+    #[serde(skip)]
+    pub styles_pane_width: Option<f32>,
     pub show_discord: bool,
     /// User name (File › Options) for comments and tracked changes; empty keeps the default.
     pub author: String,
@@ -373,6 +382,9 @@ impl Default for UiState {
             legacy_dark: None,
             nav_tab: "headings".into(),
             nav_pane: false,
+            styles_pane_dock: wordcraft_engine::StylesPaneDock::Right,
+            styles_pane_float: None,
+            styles_pane_width: None,
             show_discord: true,
             author: String::new(),
             window: None,
@@ -457,6 +469,21 @@ pub fn recent_fonts_from<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<St
         }
     }
     out
+}
+
+/// An unknown saved position reads as the default.
+fn lenient_styles_pane_dock<'de, D: serde::Deserializer<'de>>(d: D) -> Result<wordcraft_engine::StylesPaneDock, D::Error> {
+    let v = Value::deserialize(d)?;
+    Ok(v.as_str().and_then(wordcraft_engine::StylesPaneDock::parse).unwrap_or_default())
+}
+
+/// Anything but four finite numbers reads as no saved rect; `craft_ui::panes` brings a saved one
+/// back inside the window.
+fn lenient_float_rect<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<[f32; 4]>, D::Error> {
+    let v = Value::deserialize(d)?;
+    let Some([x, y, w, h]) = v.as_array().map(Vec::as_slice) else { return Ok(None) };
+    let n = |v: &Value| v.as_f64().map(|n| n as f32).filter(|n| n.is_finite());
+    Ok(n(x).zip(n(y)).zip(n(w)).zip(n(h)).map(|(((x, y), w), h)| [x, y, w, h]))
 }
 
 /// `recentFonts` as saved, through [`recent_fonts_from`]: an entry that isn't a name is dropped,
@@ -762,6 +789,7 @@ impl WordApp {
         ui.read_aloud_skip_citations = self.session.read_aloud.skip_citations;
         ui.dark_page = self.session.view.dark_mode;
         ui.nav_pane = self.session.view.nav_pane;
+        ui.styles_pane_dock = self.session.view.styles_pane_dock;
         ui.keyboard = self.session.keymap.clone();
         ui.ribbon = self.session.ribbon.clone();
         ui.ink_pens = self.session.view.draw.pens.clone();
@@ -807,6 +835,7 @@ impl WordApp {
         self.session.read_aloud.skip_citations = self.ui.read_aloud_skip_citations;
         self.session.view.dark_mode = self.ui.dark_page;
         self.session.view.nav_pane = self.ui.nav_pane;
+        self.session.view.styles_pane_dock = self.ui.styles_pane_dock;
         // Keys for commands this version doesn't have are dropped.
         self.session.keymap = std::mem::take(&mut self.ui.keyboard);
         let reg = self.session.registry.clone();
@@ -6613,6 +6642,62 @@ mod tests {
         assert!(!old.session.view.nav_pane, "no saved value: closed");
     }
 
+    /// Task panes: two open panes on one edge sit side by side, the first outermost; a pane's ×
+    /// runs its command; the Styles pane's place and float rect survive a restart (#1756).
+    #[test]
+    fn task_panes_share_an_edge_close_and_keep_the_styles_place() {
+        use egui_kittest::kittest::Queryable;
+        let bars = |h: &egui_kittest::Harness<'_, WordApp>| {
+            let mut bars: Vec<egui::Rect> = h.get_all_by_label("Move Pane").map(|n| n.rect()).collect();
+            bars.sort_by(|a, b| a.left().total_cmp(&b.left()));
+            bars
+        };
+        // A title bar's ▾ and × sit right of the bar, on its row.
+        fn click_button(h: &egui_kittest::Harness<'_, WordApp>, bar: egui::Rect, label: &str) {
+            let on_row = |r: egui::Rect| r.center().y > bar.top() && r.center().y < bar.bottom() && r.left() >= bar.right() - 1.0;
+            let node = h.get_all_by_label(label).filter(|n| on_row(n.rect())).min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()));
+            node.unwrap_or_else(|| panic!("no {label} beside the title bar")).click();
+        }
+        let mut a = app();
+        a.run("view.stylesPane", json!({"value": true})).unwrap();
+        a.run("view.commentsPane", json!({"value": true})).unwrap();
+        let mut h = harness(a);
+        h.run_steps(4);
+        let [comments, styles] = bars(&h)[..] else { panic!("two pane title bars") };
+        assert!(comments.right() <= styles.left() + 1.0, "side by side");
+        assert!(comments.left() > 720.0, "both on the right");
+        // Default widths 290 and 250: Styles, opened first, is the outer one.
+        assert!((comments.width() - styles.width() - 40.0).abs() < 2.0, "Styles is outermost: {comments:?} {styles:?}");
+
+        click_button(&h, styles, "Close");
+        h.run_steps(3);
+        assert!(!h.state().session.view.styles_pane, "× ran view.stylesPane");
+        assert!(h.state().session.view.comments_pane);
+        assert_eq!(bars(&h).len(), 1);
+
+        h.state_mut().run("view.stylesPane", json!({"value": true})).unwrap();
+        h.run_steps(3);
+        let styles = *bars(&h).last().unwrap();
+        click_button(&h, styles, "Pane Options");
+        h.run_steps(2);
+        h.get_by_label("Float").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.view.styles_pane_dock, wordcraft_engine::StylesPaneDock::Floating);
+        let rect = h.state().ui.styles_pane_float.expect("the float rect is kept");
+
+        let saved = serde_json::to_vec(&h.state().prefs()).unwrap();
+        let mut next = app();
+        next.apply_prefs(serde_json::from_slice(&saved).unwrap());
+        assert_eq!(next.session.view.styles_pane_dock, wordcraft_engine::StylesPaneDock::Floating);
+        assert_eq!(next.ui.styles_pane_float, Some(rect));
+
+        let mut junk = app();
+        junk.apply_prefs(serde_json::from_str(r#"{"stylesPaneDock": "top", "stylesPaneFloat": [1, "x", 3, 4], "navPane": true}"#).unwrap());
+        assert_eq!(junk.session.view.styles_pane_dock, wordcraft_engine::StylesPaneDock::Right, "junk reads as the default");
+        assert_eq!(junk.ui.styles_pane_float, None);
+        assert!(junk.session.view.nav_pane, "the rest of the file still loads");
+    }
+
     #[test]
     fn prefs_without_user_name_keep_default() {
         let mut a = app();
@@ -7890,13 +7975,14 @@ mod tests {
         h.step();
         assert!(h.state().session.view.focus_mode);
         assert!(!shown(&h, "Ruler") && !shown(&h, "Focus"), "the ribbon is hidden");
-        assert!(!shown(&h, "Navigation"), "and so is the Navigation pane");
+        // The pane's title bar: the only pane open is Navigation.
+        assert!(!shown(&h, "Move Pane"), "and so is the Navigation pane");
         h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
         h.step();
         h.step();
         assert!(!h.state().session.view.focus_mode, "Escape leaves Focus");
         assert!(shown(&h, "Ruler"), "and the ribbon is back");
-        assert!(shown(&h, "Navigation"), "with the pane");
+        assert!(shown(&h, "Move Pane"), "with the pane");
         // Immersive Reader is Read Mode, not Focus: its status bar stays.
         h.state_mut().run("view.immersive", json!({})).unwrap();
         h.step();

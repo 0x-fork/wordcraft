@@ -2289,3 +2289,11 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	可用任何單位輸入大小，例如 5 cm 或 300 px。另一邊隨之調整，圖片保持原有比例。
 
 	Import…	匯入…
+# Task panes and the Styles pane position (#1756)
+	Styles Pane Position	樣式窗格位置
+	Dock Left	停駐在左側
+	Dock Right	停駐在右側
+	Float	浮動
+	Pane Options	窗格選項
+	Move Pane	移動窗格
+	Resize Pane	調整窗格大小

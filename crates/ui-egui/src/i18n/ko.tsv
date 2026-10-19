@@ -2542,3 +2542,11 @@ preview	Title	제목
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	5 cm 또는 300 px처럼 원하는 단위로 크기를 입력하세요. 다른 쪽도 함께 바뀌어 그림의 비율이 유지됩니다.
 
 	Import…	가져오기…
+# Task panes and the Styles pane position (#1756)
+	Styles Pane Position	스타일 창 위치
+	Dock Left	왼쪽에 고정
+	Dock Right	오른쪽에 고정
+	Float	떠 있음
+	Pane Options	창 옵션
+	Move Pane	창 이동
+	Resize Pane	창 크기 조정

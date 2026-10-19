@@ -2703,3 +2703,11 @@ preview	Title	Tytuł
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Wpisz rozmiar w dowolnej jednostce, np. 5 cm lub 300 px. Druga strona dopasuje się, więc obraz zachowa proporcje.
 
 	Import…	Importuj…
+# Task panes and the Styles pane position (#1756)
+	Styles Pane Position	Położenie okienka stylów
+	Dock Left	Zadokuj po lewej
+	Dock Right	Zadokuj po prawej
+	Float	Pływające
+	Pane Options	Opcje okienka
+	Move Pane	Przenieś okienko
+	Resize Pane	Zmień rozmiar okienka

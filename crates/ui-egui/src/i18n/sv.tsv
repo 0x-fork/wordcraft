@@ -2713,3 +2713,11 @@ preview	Title	Titel
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Skriv en storlek i valfri enhet, till exempel 5 cm eller 300 px. Den andra sidan följer med, så att bilden behåller sina proportioner.
 
 	Import…	Importera…
+# Task panes and the Styles pane position (#1756)
+	Styles Pane Position	Stilpanelens placering
+	Dock Left	Docka till vänster
+	Dock Right	Docka till höger
+	Float	Flytande
+	Pane Options	Panelalternativ
+	Move Pane	Flytta panel
+	Resize Pane	Ändra storlek på panel
