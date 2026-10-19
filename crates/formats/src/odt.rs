@@ -1177,6 +1177,62 @@ fn events(xml: &[u8], mut f: impl FnMut(Ev)) {
     }
 }
 
+/// An embedded ODF formula sub-document's `content.xml`, read for its `math:math` element
+/// (ODF 1.3 §10.4.3.2 wraps it in `office:document-content`/`office:body`/`office:math`, but
+/// some writers emit it bare): the first element named `math` in document order, with its
+/// subtree, passed to [`crate::mathml::read`]. `None` when there's no such element, it holds
+/// nothing, or the XML is malformed. Nesting and element count are bounded like other XML here.
+fn read_formula(xml: &[u8]) -> Option<(String, bool)> {
+    use crate::mathml::{El, Item, MAX_NODES, local};
+    let mut stack: Vec<El> = Vec::new();
+    let mut math: Option<El> = None;
+    let mut over = 0usize;
+    let mut count = 0usize;
+    events(xml, |ev| {
+        if math.is_some() {
+            return;
+        }
+        count += 1;
+        if count > MAX_NODES * 4 {
+            math = stack.drain(..).next();
+            return;
+        }
+        match ev {
+            Ev::Start(q, a) => {
+                if stack.is_empty() && local(&q) != "math" {
+                    return;
+                }
+                if stack.len() < wordcraft_doc::math::MAX_DEPTH {
+                    stack.push(El { name: q, attrs: a, children: Vec::new() });
+                } else {
+                    over += 1;
+                }
+            }
+            Ev::End(_) => {
+                if over > 0 {
+                    over -= 1;
+                } else if stack.len() > 1 {
+                    if let Some(done) = stack.pop()
+                        && let Some(parent) = stack.last_mut()
+                    {
+                        parent.children.push(Item::El(done));
+                    }
+                } else if stack.len() == 1 {
+                    math = stack.pop();
+                }
+            }
+            Ev::Text(t) => {
+                if over == 0
+                    && let Some(top) = stack.last_mut()
+                {
+                    top.children.push(Item::Text(t));
+                }
+            }
+        }
+    });
+    crate::mathml::read(&math?)
+}
+
 #[derive(Default)]
 struct Styles {
     map: HashMap<String, StyleInfo>,
@@ -1493,7 +1549,8 @@ struct Body<'a> {
     in_text: bool,
     skip: usize,
     depth: usize,
-    frame: Option<(Option<f32>, Option<f32>, Option<Vec<u8>>, String)>,
+    /// `(width, height, picture bytes, alt text, equation read from an embedded `draw:object`)`.
+    frame: Option<(Option<f32>, Option<f32>, Option<Vec<u8>>, String, Option<(String, bool)>)>,
     in_desc: bool,
     /// The master pages' page setups.
     pages: &'a Pages,
@@ -1935,15 +1992,30 @@ impl Body<'_> {
             "frame" => {
                 let w = get(a, "svg:width").and_then(length);
                 let h = get(a, "svg:height").and_then(length);
-                self.frame = Some((w, h, None, String::new()));
+                self.frame = Some((w, h, None, String::new(), None));
             }
             "image" => {
                 if let Some(href) = get(a, "xlink:href")
                     && let Some(fr) = &mut self.frame
                     && fr.2.is_none()
+                    && fr.4.is_none()
                 {
                     let path = href.trim_start_matches("./");
                     fr.2 = (self.zip)(path);
+                }
+            }
+            // An embedded object (ODF 1.3 §10.4.3): a formula sub-document's `content.xml` holds
+            // a `math:math` tree (#3099). Other object kinds have none, so the frame still falls
+            // back to its `draw:image` replacement preview, read at `end` below.
+            "object" => {
+                if let Some(href) = get(a, "xlink:href")
+                    && let Some(fr) = &mut self.frame
+                    && fr.4.is_none()
+                {
+                    let path = format!("{}/content.xml", href.trim_start_matches("./"));
+                    if let Some(xml) = (self.zip)(&path) {
+                        fr.4 = read_formula(&xml);
+                    }
                 }
             }
             "desc" | "title" if self.frame.is_some() => self.in_desc = true,
@@ -2208,14 +2280,18 @@ impl Body<'_> {
                 self.break_section(next);
             }
             "frame" => {
-                if let Some((w, h, Some(data), alt)) = self.frame.take()
-                    && let Some(img) = make_img(data, w, h, alt.trim())
-                {
-                    if self.para.is_none() {
-                        self.start_para(None, None);
-                    }
-                    if let Some(p) = &mut self.para {
-                        p.inlines.push(Inline::Image(img));
+                if let Some((w, h, img, alt, eq)) = self.frame.take() {
+                    let inline = match eq {
+                        Some((linear, display)) => Some(Inline::Equation { linear, display }),
+                        None => img.and_then(|data| make_img(data, w, h, alt.trim())).map(Inline::Image),
+                    };
+                    if let Some(inline) = inline {
+                        if self.para.is_none() {
+                            self.start_para(None, None);
+                        }
+                        if let Some(p) = &mut self.para {
+                            p.inlines.push(inline);
+                        }
                     }
                 }
                 self.frame = None;
@@ -2661,6 +2737,49 @@ mod tests {
         assert_eq!(imgs.len(), 3);
         assert!(imgs.iter().all(|i| i.data.as_slice() == png.as_slice()));
         assert_eq!(import(&pkg).unwrap().media.len(), 1);
+    }
+
+    #[test]
+    fn embedded_formula_object_reads_its_mathml() {
+        // #3099: LibreOffice saves an equation as a `draw:object` (a formula sub-document whose
+        // own `content.xml` is MathML) plus a `draw:image` replacement preview in LibreOffice's
+        // own metafile format, which WordCraft can't decode as a picture. The object's MathML
+        // must be read instead of silently dropping the frame (blank equation).
+        let math = r#"<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>E</mi><mo stretchy="false">=</mo><msup><mi mathvariant="italic">mc</mi><mn>2</mn></msup></mrow><annotation encoding="StarMath 5.0">E=mc^2</annotation></semantics></math>"#;
+        let frame = r#"<draw:frame svg:width="0.5in" svg:height="0.2in"><draw:object xlink:href="./Object 1"/><draw:image xlink:href="./ObjectReplacements/Object 1"/></draw:frame>"#;
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>{frame}</text:p></office:text></office:body></office:document-content>"#
+        );
+        let pkg = zip_of(&[
+            ("content.xml", content.as_bytes()),
+            ("Object 1/content.xml", math.as_bytes()),
+            // Not a format `sniff_image` recognizes: proves the equation wins over this fallback.
+            ("ObjectReplacements/Object 1", &[0u8; 50]),
+        ]);
+        let flow = parse(&pkg).unwrap();
+        let eqs: Vec<(String, bool)> = paras(&flow)
+            .into_iter()
+            .flat_map(|p| &p.inlines)
+            .filter_map(|i| if let Inline::Equation { linear, display } = i { Some((linear.clone(), *display)) } else { None })
+            .collect();
+        assert_eq!(eqs, vec![("E=mc^2".to_string(), true)]);
+    }
+
+    #[test]
+    fn object_without_mathml_falls_back_to_its_replacement_image() {
+        // A non-formula embedded object (or one whose content.xml has no `math:math`) has no
+        // equation to read: the frame still shows its `draw:image` replacement, as before.
+        let png = [b"\x89PNG\r\n\x1a\n".as_slice(), &[7u8; 300]].concat();
+        let frame = r#"<draw:frame svg:width="1in" svg:height="1in"><draw:object xlink:href="./Object 1"/><draw:image xlink:href="Pictures/a.png"/></draw:frame>"#;
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>{frame}</text:p></office:text></office:body></office:document-content>"#
+        );
+        let pkg = zip_of(&[("content.xml", content.as_bytes()), ("Object 1/content.xml", b"<office:spreadsheet/>"), ("Pictures/a.png", &png)]);
+        let flow = parse(&pkg).unwrap();
+        let imgs: Vec<&model::Img> =
+            paras(&flow).into_iter().flat_map(|p| &p.inlines).filter_map(|i| if let Inline::Image(img) = i { Some(img) } else { None }).collect();
+        assert_eq!(imgs.len(), 1);
+        assert!(imgs[0].data.as_slice() == png.as_slice());
     }
 
     const NS_T: &str = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0""#;
