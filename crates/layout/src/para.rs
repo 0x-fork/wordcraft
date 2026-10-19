@@ -2113,7 +2113,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     }
                     xs.push(x);
                     if ptab.is_none() && stop.pos > right_edge + 0.01 && stop.align == TabAlign::Left {
-                        if j > c0 {
+                        // Not when only markers (a bookmark, say) are before it: the line is empty.
+                        if (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker)) {
                             // Tab past the right indent wraps: like Word, it starts the next line
                             // and goes to the first stop there (a TOC entry's leader and page number).
                             xs.pop();
@@ -2196,7 +2197,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 // right margin, after a leader) instead of ending this line.
                 if let Some((tj, ..)) = pending_tab
                     && last_break == Some(tj)
-                    && tj > c0
+                    && (c0..tj).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker))
                 {
                     last_break = Some(tj - 1);
                     pending_tab = None;
