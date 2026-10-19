@@ -162,6 +162,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     for request in out.requests {
         apply(app, request);
     }
+    if out.to_document {
+        app.canvas.want_focus = true;
+    }
 }
 
 /// Run a request from the pane host through the pane's commands and the UI preferences.
@@ -937,6 +940,37 @@ mod tests {
         h.run_steps(4);
         assert!(h.state().canvas.focused, "Delete returns focus to the document");
         assert!(h.state().session.clip_history.items().is_empty(), "the item was deleted");
+    }
+
+    /// F6 past the last pane gives the document the keyboard, and typing reaches it (#1756).
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn f6_past_the_last_pane_types_into_the_document() {
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+        app.run("view.navigationPane", serde_json::json!({"value": true})).unwrap();
+        app.run("edit.clipboardPane", serde_json::json!({"value": true})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut crate::WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        assert!(h.state().canvas.focused);
+        let f6 = egui::Event::Key { key: egui::Key::F6, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        for pane in ["Navigation", "Clipboard"] {
+            h.input_mut().events.push(f6.clone());
+            h.run_steps(2);
+            assert!(!h.state().canvas.focused, "F6 moved the keyboard to the {pane} pane");
+        }
+        h.input_mut().events.push(f6);
+        h.run_steps(2);
+        assert!(h.state().canvas.focused, "F6 past the last pane returns to the document");
+        h.input_mut().events.push(egui::Event::Text("typed".into()));
+        h.run_steps(2);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim(), "typed");
     }
 }
 
