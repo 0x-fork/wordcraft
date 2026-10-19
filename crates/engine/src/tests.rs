@@ -7669,6 +7669,22 @@ fn rename_document_preserves_saved_contents_and_rejects_collisions() {
     assert!(s.run("file.rename", &json!({"name": "existing"})).is_err());
     assert_eq!(s.path.as_ref(), Some(&lower));
     assert_eq!(std::fs::read(&existing).unwrap(), b"keep these bytes");
+
+    // A name given with the document's extension is the whole file name: an agent or a script
+    // passes one, and appending the extension again made "Report.docm.docm" (#2983).
+    s.run("file.rename", &json!({"name": "Report.docm"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("Report.docm")));
+    assert!(!dir.join("Report.docm.docm").exists());
+    // Another extension, or the extension alone, is a stem and still gets one.
+    s.run("file.rename", &json!({"name": "Report.2026"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("Report.2026.docm")));
+    s.run("file.rename", &json!({"name": ".docm"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join(".docm.docm")));
+    assert_eq!(std::fs::read(dir.join(".docm.docm")).unwrap(), b"original bytes");
+    // Whatever its case; the file is named as typed, so the extension follows the name.
+    s.run("file.rename", &json!({"name": "Report.DOCM"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("Report.DOCM")));
+    assert!(!dir.join("Report.DOCM.docm").exists());
     std::fs::remove_dir_all(dir).unwrap();
 }
 

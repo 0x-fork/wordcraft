@@ -45,8 +45,15 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(path) = &s.path {
         let mut destination = path.with_file_name(name);
         // The field edits the stem; retain the original format, including macro/template files.
+        // A name that already ends in that extension is taken as the whole file name, since a
+        // script or an agent passes one ("renamed.docx" became "renamed.docx.docx", #2983). The
+        // extension alone (".docx") is a stem, not a file name, so it still gets one.
         if let Some(ext) = path.extension() {
-            destination.set_file_name(format!("{name}.{}", ext.to_string_lossy()));
+            let ext = ext.to_string_lossy();
+            let given = name.len() > ext.len() + 1
+                && name[name.len() - ext.len()..].eq_ignore_ascii_case(ext.as_ref())
+                && name.as_bytes()[name.len() - ext.len() - 1] == b'.';
+            destination.set_file_name(if given { name.to_string() } else { format!("{name}.{ext}") });
         }
         if destination != *path {
             #[cfg(not(target_arch = "wasm32"))]
@@ -63,7 +70,7 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name without its extension)}"#).pure(),
+        CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name; its extension is kept, so the name may be given with or without it)}"#).pure(),
         CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report"}"#).pure(),
         CommandSpec::new("file.open", "Open", "File", open)
             .key("Mod+O / Mod+F12 / Mod+Alt+F2")
