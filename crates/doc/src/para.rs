@@ -440,8 +440,9 @@ pub enum InlineObject {
         /// Crop (left, top, right, bottom) fractions 0..1.
         #[serde(default)]
         crop: [f32; 4],
-        /// The OLE object (embedded or linked file) this picture shows, as read from a file:
-        /// saving writes the object back, not only its picture. See [`crate::graphic::Embedded`].
+        /// The OLE object (embedded or linked file) or Word signature line this picture shows, as
+        /// read from a file: saving writes the object back, not only its picture. See
+        /// [`crate::graphic::Embedded`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ole: Option<std::sync::Arc<crate::graphic::Embedded>>,
     },

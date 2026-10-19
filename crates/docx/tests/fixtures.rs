@@ -1624,6 +1624,46 @@ fn ole_object_round_trips() {
 }
 
 #[test]
+fn signature_line_round_trips() {
+    // Insert › Signature Line: a VML picture (the line, its X and the signer drawn in a metafile)
+    // with an `o:signatureline` that makes it signable in Word. Saving keeps it a signature line,
+    // not a plain picture; a VML picture without one still becomes a DrawingML picture.
+    let body = r##"<w:p><w:r><w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1025" type="#_x0000_t75" alt="Signature line" style="width:192pt;height:96pt"><v:imagedata r:id="rId8" o:title=""/><o:lock v:ext="edit" ungrouping="t" rotation="t" cropping="t" verticies="t" text="t" grouping="t"/><o:signatureline v:ext="edit" id="{00000000-0000-0000-0000-000000000001}" provid="{00000000-0000-0000-0000-000000000000}" o:suggestedsigner="A. Example" o:suggestedsigner2="Director" showsigndate="f" issignatureline="t"/></v:shape></w:pict></w:r><w:r><w:pict><v:shape style="width:72pt;height:36pt" alt="plain"><v:imagedata r:id="rId8" o:title=""/></v:shape></w:pict></w:r></w:p>"##;
+    let picture = "\u{89}PNG stand-in";
+    let types =
+        r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="png" ContentType="image/png"/></Types>"#;
+    let bytes = docx(body, &[("rId8", "image", "media/image1.png")], &[("[Content_Types].xml", types), ("word/media/image1.png", picture)]);
+    let d = wordcraft_docx::read(&bytes).unwrap();
+    let objects = &paras(&d)[0].objects;
+    let [InlineObject::Image { w, alt, ole: Some(_), .. }, InlineObject::Image { ole: None, .. }] = objects.as_slice() else { panic!("{objects:?}") };
+    assert_eq!((*w, alt.as_str()), (192.0, "Signature line"));
+
+    // Resized in WordCraft.
+    let mut doc = d.clone();
+    if let Some(wordcraft_doc::Block::Para(p)) = doc.body.first_mut().map(std::sync::Arc::make_mut)
+        && let Some(InlineObject::Image { w, h, .. }) = p.objects.first_mut()
+    {
+        (*w, *h) = (144.0, 72.0);
+    }
+    let out = wordcraft_docx::write(&doc).unwrap();
+    let files = unzip(&out);
+    let body = text(&files, "word/document.xml");
+    let rels = text(&files, "word/_rels/document.xml.rels");
+    assert_eq!(attr_values(&body, "o:signatureline", "o:suggestedsigner"), ["A. Example"]);
+    assert_eq!(attr_values(&body, "o:signatureline", "o:suggestedsigner2"), ["Director"]);
+    assert_eq!(attr_values(&body, "v:shape", "style"), ["width:144pt;height:72pt"]);
+    assert_eq!(attr_values(&body, "v:shapetype", "id"), ["_x0000_t75"]);
+    let [pic_id] = attr_values(&body, "v:imagedata", "r:id").try_into().unwrap();
+    let (kind, target) = rel(&rels, &pic_id);
+    assert!(kind.ends_with("/image"), "{kind}");
+    assert_eq!(files.get(&part_at("word", &target)).map(Vec::as_slice), Some(picture.as_bytes()));
+    assert_eq!(body.matches("<w:drawing>").count(), 1, "only the plain picture becomes a DrawingML picture");
+
+    let back = wordcraft_docx::read(&out).unwrap();
+    assert!(matches!(paras(&back)[0].objects.first(), Some(InlineObject::Image { w: 144.0, ole: Some(_), .. })));
+}
+
+#[test]
 fn hostile_embedded_relationships_stay_bounded() {
     // The chart relates to itself, the main document, a relationships part and a missing part;
     // another drawing uses an id with no relationship. Reading and saving neither loop nor carry

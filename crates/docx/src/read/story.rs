@@ -702,8 +702,12 @@ impl Reader<'_> {
                 }
             }
             "w:pict" => {
-                for o in self.read_vml_all(sc, k, rels) {
+                if let Some(o) = self.read_signature_line(sc, k, rels) {
                     self.emit_obj(sc, pb, o, props);
+                } else {
+                    for o in self.read_vml_all(sc, k, rels) {
+                        self.emit_obj(sc, pb, o, props);
+                    }
                 }
             }
             "w:object" => {
@@ -1815,6 +1819,23 @@ impl Reader<'_> {
         };
         if let InlineObject::Image { ole, .. } = &mut o {
             *ole = self.keep_embedded(obj, rels, &[]);
+        }
+        Some(o)
+    }
+
+    /// A Word signature line (Insert › Signature Line): a `w:pict` whose one VML picture carries
+    /// an `o:signatureline` (the suggested signer, title, e-mail and instructions). Shown as its
+    /// picture, and kept whole like an OLE object so saving writes the signature line back,
+    /// still signable in Word, not a plain picture. `None` for any other `w:pict`.
+    fn read_signature_line(&mut self, sc: &mut StoryCtx, pict: &El, rels: &Rels) -> Option<InlineObject> {
+        let mut drawings = pict.els().filter(|e| e.name.starts_with("v:") && e.local() != "shapetype");
+        let shape = drawings.next().filter(|s| s.name == "v:shape")?;
+        if drawings.next().is_some() || shape.child("o:signatureline").is_none() {
+            return None;
+        }
+        let mut o = self.read_vml_shape(sc, pict, shape, rels, None)?;
+        if let InlineObject::Image { ole, .. } = &mut o {
+            *ole = self.keep_embedded(pict, rels, &[]);
         }
         Some(o)
     }
