@@ -285,7 +285,7 @@ pub(crate) fn highlight_menu(ui: &mut egui::Ui, app: &mut WordApp) {
             ui.painter().rect_filled(r, 2.0, egui::Color32::from_rgb(c.0, c.1, c.2));
             if resp.on_hover_text(h.name()).clicked() {
                 app.canvas.last_highlight = h.ooxml().to_string();
-                let _ = app.run("format.highlight", json!({"color": h.ooxml()}));
+                widgets::run_from_ribbon(app, "format.highlight", json!({"color": h.ooxml()}));
                 ui.close();
             }
             if i % 5 == 0 {
@@ -677,5 +677,30 @@ mod tests {
         let arrow = highlight_arrow(&h);
         click_at(&mut h, pos2(arrow.min.x - 12.0, arrow.center().y));
         assert_eq!(format_state(&mut h).get("highlight"), Some(&Value::Null), "the button applies No Color, not yellow again");
+    }
+
+    /// #3038: a pick from the bar's highlight grid hands the keyboard back to the document,
+    /// like the No Color button beside the swatches (it ran through `run_from_ribbon` already).
+    #[test]
+    fn picking_a_highlight_swatch_returns_focus_to_the_document() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), Default::default());
+        a.run("select.all", json!({})).unwrap();
+        let origin = egui::Id::new("hl_swatch_origin");
+        let mut h = egui_kittest::Harness::builder().with_size(Vec2::new(400.0, 300.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                egui::Area::new(egui::Id::new("hl_probe")).fixed_pos(pos2(100.0, 100.0)).show(ui.ctx(), |ui| {
+                    ui.ctx().data_mut(|d| d.insert_temp(origin, ui.next_widget_position()));
+                    highlight_menu(ui, app);
+                });
+            },
+            a,
+        );
+        steps(&mut h);
+        // The first rendered swatch is Yellow (None is skipped), 18 × 18 at the grid's origin.
+        let first = h.ctx.data(|d| d.get_temp::<egui::Pos2>(origin)).expect("the grid drew");
+        h.state_mut().canvas.want_focus = false;
+        click_at(&mut h, first + Vec2::new(9.0, 9.0));
+        assert!(h.state().canvas.want_focus, "the swatch pick returns focus to the document");
+        assert!(format_state(&mut h).get("highlight").is_some_and(|v| !v.is_null()), "the first swatch applied a highlight");
     }
 }
