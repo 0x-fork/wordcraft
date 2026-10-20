@@ -1106,7 +1106,9 @@ impl Document {
                 set.even = own.even.or(set.even);
                 let first = set.first.filter(|_| sec.title_page);
                 let even = set.even.filter(|_| self.settings.even_odd_headers);
-                for id in [set.default, first, even].into_iter().flatten() {
+                // By the first page each one shows on: page 1, then page 2 (even), then page 3.
+                let order = if sec.title_page { [first, even, set.default] } else { [set.default, even, None] };
+                for id in order.into_iter().flatten() {
                     if self.parts.get(&id).is_some_and(|p| matches!(p.kind, PartKind::Header | PartKind::Footer)) && root_seen.insert(id) {
                         roots.push(StoryRef::Part(id));
                     }

@@ -1916,6 +1916,30 @@ mod tests {
         }
     }
 
+    /// With Different First Page on, the first page's header comes before the later pages'
+    /// header, in the list and for Next.
+    #[test]
+    fn first_page_header_comes_before_the_default_header() {
+        let mut s = Session::new(Document::new());
+        s.view.proofing = false;
+        s.run("document.setText", &json!({"text": "Page one"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("insert.pageBreak", &json!({})).unwrap();
+        s.run("layout.differentFirstPage", &json!({"value": true})).unwrap();
+        let mut header = |page: usize| {
+            s.run("insert.editHeader", &json!({"page": page})).unwrap();
+            s.run("text.insert", &json!({"text": "header"})).unwrap();
+            let c = comment_here(&mut s, "header");
+            s.run("insert.closeHeader", &json!({})).unwrap();
+            c
+        };
+        let (first, default) = (header(0), header(1));
+        assert_ne!(first.1, default.1);
+        s.run("caret.docStart", &json!({})).unwrap();
+        assert_eq!(listed(&mut s), vec![(first.0, Some(first.1)), (default.0, Some(default.1))]);
+        assert_eq!(next_stories(&mut s, 2), vec![first.1, default.1]);
+    }
+
     /// A linked text box shows the first box's text: comments in its own text have no anchor and
     /// Next skips them.
     #[test]
