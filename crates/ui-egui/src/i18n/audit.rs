@@ -5,7 +5,7 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::pseudo;
 use crate::WordApp;
@@ -146,6 +146,11 @@ impl Exempt {
         }
         for m in crate::credits::MODELS {
             names.extend([m.company, m.model, m.version].map(str::to_string));
+        }
+        // The spelling/grammar suggestions popup (#3340): dictionary and grammar-rule words, not
+        // interface text.
+        if let Some(sugg) = app.canvas.context_issue.as_ref().and_then(|i| i.get("suggestions")).and_then(Value::as_array) {
+            names.extend(sugg.iter().filter_map(Value::as_str).map(str::to_string));
         }
         Exempt { body: app.session.doc.plain_text(wordcraft_doc::StoryRef::Body), names }
     }
