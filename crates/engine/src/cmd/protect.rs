@@ -257,6 +257,17 @@ pub(crate) fn check_user_name(s: &Session) -> Result<(), CmdError> {
     Ok(())
 }
 
+/// A version restore replaces the whole document, including the content the protection kept
+/// read-only, so it needs the protection stopped first — and the password with it, when the
+/// document has one. (`file.versions` is a pure command, so `check_before` doesn't see it; the
+/// command checks this itself — see [`check_version_restore`].)
+pub(crate) fn check_version_restore(s: &Session) -> Result<(), CmdError> {
+    if enforced(&s.doc) {
+        return Err(CmdError::Disabled("file.versions: stop protection before restoring a version".into()));
+    }
+    Ok(())
+}
+
 /// What a protected document lets command `id` do before it runs: `Err` refuses it; `Ok(true)`
 /// lets it run as long as it only changes the exceptions (checked afterwards with
 /// [`outside_unchanged`]).
@@ -279,6 +290,17 @@ pub(crate) fn check_before(s: &Session, id: &str, params: &Value) -> Result<bool
     // mode refuses every property change (below).
     if id == "developer.properties" && (params.get("lockEdit").is_some() || params.get("lockDelete").is_some()) {
         return Err(CmdError::Disabled(format!("{id}: stop protection before changing a content control's locks")));
+    }
+    // The document's properties and its privacy options are document-wide state, and they aren't
+    // tracked: a document that tracks changes would take them with no revision to show for it, and
+    // the revision trail would say nothing about them. They're refused while the document is
+    // protected, as the content control's properties are (#3278 follow-up).
+    if enforced(&s.doc) {
+        match id {
+            "file.properties" => return Err(CmdError::Disabled(format!("{id}: stop protection before changing the document's properties"))),
+            "file.privacyOptions" => return Err(CmdError::Disabled(format!("{id}: stop protection before changing the privacy options"))),
+            _ => {}
+        }
     }
     // Observed in Word for Mac: with Filling in forms enforced, the Developer tab's control
     // buttons and Properties are greyed out and a field's shortcut menu offers no Remove Content
@@ -770,25 +792,61 @@ mod tests {
         assert_eq!(s.doc, before);
     }
 
-    /// Restoring a stored version replaces the whole document, and a snapshot's own protection
-    /// is stale: the live document's protection, and its password, still hold after a restore
-    /// (#1327 follow-up).
+    /// A version restore replaces the whole document, including the content the protection kept
+    /// read-only, so it needs the protection stopped first — and the password with it.
     #[test]
-    fn a_version_restore_keeps_the_protection() {
+    fn a_version_restore_needs_the_protection_stopped_first() {
+        for mode in ["readOnly", "forms", "comments", "trackedChanges"] {
+            let mut s = Session::new(Document::from_text("Original text."));
+            s.run("file.versions", &json!({"save": "before"})).unwrap();
+            s.run("review.restrict", &json!({"mode": mode, "password": "pw"})).unwrap();
+            let before = s.doc.clone();
+            let e = s.run("file.versions", &json!({"restore": 0})).unwrap_err().to_string();
+            assert!(e.contains("stop protection"), "{mode}: {e}");
+            assert_eq!(s.doc, before, "{mode}: the restore changed the document");
+            assert_eq!(s.versions.len(), 1, "{mode}: the snapshot is still there");
+        }
+    }
+
+    /// A restore never changes the protection: the live document's choice stands, and a
+    /// snapshot taken while the document was protected doesn't bring that protection back.
+    #[test]
+    fn a_version_restore_keeps_the_live_protection() {
         let mut s = Session::new(Document::from_text("Original text."));
         s.run("file.versions", &json!({"save": "before"})).unwrap();
         s.run("review.restrict", &json!({"mode": "readOnly", "password": "pw"})).unwrap();
-        assert_eq!(s.doc.settings.protection.as_deref(), Some("readOnly"));
-        let hash = s.doc.settings.protect_hash.clone();
-        assert!(!hash.is_empty(), "the password is set");
-
+        // The protection is stopped, with its password, and the version restored after that.
+        s.run("review.restrict", &json!({"stop": true, "password": "pw"})).unwrap();
+        assert!(s.doc.settings.protection.is_none());
         s.run("file.versions", &json!({"restore": 0})).unwrap();
-        assert_eq!(s.doc.settings.protection.as_deref(), Some("readOnly"), "the restore lifted the protection");
-        assert_eq!(s.doc.settings.protect_hash, hash, "the restore dropped the password");
-        // The document is still protected: an edit outside the exceptions is refused.
-        let before = s.doc.clone();
-        assert!(s.run("text.insert", &json!({"text": "edited "})).is_err());
-        assert_eq!(s.doc, before);
+        assert!(s.doc.settings.protection.is_none(), "the restore brought the protection back");
+        assert!(s.doc.settings.protect_hash.is_empty(), "the restore brought the password back");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Original text.");
+    }
+
+    /// A document-wide change that isn't tracked — the properties, the privacy options — is
+    /// refused while the document is protected: under tracked changes it would change the
+    /// document with no revision to show for it, and under the other modes the document may not
+    /// change at all.
+    #[test]
+    fn a_document_wide_change_that_is_not_tracked_is_refused_under_protection() {
+        for mode in ["readOnly", "forms", "comments", "trackedChanges"] {
+            for (id, params) in [("file.properties", json!({"title": "Forged title"})), ("file.privacyOptions", json!({"removePersonalInfo": true}))]
+            {
+                let mut s = Session::new(Document::from_text("Some text."));
+                s.run("review.restrict", &json!({"mode": mode})).unwrap();
+                let before = s.doc.clone();
+                let e = s.run(id, &params).unwrap_err().to_string();
+                assert!(e.contains("stop protection"), "{mode} {id}: {e}");
+                assert_eq!(s.doc, before, "{mode} {id}: the document changed");
+            }
+        }
+        // Without protection they work.
+        let mut s = Session::new(Document::from_text("Some text."));
+        s.run("file.properties", &json!({"title": "A title"})).unwrap();
+        assert_eq!(s.doc.core.title, "A title");
+        s.run("file.privacyOptions", &json!({"removePersonalInfo": true})).unwrap();
+        assert!(s.doc.settings.remove_personal_info);
     }
 
     /// A file command that changes the document is checked like any other: the privacy options
@@ -883,9 +941,9 @@ mod tests {
         assert!(s.doc.settings.protection.is_none());
     }
 
-    /// The settings and the metadata of a protected document are part of what stays as it was: a
-    /// command that changes them is rolled back, like any other change outside the editable
-    /// regions (#1327 follow-up).
+    /// The settings and the metadata of a protected document are part of what stays as it was:
+    /// a command that changes them is refused, or rolled back, like any other change outside
+    /// the editable regions (#1327 follow-up).
     #[test]
     fn a_protected_document_keeps_its_settings_and_metadata() {
         let mut s = Session::new(Document::from_text("Locked intro.\nFill in here."));
@@ -893,9 +951,9 @@ mod tests {
         s.run("review.restrict", &json!({"exception": "add"})).unwrap();
         s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
         let before = s.doc.clone();
-        // The properties: the change is rolled back, and the command says so.
+        // The properties: the change is refused, and the command says why.
         let e = s.run("file.properties", &json!({"title": "Forged title"})).unwrap_err().to_string();
-        assert!(e.contains("only the editable regions"), "{e}");
+        assert!(e.contains("stop protection"), "{e}");
         assert_eq!(s.doc, before);
         assert_ne!(s.doc.core.title, "Forged title");
         // A custom property too.
@@ -922,6 +980,21 @@ mod tests {
         {
             assert!(s.run(id, &params).is_ok(), "{id}: a protected document refused a read");
         }
+    }
+
+    /// The post-check compares the document's settings and its metadata, so a command that
+    /// changed either is rolled back even where the command itself isn't refused — the
+    /// backstop behind the refusal the properties and the privacy options get.
+    #[test]
+    fn the_post_check_compares_the_settings_and_the_metadata() {
+        let before = Document::from_text("Some text.");
+        let mut after = before.clone();
+        after.core.title = "Forged".into();
+        assert!(!super::outside_unchanged(&before, &after, "someone"), "the metadata isn't compared");
+        let mut after = before.clone();
+        after.settings.remove_personal_info = true;
+        assert!(!super::outside_unchanged(&before, &after, "someone"), "the settings aren't compared");
+        assert!(super::outside_unchanged(&before, &before.clone(), "someone"), "an unchanged document isn't unchanged");
     }
 
     /// Read only, no exceptions: going to a header the document doesn't have doesn't create

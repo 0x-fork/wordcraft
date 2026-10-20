@@ -475,10 +475,14 @@ pub fn specs() -> Vec<CommandSpec> {
             }
             if let Some(i) = p::u64(v, "restore") {
                 let (_, _, d) = s.versions.get(i as usize).cloned().ok_or_else(|| CmdError::Params("no such version".into()))?;
+                // The restore replaces the whole document, including the content the protection
+                // kept read-only, so the protection is stopped first (with its password, when it
+                // has one) — a restore must not go around it.
+                super::protect::check_version_restore(s)?;
                 s.checkpoint("Restore Version");
                 // A snapshot's own protection is stale: it was taken at some earlier moment, and
-                // restoring it must not lift the protection the live document is under, nor
-                // its password (#1327 follow-up).
+                // restoring it must not bring a protection back that the live document doesn't
+                // have (#1327 follow-up).
                 let protection = s.doc.settings.protection.clone();
                 let protect_hash = s.doc.settings.protect_hash.clone();
                 let protect_formatting = s.doc.settings.protect_formatting;
