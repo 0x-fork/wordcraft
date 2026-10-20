@@ -47,6 +47,13 @@ pub fn enforced(doc: &Document) -> bool {
     doc.settings.protection.is_some()
 }
 
+/// Is the document's editing restricted? The formatting-only protection stores the mode "none"
+/// (`w:documentProtection w:edit="none"` with `w:formatting="1"`), so it doesn't count here: it
+/// limits the styles, not the editing.
+pub fn editing_restricted(doc: &Document) -> bool {
+    doc.settings.protection.as_deref().is_some_and(|m| m != "none")
+}
+
 /// May `author` edit inside the range?
 fn editable_by(r: &PermRange, author: &str) -> bool {
     r.everyone() || (!r.editor.is_empty() && r.editor.eq_ignore_ascii_case(author.trim()))
@@ -82,7 +89,14 @@ fn restrict(s: &mut Session, v: &Value) -> CmdResult {
         return Err(CmdError::Params(format!("unknown `mode` {m:?}: none, readOnly, comments, trackedChanges or forms")));
     }
     let formatting = p::bool(v, "formatting");
-    let stop = p::bool(v, "stop") == Some(true) || (mode == Some("none") && formatting != Some(true));
+    let explicit_stop = p::bool(v, "stop") == Some(true);
+    // Stopping the protection is explicit: the "none" mode is the shorthand for it, but on a
+    // protected document only `{"stop": true}` stops it — a command that merely names a mode
+    // can't strip a user's protection (Word asks for Stop Protection first).
+    if mode == Some("none") && formatting != Some(true) && !explicit_stop && enforced(&s.doc) {
+        return Err(CmdError::Disabled("the document is protected: stop protection first (\"stop\": true)".into()));
+    }
+    let stop = explicit_stop || (mode == Some("none") && formatting != Some(true));
     if stop {
         return stop_protection(s, p::str(v, "password").unwrap_or(""));
     }
@@ -90,8 +104,15 @@ fn restrict(s: &mut Session, v: &Value) -> CmdResult {
         // Only the locked styles changed (or nothing): report the state.
         return Ok(state(s));
     }
-    if enforced(&s.doc) && !s.doc.settings.protect_hash.is_empty() {
-        return Err(CmdError::Disabled("the document is protected with a password: stop protection first".into()));
+    // The protection of a protected document doesn't change: Word asks for Stop Protection first.
+    // (The formatting-only protection isn't one: it limits the styles, not the editing.)
+    if editing_restricted(&s.doc) {
+        let why = if s.doc.settings.protect_hash.is_empty() {
+            "the document is protected: stop protection first"
+        } else {
+            "the document is protected with a password: stop protection first"
+        };
+        return Err(CmdError::Disabled(why.into()));
     }
     let formatting = formatting.unwrap_or(false);
     let mode = mode.unwrap_or("none");
@@ -778,6 +799,42 @@ mod tests {
         assert_eq!(s.author, "Alice");
     }
 
+    /// The protection of a protected document doesn't change: Word asks for Stop Protection first,
+    /// and only the explicit way stops it — a command that merely names a mode can't strip it
+    /// (#1327 follow-up).
+    #[test]
+    fn a_protected_documents_protection_needs_an_explicit_stop() {
+        let mut s = Session::new(Document::from_text("Some text."));
+        s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+        // The "none" shorthand stops the protection: refused, and the protection stays.
+        let e = s.run("file.protect", &json!({"mode": "none"})).unwrap_err().to_string();
+        assert!(e.contains("stop protection"), "{e}");
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("readOnly"));
+        // Changing the mode of a protected document is refused too.
+        let e = s.run("review.restrict", &json!({"mode": "comments"})).unwrap_err().to_string();
+        assert!(e.contains("stop protection"), "{e}");
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("readOnly"));
+        // Stopping it explicitly works.
+        s.run("review.restrict", &json!({"stop": true})).unwrap();
+        assert!(s.doc.settings.protection.is_none());
+    }
+
+    /// A password-protected document still needs its password to stop, and the formatting-only
+    /// protection (the mode "none") is still how the styles are limited.
+    #[test]
+    fn a_password_guards_the_protection_and_the_formatting_only_path_still_works() {
+        let mut s = Session::new(Document::from_text("Some text."));
+        s.run("review.restrict", &json!({"mode": "readOnly", "password": "pw"})).unwrap();
+        assert!(s.run("review.restrict", &json!({"stop": true, "password": "wrong"})).is_err());
+        assert!(s.run("review.restrict", &json!({"stop": true})).is_err());
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("readOnly"));
+        // The formatting-only protection: the mode "none" with the formatting restriction.
+        let mut t = Session::new(Document::from_text("Some text."));
+        t.run("review.restrict", &json!({"mode": "none", "formatting": true})).unwrap();
+        assert_eq!(t.doc.settings.protection.as_deref(), Some("none"));
+        assert!(t.doc.settings.protect_formatting);
+    }
+
     /// Reading the document stays allowed under protection: the inspector without removals, the
     /// privacy settings, the info, and saving a version snapshot.
     #[test]
@@ -1079,6 +1136,8 @@ mod tests {
         assert_eq!(start, first.content_start(), "wraps round to the first control");
         assert_eq!(end, first.end);
         // Without forms mode, Find Next Region is about perm ranges: none here, nothing to find.
+        // (The protection is stopped first: the mode of a protected document doesn't change.)
+        s.run("review.restrict", &json!({"stop": true})).unwrap();
         s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
         assert_eq!(next_region(&s, &s.doc.start_of(StoryRef::Body)), None);
     }
