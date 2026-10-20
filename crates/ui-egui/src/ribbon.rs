@@ -3431,9 +3431,21 @@ mod tests {
         assert!(h.query(item("Align Left")).is_some(), "Align opens a menu, instead of running arrange.align with no value");
         h.get(item("Align Right")).click();
         h.run();
-        let (wrap, x) = frame(h.state()).unwrap();
+        let (wrap, right_x) = frame(h.state()).unwrap();
         assert_eq!(wrap, wordcraft_doc::para::Wrap::Square, "aligning floats an inline picture, as arrange.align already does");
-        assert!(x > 0.0, "Align Right moved it right of the left margin, not centered under it: x={x}");
+        // A positive x alone doesn't pin Right down: Center's x is positive too whenever the
+        // picture is narrower than the text column, so Right could silently dispatch Center.
+        h.get(item("Align")).click();
+        h.run();
+        h.get(item("Align Center")).click();
+        h.run();
+        let center_x = frame(h.state()).unwrap().1;
+        h.get(item("Align")).click();
+        h.run();
+        h.get(item("Align Left")).click();
+        h.run();
+        let left_x = frame(h.state()).unwrap().1;
+        assert!(left_x < center_x && center_x < right_x, "Left, Center and Right each land at a distinct x: {left_x} < {center_x} < {right_x}");
     }
 
     /// #2573 review: Shape Format and Chart Design leave sizes outside their fields' ranges alone
