@@ -1286,10 +1286,10 @@ fn layout_box(
                     let at = ObjFrame { page: frame, col: (0.0, width), para_y: y, table_chr: table.map(|t| &t.chr), pinned: Some(&pinned) };
                     let (back, front) = place_objects(ctx, story, &path, p, &pl, (0, pl.lines.len()), (0.0, y + lead), &at, &floats, depth);
                     for placed in back.iter().chain(front.iter()) {
-                        if let Placed::Object { rect, wrap, .. } = placed
+                        if let Placed::Object { rect, spin, wrap, .. } = placed
                             && *wrap != Wrap::Inline
                         {
-                            float_objects_bottom = float_objects_bottom.max(rect.bottom());
+                            float_objects_bottom = float_objects_bottom.max(spin.bounds(*rect).bottom());
                         }
                     }
                     let at = behind.min(items.len());
