@@ -152,6 +152,22 @@ fn every_tab_and_command_is_translated() {
     assert!(missing.is_empty(), "untranslated: {missing:#?}");
 }
 
+/// File › Home opens with a greeting for the time of day (`backstage::home_page`); every
+/// language has all three, so the page doesn't start in English.
+#[test]
+fn the_file_home_greeting_is_translated_in_every_language() {
+    let mut missing = Vec::new();
+    for l in Lang::all().filter(|l| *l != Lang::EN) {
+        for s in ["Good morning", "Good afternoon", "Good evening"] {
+            if !has(l, s) {
+                missing.push(format!("{}: {s:?}", l.code()));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "untranslated: {missing:#?}");
+    assert_eq!(tr(lang("pt-br"), "Good afternoon"), "Boa tarde");
+}
+
 #[test]
 fn korean_print_settings_and_printer_feedback_are_translated() {
     let korean = lang("ko");
