@@ -98,34 +98,50 @@ fn link_definition(line: &str) -> Option<(String, String)> {
 }
 
 /// Take the link reference definitions out of `lines`, leaving the rest. Lines inside a fenced
-/// code block are left alone: a definition there is code, not a definition.
+/// code block are left alone: a definition there is code, not a definition. Fences open and
+/// close by the same rules [`parse_blocks`] applies, or a line it reads as code would be read
+/// here as a definition and deleted.
+///
+/// A definition has to start a block: CommonMark §4.7 forbids one from interrupting a paragraph,
+/// and a line like `[Warning]: unstable` in the middle of one is the author's text. This pass
+/// sees lines without the block structure around them, so it takes a definition only after a
+/// blank line, at the start of the document, after a heading or thematic break, or after another
+/// definition. A definition anywhere else stays in the document and reads as text, which is what
+/// it did before definitions were understood at all; deleting a line that was part of a
+/// paragraph would lose it silently.
 fn take_definitions(lines: &mut Vec<String>) -> Refs {
     let mut refs = Refs::new();
     let mut open: Option<(char, usize)> = None;
+    // The start of the document begins a block.
+    let mut starts_block = true;
     lines.retain(|line| {
-        let t = line.trim_start();
+        let t = line.trim_start_matches([' ', '\t']);
+        // Four spaces of indentation is code, not a fence (`parse_blocks`), on both sides.
+        let marker = (indent(line) < 4).then(|| fence(t)).flatten();
         match open {
             Some((c, n)) => {
-                if fence(t).is_some_and(|(fc, fn_)| fc == c && fn_ >= n) {
+                // A closing fence holds nothing but its own run of fence characters.
+                if marker.is_some_and(|(fc, fl)| fc == c && fl >= n) && t.trim_start_matches(c).trim().is_empty() {
                     open = None;
+                    starts_block = true;
                 }
                 return true;
             }
             None => {
-                if let Some(f) = fence(t) {
+                if let Some(f) = marker {
                     open = Some(f);
                     return true;
                 }
             }
         }
-        match link_definition(line) {
-            // The first definition of a label wins, as CommonMark says.
-            Some((label, dest)) => {
-                refs.entry(label).or_insert(dest);
-                false
-            }
-            None => true,
+        if starts_block && let Some((label, dest)) = link_definition(line) {
+            // The first definition of a label wins, as CommonMark says, and definitions may
+            // follow one another.
+            refs.entry(label).or_insert(dest);
+            return false;
         }
+        starts_block = is_blank(line) || atx_heading(t).is_some() || thematic_break(t);
+        true
     });
     refs
 }
@@ -1606,6 +1622,37 @@ mod tests {
         let body = import(fenced).plain_text(wordcraft_doc::StoryRef::Body);
         assert!(body.contains("[ref1]: https://example.com/ref"), "the fenced definition is still code: {body:?}");
         assert_eq!(links(fenced), vec![], "a fenced definition defines nothing");
+    }
+
+    /// A definition has to start a block (CommonMark §4.7), and a fence opens and closes by the
+    /// same rules the block parser uses. Reading a line without that context deleted text: a
+    /// definition-shaped line inside a paragraph, and every such line inside a code block whose
+    /// fence this pass thought had closed.
+    #[test]
+    fn a_definition_shaped_line_that_is_not_a_definition_stays_in_the_document() {
+        let body = |md: &str| import(md).plain_text(wordcraft_doc::StoryRef::Body);
+
+        // A definition cannot interrupt a paragraph: this is the author's text, lines and all.
+        let para = "Status update\n[Warning]: unstable\nmore text\n";
+        assert_eq!(body(para), "Status update [Warning]: unstable more text", "{:?}", body(para));
+
+        // `` ```rust `` holds an info string, so it does not close a fence: the definition-shaped
+        // line after it is still code.
+        let code = "```\n```rust\n[foo]: /bar\n```\n\nSee [foo].\n";
+        assert!(body(code).contains("[foo]: /bar"), "{:?}", body(code));
+        assert!(body(code).ends_with("See [foo]."), "nothing defines foo: {:?}", body(code));
+
+        // Four spaces of indentation is code, not a fence, so the definition that follows is
+        // taken and the reference resolves.
+        let indented = "    ```\n\n[x]: /y\n\nSee [x].\n";
+        let doc = import(indented);
+        let text = doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(text.contains("```") && text.ends_with("See x."), "{text:?}");
+
+        // A definition still gives up its line after a blank line, at the start of the document,
+        // after a heading, and after another definition.
+        let starts = "[a]: /a\n[b]: /b\n\n# Head\n[c]: /c\n\nSee [a], [b], [c].\n";
+        assert_eq!(body(starts), "Head\nSee a, b, c.", "{:?}", body(starts));
     }
 
     #[test]
