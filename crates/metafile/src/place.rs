@@ -11,14 +11,16 @@ pub const MAX_BITMAP_SIDE: u32 = 30_000;
 const MAX_COORD: f64 = 1e6;
 /// Smallest placed bitmap side (target units), so the stretch onto it is never singular.
 const MIN_BITMAP_SIDE: f64 = 1e-6;
-/// The least of a source axis a crop keeps (0.1%). Files crop pictures to slivers (a header bar
-/// that is 2.7% of a page-sized metafile, #1899); this only keeps the stretch finite.
-const MIN_VISIBLE: f64 = 0.001;
+/// The least of a source axis a crop keeps (0.5%). Files crop pictures to slivers (a header bar
+/// that is 2.7% of a page-sized metafile, #1899). Layout makes a picture's frame at most 4000 pt
+/// a side, so the whole source then spans at most 800,000 pt: what it covers stays inside
+/// `MAX_COORD` and is never left out as far off the page.
+const MIN_VISIBLE: f64 = 0.005;
 
 /// The part of a picture's source that `crop` (left, top, right, bottom fractions of the source)
 /// keeps, as fractions of the source: [left, top, width, height], bitmap or metafile alike. Each
-/// side is taken as 0–1 (junk as 0). When the two sides of an axis leave less than 0.1% of it,
-/// the left (top) side stands and 0.1% shows.
+/// side is taken as 0–1 (junk as 0). When the two sides of an axis leave less than 0.5% of it,
+/// the left (top) side stands and 0.5% shows.
 pub fn crop_window(crop: [f32; 4]) -> [f64; 4] {
     let [l, t, r, b] = crop.map(|v| if v.is_finite() { f64::from(v.clamp(0.0, 1.0)) } else { 0.0 });
     let axis = |lo: f64, hi: f64| {

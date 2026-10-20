@@ -909,6 +909,25 @@ fn crop_window_keeps_a_sliver_and_stays_finite() {
     }
 }
 
+/// The narrowest crop on the largest frame layout makes (4000 pt, far down a 22-inch page) still
+/// places the source's content: none of it is left out as far off the page.
+#[test]
+fn the_narrowest_crop_on_the_largest_frame_keeps_its_content() {
+    let pic = crate::Picture {
+        width: 100.0,
+        height: 100.0,
+        items: vec![
+            Item::Bitmap { rect: [0.0, 0.0, 100.0, 100.0], width: 1, height: 1, rgba: vec![255; 4] },
+            Item::Path { segs: vec![Seg::Move(0.0, 0.0), Seg::Line(100.0, 100.0)], fill: None, stroke: Some(([0, 0, 0, 255], 1.0)), even_odd: false },
+        ],
+    };
+    let frame = kurbo::Rect::new(1584.0, 1584.0, 5584.0, 5584.0);
+    // The last sliver, the first sliver, and sides that overlap.
+    for crop in [[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0], [0.9999, 0.6, 0.5, 0.9999]] {
+        assert_eq!(pic.place(frame, crop).len(), 2, "{crop:?}");
+    }
+}
+
 #[test]
 fn place_keeps_only_finite_bounded_bitmaps_with_area() {
     let bitmap = |rect: [f32; 4]| Item::Bitmap { rect, width: 1, height: 1, rgba: vec![0; 4] };
