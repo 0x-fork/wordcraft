@@ -106,6 +106,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | trivial | Restrict Editing, three more gaps closed: the protection of a protected document only changes through the explicit stop, the user name can't change under protection, and the post-check compares the settings and the metadata. No gap row (enforcement fix); estimates unchanged |
 | 2026-10-20 | trivial | Restrict Editing: a file command that changes the open document is checked like any other (the privacy options, the properties, the inspector's removals), and restoring a stored version keeps the protection and its password. No gap row (enforcement fix); estimates unchanged |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
