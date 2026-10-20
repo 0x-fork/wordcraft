@@ -465,7 +465,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let mode = p::str(v, "mode").unwrap_or("readOnly");
             s.run("review.restrict", &json!({"mode": mode}))
         })
-        .params(r#"{"mode": "none|readOnly|comments|trackedChanges"}"#),
+        .params(r#"{"mode": "none|readOnly|comments|trackedChanges"} (starting enforcement; "none" doesn't stop a protected document — use review.restrict {"stop": true})"#),
         CommandSpec::new("file.versions", "Version History", "File › Info", |s, v| {
             if let Some(label) = p::str(v, "save") {
                 s.versions.push((label.to_string(), super::now_iso(), s.doc.clone()));
@@ -2034,7 +2034,11 @@ mod tests {
         let mut s = Session::new(Document::from_text("locked"));
         s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
         assert!(s.run("text.insert", &json!({"text": "x"})).is_err());
-        s.run("review.restrict", &json!({"mode": "none"})).unwrap();
+        // The "none" mode is the shorthand for stopping the protection, and it doesn't stop a
+        // protected document: only the explicit stop does (#1327 follow-up).
+        assert!(s.run("review.restrict", &json!({"mode": "none"})).is_err());
+        assert!(s.run("text.insert", &json!({"text": "x"})).is_err());
+        s.run("review.restrict", &json!({"stop": true})).unwrap();
         assert!(s.run("text.insert", &json!({"text": "x"})).is_ok());
     }
 
