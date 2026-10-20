@@ -2217,6 +2217,7 @@
 	Submitting print job…	正在提交列印工作…
 	Print job submitted.	列印工作已提交。
 	Print job submitted: {receipt}	列印工作已提交：{receipt}
+	Print job submitted: spooled {count} sheet(s)	列印工作已傳送：已將 {count} 張紙送入背景處理
 	Print failed: the printing worker stopped.	列印失敗：列印工作執行緒已停止。
 	Print settings	列印設定
 	Submit print job	提交列印工作

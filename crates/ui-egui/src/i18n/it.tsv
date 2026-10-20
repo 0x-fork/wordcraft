@@ -2592,6 +2592,7 @@ preview	Title	Esempio
 	Submitting print job…	Invio del lavoro di stampa in corso…
 	Print job submitted.	Lavoro di stampa inviato.
 	Print job submitted: {receipt}	Lavoro di stampa inviato: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Lavoro di stampa inviato: {count} foglio/i messo/i in coda
 	Print failed: the printing worker stopped.	Stampa non riuscita: il processo di stampa si è interrotto.
 	Print settings	Impostazioni di stampa
 	Submit print job	Invia lavoro di stampa

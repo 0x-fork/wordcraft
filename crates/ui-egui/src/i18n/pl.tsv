@@ -2616,6 +2616,7 @@ preview	Title	Tytuł
 	Submitting print job…	Wysyłanie zadania drukowania…
 	Print job submitted.	Zadanie drukowania wysłane.
 	Print job submitted: {receipt}	Zadanie drukowania wysłane: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Zadanie drukowania wysłane: liczba arkuszy przekazanych do spoolera: {count}
 	Print failed: the printing worker stopped.	Drukowanie nie powiodło się: proces drukowania został zatrzymany.
 	Print settings	Ustawienia drukowania
 	Submit print job	Wyślij zadanie drukowania

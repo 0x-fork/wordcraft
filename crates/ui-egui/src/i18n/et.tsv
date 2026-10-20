@@ -2250,6 +2250,7 @@
 	Submitting print job…	Prinditöö saatmine…
 	Print job submitted.	Prinditöö saadetud.
 	Print job submitted: {receipt}	Prinditöö saadetud: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Printimistöö saadetud: prindijärjekorda lisati lehti: {count}
 	Print failed: the printing worker stopped.	Printimine nurjus: printimisprotsess peatus.
 	Print settings	Printimisseaded
 	Submit print job	Saada prinditöö

@@ -2598,6 +2598,7 @@
 	Submitting print job…	Изпращане на задание за печат…
 	Print job submitted.	Заданието за печат е изпратено.
 	Print job submitted: {receipt}	Заданието за печат е изпратено: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Заданието за печат е изпратено: подадени {count} листа към спулера
 	Print failed: the printing worker stopped.	Печатът е неуспешен: процесът на печат спря.
 	Print settings	Настройки за печат
 	Submit print job	Изпращане на задание за печат

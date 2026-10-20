@@ -2216,6 +2216,7 @@
 	Submitting print job…	印刷ジョブを送信しています…
 	Print job submitted.	印刷ジョブを送信しました。
 	Print job submitted: {receipt}	印刷ジョブを送信しました：{receipt}
+	Print job submitted: spooled {count} sheet(s)	印刷ジョブを送信しました: {count} 枚をスプールしました
 	Print failed: the printing worker stopped.	印刷に失敗しました：印刷ワーカーが停止しました。
 	Print settings	印刷設定
 	Submit print job	印刷ジョブの送信

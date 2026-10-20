@@ -2228,6 +2228,7 @@
 	Submitting print job…	Надсилання завдання на друк…
 	Print job submitted.	Завдання на друк надіслано.
 	Print job submitted: {receipt}	Завдання на друк надіслано: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Завдання друку надіслано: у чергу передано аркушів: {count}
 	Print failed: the printing worker stopped.	Друк не вдався: процес друку зупинився.
 	Print settings	Параметри друку
 	Submit print job	Надіслати завдання на друк
