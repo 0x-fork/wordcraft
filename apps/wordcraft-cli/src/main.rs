@@ -180,8 +180,12 @@ fn listed_text(doc: &wordcraft_doc::Document) -> Result<String, String> {
 }
 
 /// `--author NAME`: the author recorded on tracked changes and comments (`file.setAuthor`).
+/// The name is set on the session directly: the caller is naming itself, not changing the open
+/// document, so the protection that refuses `file.setAuthor` doesn't apply here.
 fn set_author(s: &mut Session, name: &str) -> Result<(), String> {
-    s.run("file.setAuthor", &json!({"name": name})).map(|_| ()).map_err(|e| format!("--author: {e}"))
+    let name = wordcraft_engine::cmd::file::normalize_author(name).map_err(|e| format!("--author: {e}"))?;
+    s.author = name;
+    Ok(())
 }
 
 fn arg_value(args: &[String], name: &str) -> Option<String> {
@@ -804,6 +808,13 @@ mod tests {
         assert!(run(&args(&["run", "--author", "Claude", "--cmd", "review.trackChanges={\"value\":true}"])).is_ok());
         // The app's user name is the person's own; a bridge flag must not rewrite it.
         assert!(run(&args(&["mcp", "--connect", "127.0.0.1:9", "--author", "Claude"])).is_err_and(|e| e.to_string().contains("--author")));
+        // The flag names the session, so a protected document doesn't refuse it — changing the
+        // document's identity is a different thing, and that is still refused.
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+        assert!(set_author(&mut s, "Claude").is_ok());
+        assert_eq!(s.author, "Claude");
+        assert!(s.run("file.setAuthor", &json!({"name": "Claude"})).is_err());
     }
 
     #[test]
