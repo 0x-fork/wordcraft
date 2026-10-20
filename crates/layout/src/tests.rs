@@ -1224,23 +1224,33 @@ fn a_symbol_bullet_sizes_its_line_by_the_symbol_font() {
     if !wordcraft_fonts::word::resolve("Symbol", false, false).substituted {
         return;
     }
-    let first_line = |label_font: &str| {
+    // The label's ascent, the text size, and the first line's height and text ascent; no label
+    // font = no bullet.
+    let first_line = |label_font: Option<&str>| {
         let mut d = Document::from_text("one");
-        let id = d.numbering.add_list(wordcraft_doc::ListKind::BulletChar('\u{F0B7}'));
-        for a in &mut d.numbering.abstracts {
-            if let Some(l) = a.levels.first_mut() {
-                l.chr.font = Some(label_font.into());
+        if let Some(label_font) = label_font {
+            let id = d.numbering.add_list(wordcraft_doc::ListKind::BulletChar('\u{F0B7}'));
+            for a in &mut d.numbering.abstracts {
+                if let Some(l) = a.levels.first_mut() {
+                    l.chr.font = Some(label_font.into());
+                }
             }
+            d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 }))
+                .unwrap();
         }
-        d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
         let l = lay(&d);
         let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!("no text") };
         let size = para.styles.iter().map(|s| s.size).fold(0.0f32, f32::max);
-        (para.label.as_ref().map_or(0.0, |lab| lab.ascent), size)
+        (para.label.as_ref().map_or(0.0, |lab| lab.ascent), size, para.lines[0].height, para.lines[0].text_asc)
     };
-    let (ascent, size) = first_line("Symbol");
+    let (ascent, size, height, text_asc) = first_line(Some("Symbol"));
     let want = (1.005 * f64::from(size)) as f32;
     assert!((ascent - want).abs() < 0.01, "{ascent} vs {want}");
+    // The line is the text's own height plus the bullet's extra ascent, unscaled.
+    let (_, _, plain, _) = first_line(None);
+    let extra = ascent - text_asc;
+    assert!(extra > 0.0, "Symbol's ascent {ascent} is above the text's {text_asc}");
+    assert!((height - (plain + extra)).abs() < 0.01, "{height} vs {plain} + {extra}");
 }
 
 #[test]
