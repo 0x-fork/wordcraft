@@ -1878,6 +1878,75 @@ mod tests {
         }
     }
 
+    /// A body comment, then, with `option` on, a comment in the header of page `page`; `option`
+    /// is turned off again. Returns the header comment's id and story.
+    fn comment_in_header_version(s: &mut Session, option: &str, page: usize) -> (u64, wordcraft_doc::StoryRef) {
+        s.view.proofing = false;
+        s.run("document.setText", &json!({"text": "Body text with a comment on it."})).unwrap();
+        s.run("select.text", &json!({"text": "comment"})).unwrap();
+        s.run("review.newComment", &json!({"text": "body"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("insert.pageBreak", &json!({})).unwrap();
+        s.run(option, &json!({"value": true})).unwrap();
+        s.run("insert.editHeader", &json!({"page": page})).unwrap();
+        s.run("text.insert", &json!({"text": "header"})).unwrap();
+        let header = comment_here(s, "header");
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        s.run(option, &json!({"value": false})).unwrap();
+        s.run("caret.docStart", &json!({})).unwrap();
+        header
+    }
+
+    /// A first-page or even-page header is hidden while its option is off: its comments have no
+    /// anchor and Next skips them.
+    #[test]
+    fn comments_in_header_versions_whose_option_is_off_are_not_navigated_to() {
+        for (option, page, slot) in [("layout.differentFirstPage", 0, "first"), ("layout.differentOddEven", 1, "even")] {
+            let mut s = Session::new(Document::new());
+            let (id, story) = comment_in_header_version(&mut s, option, page);
+            let headers = s.doc.sections().first().map(|(_, sec)| sec.headers).unwrap();
+            let want = if slot == "first" { headers.first } else { headers.even };
+            assert_eq!(want.map(wordcraft_doc::StoryRef::Part), Some(story), "{option}: the comment is in the {slot} header");
+            assert!(listed(&mut s).contains(&(id, None)), "{option} off: no anchor");
+            for st in next_stories(&mut s, 3) {
+                assert_eq!(st, wordcraft_doc::StoryRef::Body, "{option} off: Next went to the hidden {slot} header");
+            }
+            s.run(option, &json!({"value": true})).unwrap();
+            assert!(listed(&mut s).contains(&(id, Some(story))), "{option} on: anchored again");
+        }
+    }
+
+    /// A linked text box shows the first box's text: comments in its own text have no anchor and
+    /// Next skips them.
+    #[test]
+    fn comments_in_a_linked_text_box_own_text_are_not_navigated_to() {
+        let mut s = Session::new(Document::new());
+        s.view.proofing = false;
+        s.run("document.setText", &json!({"text": "Body text with a comment on it."})).unwrap();
+        s.run("select.text", &json!({"text": "comment"})).unwrap();
+        s.run("review.newComment", &json!({"text": "body"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("insert.textBox", &json!({"text": "first box"})).unwrap();
+        let first = s.sel.focus.story;
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        // Only a blank box can be linked to.
+        s.run("insert.textBox", &json!({"text": " "})).unwrap();
+        let (id, follower) = comment_here(&mut s, "follower");
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        s.run("caret.set", &json!({"pos": {"story": first, "path": [0], "off": 0}})).unwrap();
+        s.run("shape.link", &json!({"target": 1})).unwrap();
+        assert_eq!(s.doc.text_box_chains().first().and_then(|c| c.get(1)).copied().map(wordcraft_doc::StoryRef::Part), Some(follower));
+        s.run("caret.docStart", &json!({})).unwrap();
+        assert!(listed(&mut s).contains(&(id, None)), "linked: no anchor");
+        for st in next_stories(&mut s, 3) {
+            assert_ne!(st, follower, "Next went into the linked box's own text");
+        }
+        s.run("caret.set", &json!({"pos": {"story": first, "path": [0], "off": 0}})).unwrap();
+        s.run("shape.breakLink", &json!({})).unwrap();
+        assert!(listed(&mut s).contains(&(id, Some(follower))), "unlinked: anchored again");
+    }
+
     /// Text inside a comment isn't an anchor: a comment marker in a comment's own story is not
     /// listed as that comment's place in the document.
     #[test]
