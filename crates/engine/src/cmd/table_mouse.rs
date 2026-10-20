@@ -200,28 +200,27 @@ pub fn handle_table(l: &DocLayout, doc: &Document, story: StoryRef, page: usize,
 }
 
 /// The move and resize handles of table `table` of `story` on this page, as Word shows them
-/// while the caret is in the table: the move handle where its first row is, the resize handle
-/// where its last row is.
+/// while the caret is in the table: the move handle where it starts, the resize handle where it
+/// ends.
 pub fn caret_handles(l: &DocLayout, doc: &Document, story: StoryRef, table: &Path, page: usize) -> (Option<Rect>, Option<Rect>) {
     let rows = doc.table(story, table).map_or(0, |t| t.rows.len());
-    let (mut first, mut last, mut bounds) = (false, false, None::<Rect>);
-    for it in l.pages.get(page).map_or(&[][..], |pg| pg.items.as_slice()) {
-        if let Placed::Cell { rect, table: t, story: st, row, .. } = it
-            && *st == story
-            && t == table
-        {
-            first |= *row == 0;
-            last |= *row + 1 == rows;
-            bounds = Some(bounds.map_or(*rect, |b| b.union(rect)));
-        }
+    let has_row = |p: usize, r: usize| {
+        l.pages.get(p).is_some_and(|pg| {
+            pg.items.iter().any(|it| matches!(it, Placed::Cell { table: t, story: st, row, .. } if *st == story && t == table && *row == r))
+        })
+    };
+    // A repeated header row, or a row running on to the next page, is drawn on more than one
+    // page: the handles go where the table starts and where it ends (its pages are consecutive).
+    let first = has_row(page, 0) && !page.checked_sub(1).is_some_and(|p| has_row(p, 0));
+    let last = rows.checked_sub(1).is_some_and(|r| has_row(page, r) && !page.checked_add(1).is_some_and(|p| has_row(p, r)));
+    if !first && !last {
+        return (None, None);
     }
-    let Some(b) = bounds else { return (None, None) };
-    // Where `handle` and `ResizeTarget::handle` put them for the drawn table.
-    let resize = table_resize::HANDLE;
-    (
-        first.then(|| Rect::new(b.x - HANDLE_GAP - HANDLE, b.y - HANDLE_GAP - HANDLE, HANDLE, HANDLE)),
-        last.then(|| Rect::new(b.right() + 1.0, b.bottom() + 1.0, resize, resize)),
-    )
+    // The table's geometry on this page that the pointer handles are drawn and grabbed from.
+    let Some(g) = table_resize::tables_on(l, doc, page).into_iter().find(|g| g.story == story && g.table == *table) else {
+        return (None, None);
+    };
+    (first.then(|| handle(&g)), last.then(|| g.handle()))
 }
 
 /// The insert button a target is, if it's one.
