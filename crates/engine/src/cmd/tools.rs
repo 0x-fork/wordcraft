@@ -460,7 +460,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("review.combine", "Combine", "Review › Compare", compare).params(COMPARE_PARAMS),
         CommandSpec::new("file.accessibility", "Check Accessibility", "Review › Accessibility", accessibility).pure(),
         CommandSpec::new("file.inspect", "Inspect Document", "File › Info", inspect_doc)
-            .params(r#"{"remove"?: ["comments", "revisions", "properties", "hidden", "headers"]} → {found: {comments, revisions, properties, hiddenText, hiddenCount, hidden: [{story: "body|header|footer|footnote|endnote|comment|textBox", part?, text}] (at most 1000), truncated, unsupported: [{story, object: "table|opaque", ..}] (hidden text not inspected: table styles, verbatim objects), headers}, removed, residual: [..] (hidden text a removal couldn't reach), removedNotes: [{kind, part, text}] (notes whose hidden reference was removed)}; whole hidden paragraphs go with their marks"#),
+            .params(r#"{"remove"?: ["comments", "revisions", "properties", "hidden", "headers"]} → {found: {comments, revisions, properties, hiddenText, hiddenCount, hidden: [{story: "body|header|footer|footnote|endnote|comment|textBox", part?, text}] (at most 1000), truncated, unsupported: [{story, object: "table|opaque", ..}] (hidden text not inspected: table styles, verbatim objects), headers}, removed, residual: [..] (hidden text a removal couldn't reach), removedNotes: [{kind, part, text}] (notes whose hidden reference was removed)}; whole hidden paragraphs go with their marks; the removals are refused while the document tracks changes"#),
         CommandSpec::new("file.protect", "Protect Document", "File › Info", |s, v| {
             let mode = p::str(v, "mode").unwrap_or("readOnly");
             s.run("review.restrict", &json!({"mode": mode}))
@@ -1437,6 +1437,13 @@ fn accessibility(s: &mut Session, _: &Value) -> CmdResult {
 fn inspect_doc(s: &mut Session, v: &Value) -> CmdResult {
     let remove: Vec<String> =
         v.get("remove").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    // The removals aren't tracked: they delete straight from the document, so on a document that
+    // tracks changes the text would go with no revision to show for it, and the revision trail
+    // would be broken behind the user's back (#1344 follow-up). Refuse the whole removal instead
+    // of quietly untracking it. Reading the document (no `remove`) is always allowed.
+    if !remove.is_empty() && s.doc.settings.track_changes {
+        return Err(CmdError::Disabled("the document tracks changes: stop tracking before removing content".into()));
+    }
     let hidden = hidden_text(&s.doc);
     let report = json!({
         "comments": s.doc.comments.len(),
@@ -2084,5 +2091,39 @@ mod tests {
         s.run("review.language", &json!({"lang": "de-DE", "default": true})).unwrap();
         assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("de-DE"));
         assert!(s.run("review.language", &json!({"lang": "<script>"})).is_err());
+    }
+
+    /// The inspector's removals delete straight from the document, so they aren't tracked: on a
+    /// document that tracks changes the text would go with no revision to show for it, and the
+    /// revision trail would be broken behind the user's back. The removal is refused instead,
+    /// and the document is left as it was (#1344 follow-up).
+    #[test]
+    fn inspect_removals_are_refused_while_the_document_tracks_changes() {
+        let mut s = Session::new(Document::from_text("Visible text.\nHidden text."));
+        s.run("select.text", &json!({"text": "Hidden"})).unwrap();
+        s.run("format.hidden", &json!({"value": true})).unwrap();
+        s.run("review.restrict", &json!({"mode": "trackedChanges"})).unwrap();
+        assert!(s.doc.settings.track_changes, "the document doesn't track changes");
+        let before = s.doc.clone();
+        let err = s.run("file.inspect", &json!({"remove": ["hidden"]})).unwrap_err();
+        assert!(matches!(err, CmdError::Disabled(_)), "{err}");
+        assert_eq!(s.doc, before, "the document changed despite the refusal");
+        // Reading the document stays allowed.
+        let found = s.run("file.inspect", &json!({})).unwrap();
+        assert_eq!(found["found"]["hiddenText"], true, "{found}");
+    }
+
+    /// A document that doesn't track changes is inspected as before: the hidden text goes.
+    #[test]
+    fn inspect_removals_work_when_the_document_does_not_track_changes() {
+        let mut s = Session::new(Document::from_text("Visible text.\nHidden text."));
+        s.run("select.text", &json!({"text": "Hidden"})).unwrap();
+        s.run("format.hidden", &json!({"value": true})).unwrap();
+        assert!(!s.doc.settings.track_changes);
+        let out = s.run("file.inspect", &json!({"remove": ["hidden"]})).unwrap();
+        assert_eq!(out["residual"], json!([]), "{out}");
+        let text = s.doc.plain_text(StoryRef::Body);
+        assert!(!text.contains("Hidden"), "the hidden text is still there: {text}");
+        assert!(text.contains("Visible text."), "{text}");
     }
 }
