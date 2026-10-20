@@ -105,8 +105,9 @@ fn restrict(s: &mut Session, v: &Value) -> CmdResult {
         return Ok(state(s));
     }
     // The protection of a protected document doesn't change: Word asks for Stop Protection first.
-    // (The formatting-only protection isn't one: it limits the styles, not the editing.)
-    if editing_restricted(&s.doc) {
+    // (The formatting-only protection isn't one: it limits the styles, not the editing — but a
+    // password on it still guards it, so it can't be replaced either.)
+    if editing_restricted(&s.doc) || !s.doc.settings.protect_hash.is_empty() {
         let why = if s.doc.settings.protect_hash.is_empty() {
             "the document is protected: stop protection first"
         } else {
@@ -859,6 +860,27 @@ mod tests {
         t.run("review.restrict", &json!({"mode": "none", "formatting": true})).unwrap();
         assert_eq!(t.doc.settings.protection.as_deref(), Some("none"));
         assert!(t.doc.settings.protect_formatting);
+    }
+
+    /// A password guards the protection whatever its mode: a formatting-only protection with a
+    /// password can't have that password replaced (and then removed) without knowing it.
+    #[test]
+    fn a_password_guards_the_formatting_only_protection_too() {
+        let mut s = Session::new(Document::from_text("Some text."));
+        s.run("review.restrict", &json!({"mode": "none", "formatting": true, "password": "pw"})).unwrap();
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("none"));
+        let hash = s.doc.settings.protect_hash.clone();
+        assert!(!hash.is_empty(), "the password is set");
+        // Replacing the protection would replace the password with one of the caller's choosing.
+        assert!(s.run("review.restrict", &json!({"mode": "readOnly", "password": "other"})).is_err());
+        assert_eq!(s.doc.settings.protect_hash, hash, "the password was replaced");
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("none"), "the protection was replaced");
+        // And stopping it needs the password.
+        assert!(s.run("review.restrict", &json!({"stop": true})).is_err());
+        assert!(s.run("review.restrict", &json!({"stop": true, "password": "wrong"})).is_err());
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("none"), "the protection was stopped");
+        s.run("review.restrict", &json!({"stop": true, "password": "pw"})).unwrap();
+        assert!(s.doc.settings.protection.is_none());
     }
 
     /// The settings and the metadata of a protected document are part of what stays as it was: a
