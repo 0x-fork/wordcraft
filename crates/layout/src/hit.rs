@@ -226,11 +226,12 @@ fn turned_hit(page: &Page, story: StoryRef, x: f32, y: f32) -> Option<Pos> {
     })
 }
 
-/// The position in the turned text of `story` nearest to page point (x, y), wherever it is.
-fn nearest_turned(page: &Page, story: StoryRef, x: f32, y: f32) -> Option<Pos> {
+/// The position in the turned text of `story` nearest to page point (x, y), wherever it is, in a
+/// paragraph `skip` doesn't leave out.
+fn nearest_turned(page: &Page, story: StoryRef, x: f32, y: f32, skip: &dyn Fn(&Path) -> bool) -> Option<Pos> {
     let dist = |r: Rect| band_dist(x, r.x, r.w).hypot(band_dist(y, r.y, r.h));
     let it = items_of(page, story)
-        .filter(|it| matches!(it, Placed::Lines { story: s, .. } if *s == story))
+        .filter(|it| matches!(it, Placed::Lines { story: s, path, .. } if *s == story && !skip(path)))
         .filter_map(|it| it.turned_bounds().map(|r| (it, dist(r))))
         .min_by(|a, b| a.1.total_cmp(&b.1))?
         .0;
@@ -288,18 +289,17 @@ impl DocLayout {
         if let Some(pos) = turned_hit(p, story, x, y) {
             return Some(pos);
         }
-        let lines = page_lines(p, story);
-        if lines.is_empty() {
-            // A page of turned text (a vertical section): the nearest turned line.
-            return nearest_turned(p, story, x, y);
-        }
         // Like Word, a click outside a floating table doesn't land in its cells while there's
         // other text on the page: below one, it goes to the text beside or after it (#2038).
         let floats = if story == StoryRef::Body { float_table_areas(p) } else { Vec::new() };
-        let away =
-            |l: &LineHit| floats.iter().any(|(t, r)| l.path.0.len() > t.0.len() && l.path.0.starts_with(&t.0) && !r.contains(Point::new(x, y)));
+        let away = |path: &Path| floats.iter().any(|(t, r)| path.0.len() > t.0.len() && path.0.starts_with(&t.0) && !r.contains(Point::new(x, y)));
+        let lines = page_lines(p, story);
+        if lines.is_empty() {
+            // A page of turned text (a vertical section): the nearest turned line.
+            return nearest_turned(p, story, x, y, &away).or_else(|| nearest_turned(p, story, x, y, &|_: &Path| false));
+        }
         let nearest = |a: &&LineHit, b: &&LineHit| score(a, x, y).total_cmp(&score(b, x, y));
-        let best = lines.iter().filter(|&l| !away(l)).min_by(nearest).or_else(|| lines.iter().min_by(nearest))?;
+        let best = lines.iter().filter(|l| !away(l.path)).min_by(nearest).or_else(|| lines.iter().min_by(nearest))?;
         let off = best.para.off_at_x(best.li, x - best.x);
         Some(Pos { story: best.story, path: best.path.clone(), off })
     }
