@@ -32,11 +32,110 @@ pub fn import_on(text: &str, page: &wordcraft_doc::SectionProps) -> Document {
     model::to_doc_in(&parse(text), page.clone())
 }
 
+/// Link reference definitions: the normalised label to its destination.
+pub type Refs = HashMap<String, String>;
+
+/// A label as CommonMark compares them: case-folded, and any run of white space one space
+/// (§4.7, "matches"). `[FOO bar]` and `[foo   BAR]` are the same label.
+fn ref_label(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// A link reference definition on its own line: `[label]: destination "optional title"`. The
+/// destination may be wrapped in `<...>`. Returns the label and the destination.
+///
+/// CommonMark allows the title on the following line and the label to span lines; a definition
+/// written across lines is left as text here, which is what it was before these were read at all.
+fn link_definition(line: &str) -> Option<(String, String)> {
+    let t = line.trim_start();
+    // Up to three spaces of indentation; four makes it indented code.
+    if line.len() - t.len() > 3 || !t.starts_with('[') {
+        return None;
+    }
+    let bytes = t.as_bytes();
+    // The label ends at the first unescaped `]`, and cannot be empty or hold an unescaped `[`.
+    let mut i = 1;
+    let mut close = None;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 1,
+            b'[' => return None,
+            b']' => {
+                close = Some(i);
+                break;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let close = close?;
+    let label = ref_label(t.get(1..close)?);
+    if label.is_empty() || t.as_bytes().get(close + 1) != Some(&b':') {
+        return None;
+    }
+    let rest = t.get(close + 2..)?.trim_start();
+    if rest.is_empty() {
+        return None;
+    }
+    // The destination: `<...>`, else up to the next space. What follows may only be a title.
+    let (dest, after) = match rest.strip_prefix('<') {
+        Some(inner) => {
+            let end = inner.find('>')?;
+            (inner.get(..end)?.to_string(), inner.get(end + 1..)?)
+        }
+        None => {
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            (rest.get(..end)?.to_string(), rest.get(end..)?)
+        }
+    };
+    if dest.is_empty() {
+        return None;
+    }
+    let title = after.trim();
+    let titled =
+        title.is_empty() || (title.len() >= 2 && matches!((title.chars().next()?, title.chars().last()?), ('"', '"') | ('\'', '\'') | ('(', ')')));
+    titled.then_some((label, dest))
+}
+
+/// Take the link reference definitions out of `lines`, leaving the rest. Lines inside a fenced
+/// code block are left alone: a definition there is code, not a definition.
+fn take_definitions(lines: &mut Vec<String>) -> Refs {
+    let mut refs = Refs::new();
+    let mut open: Option<(char, usize)> = None;
+    lines.retain(|line| {
+        let t = line.trim_start();
+        match open {
+            Some((c, n)) => {
+                if fence(t).is_some_and(|(fc, fn_)| fc == c && fn_ >= n) {
+                    open = None;
+                }
+                return true;
+            }
+            None => {
+                if let Some(f) = fence(t) {
+                    open = Some(f);
+                    return true;
+                }
+            }
+        }
+        match link_definition(line) {
+            // The first definition of a label wins, as CommonMark says.
+            Some((label, dest)) => {
+                refs.entry(label).or_insert(dest);
+                false
+            }
+            None => true,
+        }
+    });
+    refs
+}
+
 /// Parse Markdown text into the flow model.
 pub fn parse(text: &str) -> model::Flow {
     let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
-    let lines: Vec<String> = text.split('\n').map(|l| expand_tabs(l.trim_end_matches('\r'))).collect();
-    let mut blocks = parse_blocks(&lines, 0, 0);
+    let mut lines: Vec<String> = text.split('\n').map(|l| expand_tabs(l.trim_end_matches('\r'))).collect();
+    let refs = take_definitions(&mut lines);
+    let mut blocks = parse_blocks(&lines, 0, 0, &refs);
     // A leading "Title" from front matter isn't supported; a first-level heading stays a heading.
     if blocks.is_empty() {
         blocks.push(FBlock::Para(Para::default()));
@@ -234,13 +333,13 @@ fn interrupts(l: &str) -> bool {
         || list_marker(t).is_some_and(|m| (!m.ordered || m.start == 1) && !is_blank(t.get(m.len..).unwrap_or("")))
 }
 
-fn flush_para(lines: &mut Vec<String>, out: &mut Vec<FBlock>, depth: usize) {
+fn flush_para(lines: &mut Vec<String>, out: &mut Vec<FBlock>, depth: usize, refs: &Refs) {
     if lines.is_empty() {
         return;
     }
     let text = join_lines(lines);
     lines.clear();
-    let p = Para { inlines: parse_inlines(&text, &Fmt::default(), depth), ..Default::default() };
+    let p = Para { inlines: parse_inlines(&text, &Fmt::default(), depth, refs), ..Default::default() };
     out.push(FBlock::Para(p));
 }
 
@@ -273,13 +372,13 @@ fn code_para(line: &str) -> FBlock {
 }
 
 /// Parse block structure. `level` is the list nesting level for lists found here.
-fn parse_blocks(lines: &[String], depth: usize, level: u8) -> Vec<FBlock> {
+fn parse_blocks(lines: &[String], depth: usize, level: u8, refs: &Refs) -> Vec<FBlock> {
     let mut out = Vec::new();
     let mut para: Vec<String> = Vec::new();
     let mut i = 0;
     while let Some(line) = lines.get(i) {
         if is_blank(line) {
-            flush_para(&mut para, &mut out, depth);
+            flush_para(&mut para, &mut out, depth, refs);
             i += 1;
             continue;
         }
@@ -317,28 +416,28 @@ fn parse_blocks(lines: &[String], depth: usize, level: u8) -> Vec<FBlock> {
                 let text = join_lines(&para);
                 para.clear();
                 let mut p = Para::new(Kind::Heading(lvl));
-                p.inlines = parse_inlines(&text, &Fmt::default(), depth);
+                p.inlines = parse_inlines(&text, &Fmt::default(), depth, refs);
                 out.push(FBlock::Para(p));
                 i += 1;
                 continue;
             }
         }
         if let Some((n, body)) = atx_heading(t) {
-            flush_para(&mut para, &mut out, depth);
+            flush_para(&mut para, &mut out, depth, refs);
             let mut p = Para::new(Kind::Heading(n));
-            p.inlines = parse_inlines(body, &Fmt::default(), depth);
+            p.inlines = parse_inlines(body, &Fmt::default(), depth, refs);
             out.push(FBlock::Para(p));
             i += 1;
             continue;
         }
         if thematic_break(t) {
-            flush_para(&mut para, &mut out, depth);
+            flush_para(&mut para, &mut out, depth, refs);
             out.push(FBlock::Para(Para::new(Kind::Rule)));
             i += 1;
             continue;
         }
         if let Some((fc, fl)) = fence(t) {
-            flush_para(&mut para, &mut out, depth);
+            flush_para(&mut para, &mut out, depth, refs);
             i += 1;
             while let Some(l) = lines.get(i) {
                 i += 1;
@@ -351,7 +450,7 @@ fn parse_blocks(lines: &[String], depth: usize, level: u8) -> Vec<FBlock> {
             continue;
         }
         if t.starts_with('>') {
-            flush_para(&mut para, &mut out, depth);
+            flush_para(&mut para, &mut out, depth, refs);
             let mut inner: Vec<String> = Vec::new();
             while let Some(l) = lines.get(i) {
                 let lt = l.trim_start_matches([' ', '\t']);
@@ -370,7 +469,7 @@ fn parse_blocks(lines: &[String], depth: usize, level: u8) -> Vec<FBlock> {
                 p.push_text(&inner.join(" "), &Fmt::default());
                 out.push(FBlock::Para(p));
             } else {
-                for mut b in parse_blocks(&inner, depth + 1, level) {
+                for mut b in parse_blocks(&inner, depth + 1, level, refs) {
                     if let FBlock::Para(p) = &mut b
                         && p.kind == Kind::Normal
                     {
@@ -389,7 +488,7 @@ fn parse_blocks(lines: &[String], depth: usize, level: u8) -> Vec<FBlock> {
             if head.len() == aligns.len() {
                 let mut table = FTable::default();
                 let cell = |s: &str, header: bool, a: Option<Align>| {
-                    let p = Para { align: a, inlines: parse_inlines(s, &Fmt::default(), depth), ..Default::default() };
+                    let p = Para { align: a, inlines: parse_inlines(s, &Fmt::default(), depth, refs), ..Default::default() };
                     Cell { blocks: vec![FBlock::Para(p)], header, ..Default::default() }
                 };
                 table.rows.push(head.iter().zip(&aligns).map(|(s, a)| cell(s, true, *a)).collect());
@@ -410,19 +509,19 @@ fn parse_blocks(lines: &[String], depth: usize, level: u8) -> Vec<FBlock> {
         if let Some(m) = list_marker(t)
             && (para.is_empty() || ((!m.ordered || m.start == 1) && !is_blank(t.get(m.len..).unwrap_or(""))))
         {
-            flush_para(&mut para, &mut out, depth);
-            i = parse_list(lines, i, depth, level, &mut out);
+            flush_para(&mut para, &mut out, depth, refs);
+            i = parse_list(lines, i, depth, level, &mut out, refs);
             continue;
         }
         para.push(line.clone());
         i += 1;
     }
-    flush_para(&mut para, &mut out, depth);
+    flush_para(&mut para, &mut out, depth, refs);
     out
 }
 
 /// Parse a list starting at `lines[i]`; returns the index after it.
-fn parse_list(lines: &[String], mut i: usize, depth: usize, level: u8, out: &mut Vec<FBlock>) -> usize {
+fn parse_list(lines: &[String], mut i: usize, depth: usize, level: u8, out: &mut Vec<FBlock>, refs: &Refs) -> usize {
     let Some(first) = lines.get(i).and_then(|l| list_marker(l.trim_start_matches([' ', '\t']))) else { return i + 1 };
     while let Some(line) = lines.get(i) {
         let ind = indent(line);
@@ -466,7 +565,7 @@ fn parse_list(lines: &[String], mut i: usize, depth: usize, level: u8, out: &mut
             p.push_text(&item.join(" "), &Fmt::default());
             vec![FBlock::Para(p)]
         } else {
-            parse_blocks(&item, depth + 1, level.saturating_add(1).min(8))
+            parse_blocks(&item, depth + 1, level.saturating_add(1).min(8), refs)
         };
         let mut placed = false;
         if inner.is_empty() {
@@ -539,8 +638,8 @@ fn is_punct(c: char) -> bool {
 }
 
 /// Parse inline Markdown into formatted spans (on top of `base`).
-pub fn parse_inlines(s: &str, base: &Fmt, depth: usize) -> Vec<Inline> {
-    let nodes = tokenize(s, base, depth);
+pub fn parse_inlines(s: &str, base: &Fmt, depth: usize, refs: &Refs) -> Vec<Inline> {
+    let nodes = tokenize(s, base, depth, refs);
     emit(nodes)
 }
 
@@ -721,7 +820,7 @@ fn tag_attr(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-fn tokenize(s: &str, base: &Fmt, depth: usize) -> Vec<Node> {
+fn tokenize(s: &str, base: &Fmt, depth: usize, refs: &Refs) -> Vec<Node> {
     let mut nodes: Vec<Node> = Vec::new();
     // Bytes the link and image scans below may look ahead in total. Each unmatched `[` or `![(`
     // would otherwise rescan the rest of the text, which is quadratic on hostile input; once the
@@ -811,12 +910,29 @@ fn tokenize(s: &str, base: &Fmt, depth: usize) -> Vec<Node> {
                         }
                         None => None,
                     };
-                    found.filter(|close| b.get(close + 1) == Some(&b'(') && scan_budget > 0).and_then(|close| {
-                        // A destination that does not parse may have been read to the end of the text.
-                        let dest = link_dest(s, close + 1);
-                        scan_budget = scan_budget.saturating_sub(dest.as_ref().map_or(s.len(), |d| d.1).saturating_sub(close));
-                        let (dest, end) = dest?;
-                        Some((s.get(open + 1..close)?.to_string(), dest, end))
+                    found.filter(|_| scan_budget > 0).and_then(|close| {
+                        let text = s.get(open + 1..close)?;
+                        if b.get(close + 1) == Some(&b'(') {
+                            // A destination that does not parse may have been read to the end of the text.
+                            let dest = link_dest(s, close + 1);
+                            scan_budget = scan_budget.saturating_sub(dest.as_ref().map_or(s.len(), |d| d.1).saturating_sub(close));
+                            let (dest, end) = dest?;
+                            return Some((text.to_string(), dest, end));
+                        }
+                        // A reference link: `[text][label]`, `[text][]` and `[text]` all take
+                        // their destination from a definition collected before parsing (#3238).
+                        // The shortcut form is only a link when the label is defined, so an
+                        // ordinary bracketed phrase is still text.
+                        let (label, end) = match s.get(close + 1..).and_then(|rest| rest.strip_prefix('[')) {
+                            Some(rest) => {
+                                let shut = rest.find(']')?;
+                                let inner = rest.get(..shut)?;
+                                let label = if inner.trim().is_empty() { text } else { inner };
+                                (label, close + 2 + shut + 1)
+                            }
+                            None => (text, close + 1),
+                        };
+                        Some((text.to_string(), refs.get(&ref_label(label))?.clone(), end))
                     })
                 } else {
                     None
@@ -824,7 +940,7 @@ fn tokenize(s: &str, base: &Fmt, depth: usize) -> Vec<Node> {
                 match parsed {
                     Some((inner, dest, end)) if img => {
                         flush!();
-                        let alt: String = parse_inlines(&inner, &Fmt::default(), depth + 1)
+                        let alt: String = parse_inlines(&inner, &Fmt::default(), depth + 1, refs)
                             .iter()
                             .filter_map(|x| if let Inline::Text(t, _) = x { Some(t.as_str()) } else { None })
                             .collect();
@@ -839,7 +955,7 @@ fn tokenize(s: &str, base: &Fmt, depth: usize) -> Vec<Node> {
                         flush!();
                         let mut f = base.clone();
                         f.link = Some(dest);
-                        for x in parse_inlines(&inner, &f, depth + 1) {
+                        for x in parse_inlines(&inner, &f, depth + 1, refs) {
                             nodes.push(Node::Inl(x));
                         }
                         i = end;
@@ -1414,7 +1530,7 @@ mod tests {
     use super::*;
 
     fn inl(s: &str) -> Vec<Inline> {
-        parse_inlines(s, &Fmt::default(), 0)
+        parse_inlines(s, &Fmt::default(), 0, &Refs::new())
     }
 
     fn spans(s: &str) -> Vec<(String, bool, bool)> {
@@ -1447,6 +1563,49 @@ mod tests {
         assert!(s.iter().any(|i| matches!(i, Inline::Text(t, f) if t == "a*b*" && f.code)));
         let text: String = s.iter().filter_map(|i| if let Inline::Text(t, _) = i { Some(t.as_str()) } else { None }).collect();
         assert!(text.contains("*lit* & "), "{text}");
+    }
+
+    /// Reference links: `[text][label]`, `[text][]` and `[text]` take their destination from a
+    /// definition line, and the definition itself leaves the document. Before, none of the three
+    /// was a link and the definition stayed as a paragraph of its own (#3238).
+    #[test]
+    fn reference_links_resolve_and_their_definitions_leave_the_body() {
+        let links = |md: &str| -> Vec<(String, String)> {
+            match &*parse(md).blocks {
+                [FBlock::Para(p), ..] => p
+                    .inlines
+                    .iter()
+                    .filter_map(|x| match x {
+                        Inline::Text(t, f) => f.link.clone().map(|l| (t.clone(), l)),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => vec![],
+            }
+        };
+        let def = "\n\n[ref1]: https://example.com/ref\n";
+        let to_ref = |text: &str| vec![(text.to_string(), "https://example.com/ref".to_string())];
+
+        assert_eq!(links(&format!("[click here][ref1]{def}")), to_ref("click here"), "full");
+        assert_eq!(links(&format!("[ref1][]{def}")), to_ref("ref1"), "collapsed");
+        assert_eq!(links(&format!("[ref1]{def}")), to_ref("ref1"), "shortcut");
+        // Labels match case-folded with runs of white space collapsed (CommonMark §4.7).
+        assert_eq!(links(&format!("[click here][  REF1  ]{def}")), to_ref("click here"), "folded label");
+        // An undefined label is not a link: an ordinary bracketed phrase stays text.
+        assert_eq!(links(&format!("[nope]{def}")), vec![], "undefined");
+        // Inline links are unaffected.
+        assert_eq!(links("[x](https://inline.example)"), vec![("x".into(), "https://inline.example".into())], "inline");
+
+        // The definition is not a paragraph, and its text is nowhere in the body.
+        let doc = import(&format!("Reference link: [click here][ref1]{def}"));
+        let text = doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert_eq!(text, "Reference link: click here", "{text:?}");
+
+        // A definition inside a fence is code, not a definition.
+        let fenced = "```\n[ref1]: https://example.com/ref\n```\n\n[ref1]\n";
+        let body = import(fenced).plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(body.contains("[ref1]: https://example.com/ref"), "the fenced definition is still code: {body:?}");
+        assert_eq!(links(fenced), vec![], "a fenced definition defines nothing");
     }
 
     #[test]
