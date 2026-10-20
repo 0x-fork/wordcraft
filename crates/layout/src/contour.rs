@@ -184,12 +184,13 @@ pub fn picture_outline(bytes: &[u8], crop: [f32; 4]) -> Option<Vec<(f32, f32)>> 
     }
     let img = img.into_rgba8();
     let (iw, ih) = img.dimensions();
-    let frac = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    let [cl, ct, cr, cb] = crop.map(frac);
-    let x0 = ((iw as f32 * cl) as u32).min(iw);
-    let y0 = ((ih as f32 * ct) as u32).min(ih);
-    let x1 = ((iw as f32 * (1.0 - cr)) as u32).clamp(x0, iw);
-    let y1 = ((ih as f32 * (1.0 - cb)) as u32).clamp(y0, ih);
+    // The part the renderers draw (#1899): a sliver keeps its partly covered pixels.
+    let [cl, ct, vw, vh] = wordcraft_metafile::crop_window(crop);
+    let (fw, fh) = (f64::from(iw), f64::from(ih));
+    let x0 = ((fw * cl) as u32).min(iw);
+    let y0 = ((fh * ct) as u32).min(ih);
+    let x1 = ((fw * (cl + vw)).ceil() as u32).clamp(x0, iw);
+    let y1 = ((fh * (ct + vh)).ceil() as u32).clamp(y0, ih);
     let (cw, ch) = (x1 - x0, y1 - y0);
     if cw == 0 || ch == 0 {
         return None;
@@ -264,6 +265,16 @@ mod tests {
         assert!(half.iter().any(|(x, _)| *x > 0.99), "{half:?}");
         // No transparency: the rectangle.
         assert!(picture_outline(&png(image::RgbImage::new(8, 8).into()), [0.0; 4]).is_none());
+        // #1899: the sliver the renderers draw (0.5% of the axis, when two sides overlap or keep
+        // less) has an outline too. Only the bottom-right quarter is opaque, so a column or a row
+        // through it is opaque in its second half.
+        let quarter = png(image::RgbaImage::from_fn(100, 100, |x, y| image::Rgba([0, 0, 0, if x >= 50 && y >= 50 { 255 } else { 0 }])).into());
+        for (crop, column) in [([0.6, 0.0, 0.6, 0.0], true), ([0.6, 0.0, 0.398, 0.0], true), ([0.0, 0.6, 0.0, 0.6], false)] {
+            let pts = picture_outline(&quarter, crop).unwrap_or_default();
+            let across = |p: &(f32, f32)| if column { p.1 } else { p.0 };
+            // The grid's cells are 3 pixels, so the half starts a little before 0.5.
+            assert!(pts.len() >= 3 && pts.iter().all(|p| across(p) > 0.4), "{crop:?}: {pts:?}");
+        }
     }
 
     #[test]
