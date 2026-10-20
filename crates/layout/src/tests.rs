@@ -4995,6 +4995,27 @@ fn a_floating_table_in_a_cell_takes_no_room_and_the_cell_holds_it() {
     assert!(below_y > last_y + 10.0, "text below the outer table at {below_y}, the inner table's last row at {last_y}");
 }
 
+/// A floating (anchored, non-inline) picture in a cell grows the row to hold it too, the same
+/// way a floating table does: it must not hang past the row's own bottom edge and overlap
+/// whatever follows the table (#3108).
+#[test]
+fn a_floating_picture_in_a_cell_grows_the_row_to_hold_it() {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let mut t = Table::new(1, 1, 468.0);
+    let mut cp = wordcraft_doc::Paragraph::with_text("Caption", Default::default());
+    // Short text alone would need one line (well under 100pt); the floated picture is much
+    // taller than that, so only its own height should set the row's height.
+    let picture = Float { wrap: Wrap::Square, h_rel: Anchor::Margin, v_rel: Anchor::Margin, x: 0.0, y: 0.0, ..Default::default() };
+    cp.insert_object(0, rect_shape(200.0, 300.0, picture), &Default::default()).unwrap();
+    t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(cp)];
+    let mut d = Document::from_text("Below the table");
+    d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let [(_, row_y, _)] = para_at(&l, &[0, 0, 0, 0])[..] else { panic!("cell text line missing") };
+    let [(_, below_y, _)] = para_at(&l, &[1])[..] else { panic!("line after the table missing") };
+    assert!(below_y - row_y > 290.0, "text after the table at {below_y}, the row's text at {row_y}: the row didn't grow for the 300pt picture");
+}
+
 #[test]
 fn autofit_sizes_columns_by_their_content() {
     let text = |s: &str| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(s, Default::default()));
