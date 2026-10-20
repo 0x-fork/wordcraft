@@ -1216,6 +1216,10 @@ impl Session {
         self.go_back_step = 0;
         self.view.outline.collapsed.clear();
         self.reset_history();
+        // A version snapshot belongs to the document it was taken from: keeping the old ones
+        // would let a restore put the previous document's content into this one (#1327
+        // follow-up).
+        self.versions.clear();
         self.touch();
         self.dirty = false;
         self.relayout();

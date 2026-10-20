@@ -8300,6 +8300,35 @@ fn rename_unsaved_document_names_the_file_not_the_document() {
     assert!(s.file_name.is_none() && s.path.is_none());
 }
 
+/// A version snapshot belongs to the document it was taken from: opening another document (or
+/// starting a new one) starts a new version history, so a restore can't put the previous
+/// document's content into the open one (#1327 follow-up).
+#[test]
+fn a_version_snapshot_does_not_survive_a_document_switch() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("First document."));
+    s.run("file.versions", &json!({"save": "snapshot"})).unwrap();
+    assert_eq!(s.versions.len(), 1);
+
+    // A new document: the snapshot of the previous one is gone with it.
+    s.run("file.new", &json!({})).unwrap();
+    assert!(s.versions.is_empty(), "the snapshot of the previous document survived the switch");
+    assert!(s.run("file.versions", &json!({"restore": 0})).is_err(), "the old snapshot is still restorable");
+    assert_ne!(s.doc.plain_text(StoryRef::Body), "First document.", "the old document's content came back");
+
+    // The same for an opened file.
+    s.run("file.versions", &json!({"save": "snapshot"})).unwrap();
+    s.run("file.open", &json!({"path": "other.txt", "data": "aGk="})).unwrap();
+    assert!(s.versions.is_empty(), "the snapshot of the previous document survived the switch");
+    assert!(s.run("file.versions", &json!({"restore": 0})).is_err(), "the old snapshot is still restorable");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "hi");
+
+    // A snapshot of the open document still restores into it.
+    s.run("file.versions", &json!({"save": "snapshot"})).unwrap();
+    s.run("text.insert", &json!({"text": " there"})).unwrap();
+    s.run("file.versions", &json!({"restore": 0})).unwrap();
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "hi");
+}
+
 /// #1344: File › Info › Inspect Document finds hidden text by its effective formatting (direct,
 /// character style, paragraph style) in every story — body, header, footer, footnote, comment,
 /// text box — and Remove All deletes exactly that text, in one undo step, through a DOCX save.
