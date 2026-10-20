@@ -7364,6 +7364,14 @@ fn find_replace_and_go_to_open_like_word() {
     run(&mut s, "edit.replace", json!({"with": "cow"}));
     assert_eq!(text(&s), "cat cow cat");
 
+    // A replace with no `text` and no earlier search is a mistake, not "0 matches" (#3271).
+    let mut s = super::tests::s();
+    for (id, params) in [("edit.replaceAll", json!({"find": "cat", "replace": "dog"})), ("edit.replace", json!({})), ("edit.replaceAll", json!({}))] {
+        let e = s.run(id, &params).unwrap_err().to_string();
+        assert!(e.contains("`text` (string) is required"), "{id}: {e}");
+    }
+    run(&mut s, "edit.replaceAll", json!({"text": "", "with": "x"}));
+
     // Five pages; Go To +2 / -1 from where the caret is, clamped to the document.
     let mut s = super::tests::s();
     for i in 0..5 {
