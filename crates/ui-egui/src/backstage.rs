@@ -370,18 +370,22 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
     if app.ui.recent.is_empty() {
         ui.label(egui::RichText::new(tl!("Documents you open will show up here.")).color(t.text_dim));
     }
-    for p in app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>() {
-        let name = std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.clone());
+    let shown = app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>();
+    let file_name = |p: &str| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.to_string());
+    let names = shown.iter().map(|p| file_name(p)).collect::<Vec<_>>();
+    for (p, name) in shown.iter().zip(&names) {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 40.0), Sense::click());
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &name));
+        // Two documents with the same file name are told apart by their path, as on screen.
+        let spoken = if names.iter().filter(|n| *n == name).count() > 1 { format!("{name}, {p}") } else { name.clone() };
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &spoken));
         if resp.hovered() {
             ui.painter().rect_filled(r, 4.0, t.hover);
         }
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
+        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, name, medium(13.0), t.text);
+        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, p, regular(11.0), t.text_dim);
         if resp.clicked() {
-            let failed = open_recent(app, &p).err();
+            let failed = open_recent(app, p).err();
             ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
         }
     }
@@ -732,14 +736,20 @@ mod tests {
     fn templates_and_recent_documents_are_named_buttons() {
         use egui::accesskit::Role;
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
-        let missing = std::env::temp_dir().join("wordcraft-3176-missing").join("Quarterly notes.docx");
-        a.ui.recent = vec![missing.to_string_lossy().into_owned()];
+        let dir = std::env::temp_dir().join("wordcraft-3176-missing");
+        let path = |folder: &str, file: &str| dir.join(folder).join(file).to_string_lossy().into_owned();
+        let (spring, autumn) = (path("spring", "Report.docx"), path("autumn", "Report.docx"));
+        a.ui.recent = vec![path("notes", "Quarterly notes.docx"), spring.clone(), autumn.clone()];
         a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
         let mut h = a11y_harness(a);
         for (label, _) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
             assert!(h.query_by_role_and_label(Role::Button, label).is_some(), "{label} is a named button");
         }
         assert!(h.query_by_role_and_label(Role::Button, "Quarterly notes.docx").is_some(), "a recent document is a named button");
+        for p in [&spring, &autumn] {
+            let label = format!("Report.docx, {p}");
+            assert!(h.query_by_role_and_label(Role::Button, &label).is_some(), "a repeated file name is told apart by its path: {label}");
+        }
         h.get_by_role_and_label(Role::Button, "Letter").click();
         h.run_steps(4);
         assert!(!h.state().ui.backstage, "the Letter button opens the template");
