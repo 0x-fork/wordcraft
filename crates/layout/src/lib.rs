@@ -484,6 +484,9 @@ pub struct Page {
     /// Width of the markup area on the right of `w` that holds comment balloons (Print Markup,
     /// [`LayoutOptions::comment_balloons`]); 0 without one. The document page is `w - markup` wide.
     pub markup: f32,
+    /// The top-level body tables placed on this page as floating tables (`w:tblpPr`): a click
+    /// outside one doesn't land in its cells ([`DocLayout::hit`]).
+    pub float_tables: Vec<Path>,
 }
 
 /// The whole layout.
@@ -4284,6 +4287,7 @@ fn place_floating_table(ctx: &mut Ctx, pb: &mut PageBuilder, tl: &table::TableLa
                 }
                 y += row.height;
             }
+            pg.float_tables.push(Path::top(block));
         }
         let area = r.inset(-dl, -dt, -dr, -db);
         pb.excl.push((area, false, None, WrapText::BothSides));

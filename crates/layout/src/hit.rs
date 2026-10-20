@@ -253,6 +253,23 @@ fn nearest_line_at<'a>(page: &'a Page, y: f32, top_only: bool) -> Option<LineHit
         .min_by(|a, b| band_dist(y, a.top, a.bottom - a.top).total_cmp(&band_dist(y, b.top, b.bottom - b.top)).then(a.left.total_cmp(&b.left)))
 }
 
+/// Each floating body table on `page` with the area its cells cover there.
+fn float_table_areas(page: &Page) -> Vec<(&Path, Rect)> {
+    page.float_tables
+        .iter()
+        .filter_map(|t| {
+            page.items
+                .iter()
+                .filter_map(|it| match it {
+                    Placed::Cell { rect, table, story: StoryRef::Body, .. } if table == t => Some(*rect),
+                    _ => None,
+                })
+                .reduce(|a, b| a.union(&b))
+                .map(|r| (t, r))
+        })
+        .collect()
+}
+
 /// How far `v` is outside the band `top..top + h`.
 fn band_dist(v: f32, top: f32, h: f32) -> f32 {
     if v < top {
@@ -276,7 +293,13 @@ impl DocLayout {
             // A page of turned text (a vertical section): the nearest turned line.
             return nearest_turned(p, story, x, y);
         }
-        let best = lines.iter().min_by(|a, b| score(a, x, y).total_cmp(&score(b, x, y)))?;
+        // Like Word, a click outside a floating table doesn't land in its cells while there's
+        // other text on the page: below one, it goes to the text beside or after it (#2038).
+        let floats = if story == StoryRef::Body { float_table_areas(p) } else { Vec::new() };
+        let away =
+            |l: &LineHit| floats.iter().any(|(t, r)| l.path.0.len() > t.0.len() && l.path.0.starts_with(&t.0) && !r.contains(Point::new(x, y)));
+        let nearest = |a: &&LineHit, b: &&LineHit| score(a, x, y).total_cmp(&score(b, x, y));
+        let best = lines.iter().filter(|&l| !away(l)).min_by(nearest).or_else(|| lines.iter().min_by(nearest))?;
         let off = best.para.off_at_x(best.li, x - best.x);
         Some(Pos { story: best.story, path: best.path.clone(), off })
     }
