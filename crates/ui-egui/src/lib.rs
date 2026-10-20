@@ -550,6 +550,8 @@ pub struct WordApp {
     /// The document (id, revision) whose comment text [`WordApp::ensure_comment_fonts`] last
     /// looked at.
     comment_fonts_for: Option<(u64, u64)>,
+    /// The Find query and result count [`WordApp::ensure_find_fonts`] last looked at.
+    find_fonts_for: Option<(String, usize)>,
     fonts_frames: u32,
     /// The effective interface theme last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
@@ -679,6 +681,7 @@ impl WordApp {
             fonts_system_cjk: false,
             want_system_cjk: false,
             comment_fonts_for: None,
+            find_fonts_for: None,
             fonts_frames: 0,
             applied_theme: None,
             native_scale: 1.0,
@@ -1909,6 +1912,38 @@ impl WordApp {
         }
     }
 
+    /// The Find box and the Navigation pane's Results list draw the typed query and document
+    /// excerpts around each match with the interface faces, which have no Georgian, Armenian,
+    /// Thai … (#3248): each such letter was drawn as a box. Borrow the document fonts' fallback
+    /// faces for them, as comments and the caption do. Looked at once per query/result-count
+    /// change; CJK text uses the CJK UI font instead.
+    fn ensure_find_fonts(&mut self) {
+        let key = (self.session.find.query.clone(), self.session.find.results.len());
+        if self.find_fonts_for.as_ref() == Some(&key) {
+            return;
+        }
+        self.find_fonts_for = Some(key);
+        let mut text = self.session.find.query.clone();
+        for (a, b) in self.session.find.results.iter().take(500) {
+            let Some(p) = self.session.doc.para_at(a) else { continue };
+            let from = p.clamp(a.off.saturating_sub(30));
+            let to = p.clamp((b.off + 40).min(p.len()));
+            if let Some(s) = p.text.get(from..to) {
+                text.push_str(s);
+            }
+        }
+        if text.chars().any(wordcraft_fonts::is_cjk) {
+            self.want_system_cjk = true;
+        }
+        let new = theme::faces_for_preedit(&text, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
+            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
+        });
+        if !new.is_empty() {
+            self.canvas.ime_faces.extend(new);
+            self.styled = false;
+        }
+    }
+
     /// Document title for the title bar (and the suggested file name). An untitled document is
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
@@ -1956,6 +1991,7 @@ impl WordApp {
         // in this frame (dialog, drop, control channel) is picked up again at the end.
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
+        self.ensure_find_fonts();
         self.install_ui_fonts(ctx, lang);
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
@@ -2066,6 +2102,7 @@ impl WordApp {
         // The open above may have changed the file name the caption draws.
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
+        self.ensure_find_fonts();
         self.install_ui_fonts(ctx, lang);
         self.report_dirty();
     }
@@ -2803,6 +2840,46 @@ mod tests {
         let n = arabic.canvas.ime_faces.len();
         frame(&mut arabic);
         assert_eq!(arabic.canvas.ime_faces.len(), n, "the face is added once");
+    }
+
+    /// #3248: the Find box and the Navigation pane's Results list draw the typed query and
+    /// document excerpts with the interface faces, which have no Georgian (or Armenian, Thai,
+    /// …), so a Georgian search was all boxes. Running a search that finds Georgian text borrows
+    /// a document fallback face that covers it, as the caption and comments already do.
+    #[test]
+    fn georgian_find_text_is_drawn_in_the_navigation_pane() {
+        let ctx = egui::Context::default();
+        let frame = |app: &mut WordApp| {
+            ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+        };
+        let mut latin = app();
+        latin.run("text.insert", json!({"text": "This is some text"})).unwrap();
+        latin.run("edit.find", json!({"text": "some text"})).unwrap();
+        frame(&mut latin);
+        assert!(latin.canvas.ime_faces.is_empty(), "a Latin query and result need no extra face");
+
+        let mut georgian = app();
+        georgian.run("text.insert", json!({"text": "ეს არის ქართული ტექსტი"})).unwrap();
+        georgian.run("edit.find", json!({"text": "ტექსტი"})).unwrap();
+        assert!(!georgian.session.find.results.is_empty(), "the search actually found the Georgian word");
+        frame(&mut georgian);
+        let letter = 'ტ';
+        if wordcraft_fonts::FontDb::global().fallback_for(letter, u32::MAX).is_some_and(|f| f.data().len() <= 16 << 20) {
+            assert!(georgian.canvas.ime_faces.iter().any(|f| f.covers(letter)), "the Results list borrows a face that covers the match");
+        }
+        let n = georgian.canvas.ime_faces.len();
+        frame(&mut georgian);
+        assert_eq!(georgian.canvas.ime_faces.len(), n, "the face is added once, cached by query and result count");
+
+        // The query box needs a fallback face even before any match is found (#3248's screenshot
+        // shows the typed query itself as boxes, not just the results).
+        let mut typing = app();
+        typing.run("text.insert", json!({"text": "unrelated"})).unwrap();
+        typing.session.find.query = "ტექსტი".into();
+        frame(&mut typing);
+        if wordcraft_fonts::FontDb::global().fallback_for(letter, u32::MAX).is_some_and(|f| f.data().len() <= 16 << 20) {
+            assert!(typing.canvas.ime_faces.iter().any(|f| f.covers(letter)), "the typed query alone (no match yet) still gets a fallback face");
+        }
     }
 
     fn app() -> WordApp {
