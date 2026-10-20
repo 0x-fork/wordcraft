@@ -1439,8 +1439,8 @@ fn inspect_doc(s: &mut Session, v: &Value) -> CmdResult {
         v.get("remove").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
     // The removals aren't tracked: they delete straight from the document, so on a document that
     // tracks changes the text would go with no revision to show for it, and the revision trail
-    // would be broken behind the user's back (#1344 follow-up). Refuse the whole removal instead
-    // of quietly untracking it. Reading the document (no `remove`) is always allowed.
+    // would be broken behind the user's back. Refuse the whole removal instead of quietly
+    // untracking it. Reading the document (no `remove`) is always allowed.
     if !remove.is_empty() && s.doc.settings.track_changes {
         return Err(CmdError::Disabled("the document tracks changes: stop tracking before removing content".into()));
     }
@@ -2096,7 +2096,7 @@ mod tests {
     /// The inspector's removals delete straight from the document, so they aren't tracked: on a
     /// document that tracks changes the text would go with no revision to show for it, and the
     /// revision trail would be broken behind the user's back. The removal is refused instead,
-    /// and the document is left as it was (#1344 follow-up).
+    /// and the document is left as it was.
     #[test]
     fn inspect_removals_are_refused_while_the_document_tracks_changes() {
         let mut s = Session::new(Document::from_text("Visible text.\nHidden text."));
