@@ -5298,6 +5298,14 @@ mod tests {
             let ctx = egui::Context::default();
             ctx.run_ui(egui::RawInput::default(), |ui| a.logic(ui.ctx())).drop_without_applying_deltas();
             assert_eq!(a.ui.backstage, !ok, "ok {ok}: whether the Print page is still open");
+            if !ok {
+                assert_eq!(a.ui.backstage_page, "print", "the Print page is still the one showing, not some other backstage page");
+                assert!(
+                    matches!(&a.printing.message, Some(printing::Feedback::Failed(error)) if error == "no paper"),
+                    "the failure is still visible: {:?}",
+                    a.printing.message
+                );
+            }
         }
     }
 
