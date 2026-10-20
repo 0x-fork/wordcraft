@@ -1205,6 +1205,10 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
         let doc = crate::io::open_path(std::path::Path::new(path)).map_err(CmdError::Failed)?;
         s.doc = doc;
         s.doc.ensure_nonempty();
+        // The comparison replaces the document, so the version snapshots of the one it
+        // replaces go with it: a restore must not put the previous document back over the
+        // comparison result (#1327 follow-up).
+        s.clear_versions();
     }
     let level = p::str(v, "level").unwrap_or("word");
     let opts = CompareOptions {

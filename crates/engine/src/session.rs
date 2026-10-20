@@ -1158,6 +1158,12 @@ impl Session {
         self.typing_open = false;
     }
 
+    /// The version snapshots belong to the document they were taken from: keeping the old ones
+    /// would let a restore put the previous document's content into this one (#1327 follow-up).
+    pub fn clear_versions(&mut self) {
+        self.versions.clear();
+    }
+
     /// The region in effect (#838): the one the user chose ([`Prefs::region`]), else the
     /// system's.
     pub fn region(&self) -> wordcraft_geom::Region {
@@ -1216,10 +1222,7 @@ impl Session {
         self.go_back_step = 0;
         self.view.outline.collapsed.clear();
         self.reset_history();
-        // A version snapshot belongs to the document it was taken from: keeping the old ones
-        // would let a restore put the previous document's content into this one (#1327
-        // follow-up).
-        self.versions.clear();
+        self.clear_versions();
         self.touch();
         self.dirty = false;
         self.relayout();

@@ -8329,6 +8329,26 @@ fn a_version_snapshot_does_not_survive_a_document_switch() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "hi");
 }
 
+/// A comparison that opens the original replaces the open document, so the version snapshots
+/// of the document it replaces go with it: a restore must not put the previous document back
+/// over the comparison result (#1327 follow-up).
+#[test]
+fn a_version_snapshot_does_not_survive_a_comparison() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-compare-versions-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.docx");
+    let mut other = Session::new(wordcraft_doc::Document::from_text("Original document."));
+    other.run("file.save", &json!({"path": original.to_string_lossy()})).unwrap();
+
+    let mut s = Session::new(wordcraft_doc::Document::from_text("Current document."));
+    s.run("file.versions", &json!({"save": "snapshot"})).unwrap();
+    assert_eq!(s.versions.len(), 1);
+    s.run("review.compare", &json!({"original": original.to_string_lossy(), "text": "Revised document."})).unwrap();
+    assert!(s.versions.is_empty(), "the snapshot of the previous document survived the comparison");
+    assert!(s.run("file.versions", &json!({"restore": 0})).is_err(), "the old snapshot is still restorable");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// #1344: File › Info › Inspect Document finds hidden text by its effective formatting (direct,
 /// character style, paragraph style) in every story — body, header, footer, footnote, comment,
 /// text box — and Remove All deletes exactly that text, in one undo step, through a DOCX save.
