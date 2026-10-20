@@ -288,8 +288,9 @@ impl Numbering {
 pub struct Counters {
     /// Per abstract list: current value per level.
     state: HashMap<u32, [u32; 9]>,
-    /// Which nums have started (to apply start overrides once).
-    seen: HashMap<u32, bool>,
+    /// Which levels of which nums have started: a num's start override for a level applies
+    /// once, when that level of that num is first used (ECMA-376 Part 1, 17.9.27 startOverride).
+    seen: HashMap<(u32, u8), bool>,
 }
 
 impl Counters {
@@ -312,12 +313,17 @@ impl Counters {
             return None;
         }
         let st = self.state.entry(abs.id).or_insert([0; 9]);
-        if let std::collections::hash_map::Entry::Vacant(e) = self.seen.entry(num) {
+        // Only this level's override, not the num's others: the counters are shared by every
+        // num of the abstract list, so restarting its other levels here would renumber
+        // paragraphs of the other nums. A heading style can use one num for levels 1-4 and
+        // another, with start overrides on every level, for 5-9; its first level-5 heading
+        // must not restart the chapter count.
+        if let std::collections::hash_map::Entry::Vacant(e) = self.seen.entry((num, lv as u8)) {
             e.insert(true);
-            for (l, start) in &n.start_overrides {
-                if let Some(s) = st.get_mut(*l as usize) {
-                    *s = start.saturating_sub(1);
-                }
+            if let Some((_, start)) = n.start_overrides.iter().find(|(l, _)| *l as usize == lv)
+                && let Some(s) = st.get_mut(lv)
+            {
+                *s = start.saturating_sub(1);
             }
         }
         if let Some(v) = st.get_mut(lv) {
@@ -387,6 +393,29 @@ mod tests {
         // Levels it doesn't define still come from the abstract list.
         assert_eq!(c.next_label(&n, id, 0).unwrap().0, "1.");
         assert_eq!(n.level(id, 2).map(|l| l.format), Some(NumFormat::DecimalZero));
+    }
+
+    #[test]
+    fn a_start_override_restarts_only_its_own_level_of_a_shared_list() {
+        // One abstract list numbers the headings through two nums: one for levels 1-4, and one
+        // restarting every level (startOverride 1 on 0..8) for levels 5-9, first used deep in
+        // chapter 2. Chapter 3 is still chapter 3, and the deep heading counts from 1.
+        let mut n = Numbering::default();
+        let chapters = n.add_list(ListKind::Legal);
+        let abs = n.abstract_of(chapters).map(|a| a.id).unwrap();
+        let deep = chapters + 1;
+        n.nums.push(Num { id: deep, abstract_id: abs, start_overrides: (0..9).map(|l| (l, 1)).collect(), ..Num::default() });
+        let mut c = Counters::default();
+        let mut l = |num, lv| c.next_label(&n, num, lv).unwrap().0;
+        assert_eq!(l(chapters, 0), "1.");
+        assert_eq!(l(chapters, 0), "2.");
+        assert_eq!(l(chapters, 1), "2.1.");
+        assert_eq!(l(chapters, 2), "2.1.1.");
+        assert_eq!(l(chapters, 3), "2.1.1.1.");
+        assert_eq!(l(deep, 4), "2.1.1.1.1.", "the deep num restarts only level 5");
+        assert_eq!(l(deep, 4), "2.1.1.1.2.");
+        assert_eq!(l(chapters, 0), "3.", "and not the chapter count");
+        assert_eq!(l(chapters, 1), "3.1.");
     }
 
     #[test]
