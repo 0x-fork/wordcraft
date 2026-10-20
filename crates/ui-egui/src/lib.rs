@@ -6920,14 +6920,27 @@ mod tests {
         for _ in 0..3 {
             h.step();
         }
-        // The click's frames carry the viewport command, so collect while clicking.
-        let click_full_screen = |h: &mut egui_kittest::Harness<WordApp>| {
-            let mut out = Vec::new();
+        // The View tab's Window group folds into a drop-down when the window is narrow (#662),
+        // and the button then lives in that menu: open the group when it is folded.
+        fn full_screen<'a>(h: &'a egui_kittest::Harness<'a, WordApp>) -> Option<egui_kittest::Node<'a>> {
             h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::Button))
                 .into_iter()
                 .find(|n| n.accesskit_node().label().as_deref().is_some_and(|l| l.replace('\n', " ").contains("Full Screen")))
-                .unwrap_or_else(|| panic!("the Full Screen button is on the View tab"))
+        }
+        if full_screen(&h).is_none() {
+            h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::Button))
+                .into_iter()
+                .find(|n| n.accesskit_node().label().as_deref() == Some("Window"))
+                .unwrap_or_else(|| panic!("the View tab has a Window group"))
                 .click();
+            for _ in 0..2 {
+                h.step();
+            }
+        }
+        // The click's frames carry the viewport command, so collect while clicking.
+        let click_full_screen = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            full_screen(h).unwrap_or_else(|| panic!("the Full Screen button is on the View tab")).click();
             for _ in 0..2 {
                 h.step();
                 out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
