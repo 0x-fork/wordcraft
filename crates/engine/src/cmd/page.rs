@@ -240,7 +240,7 @@ fn section_of_part(s: &Session, id: u32) -> usize {
     0
 }
 
-fn section_index_of_focus(s: &Session) -> usize {
+pub fn section_index_of_focus(s: &Session) -> usize {
     match s.sel.focus.story {
         wordcraft_doc::StoryRef::Body => s.doc.section_index_of(s.sel.focus.path.0.first().copied().unwrap_or(0) as usize),
         wordcraft_doc::StoryRef::Part(id) => section_of_part(s, id),

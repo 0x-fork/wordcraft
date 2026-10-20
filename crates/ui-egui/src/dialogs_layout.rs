@@ -1331,6 +1331,8 @@ fn size_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SizeForm) -> bool {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageNumbersForm {
+    /// The section the fields were read from (see [`Self::follow`]).
+    pub section: usize,
     /// OOXML number format (`decimal`, `upperRoman`, …).
     pub format: String,
     pub cont: bool,
@@ -1342,9 +1344,19 @@ impl PageNumbersForm {
     pub fn read(app: &WordApp) -> PageNumbersForm {
         let sp = wordcraft_engine::cmd::page::sect(&app.session);
         PageNumbersForm {
+            section: wordcraft_engine::cmd::page::section_index_of_focus(&app.session),
             format: sp.page_num_format.ooxml().to_string(),
             cont: sp.page_num_start.is_none(),
-            start: sp.page_num_start.unwrap_or(1).clamp(1, 32_767),
+            start: sp.page_num_start.unwrap_or(1).clamp(1, 100_000),
+        }
+    }
+
+    /// Follow the caret: dialogs aren't modal, so a click on the page may move it to another
+    /// section. The form then shows that section's numbering, so OK never writes numbers read
+    /// from another one (the Size dialog follows its object the same way).
+    pub fn follow(&mut self, app: &WordApp) {
+        if self.section != wordcraft_engine::cmd::page::section_index_of_focus(&app.session) {
+            *self = PageNumbersForm::read(app);
         }
     }
 
@@ -1357,6 +1369,7 @@ impl PageNumbersForm {
 }
 
 fn page_numbers_ui(app: &mut WordApp, ui: &mut Ui, f: &mut PageNumbersForm) -> bool {
+    f.follow(app);
     ui.add_space(4.0);
     ui.label(tl!("Number format"));
     let label = crate::dialogs_notes::FORMATS.iter().find(|(v, _)| *v == f.format.as_str()).map(|(_, l)| *l).unwrap_or_default();
@@ -1369,7 +1382,7 @@ fn page_numbers_ui(app: &mut WordApp, ui: &mut Ui, f: &mut PageNumbersForm) -> b
     ui.radio_value(&mut f.cont, true, tl!("Continue from previous section"));
     ui.horizontal(|ui| {
         ui.radio_value(&mut f.cont, false, tl!("Start at:"));
-        ui.add_enabled(!f.cont, egui::DragValue::new(&mut f.start).range(1..=32_767));
+        ui.add_enabled(!f.cont, egui::DragValue::new(&mut f.start).range(1..=100_000));
     });
     let (ok, cancel) = buttons(ui, "OK", true);
     if ok {
@@ -1452,6 +1465,25 @@ mod tests {
         a.run("layout.pageNumberFormat", json!({"start": 7})).unwrap();
         a.run("layout.pageNumberFormat", json!({})).unwrap();
         assert_eq!(a.session.doc.last_section.page_num_start, Some(7));
+        // A valid start above 32,767 is not lowered by opening the dialog and accepting it.
+        a.run("layout.pageNumberFormat", json!({"start": 40_000})).unwrap();
+        a.run("ui.dialog", json!({"name": "pageNumbers"})).unwrap();
+        let LayoutDialog::PageNumbers(f) = form(&mut a) else { panic!("page numbers") };
+        assert_eq!(f.start, 40_000);
+        a.run("layout.pageNumberFormat", f.params()).unwrap();
+        assert_eq!(a.session.doc.last_section.page_num_start, Some(40_000));
+        // The dialog follows the caret: moved to another section, it shows that section's
+        // numbering, so OK never writes the numbers read from the first one.
+        a.run("ui.dialog", json!({"name": "pageNumbers"})).unwrap();
+        let LayoutDialog::PageNumbers(mut f) = form(&mut a) else { panic!("page numbers") };
+        assert_eq!(f.section, 0);
+        a.run("caret.end", json!({})).unwrap();
+        a.run("layout.break", json!({"kind": "continuous"})).unwrap();
+        a.run("caret.end", json!({})).unwrap();
+        assert_eq!(wordcraft_engine::cmd::page::section_index_of_focus(&a.session), 1, "the caret is in the new section");
+        a.run("layout.pageNumberFormat", json!({"format": "lowerRoman", "start": 9})).unwrap();
+        f.follow(&a);
+        assert_eq!((f.section, f.format.as_str(), f.start), (1, "lowerRoman", 9));
     }
 
     /// #755: the Line Numbers "From text" distance and the Hyphenation zone follow the
