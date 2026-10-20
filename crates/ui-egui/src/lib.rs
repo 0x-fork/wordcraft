@@ -6725,6 +6725,69 @@ mod tests {
         assert!(junk.session.view.nav_pane, "the rest of the file still loads");
     }
 
+    /// A pointer drag on a pane's resize edge leaves no keyboard focus behind, so Ctrl and
+    /// F-key shortcuts run right after it, docked or floating. A resize edge focused from the
+    /// keyboard takes the arrow keys until Escape (#1756).
+    #[test]
+    fn shortcuts_run_after_a_pane_resize() {
+        use egui_kittest::kittest::Queryable;
+        type H = egui_kittest::Harness<'static, WordApp>;
+        fn key(h: &mut H, key: egui::Key, modifiers: egui::Modifiers) {
+            h.event(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
+            h.run_steps(2);
+        }
+        fn drag(h: &mut H, from: egui::Pos2, by: egui::Vec2) {
+            let button =
+                |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            h.event(egui::Event::PointerMoved(from));
+            h.step();
+            h.event(button(from, true));
+            h.step();
+            for t in [0.5, 1.0] {
+                h.event(egui::Event::PointerMoved(from + by * t));
+                h.step();
+            }
+            h.event(button(from + by, false));
+            h.run_steps(2);
+        }
+        // Ctrl+H opens Replace; Escape closes it again.
+        fn replace_opens(h: &mut H) -> bool {
+            key(h, egui::Key::H, egui::Modifiers::COMMAND);
+            let opened = h.state().dialog.as_ref().map(|d| d.name()) == Some("replace");
+            key(h, egui::Key::Escape, egui::Modifiers::NONE);
+            opened && h.state().dialog.is_none()
+        }
+        let mut a = app();
+        a.run("view.stylesPane", json!({"value": true})).unwrap();
+        let mut h = harness(a);
+        h.run_steps(4);
+
+        let edge = h.get_by_label("Resize Pane").rect();
+        // On the pane's side of the edge: the document's scroll bar lies under its outer half.
+        drag(&mut h, edge.center() + egui::vec2(1.5, 0.0), egui::vec2(-40.0, 0.0));
+        let width = h.state().ui.styles_pane_width.unwrap_or_default();
+        assert!((width - 290.0).abs() <= 2.0, "the drag widened the docked pane: {width}");
+        assert!(replace_opens(&mut h), "Ctrl+H runs after the drag");
+
+        h.get_by_label("Resize Pane").focus();
+        h.run_steps(2);
+        key(&mut h, egui::Key::ArrowLeft, egui::Modifiers::NONE);
+        assert!(h.state().ui.styles_pane_width.is_some_and(|w| w > width), "arrow keys move the focused edge");
+        key(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
+        assert_eq!(h.ctx.memory(|m| m.focused()), None, "Escape leaves the edge");
+        assert!(replace_opens(&mut h), "Ctrl+H runs after Escape");
+
+        h.state_mut().run("view.stylesPaneDock", json!({"dock": "float"})).unwrap();
+        h.run_steps(3);
+        // The bottom-right grip.
+        let corner = |r: &egui::Rect| r.max.x + r.max.y;
+        let grip = h.get_all_by_label("Resize Pane").map(|n| n.rect()).max_by(|a, b| corner(a).total_cmp(&corner(b))).unwrap();
+        let before = h.state().ui.styles_pane_float;
+        drag(&mut h, grip.center(), egui::vec2(30.0, 30.0));
+        assert_ne!(h.state().ui.styles_pane_float, before, "the drag resized the floating pane");
+        assert!(replace_opens(&mut h), "Ctrl+H runs after the floating pane's resize");
+    }
+
     #[test]
     fn prefs_without_user_name_keep_default() {
         let mut a = app();
