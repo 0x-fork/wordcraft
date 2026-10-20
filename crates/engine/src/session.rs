@@ -1276,6 +1276,13 @@ impl Session {
         }
     }
 
+    /// Why command `id` can't run now, for greying it out: its own `enabled` check, then what
+    /// Restrict Editing refuses outright. `None` when it can run (or doesn't exist).
+    pub fn why_disabled(&self, id: &str) -> Option<&'static str> {
+        let spec = self.registry.get(id)?;
+        (spec.enabled)(self).or_else(|| if spec.mutates { crate::cmd::protect::greyed_out(self, id) } else { None })
+    }
+
     /// Run a command by id with JSON params (the single entry point for the UI, CLI, MCP and
     /// control channel). Mutating commands are undoable; a failed command leaves the document as
     /// it was; a panic inside a command becomes an error.
