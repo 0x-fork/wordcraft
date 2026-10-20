@@ -215,10 +215,24 @@ fn always_allowed(id: &str, params: &Value) -> bool {
     }
     match id {
         "file.privacyOptions" | "file.properties" => false,
+        // The user name says who may edit the document and who the revisions belong to: it is
+        // checked like any other change, not waved through.
+        "file.setAuthor" => false,
         // The inspector reads the document; its removals change it.
         "file.inspect" => params.get("remove").and_then(Value::as_array).is_none_or(|a| a.is_empty()),
         _ => true,
     }
+}
+
+/// The user name (`file.setAuthor`) is the identity a named exception range is checked against,
+/// and the author recorded on new revisions and comments: it can't change while the document is
+/// protected. Word lets the user name change under protection (it is a preference there); this
+/// project doesn't, because the name says who may edit what (#1327 follow-up).
+pub(crate) fn check_user_name(s: &Session) -> Result<(), CmdError> {
+    if enforced(&s.doc) {
+        return Err(CmdError::Disabled("file.setAuthor: stop protection before changing the user name".into()));
+    }
+    Ok(())
 }
 
 /// What a protected document lets command `id` do before it runs: `Err` refuses it; `Ok(true)`
@@ -228,6 +242,13 @@ pub(crate) fn check_before(s: &Session, id: &str, params: &Value) -> Result<bool
     let Some(mode) = s.doc.settings.protection.as_deref() else { return Ok(false) };
     if always_allowed(id, params) {
         return Ok(false);
+    }
+    // The user name says who may edit the document, and who the new revisions and comments
+    // belong to: it can't change while the document is protected. (`file.setAuthor` is a pure
+    // command, so `check_before` doesn't see it; the command checks this itself — see
+    // [`check_user_name`].)
+    if id == "file.setAuthor" {
+        check_user_name(s)?;
     }
     // Word blocks content-control property edits until Stop Protection: changing a control's
     // lock flags would reshape what forms mode lets through. The param's presence is the
@@ -738,6 +759,23 @@ mod tests {
             assert!(s.run(id, &params).is_err(), "{id}: a protected document took the change");
             assert_eq!(s.doc, before, "{id}");
         }
+    }
+
+    /// The user name is the identity a named exception range is checked against, and the author
+    /// the new revisions and comments are recorded under: a protected document refuses to change
+    /// it (#1327 follow-up).
+    #[test]
+    fn the_user_name_cannot_change_under_protection() {
+        let mut s = Session::new(Document::from_text("Some text."));
+        s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+        let author = s.author.clone();
+        let e = s.run("file.setAuthor", &json!({"name": "Alice"})).unwrap_err().to_string();
+        assert!(e.contains("stop protection"), "{e}");
+        assert_eq!(s.author, author, "the user name did not change");
+        // Without protection it works again.
+        s.run("review.restrict", &json!({"stop": true})).unwrap();
+        s.run("file.setAuthor", &json!({"name": "Alice"})).unwrap();
+        assert_eq!(s.author, "Alice");
     }
 
     /// Reading the document stays allowed under protection: the inspector without removals, the

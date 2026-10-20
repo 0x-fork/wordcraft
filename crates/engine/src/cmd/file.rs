@@ -17,7 +17,9 @@ pub const MAX_AUTHOR_CHARS: usize = 255;
 /// Sets the user name that new tracked changes and comments are recorded under. The name is
 /// trimmed, stripped of control characters (they can't go into the saved XML) and cut to
 /// [`MAX_AUTHOR_CHARS`]; a blank name is refused so revisions always carry an author.
+/// A protected document refuses it: the name is the identity its exceptions are checked against.
 pub(crate) fn set_author(s: &mut Session, v: &Value) -> CmdResult {
+    super::protect::check_user_name(s)?;
     let name: String = p::req_str(v, "name")?.trim().chars().filter(|c| !c.is_control()).take(MAX_AUTHOR_CHARS).collect();
     let name = name.trim_end();
     if name.is_empty() {
