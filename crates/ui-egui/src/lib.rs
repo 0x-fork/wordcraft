@@ -1941,6 +1941,7 @@ impl WordApp {
         // (#3210: the Print page used to stay up after a successful submission).
         if matches!(message, printing::Feedback::Submitted(_)) && self.ui.backstage && self.ui.backstage_page == "print" {
             self.ui.backstage = false;
+            self.canvas.want_focus = true;
         }
     }
 
@@ -5294,10 +5295,12 @@ mod tests {
             }));
             a.run("file.print", json!({})).unwrap();
             assert!(a.ui.backstage && a.ui.backstage_page == "print", "the Print page is open");
+            a.canvas.want_focus = false;
             a.run("ui.print", json!({})).unwrap();
             let ctx = egui::Context::default();
             ctx.run_ui(egui::RawInput::default(), |ui| a.logic(ui.ctx())).drop_without_applying_deltas();
             assert_eq!(a.ui.backstage, !ok, "ok {ok}: whether the Print page is still open");
+            assert_eq!(a.canvas.want_focus, ok, "ok {ok}: the document should take keyboard focus back only once the Print page actually closes");
             if !ok {
                 assert_eq!(a.ui.backstage_page, "print", "the Print page is still the one showing, not some other backstage page");
                 assert!(
