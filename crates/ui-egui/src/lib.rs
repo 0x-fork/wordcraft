@@ -1948,10 +1948,16 @@ impl WordApp {
 
     /// The name Save suggests: the open file's own Word format (so a .docm keeps its macros),
     /// otherwise .docx.
-    /// The name a browser Save or Export without a name uses. A host page that keeps the files
+    /// The name a browser Save or Export without a name uses. An export is named after the
+    /// document (`report.pdf`, not `report.docx.pdf`). A host page that keeps the files
     /// ([`Services::host_save`]) gets Save back under the opened file's own name and format, as
     /// the desktop app writes it, except an import-only Word 97–2003 file (#2445).
     fn web_save_name(&self, id: &str) -> String {
+        match id {
+            "file.exportPdf" => return format!("{}.pdf", self.title_stem()),
+            "file.exportPng" => return format!("{}.png", self.title_stem()),
+            _ => {}
+        }
         if id == "file.save"
             && self.services.host_save.is_some()
             && !self.legacy_word_path()
@@ -6855,6 +6861,18 @@ mod tests {
         a.session.path = Some("old.doc".into());
         a.execute("file.save", json!({})).unwrap();
         assert_eq!(got.borrow().first().map(|(n, _, _)| n.as_str()), Some("old.docx"));
+    }
+
+    /// Exports without a name are named after the document, not after its file.
+    #[test]
+    fn web_exports_are_named_after_the_document() {
+        let (mut a, got) = host_app(false);
+        host_open(&mut a, "report.docx");
+        a.execute("file.exportPdf", json!({})).unwrap();
+        a.execute("file.exportPng", json!({})).unwrap();
+        let names: Vec<(String, bool)> = got.borrow().iter().map(|(n, s, _)| (n.clone(), *s)).collect();
+        assert_eq!(names, [("report.pdf".to_string(), false), ("report.png".to_string(), false)]);
+        assert!(a.session.dirty, "an export is a copy");
     }
 
     /// The page not getting the file is a failed save: the document keeps its changes.
