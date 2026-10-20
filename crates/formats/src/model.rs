@@ -1214,6 +1214,7 @@ pub fn percent_decode(s: &str) -> Vec<u8> {
     while let Some(&c) = b.get(i) {
         if c == b'%'
             && let Some(h) = b.get(i + 1..i + 3)
+            && h.iter().all(u8::is_ascii_hexdigit)
             && let Some(hex) = std::str::from_utf8(h).ok()
             && let Ok(v) = u8::from_str_radix(hex, 16)
         {
@@ -1343,6 +1344,14 @@ pub fn parse_color(s: &str) -> Option<Rgb> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_decode_requires_hex_digits() {
+        assert_eq!(percent_decode("%+A"), b"%+A".to_vec());
+        assert_eq!(percent_decode("%-A"), b"%-A".to_vec());
+        assert_eq!(percent_decode("%G1"), b"%G1".to_vec());
+        assert_eq!(percent_decode("%41"), b"A".to_vec());
+    }
 
     #[test]
     fn insert_covered_is_bounded_on_hostile_rowspan() {
