@@ -158,6 +158,8 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
 
 | Date | What landed |
+| 2026-10-20 | The Document Inspector's removals are refused while the document tracks changes: they delete straight from the document, so the text would go with no revision to show for it and the revision trail would be broken behind the user's back |
+| 2026-10-20 | A version snapshot belongs to the document it was taken from: the snapshots went with the document, so a restore can only ever bring back a version of the document that is open |
 | 2026-10-22 | Restrict Editing: the CLI's `--author` uses the same protection check as `file.setAuthor`, and File › Options disables the User name field while the document is protected. |
 | 2026-10-20 | Restrict Editing, three more gaps closed: the protection of a protected document only changes through the explicit stop (`review.restrict {"stop": true}`; the "none" mode is the shorthand and doesn't stop it), the session author used for new tracked changes and comments can't change through `file.setAuthor` while the document is protected (the CLI's `--author` uses the same protection check), and the post-check compares the document's settings, metadata, custom properties, list definitions, bibliography sources and the comments' resolved flags as well as its text and formatting |
 | 2026-10-20 | Restrict Editing holds for the file commands too: the privacy options, the properties and the inspector's removals are refused on a protected document, and restoring a stored version keeps the protection and its password instead of the snapshot's stale ones |
@@ -575,6 +577,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | minor | The Document Inspector's removals are refused while the document tracks changes (they delete straight from the document, so the text would go with no revision to show for it and the revision trail would be broken behind the user's back), and a version snapshot belongs to the document it was taken from |
 | 2026-10-22 | minor | The CLI author flag and the Options user name field cannot change the session name after protection starts (#3279 follow-up). |
 | 2026-10-20 | minor | Restrict Editing, three more gaps closed: the protection of a protected document only changes through the explicit stop, the session author can't change through `file.setAuthor` under protection, and the post-check compares the settings and the metadata as well as the text and the formatting |
 | 2026-10-20 | minor | Restrict Editing: a file command that changes the open document is checked like any other — the privacy options, the properties and the inspector's removals are refused on a protected document, and restoring a stored version no longer lifts the protection or drops its password |
