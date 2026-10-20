@@ -4273,6 +4273,41 @@ mod tests {
         frame(&mut a, vec![btn(ribbon, false)]);
     }
 
+    /// #3331: Esc out of a header on a later page scrolled back to page 1.
+    #[test]
+    fn escape_from_the_header_stays_on_the_page() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(1200)})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let before = (a.session.sel.clone(), a.canvas.scroll_offset);
+        assert!(before.1.y > 1000.0, "the caret's last page is in view");
+        a.run("insert.editHeader", json!({})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        frame(&mut a, vec![esc]);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.session.sel, before.0, "Esc left the header for where the caret was");
+        assert_eq!(a.canvas.scroll_offset, before.1, "the view stays on that page");
+    }
+
     fn control_frame(a: &mut WordApp, ctx: &egui::Context, focused: bool) {
         let mut raw = egui::RawInput {
             focused,
