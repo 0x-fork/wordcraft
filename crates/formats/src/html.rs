@@ -28,7 +28,14 @@ const MAX_STACK: usize = 256;
 /// Decode an entity body (`amp`, `#38`, `#x26`) to its text.
 pub fn decode_entity(name: &str) -> Option<String> {
     if let Some(num) = name.strip_prefix('#') {
-        let v = if let Some(h) = num.strip_prefix(['x', 'X']) { u32::from_str_radix(h, 16).ok()? } else { num.parse::<u32>().ok()? };
+        let (digits, radix) = match num.strip_prefix(['x', 'X']) {
+            Some(h) => (h, 16),
+            None => (num, 10),
+        };
+        if !digits.chars().all(|c| c.is_digit(radix)) {
+            return None;
+        }
+        let v = u32::from_str_radix(digits, radix).ok()?;
         let c = match v {
             0 => '\u{FFFD}',
             0x80..=0x9F => crate::txt::cp1252(v as u8),
@@ -1781,6 +1788,13 @@ pub fn export_flow(flow: &Flow, lang: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numeric_entity_rejects_sign() {
+        assert_eq!(unescape("a&#+65;b"), "a&#+65;b");
+        assert_eq!(unescape("a&#x+41;b"), "a&#x+41;b");
+        assert_eq!(unescape("a&#65;&#x41;b"), "aAAb");
+    }
 
     fn texts(f: &Flow) -> Vec<String> {
         f.blocks
