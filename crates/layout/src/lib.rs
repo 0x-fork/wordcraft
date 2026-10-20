@@ -4571,13 +4571,13 @@ pub fn is_floating(o: &InlineObject) -> bool {
 
 /// Milliseconds since an arbitrary epoch (monotonic on native; the browser's clock on the web).
 pub fn now_ms() -> f64 {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
         static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
         T0.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0
     }
     // `Instant::now()` panics on wasm32-unknown-unknown, so ask the browser's clock.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         let ms = js_sys::Date::now();
         if ms.is_finite() { ms } else { 0.0 }

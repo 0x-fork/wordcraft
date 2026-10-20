@@ -427,12 +427,12 @@ pub fn iso_from_unix_secs(secs: u64) -> String {
 
 /// Seconds since the Unix epoch (UTC): the system clock, or the browser's on the web.
 pub fn now_unix() -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
     }
     // `SystemTime::now()` panics on wasm32-unknown-unknown, so ask the browser's clock.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         let ms = js_sys::Date::now();
         // Clamp a NaN or pre-epoch clock to 0 rather than fail.
