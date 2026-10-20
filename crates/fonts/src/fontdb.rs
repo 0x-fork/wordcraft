@@ -1637,9 +1637,10 @@ impl FontDb {
                 return hit.clone();
             }
         }
-        let found = self.search_run(&key.0, exclude, bold, italic);
-        // Keyed by the face count after the search (a system fallback may have loaded fonts).
-        let n = self.read_faces().len();
+        // Keyed by the face count the search last looked at, not the count after it: a face loaded
+        // meanwhile by another thread (one its search, or a family named by a document) must make
+        // a miss count as stale, not as the answer for the new count.
+        let (found, n) = self.search_run(&key.0, exclude, bold, italic);
         let mut cache = self.run_fallbacks.write().unwrap_or_else(|e| e.into_inner());
         if cache.faces != n || cache.map.len() >= RUN_FALLBACK_CACHE_MAX || cache.chars.saturating_add(key.0.len()) > RUN_FALLBACK_CACHE_CHARS {
             cache.map.clear();
@@ -1651,9 +1652,10 @@ impl FontDb {
         found
     }
 
-    fn search_run(&self, chars: &[char], exclude: u32, bold: bool, italic: bool) -> Option<Arc<FontFace>> {
+    /// The face for a run, and the number of loaded faces the search last chose from.
+    fn search_run(&self, chars: &[char], exclude: u32, bold: bool, italic: bool) -> (Option<Arc<FontFace>>, usize) {
         #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
-        let mut base = self.loaded_covering(chars, exclude);
+        let (mut base, mut checked) = self.loaded_covering(chars, exclude);
         #[cfg(not(target_arch = "wasm32"))]
         if base.is_none() {
             // A character no loaded face covers: load a system font for it, then retry (the run's
@@ -1662,11 +1664,11 @@ impl FontDb {
                 if self.read_faces().iter().any(|f| f.id != exclude && f.covers(*c)) {
                     continue;
                 }
-                if self.system_fallback(*c)
-                    && let Some(f) = self.loaded_covering(chars, exclude)
-                {
-                    base = Some(f);
-                    break;
+                if self.system_fallback(*c) {
+                    (base, checked) = self.loaded_covering(chars, exclude);
+                    if base.is_some() {
+                        break;
+                    }
                 }
             }
             // Each character has a face now, but the families a script prefers may lack the
@@ -1676,12 +1678,12 @@ impl FontDb {
                 // Look again even when this search loaded nothing: another thread's may just have
                 // loaded the font (and taken its files off the index).
                 self.indexed_run_fallback(chars);
-                base = self.loaded_covering(chars, exclude);
+                (base, checked) = self.loaded_covering(chars, exclude);
             }
         }
-        let base = base?;
+        let Some(base) = base else { return (None, checked) };
         if !bold && !italic {
-            return Some(base);
+            return (Some(base), checked);
         }
         let style = match (bold, italic) {
             (true, true) => "Bold Italic",
@@ -1689,21 +1691,24 @@ impl FontDb {
             _ => "Italic",
         };
         let styled = self.face(&base.family, style);
-        Some(if styled.family.eq_ignore_ascii_case(&base.family) && chars.iter().all(|c| styled.covers(*c)) && styled.id != exclude {
+        let face = if styled.family.eq_ignore_ascii_case(&base.family) && chars.iter().all(|c| styled.covers(*c)) && styled.id != exclude {
             styled
         } else {
             base
-        })
+        };
+        (Some(face), checked)
     }
 
-    /// The first face in the fallback order that covers every char.
-    fn loaded_covering(&self, chars: &[char], exclude: u32) -> Option<Arc<FontFace>> {
+    /// The first face in the fallback order that covers every char, and the number of loaded
+    /// faces it was chosen from.
+    fn loaded_covering(&self, chars: &[char], exclude: u32) -> (Option<Arc<FontFace>>, usize) {
         let faces = self.read_faces();
         let rtl = chars.iter().any(|c| crate::is_rtl(*c) || arabic_block(*c));
         // A complex-script character picks the families its script prefers (the lowest one: the
         // run's characters come sorted).
         let complex = chars.iter().copied().find(|c| crate::needs_layout_tables(*c));
-        fallback_order(&faces, exclude, rtl, complex).into_iter().find(|f| chars.iter().all(|c| f.covers(*c))).cloned()
+        let found = fallback_order(&faces, exclude, rtl, complex).into_iter().find(|f| chars.iter().all(|c| f.covers(*c))).cloned();
+        (found, faces.len())
     }
 
     /// Load a system font covering `c` (preferred fallback families first, then any cataloged
