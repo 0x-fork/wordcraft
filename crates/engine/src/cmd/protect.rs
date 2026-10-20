@@ -202,9 +202,23 @@ const CONTROL_INSERTS: [&str; 9] = [
     "developer.repeatingSection",
 ];
 
-/// Commands always allowed in a protected document: protection itself, file commands, undo.
-fn always_allowed(id: &str) -> bool {
-    id == "review.restrict" || id.starts_with("file.") || id == "edit.undo" || id == "edit.redo"
+/// Commands always allowed in a protected document: protection itself, undo, and the file
+/// commands that don't change the open document. A `file.*` command that does change it is
+/// checked like any other, so the protection holds for it too: the privacy options and the
+/// properties are document settings, and the inspector removes content (#1327 follow-up).
+fn always_allowed(id: &str, params: &Value) -> bool {
+    if id == "review.restrict" || id == "edit.undo" || id == "edit.redo" {
+        return true;
+    }
+    if !id.starts_with("file.") {
+        return false;
+    }
+    match id {
+        "file.privacyOptions" | "file.properties" => false,
+        // The inspector reads the document; its removals change it.
+        "file.inspect" => params.get("remove").and_then(Value::as_array).is_none_or(|a| a.is_empty()),
+        _ => true,
+    }
 }
 
 /// What a protected document lets command `id` do before it runs: `Err` refuses it; `Ok(true)`
@@ -212,7 +226,7 @@ fn always_allowed(id: &str) -> bool {
 /// [`outside_unchanged`]).
 pub(crate) fn check_before(s: &Session, id: &str, params: &Value) -> Result<bool, CmdError> {
     let Some(mode) = s.doc.settings.protection.as_deref() else { return Ok(false) };
-    if always_allowed(id) {
+    if always_allowed(id, params) {
         return Ok(false);
     }
     // Word blocks content-control property edits until Stop Protection: changing a control's
@@ -685,6 +699,58 @@ mod tests {
             assert!(s.run(id, &json!({})).is_err(), "{id}");
         }
         assert_eq!(s.doc, before);
+    }
+
+    /// Restoring a stored version replaces the whole document, and a snapshot's own protection
+    /// is stale: the live document's protection, and its password, still hold after a restore
+    /// (#1327 follow-up).
+    #[test]
+    fn a_version_restore_keeps_the_protection() {
+        let mut s = Session::new(Document::from_text("Original text."));
+        s.run("file.versions", &json!({"save": "before"})).unwrap();
+        s.run("review.restrict", &json!({"mode": "readOnly", "password": "pw"})).unwrap();
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("readOnly"));
+        let hash = s.doc.settings.protect_hash.clone();
+        assert!(!hash.is_empty(), "the password is set");
+
+        s.run("file.versions", &json!({"restore": 0})).unwrap();
+        assert_eq!(s.doc.settings.protection.as_deref(), Some("readOnly"), "the restore lifted the protection");
+        assert_eq!(s.doc.settings.protect_hash, hash, "the restore dropped the password");
+        // The document is still protected: an edit outside the exceptions is refused.
+        let before = s.doc.clone();
+        assert!(s.run("text.insert", &json!({"text": "edited "})).is_err());
+        assert_eq!(s.doc, before);
+    }
+
+    /// A file command that changes the document is checked like any other: the privacy options
+    /// and the properties are document settings, and the inspector removes content (#1327
+    /// follow-up).
+    #[test]
+    fn file_commands_that_change_the_document_are_protected() {
+        for (id, params) in [
+            ("file.privacyOptions", json!({"removePersonalInfo": true})),
+            ("file.properties", json!({"title": "New title"})),
+            ("file.inspect", json!({"remove": ["comments"]})),
+        ] {
+            let mut s = Session::new(Document::from_text("Some text."));
+            s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+            let before = s.doc.clone();
+            assert!(s.run(id, &params).is_err(), "{id}: a protected document took the change");
+            assert_eq!(s.doc, before, "{id}");
+        }
+    }
+
+    /// Reading the document stays allowed under protection: the inspector without removals, the
+    /// privacy settings, the info, and saving a version snapshot.
+    #[test]
+    fn file_commands_that_only_read_stay_allowed() {
+        let mut s = Session::new(Document::from_text("Some text."));
+        s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+        for (id, params) in
+            [("file.inspect", json!({})), ("file.privacy", json!({})), ("file.info", json!({})), ("file.versions", json!({"save": "snapshot"}))]
+        {
+            assert!(s.run(id, &params).is_ok(), "{id}: a protected document refused a read");
+        }
     }
 
     /// Read only, no exceptions: going to a header the document doesn't have doesn't create

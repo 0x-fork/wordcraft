@@ -476,7 +476,16 @@ pub fn specs() -> Vec<CommandSpec> {
             if let Some(i) = p::u64(v, "restore") {
                 let (_, _, d) = s.versions.get(i as usize).cloned().ok_or_else(|| CmdError::Params("no such version".into()))?;
                 s.checkpoint("Restore Version");
+                // A snapshot's own protection is stale: it was taken at some earlier moment, and
+                // restoring it must not lift the protection the live document is under, nor
+                // its password (#1327 follow-up).
+                let protection = s.doc.settings.protection.clone();
+                let protect_hash = s.doc.settings.protect_hash.clone();
+                let protect_formatting = s.doc.settings.protect_formatting;
                 s.doc = d;
+                s.doc.settings.protection = protection;
+                s.doc.settings.protect_hash = protect_hash;
+                s.doc.settings.protect_formatting = protect_formatting;
                 s.touch();
                 s.clamp_selection();
             }
