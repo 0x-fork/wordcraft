@@ -549,6 +549,34 @@ impl Recovery {
         self.revision = None;
         Ok(())
     }
+    /// Waits out any job already in flight (an autosave queued just before shutdown, say), then,
+    /// if the document turns out to need no recovery copy kept (not dirty, or password-protected
+    /// — [`tick`](Self::tick)'s own condition), discards it and waits for that too. Desktop hosts
+    /// call this before the process exits, the same as the print spooler's own pending-job wait
+    /// (`finish_pending_jobs`): otherwise a save that lands right before close can race the
+    /// process exiting before the now-redundant recovery copy is actually removed, so the *next*
+    /// launch wrongly offers to recover a document that was in fact saved cleanly.
+    pub fn finish(&mut self, s: &Session) -> Result<(), String> {
+        if self.busy {
+            let e = self.rx.recv().map_err(|e| e.to_string())?;
+            self.documents = e.documents;
+            self.busy = false;
+            self.ready = true;
+            e.outcome?;
+        }
+        if let Some(id) = self.id.clone()
+            && (!s.dirty || s.password.is_some())
+        {
+            self.queue(Job::Discard(id))?;
+            let e = self.rx.recv().map_err(|e| e.to_string())?;
+            self.busy = false;
+            self.documents = e.documents;
+            e.outcome?;
+            self.id = None;
+            self.revision = None;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -626,6 +654,31 @@ mod tests {
         s.recovery.as_mut().unwrap().due = Instant::now();
         s.recovery_tick();
         settle(s);
+    }
+
+    /// #3140: a save that lands right before the app closes can race the process exiting before
+    /// the now-redundant recovery copy is actually removed, so the next launch wrongly offers to
+    /// recover a document that was in fact saved cleanly. `finish_recovery` (desktop hosts call it
+    /// on exit, the same as they wait for pending print jobs) must discard it synchronously
+    /// instead, with no regular tick in between — simulating closing right after Save, not after
+    /// however long it'd take the next normal autosave tick to notice and clean up.
+    #[test]
+    fn finish_recovery_discards_its_own_copy_for_a_document_saved_right_before_exit() {
+        let profile = Temp::new();
+        let mut s = session(&profile.0);
+        s.run("document.setText", &json!({"text": "About to be saved"})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1, "a recovery copy exists for the dirty document");
+        // A real Save does this, then the app can close on the very next frame, with no regular
+        // recovery_tick() in between to notice `!s.dirty` and queue the discard itself.
+        s.dirty = false;
+        assert_eq!(
+            s.recovery_documents().len(),
+            1,
+            "confirms the race: setting dirty=false alone (what Save does) doesn't discard anything by itself"
+        );
+        s.finish_recovery();
+        assert!(s.recovery_documents().is_empty(), "finish_recovery should have discarded the now-redundant copy before returning");
     }
 
     #[test]
