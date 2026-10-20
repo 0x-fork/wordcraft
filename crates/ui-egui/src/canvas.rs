@@ -2996,7 +2996,7 @@ pub fn in_text_box(app: &WordApp) -> bool {
     part_kind(app, app.session.sel.focus.story) == Some(PartKind::TextBox)
 }
 
-fn part_kind(app: &WordApp, s: StoryRef) -> Option<PartKind> {
+pub(crate) fn part_kind(app: &WordApp, s: StoryRef) -> Option<PartKind> {
     match s {
         StoryRef::Part(id) => app.session.doc.parts.get(&id).map(|p| p.kind),
         StoryRef::Body => None,

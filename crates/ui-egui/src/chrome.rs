@@ -2,7 +2,7 @@
 
 use egui::{Align2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
-use wordcraft_doc::StoryRef;
+use wordcraft_doc::{PartKind, StoryRef};
 
 use crate::theme::{Tokens, TypeRung, medium, paint_text, regular, semibold, text_width};
 use crate::{WordApp, icons};
@@ -477,7 +477,12 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     let _ = app.run("ui.dialog", json!({"name": "wordCount"}));
                 }
                 if app.session.sel.focus.story != StoryRef::Body && !crate::canvas::in_text_box(app) {
-                    st(ui, tl!("Editing header/footer"));
+                    let label = match crate::canvas::part_kind(app, app.session.sel.focus.story) {
+                        Some(PartKind::Footnote) => tl!("Editing footnote"),
+                        Some(PartKind::Endnote) => tl!("Editing endnote"),
+                        _ => tl!("Editing header/footer"),
+                    };
+                    st(ui, label);
                 }
                 // The language at the caret; a click sets the proofing language (Review › Language).
                 let lang = crate::ribbon::caret_language(app);
@@ -722,6 +727,36 @@ mod tests {
         for (zoom, xs) in &seen {
             assert_eq!(xs, first, "status bar controls moved at {zoom}% zoom");
         }
+    }
+
+    /// The status bar's "editing a non-body story" line named every one of them "Editing
+    /// header/footer", footnotes and endnotes included — it only ever checked "not the body,
+    /// not a text box", with no regard for which kind of part it actually was.
+    #[test]
+    fn status_bar_names_the_actual_part_being_edited() {
+        let label = |a: &mut WordApp| {
+            let ctx = ctx();
+            ctx.enable_accesskit();
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 800.0))), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| status_bar(a, ui));
+            out.textures_delta.clear();
+            let update = out.platform_output.accesskit_update.take().unwrap();
+            for prefix in ["Editing footnote", "Editing endnote", "Editing header/footer"] {
+                if update.nodes.iter().any(|(_, node)| node.label().is_some_and(|l| l == prefix)) {
+                    return prefix.to_string();
+                }
+            }
+            "(none shown)".to_string()
+        };
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("text.insert", json!({"text": "Body text"})).unwrap();
+        a.run("references.footnote", json!({})).unwrap();
+        assert_eq!(label(&mut a), "Editing footnote");
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("references.endnote", json!({})).unwrap();
+        assert_eq!(label(&mut a), "Editing endnote");
+        a.run("insert.createHeader", json!({})).unwrap();
+        assert_eq!(label(&mut a), "Editing header/footer");
     }
 
     /// #1903: the footer's Cancel row closes the Undo list without undoing anything.
