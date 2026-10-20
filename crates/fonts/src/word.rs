@@ -139,6 +139,20 @@ pub fn symbol_font_metrics(family: &str) -> Option<(f64, f64)> {
     }
 }
 
+/// The (ascent, descent) in em Word gives a line with a run in a symbol font, when that isn't the
+/// resolved face's own: the font isn't installed (`resolved` is a substitute), or the installed
+/// face is one em tall, as Apple's Symbol is (hhea 0.701 / -0.299, no gap). Word for Mac spaces
+/// such lines like Windows' Symbol: 1.222 em at 11 and 20 pt on synthetic documents (#2681).
+pub fn symbol_line(family: &str, resolved: &Resolved) -> Option<(f64, f64)> {
+    let m = symbol_font_metrics(family)?;
+    (resolved.substituted || one_em(line_metrics(&resolved.face), resolved.face.upem)).then_some(m)
+}
+
+/// Is a line's (ascent, descent) one `upem` em tall?
+fn one_em((ascent, descent): (f64, f64), upem: f64) -> bool {
+    upem > 0.0 && ((ascent + descent) / upem - 1.0).abs() < 0.005
+}
+
 /// The font a Windows 3.1-era charset name stands for: `Times New Roman Cyr`, `Arial CE`,
 /// `Courier New Baltic`, `Arial (Hebrew)`… are aliases Windows keeps (its FontSubstitutes) for
 /// the font itself, and old Russian and Central European documents name them. Other names are
@@ -466,6 +480,21 @@ mod tests {
     fn pcl6_symbol_has_symbols_line_metrics() {
         assert_eq!(symbol_font_metrics("Symbol (PCL6)"), symbol_font_metrics("Symbol"));
         assert_eq!(symbol_font_metrics("Arial"), None);
+    }
+
+    #[test]
+    fn a_one_em_symbol_face_takes_windows_symbols_line() {
+        // Apple's Symbol (2048 units): hhea 1436 / -612, no gap, one em; Windows' Symbol line is 1.221 em.
+        assert!(one_em(hhea_line(1436, -612, 0), 2048.0));
+        assert!(!one_em((1005.0, 216.0), 1000.0));
+        assert!(!one_em((899.0, 211.0), 1000.0));
+        assert!(!one_em((0.0, 0.0), 0.0));
+        let arial = resolve("Arial", false, false);
+        assert_eq!(symbol_line("Arial", &arial), None);
+        let symbol = resolve("Symbol", false, false);
+        if symbol.substituted {
+            assert_eq!(symbol_line("Symbol", &symbol), symbol_font_metrics("Symbol"));
+        }
     }
 
     #[test]

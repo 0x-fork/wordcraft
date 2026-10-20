@@ -855,12 +855,11 @@ impl<'a> Builder<'a> {
             }
         }
         let size = rc.draw_size() * if small { 0.8 } else { 1.0 };
-        let (a, d) = match wordcraft_fonts::word::symbol_font_metrics(&rc.font) {
-            // A symbol font that isn't installed keeps its own height, as in Word. An alias drawn
-            // with an installed face (`Symbol (PCL6)` by Symbol) is not substituted and takes that
-            // face's height.
-            Some((a, d)) if r.substituted => (a * face.upem, d * face.upem),
-            _ => wordcraft_fonts::word::line_metrics(&face),
+        // A symbol font that isn't installed, or is installed one em tall (Apple's Symbol), takes
+        // the height Word gives it.
+        let (a, d) = match wordcraft_fonts::word::symbol_line(&rc.font, &r) {
+            Some((a, d)) => (a * face.upem, d * face.upem),
+            None => wordcraft_fonts::word::line_metrics(&face),
         };
         let k = size as f64 / face.upem.max(1.0);
         // A fallback face (letters the requested font lacks) is emboldened or slanted when it has
