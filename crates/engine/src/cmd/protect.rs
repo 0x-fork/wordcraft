@@ -370,7 +370,7 @@ enum HoleMode {
 /// run formatting and paragraph formatting outside the ranges `author` may edit, in every story,
 /// and the formatting of every table, row and cell that holds any of that protected content, and what
 /// reaches the whole document: page setup, the document defaults and the existing styles
-/// (applying a style may add one).
+/// (applying a style may add one), the document's settings and its metadata.
 pub(crate) fn outside_unchanged(before: &Document, after: &Document, author: &str) -> bool {
     // Protection can't change mid-command (`protection_lifted` guards undo and redo).
     let mode = if Some("forms") == before.settings.protection.as_deref() { HoleMode::Controls } else { HoleMode::Perms(author.into()) };
@@ -380,7 +380,33 @@ pub(crate) fn outside_unchanged(before: &Document, after: &Document, author: &st
         && b.default_chr == a.default_chr
         && b.default_para == a.default_para
         && b.styles.iter().all(|st| a.get(&st.id) == Some(st))
+        && before.settings == after.settings
+        && before.core == after.core
+        && before.custom_props == after.custom_props
+        && comments_unchanged(before, after)
+        && lists_unchanged(before, after)
+        && sources_unchanged(before, after)
         && outside(before, &mode) == outside(after, &mode)
+}
+
+/// The comments' resolved flags: a comment's text is a part, and the parts are compared with the
+/// rest of the document; the flag is the comment's own state.
+fn comments_unchanged(before: &Document, after: &Document) -> bool {
+    before.comments.iter().all(|(id, c)| after.comments.get(id).is_some_and(|a| a.resolved == c.resolved))
+}
+
+/// The list definitions: the ones the document had must be unchanged — a list's format reaches
+/// every paragraph that uses it — but a new one may be added, like a new style: applying a list
+/// inside an editable region adds its definition.
+fn lists_unchanged(before: &Document, after: &Document) -> bool {
+    before.numbering.abstracts.iter().all(|x| after.numbering.abstracts.contains(x))
+        && before.numbering.nums.iter().all(|x| after.numbering.nums.contains(x))
+}
+
+/// The bibliography sources: the ones the document had must be unchanged; a new one may be added
+/// (a citation inserted inside an editable region).
+fn sources_unchanged(before: &Document, after: &Document) -> bool {
+    before.sources.iter().all(|x| after.sources.contains(x))
 }
 
 /// The section properties paragraphs end, in order.
@@ -833,6 +859,34 @@ mod tests {
         t.run("review.restrict", &json!({"mode": "none", "formatting": true})).unwrap();
         assert_eq!(t.doc.settings.protection.as_deref(), Some("none"));
         assert!(t.doc.settings.protect_formatting);
+    }
+
+    /// The settings and the metadata of a protected document are part of what stays as it was: a
+    /// command that changes them is rolled back, like any other change outside the editable
+    /// regions (#1327 follow-up).
+    #[test]
+    fn a_protected_document_keeps_its_settings_and_metadata() {
+        let mut s = Session::new(Document::from_text("Locked intro.\nFill in here."));
+        select(&mut s, "Fill in here.");
+        s.run("review.restrict", &json!({"exception": "add"})).unwrap();
+        s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+        let before = s.doc.clone();
+        // The properties: the change is rolled back, and the command says so.
+        let e = s.run("file.properties", &json!({"title": "Forged title"})).unwrap_err().to_string();
+        assert!(e.contains("only the editable regions"), "{e}");
+        assert_eq!(s.doc, before);
+        assert_ne!(s.doc.core.title, "Forged title");
+        // A custom property too.
+        assert!(s.run("file.properties", &json!({"custom": {"Owner": "Alice"}})).is_err());
+        assert_eq!(s.doc, before);
+        // An edit inside the exception still works, and isn't rolled back.
+        select(&mut s, "here");
+        s.run("text.insert", &json!({"text": "there"})).unwrap();
+        assert!(s.doc.plain_text(StoryRef::Body).contains("Fill in there."));
+        // Without protection the same command works.
+        let mut t = Session::new(Document::from_text("Some text."));
+        t.run("file.properties", &json!({"title": "A title"})).unwrap();
+        assert_eq!(t.doc.core.title, "A title");
     }
 
     /// Reading the document stays allowed under protection: the inspector without removals, the
