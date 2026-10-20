@@ -1936,6 +1936,12 @@ impl WordApp {
         };
         let text = printing::feedback(&message, |label| i18n::t(label).to_owned());
         self.status(text);
+        // Word returns to the document once a print job is away, the same as after Save; a
+        // failure stays on the Print page so the error (and the settings to fix it) are visible
+        // (#3210: the Print page used to stay up after a successful submission).
+        if matches!(message, printing::Feedback::Submitted(_)) && self.ui.backstage && self.ui.backstage_page == "print" {
+            self.ui.backstage = false;
+        }
     }
 
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
@@ -5267,6 +5273,31 @@ mod tests {
                 h.step();
                 assert_eq!(printed.get(), 1, "the button printed");
             }
+        }
+    }
+
+    /// #3210: a successful native print submission returns to the document, the same as Word —
+    /// previously the Print page stayed up until the user clicked Back, even though the job had
+    /// already gone to the spooler. A failed submission stays up instead, so the error (and the
+    /// settings to fix it) are still visible.
+    #[test]
+    fn a_successful_native_print_returns_to_the_document() {
+        use printing::Printer;
+        for ok in [true, false] {
+            let mut a = app();
+            a.printing.printers = vec![Printer { name: "Test Printer".into(), default: true }];
+            a.printing.settings.printer = "Test Printer".into();
+            a.services.print_native = Some(Box::new(move |_, _, _, _| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let _ = tx.send(if ok { Ok(String::new()) } else { Err("no paper".into()) });
+                rx
+            }));
+            a.run("file.print", json!({})).unwrap();
+            assert!(a.ui.backstage && a.ui.backstage_page == "print", "the Print page is open");
+            a.run("ui.print", json!({})).unwrap();
+            let ctx = egui::Context::default();
+            ctx.run_ui(egui::RawInput::default(), |ui| a.logic(ui.ctx())).drop_without_applying_deltas();
+            assert_eq!(a.ui.backstage, !ok, "ok {ok}: whether the Print page is still open");
         }
     }
 
