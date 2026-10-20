@@ -182,6 +182,7 @@ fn privacy(s: &Session) -> Value {
     json!({"removePersonalInfo": s.doc.settings.remove_personal_info, "removeDateTime": s.doc.settings.remove_date_time})
 }
 
+/// Create a blank document in the saved proofing language, or use the requested template.
 fn new(s: &mut Session, v: &Value) -> CmdResult {
     let doc = match p::str(v, "template").unwrap_or("blank") {
         "sample" => crate::sample::sample_document(),
@@ -205,6 +206,7 @@ fn normal_document(s: &Session) -> Document {
     d
 }
 
+/// Open a document, using the saved proofing default only for plain text and Markdown.
 fn open(s: &mut Session, v: &Value) -> CmdResult {
     let Some(path) = p::str(v, "path") else {
         s.ui_requests.push(json!({"open": "openFile"}));

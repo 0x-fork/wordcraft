@@ -1471,6 +1471,7 @@ mod tests {
         assert_eq!(h.state().session.doc, before, "one undo restores the inherited formatting");
     }
 
+    /// Set As Default and OK persist the chosen proofing language in a fresh app.
     #[test]
     fn language_dialog_default_survives_a_restart() {
         use egui_kittest::kittest::Queryable;

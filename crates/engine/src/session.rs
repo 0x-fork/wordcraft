@@ -594,6 +594,7 @@ impl Prefs {
     }
 }
 
+/// Ignore malformed saved language tags without discarding the other preferences.
 fn lenient_default_language<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
     Ok(value.as_str().and_then(wordcraft_proof::lang::normalize_tag))
@@ -922,7 +923,8 @@ impl Session {
     /// Set the language new documents are written in ([`Session::editing_lang`]; `None` or a
     /// malformed tag: US English). A document nobody has touched yet — untitled, unchanged, no
     /// undo steps, no text — switches too, so the blank document a session starts with follows
-    /// the interface language. Nothing else changes and no undo step is added.
+    /// the saved proofing default, or the interface language when none is saved. Nothing else
+    /// changes and no undo step is added.
     pub fn set_editing_language(&mut self, tag: Option<&str>) {
         let tag = self
             .prefs
@@ -1368,6 +1370,9 @@ impl Session {
             self.pending_move = None;
         }
         let sel_before = self.sel.clone();
+        // A rejected command must not persist a new proofing default, including a rejection
+        // by the protected-region check after its handler has succeeded. Undo stays document-only.
+        let default_language_before = self.prefs.default_language.clone();
         let run = spec.run;
         let mutates = spec.mutates;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::cmd::column::dispatch(self, id, mutates, run, params)));
@@ -1420,6 +1425,7 @@ impl Session {
             }
             Err(e) => {
                 self.autocap = None;
+                self.prefs.default_language = default_language_before;
                 if let Some((d, s, h, r, t, ev, c)) = before_doc {
                     self.doc = d;
                     self.sel = s;
