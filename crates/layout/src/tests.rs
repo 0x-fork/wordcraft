@@ -1216,6 +1216,25 @@ fn symbol_font_bullet_without_the_font_draws_a_bullet() {
     assert_eq!(label.glyphs.len(), 1);
 }
 
+/// The label's ascent, the text size, and the first line's height and text ascent of a one-line
+/// bulleted paragraph whose bullet is in `label_font`; no label font = no bullet.
+fn bullet_first_line(label_font: Option<&str>) -> (f32, f32, f32, f32) {
+    let mut d = Document::from_text("one");
+    if let Some(label_font) = label_font {
+        let id = d.numbering.add_list(wordcraft_doc::ListKind::BulletChar('\u{F0B7}'));
+        for a in &mut d.numbering.abstracts {
+            if let Some(l) = a.levels.first_mut() {
+                l.chr.font = Some(label_font.into());
+            }
+        }
+        d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
+    }
+    let l = lay(&d);
+    let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!("no text") };
+    let size = para.styles.iter().map(|s| s.size).fold(0.0f32, f32::max);
+    (para.label.as_ref().map_or(0.0, |lab| lab.ascent), size, para.lines[0].height, para.lines[0].text_asc)
+}
+
 #[test]
 fn a_symbol_bullet_sizes_its_line_by_the_symbol_font() {
     // Measured in Word: a Symbol bullet makes its line taller than the text alone (Calibri 11 pt
@@ -1224,33 +1243,21 @@ fn a_symbol_bullet_sizes_its_line_by_the_symbol_font() {
     if !wordcraft_fonts::word::resolve("Symbol", false, false).substituted {
         return;
     }
-    // The label's ascent, the text size, and the first line's height and text ascent; no label
-    // font = no bullet.
-    let first_line = |label_font: Option<&str>| {
-        let mut d = Document::from_text("one");
-        if let Some(label_font) = label_font {
-            let id = d.numbering.add_list(wordcraft_doc::ListKind::BulletChar('\u{F0B7}'));
-            for a in &mut d.numbering.abstracts {
-                if let Some(l) = a.levels.first_mut() {
-                    l.chr.font = Some(label_font.into());
-                }
-            }
-            d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 }))
-                .unwrap();
-        }
-        let l = lay(&d);
-        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!("no text") };
-        let size = para.styles.iter().map(|s| s.size).fold(0.0f32, f32::max);
-        (para.label.as_ref().map_or(0.0, |lab| lab.ascent), size, para.lines[0].height, para.lines[0].text_asc)
-    };
-    let (ascent, size, height, text_asc) = first_line(Some("Symbol"));
+    let (ascent, size, height, text_asc) = bullet_first_line(Some("Symbol"));
     let want = (1.005 * f64::from(size)) as f32;
     assert!((ascent - want).abs() < 0.01, "{ascent} vs {want}");
     // The line is the text's own height plus the bullet's extra ascent, unscaled.
-    let (_, _, plain, _) = first_line(None);
+    let (_, _, plain, _) = bullet_first_line(None);
     let extra = ascent - text_asc;
     assert!(extra > 0.0, "Symbol's ascent {ascent} is above the text's {text_asc}");
     assert!((height - (plain + extra)).abs() < 0.01, "{height} vs {plain} + {extra}");
+}
+
+#[test]
+fn a_pcl6_symbol_bullet_sizes_its_line_as_symbol() {
+    // `Symbol (PCL6)` is drawn with Symbol: an installed Symbol gives both their own face's height,
+    // a missing one gives both Symbol's.
+    assert_eq!(bullet_first_line(Some("Symbol (PCL6)")), bullet_first_line(Some("Symbol")));
 }
 
 #[test]
