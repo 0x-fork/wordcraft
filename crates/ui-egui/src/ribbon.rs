@@ -1730,7 +1730,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
             small(ui, app, "selectionPane", Some("Selection Pane"), "Selection Pane", "arrange.selectionPane", json!({}), false);
         });
         stack(ui, |ui| {
-            small(ui, app, "align", None, "Align", "arrange.align", json!({}), false);
+            align_menu(ui, app, None);
             group_menu(ui, app, None);
             rotate_menu(ui, app, None);
         });
@@ -1799,6 +1799,16 @@ fn group_menu(ui: &mut Ui, app: &mut WordApp, label: Option<&str>) {
     menu_button(ui, app, "group", label, "Group", false, "arrange.group", |ui, app| {
         mi(ui, app, "Group", "arrange.group", json!({}));
         mi(ui, app, "Ungroup", "arrange.ungroup", json!({}));
+    });
+}
+
+/// Arrange › Align: horizontal position relative to the margin (#3242 — a plain button ran
+/// `arrange.align` with no `value`, which always centers; a menu reaches Left and Right too).
+fn align_menu(ui: &mut Ui, app: &mut WordApp, label: Option<&str>) {
+    menu_button(ui, app, "align", label, "Align", false, "arrange.align", |ui, app| {
+        mi(ui, app, "Align Left", "arrange.align", json!({"value": "left"}));
+        mi(ui, app, "Align Center", "arrange.align", json!({"value": "center"}));
+        mi(ui, app, "Align Right", "arrange.align", json!({"value": "right"}));
     });
 }
 
@@ -2418,7 +2428,7 @@ fn shape_format(app: &mut WordApp, ui: &mut Ui) {
         wrap_menu(ui, app);
         stack(ui, |ui| {
             rotate_menu(ui, app, Some("Rotate"));
-            small(ui, app, "align", Some("Align"), "Align", "arrange.align", json!({}), false);
+            align_menu(ui, app, Some("Align"));
         });
     });
     group(ui, "Size", None, app, |ui, app| {
@@ -2594,7 +2604,7 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
         wrap_menu(ui, app);
         stack(ui, |ui| {
             rotate_menu(ui, app, Some("Rotate"));
-            small(ui, app, "align", Some("Align"), "Align", "arrange.align", json!({}), false);
+            align_menu(ui, app, Some("Align"));
             group_menu(ui, app, Some("Group"));
         });
     });
@@ -3398,6 +3408,32 @@ mod tests {
         h.run_steps(6);
         assert_eq!(size(h.state()), Some((0.75, 0.75)), "shown, not resized");
         assert_eq!(h.state().session.undo_depth(), undo, "no undo step");
+    }
+
+    /// #3242: Align used to run `arrange.align` directly with no `value`, which always centers
+    /// (`crates/engine/src/cmd/objects.rs`) — there was no way to reach Left or Right from the
+    /// ribbon short of dragging. Align now opens a menu, like Word's own Align dropdown.
+    #[test]
+    fn align_menu_reaches_left_and_right_not_just_center() {
+        use egui_kittest::kittest::{By, Queryable};
+        let item = |label: &'static str| By::new().label_contains(label);
+        let mut a = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("insert.picture", json!({"data": png_data()})).unwrap();
+        let frame =
+            |a: &crate::WordApp| wordcraft_engine::cmd::objects::selected(&a.session).and_then(|(_, o)| o.frame().map(|(_, _, f)| (f.wrap, f.x)));
+        assert!(matches!(frame(&a), Some((wordcraft_doc::para::Wrap::Inline, _))), "a freshly inserted picture is inline");
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(300.0, 300.0))
+            .build_ui_state(|ui, app: &mut crate::WordApp| align_menu(ui, app, None), a);
+        h.run();
+        h.get(item("Align")).click();
+        h.run();
+        assert!(h.query(item("Align Left")).is_some(), "Align opens a menu, instead of running arrange.align with no value");
+        h.get(item("Align Right")).click();
+        h.run();
+        let (wrap, x) = frame(h.state()).unwrap();
+        assert_eq!(wrap, wordcraft_doc::para::Wrap::Square, "aligning floats an inline picture, as arrange.align already does");
+        assert!(x > 0.0, "Align Right moved it right of the left margin, not centered under it: x={x}");
     }
 
     /// #2573 review: Shape Format and Chart Design leave sizes outside their fields' ranges alone
