@@ -1972,6 +1972,23 @@ fn table_text_direction_cycles_and_turns_the_text() {
     }
 }
 
+/// While the caret is in a table, Word shows its move handle past the top-left corner and its
+/// resize handle past the bottom-right one (#2428); the app paints the ones this gives.
+#[test]
+fn the_caret_table_has_its_handles() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let (tp, _, _) = s.sel.focus.path.cell().unwrap();
+    let l = s.layout();
+    let (m, z) = crate::cmd::table_mouse::caret_handles(&l, &s.doc, s.sel.focus.story, &tp, 0);
+    let (m, z) = (m.expect("the move handle"), z.expect("the resize handle"));
+    let (_, x, y) = crate::cmd::table_mouse::corner(&l, s.sel.focus.story, &tp).unwrap();
+    assert!(m.right() <= x && m.bottom() <= y, "past the top-left corner");
+    assert!(z.x > m.right() && z.y > m.bottom(), "past the bottom-right one");
+    let (m, z) = crate::cmd::table_mouse::caret_handles(&l, &s.doc, s.sel.focus.story, &tp, 1);
+    assert!(m.is_none() && z.is_none(), "not on a page without the table");
+}
+
 /// Right-to-left tables and sections (#362): `table.rtl` and `layout.sectionRtl` set or toggle
 /// the direction, one Undo step each, and the layout mirrors the table.
 #[test]

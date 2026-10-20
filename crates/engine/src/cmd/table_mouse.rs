@@ -199,6 +199,31 @@ pub fn handle_table(l: &DocLayout, doc: &Document, story: StoryRef, page: usize,
         .max_by_key(|g| g.table.0.len())
 }
 
+/// The move and resize handles of table `table` of `story` on this page, as Word shows them
+/// while the caret is in the table: the move handle where its first row is, the resize handle
+/// where its last row is.
+pub fn caret_handles(l: &DocLayout, doc: &Document, story: StoryRef, table: &Path, page: usize) -> (Option<Rect>, Option<Rect>) {
+    let rows = doc.table(story, table).map_or(0, |t| t.rows.len());
+    let (mut first, mut last, mut bounds) = (false, false, None::<Rect>);
+    for it in l.pages.get(page).map_or(&[][..], |pg| pg.items.as_slice()) {
+        if let Placed::Cell { rect, table: t, story: st, row, .. } = it
+            && *st == story
+            && t == table
+        {
+            first |= *row == 0;
+            last |= *row + 1 == rows;
+            bounds = Some(bounds.map_or(*rect, |b| b.union(rect)));
+        }
+    }
+    let Some(b) = bounds else { return (None, None) };
+    // Where `handle` and `ResizeTarget::handle` put them for the drawn table.
+    let resize = table_resize::HANDLE;
+    (
+        first.then(|| Rect::new(b.x - HANDLE_GAP - HANDLE, b.y - HANDLE_GAP - HANDLE, HANDLE, HANDLE)),
+        last.then(|| Rect::new(b.right() + 1.0, b.bottom() + 1.0, resize, resize)),
+    )
+}
+
 /// The insert button a target is, if it's one.
 pub fn insert_mark(t: &Target) -> Option<InsertMark> {
     let g = &t.geom;
@@ -425,7 +450,7 @@ fn insert_at(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// Where table `table` of `story` is first drawn: its page and top-left corner.
-fn corner(l: &DocLayout, story: StoryRef, table: &Path) -> Option<(usize, f32, f32)> {
+pub fn corner(l: &DocLayout, story: StoryRef, table: &Path) -> Option<(usize, f32, f32)> {
     l.pages.iter().enumerate().find_map(|(pi, pg)| {
         let cells = pg.items.iter().filter_map(|it| match it {
             Placed::Cell { rect, table: t, story: st, .. } if *st == story && t == table => Some(*rect),
