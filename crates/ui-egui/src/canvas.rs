@@ -2582,9 +2582,13 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             let _ = app.run("edit.pasteFormat", json!({}));
         }
     }
-    // Hover a link: show its target.
+    // Hover a link: show its target, unless the context menu is opening or open: a tooltip draws
+    // above the menu and would cover its first items (#3368).
     if resp.hovered()
         && !app.canvas.dragging
+        && !app.canvas.context_menu_open
+        && !resp.secondary_clicked()
+        && !ui.input(|i| i.pointer.secondary_down())
         && let Some(pos) = layout.hit(page, x, y, story)
         && let Some(link) = link_under(app, layout, page, x, y, &pos)
     {
@@ -4979,6 +4983,40 @@ mod tests {
         let (start, _) = wordcraft_engine::cmd::insert::bookmark_range(&s.doc, "Spot").unwrap();
         assert!(s.sel.is_collapsed(), "a caret, not a selection: {:?}", s.sel);
         assert_eq!(s.sel.focus, start, "at the bookmark's start");
+    }
+
+    /// #3368: right-clicking a link dismisses the hover tooltip. A tooltip draws above the
+    /// context menu and covered its first items (Cut, Copy, Paste, Font…), so the menu looked
+    /// truncated; the tooltip must stand down while the menu owns the pointer.
+    #[test]
+    fn right_clicking_a_link_hides_the_hover_tooltip() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("See here")), Default::default());
+        a.run("select.text", json!({"text": "here"})).unwrap();
+        a.run("insert.link", json!({"url": "https://example.com/very/long/tracking/url?with=parameters&and=still-more"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        // Between the link's "h" and "e".
+        let c = h.state_mut().session.layout().caret(&Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 5 }).unwrap();
+        let at = screen(&mut h, c.x, c.top + c.height / 2.0);
+        h.event(egui::Event::PointerMoved(at));
+        steps(&mut h, 2);
+        let tips = |h: &egui_kittest::Harness<'_, WordApp>| h.query_all_by_label_contains("Click to follow link").count();
+        assert!(tips(&h) > 0, "hovering the link shows its target");
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        steps(&mut h, 2);
+        assert!(h.state().canvas.context_menu_open, "the context menu is open");
+        assert_eq!(tips(&h), 0, "the link tooltip is gone, so it can't cover the menu");
     }
 
     /// #688: the drag auto-scroll waits in the middle, ramps in from both edges and never leaves
