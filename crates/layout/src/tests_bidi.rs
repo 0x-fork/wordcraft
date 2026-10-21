@@ -561,3 +561,24 @@ fn list_label_moves_with_its_text_when_the_paragraph_is_aligned() {
         }
     }
 }
+
+/// A numbered label's brackets are mirrored in a right-to-left paragraph (UAX #9 L4), so a
+/// `(%1)` label reads `(1)` and not `)1(`.
+#[test]
+fn rtl_list_label_mirrors_its_brackets() {
+    let mut d = doc_of(&[("סעיף", true)]);
+    let lvl = wordcraft_doc::numbering::Level { text: "(%1)".into(), ..Default::default() };
+    let num = d.numbering.try_add_levels(None, vec![lvl]).unwrap();
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p: &mut ParaProps| p.numbering = Some(wordcraft_doc::props::NumRef { num, level: 0 }))
+        .unwrap();
+    let l = lay(&d);
+    let (pl, _) = first_line(&l, 0);
+    let lab = pl.label.as_ref().expect("numbered");
+    assert_eq!(lab.text, "(1)");
+    let st = &pl.styles[lab.style as usize];
+    let (open, digit, close) = (st.face.glyph_for('('), st.face.glyph_for('1'), st.face.glyph_for(')'));
+    let mut drawn: Vec<(f32, u32)> = lab.glyphs.iter().map(|g| (g.dx, g.gid)).collect();
+    drawn.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let gids: Vec<u32> = drawn.iter().map(|(_, gid)| *gid).collect();
+    assert_eq!(gids, vec![open, digit, close], "left to right, the label reads (1)");
+}
