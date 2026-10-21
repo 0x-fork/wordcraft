@@ -4460,6 +4460,24 @@ mod tests {
         assert!(text.contains("Edited"), "the typed text survived the refusal: {text:?}");
     }
 
+    /// #3268: clicking a balloon's Reply button, typing a reply and clicking away posts it as a
+    /// reply comment under the original, not a draft that silently disappears.
+    #[test]
+    fn replying_to_a_comment_from_its_balloon_posts_the_reply() {
+        use egui_kittest::kittest::Queryable;
+        let (mut h, id) = comment_harness();
+        click_balloon(&mut h, id);
+        h.get_by_label("Reply").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        type_in(&mut h, "A reply");
+        leave_field(&mut h);
+        let replies: Vec<u32> = h.state().session.doc.comments.iter().filter(|(_, c)| c.parent == Some(id)).map(|(k, _)| *k).collect();
+        assert_eq!(replies.len(), 1, "{:?}", h.state().session.doc.comments);
+        assert_eq!(comment_text(h.state(), replies[0]), "A reply");
+    }
+
     /// #1348: a draft typed in one document never lands in another document's comment that happens
     /// to have the same id.
     #[test]
