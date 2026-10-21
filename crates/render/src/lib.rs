@@ -1577,41 +1577,61 @@ mod tests {
     #[test]
     fn legacy_font_effects_are_drawn() {
         use wordcraft_doc::CharProps;
-        // Dark and grey pixel counts, and the grey pixels' mean offset from the dark ones.
-        let shot = |c: CharProps| {
+        use wordcraft_doc::wordart::{TextEffects, TextFill};
+        const SIZE: f32 = 40.0;
+        const SCALE: f32 = 2.0;
+        const MIN_DIRECTION_PIXELS: usize = 100;
+        let shot = |c: CharProps, offset: f32| {
             let mut d = Document::from_text("x");
-            let cp = CharProps { size: Some(40.0), bold: Some(true), ..c };
+            let cp = CharProps { size: Some(SIZE), bold: Some(true), ..c };
             d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("HHHH", cp))];
             let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
-            let img = render_page(&d, &l.pages[0], 2.0, &RenderOptions::default());
-            let (mut dark, mut grey) = ((0.0, 0.0, 0.0f64), (0.0, 0.0, 0.0f64));
+            render_area(&d, &l.pages[0], -offset, -offset, 400.0, 150.0, SCALE, &RenderOptions::default())
+        };
+        let counts = |img: &Rendered| {
+            let (mut dark, mut grey) = (0usize, 0usize);
             for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
                 let v = img.pixel(x, y)[0];
-                // The copy is solid RGB 128; a wider range would count the glyph's own
-                // antialiasing, whose centroid hides the copy's offset on some fonts.
-                let acc = match v {
-                    0..60 => &mut dark,
-                    120..=136 => &mut grey,
-                    _ => continue,
-                };
-                *acc = (acc.0 + 1.0, acc.1 + f64::from(x), acc.2 + f64::from(y));
+                dark += usize::from(v < 60);
+                grey += usize::from((120..=136).contains(&v));
             }
-            let mean = |a: (f64, f64, f64)| (a.1 / a.0.max(1.0), a.2 / a.0.max(1.0));
-            let ((dx, dy), (gx, gy)) = (mean(dark), mean(grey));
-            (dark.0, grey.0, (gx - dx, gy - dy))
+            (dark, grey)
         };
-        let (plain_dark, plain_grey, _) = shot(CharProps::default());
-        assert!(plain_dark > 2000.0, "plain {plain_dark}");
-        let (dark, _, _) = shot(CharProps { outline: Some(true), ..Default::default() });
-        assert!(dark < plain_dark / 3.0, "outline is hollow: {dark} vs {plain_dark}");
+        let (plain_dark, plain_grey) = counts(&shot(CharProps::default(), 0.0));
+        assert!(plain_dark > 2000, "plain {plain_dark}");
+        let (dark, _) = counts(&shot(CharProps { outline: Some(true), ..Default::default() }, 0.0));
+        assert!(dark < plain_dark / 3, "outline is hollow: {dark} vs {plain_dark}");
+        // An explicit fill keeps the reference on the same Art path as legacy effects.
+        let reference = || CharProps {
+            text_effects: Some(Box::new(TextEffects { fill: Some(TextFill::Solid { color: Rgb::BLACK, transparency: 0.0 }), ..Default::default() })),
+            ..Default::default()
+        };
+        let base = shot(reference(), 0.0);
         for (c, sign) in [
             (CharProps { shadow: Some(true), ..Default::default() }, 1.0),
             (CharProps { emboss: Some(true), ..Default::default() }, 1.0),
             (CharProps { engrave: Some(true), ..Default::default() }, -1.0),
         ] {
-            let (_, grey, (ox, oy)) = shot(c);
-            assert!(grey > plain_grey * 2.0, "a grey copy: {grey} vs {plain_grey}");
-            assert!(ox * sign > 1.0 && oy * sign > 1.0, "grey copy offset {ox} {oy}");
+            let img = shot(c, 0.0);
+            let (_, grey) = counts(&img);
+            assert!(grey > plain_grey * 2, "a grey copy: {grey} vs {plain_grey}");
+            // A 2pt diagonal displacement at 40pt has sqrt(2)pt on each axis.
+            // Check the visible copy against its translated mask, accounting for occlusion.
+            let offset = sign * std::f32::consts::SQRT_2;
+            let expected = shot(reference(), offset);
+            let opposite = shot(reference(), -offset);
+            let (mut visible, mut directional) = (0usize, 0usize);
+            for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
+                let v = img.pixel(x, y)[0];
+                if !(120..=136).contains(&v) || base.pixel(x, y)[0] != 255 {
+                    continue;
+                }
+                visible += 1;
+                assert!(expected.pixel(x, y)[0] < 255, "grey outside translated Art mask: sign {sign}, pixel {x},{y}");
+                directional += usize::from(expected.pixel(x, y)[0] < 60 && opposite.pixel(x, y)[0] == 255);
+            }
+            assert!(directional > MIN_DIRECTION_PIXELS, "directional grey: sign {sign}, {directional} of {visible}");
+            eprintln!("spatial shadow sign={sign} grey={grey} visible={visible} directional={directional}");
         }
     }
 

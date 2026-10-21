@@ -214,6 +214,8 @@ Page-relative footer tables keep their physical wrap bounds without adding to fo
 
 The deleted/hidden-text wrapping, ellipse wrapping and widow-control regressions request Source Sans 3 explicitly. Their fixed widths and word counts use that font's metrics. This changes test inputs only, not renderer font substitution or Word parity claims.
 
+The legacy text-shadow control compares visible grey pixels with a translated Art-path mask. Foreground occlusion makes visible pixel centroids unsuitable for measuring the shadow offset. A reversed-offset mutation must fail this spatial check. Renderer behavior is unchanged.
+
 ## Revision history
 
 | Date | Change | Summary |
