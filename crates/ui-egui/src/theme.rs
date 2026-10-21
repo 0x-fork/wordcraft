@@ -268,6 +268,9 @@ pub struct Tokens {
     /// Alignment guides while moving a picture or shape: drawn on the page, so legible on white
     /// paper in both themes.
     pub guide: Color32,
+    /// The frame around the equation the caret is in, its grip and its options strip: drawn on
+    /// the page, so the same light blue in both themes.
+    pub equation_box: Color32,
     /// Crop mode: the crop handles, and the dim over the cropped-away part of a picture.
     pub crop_handle: Color32,
     pub crop_dim: Color32,
@@ -329,6 +332,7 @@ impl Tokens {
             handle: Color32::WHITE,
             handle_shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 0x28),
             guide: Color32::from_rgb(0xC0, 0x28, 0x8C),
+            equation_box: Color32::from_rgb(0x6E, 0x9B, 0xE6),
             crop_handle: Color32::BLACK,
             crop_dim: Color32::from_rgba_unmultiplied(0x30, 0x30, 0x30, 0xE0),
             balloon: Color32::WHITE,
@@ -394,6 +398,7 @@ impl Tokens {
             handle: Color32::from_rgb(0xF2, 0xF2, 0xF2),
             handle_shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 0x5A),
             guide: Color32::from_rgb(0xE0, 0x4C, 0xB0),
+            equation_box: Color32::from_rgb(0x6E, 0x9B, 0xE6),
             crop_handle: Color32::BLACK,
             crop_dim: Color32::from_rgba_unmultiplied(0x30, 0x30, 0x30, 0xE0),
             balloon: Color32::from_rgb(0x2B, 0x2B, 0x2B),

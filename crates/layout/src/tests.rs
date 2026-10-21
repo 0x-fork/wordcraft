@@ -7667,6 +7667,27 @@ fn equation_numbers(l: &DocLayout) -> Vec<String> {
     out
 }
 
+/// The box around an equation spans the equation's width and its whole line, as Word frames
+/// the equation the caret is in.
+#[test]
+fn an_equations_box_spans_its_width_and_its_line() {
+    let mut d = Document::from_text("Inline  and text after it.");
+    let math = wordcraft_doc::math::Math { nodes: wordcraft_doc::math::parse_linear("x=(a+b)/c"), ..Default::default() };
+    let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    p.insert_object(7, InlineObject::Equation { linear: "x=(a+b)/c".into(), display: false, math }, &Default::default()).unwrap();
+    let l = lay(&d);
+    let b = l.equation_box(&Pos::body(0, 7), 0).unwrap();
+    let before = l.caret(&Pos::body(0, 6)).unwrap();
+    // The equation's U+FFFC takes three bytes.
+    let after = l.caret(&Pos::body(0, 10)).unwrap();
+    // It starts where the equation starts and ends where the text after it starts.
+    assert!((b.x - before.x).abs() > 0.1 && (b.x + b.math.width - after.x).abs() < 0.5, "{b:?} {before:?} {after:?}");
+    // It holds the fraction, from the line's top to its bottom.
+    assert!(b.top <= b.base - b.math.ascent && b.bottom >= b.base + b.math.descent, "{b:?}");
+    assert!((b.top - after.top).abs() < 0.5 && b.bottom >= after.top + after.height, "{b:?} {after:?}");
+    assert!(l.equation_box(&Pos::body(0, 6), 0).is_none());
+}
+
 /// Laying a paragraph out again (placed again after a page break before, or the rest of it again
 /// for a later page's PAGE fields) doesn't count its numbered equations twice: they read (1), (2), (3).
 #[test]
