@@ -133,3 +133,76 @@ fn the_controls_are_written_where_they_were() {
         assert_ne!(r.start.path, r.end.path, "the control is written around the paragraphs");
     }
 }
+
+/// The body of the document part of a package.
+fn document_body(bytes: &[u8]) -> String {
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip");
+    let mut xml = String::new();
+    {
+        use std::io::Read;
+        z.by_name("word/document.xml").expect("the document part").read_to_string(&mut xml).expect("read");
+    }
+    let rest = xml.split_once("<w:body>").expect("the body").1;
+    let body = rest.split_once("</w:body>").expect("the end of the body").0;
+    format!("<w:body>{body}</w:body>")
+}
+
+/// A document whose controls are written in an order and a place worth pinning: two inline
+/// controls in one paragraph, and a control around a whole paragraph.
+fn pinned_doc() -> Document {
+    let props = CharProps::default();
+    let mut doc = Document::new();
+    doc.body.clear();
+    // "before [a] between [b] after", the two controls inline in one paragraph.
+    let mut p = Paragraph::with_text("before ", props.clone());
+    let mut at = p.len();
+    p.insert_object(at, InlineObject::ControlStart { control: Box::new(ContentControl::new(ControlKind::Text { multi_line: false })) }, &props)
+        .expect("the first marker");
+    at = p.len();
+    p.insert_text(at, "inside a", &props).expect("text");
+    at = p.len();
+    p.insert_object(at, InlineObject::ControlEnd, &props).expect("the first end marker");
+    at = p.len();
+    p.insert_text(at, " between ", &props).expect("text");
+    at = p.len();
+    p.insert_object(at, InlineObject::ControlStart { control: Box::new(ContentControl::new(ControlKind::RichText)) }, &props)
+        .expect("the second marker");
+    at = p.len();
+    p.insert_text(at, "inside b", &props).expect("text");
+    at = p.len();
+    p.insert_object(at, InlineObject::ControlEnd, &props).expect("the second end marker");
+    at = p.len();
+    p.insert_text(at, " after", &props).expect("text");
+    doc.body.push(para_block(p));
+    // A control around a whole paragraph.
+    let mut open = Paragraph::new();
+    let at = open.len();
+    open.insert_object(at, InlineObject::ControlStart { control: Box::new(ContentControl::new(ControlKind::RichText)) }, &props)
+        .expect("the block marker");
+    doc.body.push(para_block(open));
+    let mut inside = Paragraph::with_text("in the block", props.clone());
+    let at = inside.len();
+    inside.insert_object(at, InlineObject::ControlEnd, &props).expect("the block end marker");
+    doc.body.push(para_block(inside));
+    doc
+}
+
+/// The body of the document part the writer writes for [`pinned_doc`], byte for byte: what the
+/// writer wrote before it was made faster. The counts and the paragraphs in the test above say
+/// that the controls are where they belong; this says that the rest is where it was too, down to
+/// the order and the place of the markers inside a paragraph.
+///
+/// The body is what the plan decides: which controls are written inline and which around whole
+/// paragraphs, and where. Nothing outside it can change with the plan, so it is what is pinned.
+///
+/// Regenerate it when the writer's output changes on purpose: write [`pinned_doc`] and take the
+/// body of the document part.
+#[test]
+fn the_document_body_is_written_as_it_was() {
+    let bytes = write(&pinned_doc()).expect("write");
+    assert_eq!(document_body(&bytes), PINNED_BODY);
+}
+
+/// The body of the document part of [`pinned_doc`], as the writer wrote it before it was made
+/// faster.
+const PINNED_BODY: &str = r#"<w:body><w:p><w:r><w:t xml:space="preserve">before </w:t></w:r><w:sdt><w:sdtPr><w:text/></w:sdtPr><w:sdtContent><w:r><w:t xml:space="preserve">inside a</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve"> between </w:t></w:r><w:sdt><w:sdtPr></w:sdtPr><w:sdtContent><w:r><w:t xml:space="preserve">inside b</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve"> after</w:t></w:r></w:p><w:sdt><w:sdtPr></w:sdtPr><w:sdtContent><w:p></w:p><w:p><w:r><w:t xml:space="preserve">in the block</w:t></w:r></w:p></w:sdtContent></w:sdt><w:sectPr><w:type w:val="nextPage"/><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/><w:cols w:space="720" w:num="1"/></w:sectPr></w:body>"#;
