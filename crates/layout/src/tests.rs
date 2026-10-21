@@ -9423,3 +9423,67 @@ fn caret_height_ignores_line_spacing() {
         assert!((single - wide).abs() < 0.01, "{spacing:?}: single {single}, wide {wide}");
     }
 }
+
+#[test]
+fn layout_cache_invalidates_on_changed_filename() {
+    let mut doc = Document::new();
+    let mut p = Paragraph::new();
+    p.insert_object(
+        0,
+        InlineObject::Field { instr: "FILENAME".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
+    doc.body = vec![wordcraft_doc::para_block(p)];
+
+    let shown = |l: &DocLayout| -> String {
+        l.pages[0]
+            .items
+            .iter()
+            .find_map(|it| if let Placed::Lines { para, .. } = it { para.shown.first().map(|s| s.1.clone()) } else { None })
+            .unwrap_or_default()
+    };
+
+    let mut cache = LayoutCache::new();
+    let opts_a = LayoutOptions { filename: Some(Arc::from("a.docx")), filepath: Some(Arc::from("/docs/a.docx")), ..Default::default() };
+    let l_a = layout(&doc, &mut cache, &opts_a);
+    let text_a = shown(&l_a);
+    assert_eq!(text_a, "a.docx", "first layout shows a.docx");
+
+    let opts_b = LayoutOptions { filename: Some(Arc::from("b.docx")), filepath: Some(Arc::from("/docs/b.docx")), ..Default::default() };
+    let l_b = layout(&doc, &mut cache, &opts_b);
+    let text_b = shown(&l_b);
+    assert_eq!(text_b, "b.docx", "second layout with same cache shows b.docx");
+}
+
+#[test]
+fn layout_cache_invalidates_on_changed_filepath() {
+    let mut doc = Document::new();
+    let mut p = Paragraph::new();
+    p.insert_object(
+        0,
+        InlineObject::Field { instr: r"FILENAME \p".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
+    doc.body = vec![wordcraft_doc::para_block(p)];
+
+    let shown = |l: &DocLayout| -> String {
+        l.pages[0]
+            .items
+            .iter()
+            .find_map(|it| if let Placed::Lines { para, .. } = it { para.shown.first().map(|s| s.1.clone()) } else { None })
+            .unwrap_or_default()
+    };
+
+    let mut cache = LayoutCache::new();
+    let opts_a = LayoutOptions { filename: Some(Arc::from("a.docx")), filepath: Some(Arc::from("/path/one/a.docx")), ..Default::default() };
+    let l_a = layout(&doc, &mut cache, &opts_a);
+    let text_a = shown(&l_a);
+    assert_eq!(text_a, "/path/one/a.docx", "first layout shows /path/one/a.docx");
+
+    let opts_b = LayoutOptions { filename: Some(Arc::from("a.docx")), filepath: Some(Arc::from("/path/two/a.docx")), ..Default::default() };
+    let l_b = layout(&doc, &mut cache, &opts_b);
+    let text_b = shown(&l_b);
+    assert_eq!(text_b, "/path/two/a.docx", "second layout with same cache shows /path/two/a.docx");
+}

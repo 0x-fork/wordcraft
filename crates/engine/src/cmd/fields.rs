@@ -193,6 +193,7 @@ fn shown_text(s: &mut Session, f: &FieldAt) -> String {
         .map(|p| l.pages.iter().filter(|pg| pg.section == p.section).count() as u32)
         .unwrap_or_else(|| u32::try_from(l.pages.len()).unwrap_or(u32::MAX));
     let page_format = page.and_then(|p| s.doc.sections().get(p.section).map(|(_, sec)| sec.page_num_format)).unwrap_or_default();
+    let (fn_name, fn_path) = s.resolved_filenames();
     let ctx = wordcraft_layout::fields::FieldCtx {
         page: page.map(|p| p.number).unwrap_or(1),
         page_format,
@@ -201,21 +202,8 @@ fn shown_text(s: &mut Session, f: &FieldAt) -> String {
         section,
         title: s.doc.core.title.as_str().into(),
         author: s.doc.core.creator.as_str().into(),
-        filename: s
-            .path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().to_string())
-            .or_else(|| s.file_name.clone())
-            .unwrap_or_else(|| "Document1".into())
-            .into(),
-        filepath: s
-            .path
-            .as_ref()
-            .map(|p| p.to_string_lossy().to_string())
-            .or_else(|| s.file_name.clone())
-            .unwrap_or_else(|| "Document1".into())
-            .into(),
+        filename: fn_name.into(),
+        filepath: fn_path.into(),
         ..Default::default()
     };
     wordcraft_layout::fields::field_text(&instr, &result, &ctx).0

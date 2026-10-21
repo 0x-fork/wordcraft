@@ -803,6 +803,22 @@ impl Session {
         if set.is_empty() { self.author.split_whitespace().filter_map(|w| w.chars().next()).collect() } else { set.to_string() }
     }
 
+    /// The document's file name and full path for fields (`FILENAME`) and layout context.
+    /// Returns `(filename, filepath)`. Unsaved documents with no explicit file name default
+    /// consistently to `("Document1", "Document1")`. Document metadata title is never used
+    /// as a filename fallback (#3449).
+    pub fn resolved_filenames(&self) -> (String, String) {
+        if let Some(path) = &self.path {
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string_lossy().to_string());
+            let full = path.to_string_lossy().to_string();
+            (name, full)
+        } else if let Some(name) = &self.file_name {
+            (name.clone(), name.clone())
+        } else {
+            ("Document1".to_string(), "Document1".to_string())
+        }
+    }
+
     /// The current layout (recomputed when the document or view changed).
     pub fn layout(&mut self) -> Arc<DocLayout> {
         let mode = if self.view.read_mode { ViewMode::Read } else { self.view.mode };
@@ -833,17 +849,8 @@ impl Session {
         {
             return l.clone();
         }
-        let (filename, filepath): (Option<Arc<str>>, Option<Arc<str>>) = if let Some(path) = &self.path {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string_lossy().to_string());
-            let full = path.to_string_lossy().to_string();
-            (Some(Arc::from(name.as_str())), Some(Arc::from(full.as_str())))
-        } else if let Some(name) = &self.file_name {
-            (Some(Arc::from(name.as_str())), Some(Arc::from(name.as_str())))
-        } else if !self.doc.core.title.is_empty() {
-            (Some(Arc::from(self.doc.core.title.as_str())), Some(Arc::from(self.doc.core.title.as_str())))
-        } else {
-            (Some(Arc::from("Document1")), Some(Arc::from("Document1")))
-        };
+        let (fn_name, fn_path) = self.resolved_filenames();
+        let (filename, filepath): (Option<Arc<str>>, Option<Arc<str>>) = (Some(Arc::from(fn_name.as_str())), Some(Arc::from(fn_path.as_str())));
         let opts = LayoutOptions {
             view: mode,
             web_width: width,
@@ -912,7 +919,14 @@ impl Session {
     /// [`Session::export_layout`]; with `markup` (Print Markup) each page also has the markup
     /// area with the comments in balloons.
     pub fn export_layout_with(&self, markup: bool) -> Arc<DocLayout> {
-        let opts = LayoutOptions { view: ViewMode::Print, comment_balloons: markup && self.prefs.markup.comments, ..Default::default() };
+        let (fn_name, fn_path) = self.resolved_filenames();
+        let opts = LayoutOptions {
+            view: ViewMode::Print,
+            comment_balloons: markup && self.prefs.markup.comments,
+            filename: Some(Arc::from(fn_name.as_str())),
+            filepath: Some(Arc::from(fn_path.as_str())),
+            ..Default::default()
+        };
         Arc::new(wordcraft_layout::layout(&self.doc, &mut LayoutCache::new(), &opts))
     }
 
