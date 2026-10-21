@@ -460,21 +460,39 @@ fn toc_control_to_toc(body: &mut Blocks) {
         let _ = p.delete(0, OBJ.len_utf8());
     }
     toc_field_to_heading(&mut toc);
-    let written = |bl: &Blocks| crate::write::written_toc_span(bl) == Some((s, e));
-    if written(&toc) {
+    if crate::write::written_toc_span(&toc) == Some((s, e)) {
         *body = toc;
         return;
     }
-    // A heading that isn't a `TOCHeading` is written empty, its field opening in the first entry.
-    // That TOC is handed over as the range read, which Update Table turns back into the engine's
-    // TOC in that paragraph (`range_toc_to_field`); kept in the control, the paragraph wouldn't be
-    // empty and each save and update would add a blank line above the entries (#2182).
-    if toc.get(s).and_then(|b| b.as_para()).is_some_and(|p| p.is_empty() && p.section.is_none()) {
-        let mut engine = toc.clone();
-        field_to_heading(&mut engine, s + 1);
-        if written(&engine) {
-            *body = toc;
+    // TOCs the writer rebuilds in the same paragraphs once Update Table has turned them into the
+    // engine's TOC (`range_toc_to_field`) are handed over as the range read, as without the control:
+    // - Word's layout, the field's end alone in a paragraph after the entries (it goes with them);
+    // - ours with a heading that isn't a `TOCHeading`, written empty and the field opening in the
+    //   first entry. Kept in the control, that paragraph wouldn't be empty and each save and update
+    //   would add a blank line above the entries (#2182).
+    let mut engine = toc.clone();
+    let mut last = e;
+    // The entry before Word's paragraph holding nothing but the field's end, and that end's format.
+    let end_only = e.checked_sub(1).filter(|&l| l > s).and_then(|l| {
+        let p = engine.get(e)?.as_para()?;
+        let only = p.section.is_none() && p.len() == OBJ.len_utf8() && matches!(p.object_at(0), Some(InlineObject::FieldEnd));
+        only.then(|| (l, p.props_of_char(0).clone()))
+    });
+    if let Some((l, props)) = end_only {
+        engine.remove(e);
+        last = l;
+        if let Some(Block::Para(p)) = engine.get_mut(l).map(Arc::make_mut) {
+            let len = p.len();
+            let _ = p.insert_object(len, InlineObject::FieldEnd, &props);
         }
+    }
+    if engine.get(s).and_then(|b| b.as_para()).is_some_and(|p| p.is_empty() && p.section.is_none()) {
+        field_to_heading(&mut engine, s + 1);
+    } else {
+        toc_field_to_heading(&mut engine);
+    }
+    if crate::write::written_toc_span(&engine) == Some((s, last)) {
+        *body = toc;
     }
 }
 
