@@ -1,16 +1,23 @@
 //! [`Document`] → DOCX.
 
+mod bidi;
 mod embed;
+mod glossary;
+mod settings_merge;
+pub(crate) use settings_merge::has_unowned as settings_has_unowned;
 mod math;
 mod props;
 mod sdt;
 mod story;
+mod watermark;
 mod wordart;
 
 use std::collections::{BTreeMap, HashMap};
 
+use wordcraft_doc::ParaProps;
 use wordcraft_doc::numbering::{Level, LevelSuffix};
-use wordcraft_doc::styles::{Style, StyleKind};
+use wordcraft_doc::props::VAlign;
+use wordcraft_doc::styles::{Style, StyleKind, TablePart};
 use wordcraft_doc::{Blocks, Document, PartKind};
 
 use crate::package::{MAX_VBA_RELATED, VBA_PROJECT_PART, VBA_RELATED, rt, zip_entries};
@@ -81,6 +88,13 @@ pub(crate) struct Writer<'d> {
     endnotes: Vec<u32>,
     /// Header/footer part id → (file name, is footer).
     hf: Vec<(u32, String, bool)>,
+    /// The headers each slot has so far in body order, with sections' empty slots linked to the
+    /// ones before (as layout shows them): where a watermark needs a header of its own.
+    linked_headers: wordcraft_doc::section::HeaderSet,
+    /// The part id standing for a header written only to hold the watermark (no such part).
+    wm_header: u32,
+    /// The watermark shape to put at the start of the next top-level paragraph (a header's first).
+    pending_watermark: Option<String>,
     /// Paragraphs that need a `w14:paraId` (last paragraph of each comment), by address.
     para_ids: HashMap<usize, String>,
     /// A note reference mark to put at the start of the next paragraph.
@@ -90,7 +104,7 @@ pub(crate) struct Writer<'d> {
     /// Writing a TOC heading: its TOC field is held back so the entries become the field's result.
     toc_hold_end: bool,
     /// The held TOC field (instruction, locked, props), opened in the first entry as Word does.
-    toc_field: Option<(String, bool, wordcraft_doc::props::CharProps)>,
+    toc_field: Option<(String, bool, bool, wordcraft_doc::props::CharProps)>,
     /// Open the held TOC field at the start of the paragraph being written.
     toc_begin_here: bool,
     /// Close the open TOC field at the end of the paragraph being written.
@@ -147,6 +161,9 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         footnotes: Vec::new(),
         endnotes: Vec::new(),
         hf: Vec::new(),
+        linked_headers: Default::default(),
+        wm_header: (0..=u32::MAX).rev().find(|id| !doc.parts.contains_key(id)).unwrap_or(u32::MAX),
+        pending_watermark: None,
         para_ids: HashMap::new(),
         pending_mark: None,
         current_note: None,
@@ -170,6 +187,7 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     let mut overrides: Vec<(String, String)> = Vec::new();
     let mut rels = PartRels::default();
+    let mut root = PartRels::default();
 
     // Comments get paragraph ids before any story is written.
     let mut comment_paras: Vec<(u32, String)> = Vec::new();
@@ -188,8 +206,28 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:document", &ns_refs);
-    if let Some(c) = doc.settings.page_color {
-        w.empty("w:background", &[("w:color", &c.hex())]);
+    let pic = doc.settings.page_picture.as_ref().filter(|p| wr.media_files.contains_key(&p.media) && doc.media.contains_key(&p.media));
+    if pic.is_some() || doc.settings.page_color.is_some() {
+        let color = doc.settings.page_color.map(|c| c.hex());
+        let attrs: Vec<(&str, &str)> = color.iter().map(|c| ("w:color", c.as_str())).collect();
+        w.open("w:background", &attrs);
+        if let Some(p) = pic
+            && let Some(file) = wr.media_files.get(&p.media)
+        {
+            let rid = rels.add(rt::IMAGE, &format!("media/{file}"), false);
+            wr.used_media.insert(p.media.clone());
+            w.open("v:background", &[("id", "_x0000_s1025"), ("o:bwmode", "white")]);
+            let mut fa: Vec<(&str, &str)> = vec![("r:id", &rid)];
+            if !p.fill_type.is_empty() {
+                fa.push(("type", &p.fill_type));
+            }
+            if !p.title.is_empty() {
+                fa.push(("o:title", &p.title));
+            }
+            w.empty("v:fill", &fa);
+            w.close("v:background");
+        }
+        w.close("w:background");
     }
     w.open("w:body", &[]);
     wr.blocks(&mut w, &doc.body, &mut rels, true, 0);
@@ -208,7 +246,14 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         let tag = if footer { "w:ftr" } else { "w:hdr" };
         w.open(tag, &ns_refs);
         let blocks: Blocks = doc.parts.get(&id).map(|p| p.blocks.clone()).unwrap_or_default();
+        // The watermark goes in every header, at the start of its first paragraph.
+        wr.pending_watermark = match &doc.settings.watermark {
+            Some(wm) if !footer => watermark::run(wm, done, &doc.last_section),
+            _ => None,
+        };
         wr.blocks(&mut w, &blocks, &mut prels, false, 0);
+        // Always taken: the story ends with a top-level paragraph.
+        wr.pending_watermark = None;
         w.close(tag);
         push_part(
             &mut entries,
@@ -218,6 +263,13 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
             &format!("{CT_WML}{}+xml", if footer { "footer" } else { "header" }),
             prels,
         );
+    }
+
+    // The glossary: kept verbatim while its entries are as read and its parts were kept, else
+    // written from the model (before the notes: references its entries hold are collected too).
+    if glossary::edited(doc) || (!doc.glossary.is_empty() && !wr.embeds.kept_glossary()) {
+        wr.embeds.drop_glossary = true;
+        wr.glossary(&mut entries, &mut overrides, &mut rels);
     }
 
     // Notes (references were collected from the body and headers).
@@ -292,12 +344,14 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         w.open("w:comments", &ns_refs);
         for (cid, c) in &doc.comments {
             let id = cid.to_string();
-            let author = if c.author.is_empty() { "Unknown" } else { c.author.as_str() };
+            let author = annotation_author(doc, &c.author);
             let mut a = vec![("w:id", id.as_str()), ("w:author", author)];
-            if !c.date.is_empty() {
+            if !c.date.is_empty() && !doc.settings.remove_date_time {
                 a.push(("w:date", c.date.as_str()));
             }
-            if !c.initials.is_empty() {
+            if doc.settings.remove_personal_info {
+                a.push(("w:initials", ANONYMOUS_INITIALS));
+            } else if !c.initials.is_empty() {
                 a.push(("w:initials", c.initials.as_str()));
             }
             w.open("w:comment", &a);
@@ -336,6 +390,7 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
             &format!("{CT_WML}commentsExtended+xml"),
             PartRels::default(),
         );
+        write_comment_ids(doc, &comment_paras, &mut entries, &mut overrides, &mut rels);
     }
 
     rels.add(rt::STYLES, "styles.xml", false);
@@ -353,7 +408,13 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         &mut entries,
         &mut overrides,
         "word/settings.xml",
-        settings_xml(doc, notes_part(doc, &wr, true), notes_part(doc, &wr, false), template_rel.as_deref()),
+        {
+            let generated = settings_xml(doc, notes_part(doc, &wr, true), notes_part(doc, &wr, false), template_rel.as_deref());
+            match doc.passthrough.get(crate::package::SETTINGS_ORIG) {
+                Some(orig) => settings_merge::merge(orig, &generated).unwrap_or(generated),
+                None => generated,
+            }
+        },
         &format!("{CT_WML}settings+xml"),
         settings_rels,
     );
@@ -366,6 +427,8 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         "application/vnd.openxmlformats-officedocument.theme+xml",
         PartRels::default(),
     );
+
+    wr.embeds.font_table(&mut rels);
 
     // Media referenced by some drawing (orphan parts would make the package suspect).
     let mut media_types: BTreeMap<String, &str> = BTreeMap::new();
@@ -380,7 +443,11 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         }
     }
 
-    // Parts of charts, diagrams and OLE objects kept from a file, as the objects written need them.
+    wr.embeds.custom_xml_rels("D", &mut rels);
+    wr.embeds.custom_xml_rels("P", &mut root);
+    wr.embeds.unmodelled_rels("D", &mut rels);
+    wr.embeds.unmodelled_rels("P", &mut root);
+    // Parts of embedded objects and custom XML stores kept from the file.
     for (name, bytes, ct, prels) in std::mem::take(&mut wr.embeds.parts) {
         push_part(&mut entries, &mut overrides, &name, bytes, &ct, prels);
     }
@@ -427,7 +494,6 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
     entries.insert(1, ("word/_rels/document.xml.rels".into(), rels.xml()));
 
     // Package-level parts.
-    let mut root = PartRels::default();
     root.add(rt::OFFICE_DOC, "word/document.xml", false);
     root.add(rt::CORE, "docProps/core.xml", false);
     root.add(rt::APP, "docProps/app.xml", false);
@@ -439,6 +505,27 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         root.add(rt::CUSTOM, "docProps/custom.xml", false);
         entries.push(("docProps/custom.xml".into(), crate::custom::write(&doc.custom_props)));
         overrides.push(("/docProps/custom.xml".into(), "application/vnd.openxmlformats-officedocument.custom-properties+xml".into()));
+    }
+    if !doc.sources.is_empty() {
+        root.add(rt::CUSTOM_XML, "customXml/item1.xml", false);
+        let mut item_rels = PartRels::default();
+        item_rels.add(rt::CUSTOM_XML_PROPS, "itemProps1.xml", false);
+        push_part(
+            &mut entries,
+            &mut overrides,
+            "customXml/item1.xml",
+            bibliography_xml(doc),
+            "application/vnd.openxmlformats-officedocument.customXml+xml",
+            item_rels,
+        );
+        push_part(
+            &mut entries,
+            &mut overrides,
+            "customXml/itemProps1.xml",
+            bibliography_props_xml(),
+            "application/vnd.openxmlformats-officedocument.customXmlProperties+xml",
+            PartRels::default(),
+        );
     }
     entries.insert(0, ("_rels/.rels".into(), root.xml()));
 
@@ -564,7 +651,7 @@ impl Writer<'_> {
     }
 
     fn hf_rel(&mut self, part: u32, footer: bool, rels: &mut PartRels) -> Option<String> {
-        let kind = self.doc.parts.get(&part)?.kind;
+        let kind = if part == self.wm_header && !footer { PartKind::Header } else { self.doc.parts.get(&part)?.kind };
         if !matches!(kind, PartKind::Header | PartKind::Footer) {
             return None;
         }
@@ -631,33 +718,41 @@ fn styles_xml(doc: &Document) -> Vec<u8> {
     props::rpr_inner(&mut w, &s.default_chr);
     w.close("w:rPr");
     w.close("w:rPrDefault");
-    w.open("w:pPrDefault", &[]);
-    w.open("w:pPr", &[]);
-    props::ppr_inner(&mut w, &s.default_para, false, None);
-    w.close("w:pPr");
-    w.close("w:pPrDefault");
+    if s.default_para_present || s.default_para != wordcraft_doc::props::ParaProps::default() {
+        w.open("w:pPrDefault", &[]);
+        w.open("w:pPr", &[]);
+        props::ppr_inner(&mut w, &s.default_para, false, None);
+        w.close("w:pPr");
+        w.close("w:pPrDefault");
+    }
     w.close("w:docDefaults");
+    if let Some(latent) = s.latent_styles.as_deref() {
+        w.raw(latent);
+    }
+    // Kinds whose default style the file named (`w:default`); the English ids stand in otherwise.
+    let flagged: Vec<StyleKind> = s.styles.iter().filter(|st| st.default).map(|st| st.kind).collect();
     for st in &s.styles {
-        style_xml(&mut w, st);
+        style_xml(&mut w, st, &flagged);
     }
     w.close("w:styles");
     w.into_bytes()
 }
 
-fn style_xml(w: &mut W, st: &Style) {
+fn style_xml(w: &mut W, st: &Style, flagged: &[StyleKind]) {
     let ty = match st.kind {
         StyleKind::Paragraph => "paragraph",
         StyleKind::Character => "character",
         StyleKind::Table => "table",
         StyleKind::Numbering => "numbering",
     };
-    let is_default = matches!(
+    let english_default = matches!(
         (st.kind, st.id.as_str()),
         (StyleKind::Paragraph, "Normal")
             | (StyleKind::Character, "DefaultParagraphFont")
             | (StyleKind::Table, "TableNormal")
             | (StyleKind::Numbering, "NoList")
     );
+    let is_default = st.default || (english_default && !flagged.contains(&st.kind));
     let mut a = vec![("w:type", ty), ("w:styleId", st.id.as_str())];
     if is_default {
         a.push(("w:default", "1"));
@@ -713,49 +808,52 @@ fn style_xml(w: &mut W, st: &Style) {
             }
             w.close("w:tblPr");
         }
-        // One conditional formatting region (ECMA-376 §17.7.6): run properties, then cell borders
-        // and shading.
-        let cond = |w: &mut W,
-                    ty: &str,
-                    chr: &wordcraft_doc::CharProps,
-                    fill: Option<wordcraft_doc::Rgb>,
-                    borders: Option<wordcraft_doc::props::Borders>| {
-            if !props::has_rpr(chr) && fill.is_none() && borders.is_none() {
-                return;
+        // The conditional formatting parts (ECMA-376 §17.7.6): paragraph and run properties,
+        // then cell borders, shading and vertical alignment. The whole table's text formatting
+        // is the style's own (above).
+        for part in TablePart::ALL {
+            let f = t.part(part);
+            let ppr = ParaProps { align: f.align, ..ParaProps::default() };
+            let has_rpr = props::has_rpr(&f.chr);
+            // The whole table's borders are its table borders (`w:tblPr` above).
+            let borders = f.borders.filter(|_| part != TablePart::WholeTable);
+            let has_tc = f.fill.is_some() || borders.is_some() || f.v_align.is_some();
+            if !has_rpr && !has_tc && f.align.is_none() {
+                continue;
             }
-            w.open("w:tblStylePr", &[("w:type", ty)]);
-            if props::has_rpr(chr) {
+            w.open("w:tblStylePr", &[("w:type", part.ooxml())]);
+            if f.align.is_some() {
+                w.open("w:pPr", &[]);
+                props::ppr_inner(w, &ppr, false, None);
+                w.close("w:pPr");
+            }
+            if has_rpr {
                 w.open("w:rPr", &[]);
-                props::rpr_inner(w, chr);
+                props::rpr_inner(w, &f.chr);
                 w.close("w:rPr");
             }
-            if fill.is_some() || borders.is_some() {
+            if has_tc {
                 w.open("w:tcPr", &[]);
-                if let Some(bs) = &borders {
-                    props::borders(w, "w:tcBorders", bs, Some("w:insideH"), &[]);
+                if let Some(bs) = borders {
+                    props::borders(w, "w:tcBorders", &bs, Some("w:insideH"), &[]);
                 }
-                if let Some(f) = fill {
-                    w.empty("w:shd", &[("w:val", "clear"), ("w:color", "auto"), ("w:fill", &f.hex())]);
+                if let Some(c) = f.fill {
+                    w.empty("w:shd", &[("w:val", "clear"), ("w:color", "auto"), ("w:fill", &c.hex())]);
+                }
+                if let Some(v) = f.v_align {
+                    w.val(
+                        "w:vAlign",
+                        match v {
+                            VAlign::Top => "top",
+                            VAlign::Center => "center",
+                            VAlign::Bottom => "bottom",
+                        },
+                    );
                 }
                 w.close("w:tcPr");
             }
             w.close("w:tblStylePr");
-        };
-        cond(w, "wholeTable", &wordcraft_doc::CharProps::default(), t.fill, None);
-        cond(w, "firstRow", &t.header_chr, t.header_fill, t.header_borders);
-        // The total row's borders, its top edge falling back to the built-in top rule.
-        let total_borders = match (t.total_borders, t.total_border_top) {
-            (Some(mut b), top) => {
-                b.top = b.top.or(top);
-                Some(b)
-            }
-            (None, top) => top.map(|b| wordcraft_doc::props::Borders { top: Some(b), ..Default::default() }),
-        };
-        cond(w, "lastRow", &t.total_chr, t.total_fill, total_borders);
-        cond(w, "firstCol", &t.first_col_chr, t.first_col_fill, t.first_col_borders);
-        cond(w, "lastCol", &t.last_col_chr, t.last_col_fill, t.last_col_borders);
-        cond(w, "band1Vert", &t.col_band_chr, t.col_band_fill, t.col_band_borders);
-        cond(w, "band1Horz", &t.band_chr, t.band_fill, t.band_borders);
+        }
     }
     w.close("w:style");
 }
@@ -765,9 +863,19 @@ fn numbering_xml(doc: &Document) -> Vec<u8> {
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:numbering", &ns_refs);
+    let mut nsids: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for a in &doc.numbering.abstracts {
         w.open("w:abstractNum", &[("w:abstractNumId", &a.id.to_string())]);
-        w.val("w:multiLevelType", if a.levels.len() > 1 { "multilevel" } else { "singleLevel" });
+        // CT_AbstractNum order: nsid, multiLevelType, tmpl, name… A copied definition repeats
+        // its source's nsid; only the first keeps it, so Word doesn't take them for one list.
+        if let Some(n) = a.nsid.as_deref().filter(|n| nsids.insert(n)) {
+            w.val("w:nsid", n);
+        }
+        let derived = if a.levels.len() > 1 { "multilevel" } else { "singleLevel" };
+        w.val("w:multiLevelType", a.multi_level_type.as_deref().unwrap_or(derived));
+        if let Some(t) = &a.tmpl {
+            w.val("w:tmpl", t);
+        }
         if let Some(n) = &a.name {
             w.val("w:name", n);
         }
@@ -863,8 +971,27 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:settings", &ns_refs);
-    w.empty("w:zoom", &[("w:percent", "100")]);
-    if s.page_color.is_some() {
+    let zoom = s.zoom.unwrap_or(wordcraft_doc::Zoom { percent: 100, fit: None });
+    let percent = zoom.percent.clamp(10, 500).to_string();
+    match zoom.fit {
+        Some(fit) => {
+            let val = match fit {
+                wordcraft_doc::ZoomFit::OnePage => "fullPage",
+                wordcraft_doc::ZoomFit::PageWidth => "bestFit",
+                wordcraft_doc::ZoomFit::TextWidth => "textFit",
+            };
+            w.empty("w:zoom", &[("w:val", val), ("w:percent", &percent)]);
+        }
+        None => w.empty("w:zoom", &[("w:percent", &percent)]),
+    }
+    // §17.15.1.70 / §17.15.1.69, right after `w:zoom` in CT_Settings.
+    if s.remove_personal_info {
+        w.empty("w:removePersonalInformation", &[]);
+    }
+    if s.remove_date_time {
+        w.empty("w:removeDateAndTime", &[]);
+    }
+    if s.page_color.is_some() || s.page_picture.is_some() {
         w.empty("w:displayBackgroundShape", &[]);
     }
     if s.mirror_margins {
@@ -878,6 +1005,9 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     }
     if s.track_changes {
         w.empty("w:trackRevisions", &[]);
+    }
+    if !s.track_moves {
+        w.empty("w:doNotTrackMoves", &[]);
     }
     if let Some(p) = &s.protection {
         let mut a: Vec<(&str, &str)> = Vec::new();
@@ -936,6 +1066,13 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
         w.close(tag);
     }
     w.open("w:compat", &[]);
+    // CT_Compat: the older switches come before the `w:compatSetting`s.
+    if doc.settings.sum_paragraph_spacing {
+        w.empty("w:doNotUseHTMLParagraphAutoSpacing", &[]);
+    }
+    if s.allow_space_of_same_style_in_table {
+        w.empty("w:allowSpaceOfSameStyleInTable", &[]);
+    }
     let mode = doc.settings.compat_mode.clamp(11, 15).to_string();
     w.empty("w:compatSetting", &[("w:name", "compatibilityMode"), ("w:uri", "http://schemas.microsoft.com/office/word"), ("w:val", &mode)]);
     w.close("w:compat");
@@ -944,6 +1081,76 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     }
     w.close("w:settings");
     w.into_bytes()
+}
+
+/// Is `d` a usable `w16cid:durableId`: 1–8 hex digits, below 0x7FFFFFFF, not 0?
+pub(crate) fn durable_id_ok(d: &str) -> bool {
+    d.len() <= 8 && u32::from_str_radix(d, 16).is_ok_and(|v| v != 0 && v < 0x7FFF_FFFF)
+}
+
+/// `commentsIds.xml` (paragraph id → durable id) and `commentsExtensible.xml` (durable id → UTC
+/// date) for the comments that got paragraph ids. Durable ids read from the file are kept (unique
+/// ones); comments without one get the next free id. Word uses them to keep tracking a comment
+/// across saves and for its UTC time.
+fn write_comment_ids(
+    doc: &Document,
+    comment_paras: &[(u32, String)],
+    entries: &mut Vec<(String, Vec<u8>)>,
+    overrides: &mut Vec<(String, String)>,
+    rels: &mut PartRels,
+) {
+    if comment_paras.is_empty() {
+        return;
+    }
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut next = 0x1000_0000u32;
+    let mut rows: Vec<(String, String, Option<String>)> = Vec::new();
+    for (cid, pid) in comment_paras {
+        let Some(c) = doc.comments.get(cid) else { continue };
+        let kept = c.durable_id.as_deref().filter(|d| durable_id_ok(d)).map(|d| format!("{:08X}", u32::from_str_radix(d, 16).unwrap_or(0)));
+        let durable = match kept.filter(|d| !used.contains(d)) {
+            Some(d) => d,
+            None => loop {
+                next = next.saturating_add(1);
+                let d = format!("{next:08X}");
+                if !used.contains(&d) && !doc.comments.values().any(|o| o.durable_id.as_deref() == Some(d.as_str())) {
+                    break d;
+                }
+            },
+        };
+        used.insert(durable.clone());
+        // A local `w:date` with a zone designator is UTC already; otherwise only the file's own.
+        // Remove date and time on save (#1062): no comment date here either.
+        let utc = if doc.settings.remove_date_time { None } else { c.date_utc.clone().or_else(|| c.date.ends_with('Z').then(|| c.date.clone())) };
+        rows.push((pid.clone(), durable, utc));
+    }
+    let mc = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+    let mut w = W::new();
+    w.open(
+        "w16cid:commentsIds",
+        &[("xmlns:mc", mc), ("xmlns:w16cid", "http://schemas.microsoft.com/office/word/2016/wordml/cid"), ("mc:Ignorable", "w16cid")],
+    );
+    for (pid, durable, _) in &rows {
+        w.empty("w16cid:commentId", &[("w16cid:paraId", pid), ("w16cid:durableId", durable)]);
+    }
+    w.close("w16cid:commentsIds");
+    rels.add(rt::COMMENTS_IDS, "commentsIds.xml", false);
+    push_part(entries, overrides, "word/commentsIds.xml", w.into_bytes(), &format!("{CT_WML}commentsIds+xml"), PartRels::default());
+
+    let mut w = W::new();
+    w.open(
+        "w16cex:commentsExtensible",
+        &[("xmlns:mc", mc), ("xmlns:w16cex", "http://schemas.microsoft.com/office/word/2018/wordml/cex"), ("mc:Ignorable", "w16cex")],
+    );
+    for (_, durable, utc) in &rows {
+        match utc {
+            Some(d) => w.empty("w16cex:commentExtensible", &[("w16cex:durableId", durable), ("w16cex:dateUtc", d)]),
+            None => w.empty("w16cex:commentExtensible", &[("w16cex:durableId", durable)]),
+        }
+    }
+    w.close("w16cex:commentsExtensible");
+    rels.add(rt::COMMENTS_EXTENSIBLE, "commentsExtensible.xml", false);
+    push_part(entries, overrides, "word/commentsExtensible.xml", w.into_bytes(), &format!("{CT_WML}commentsExtensible+xml"), PartRels::default());
 }
 
 fn theme_xml(doc: &Document) -> Vec<u8> {
@@ -1002,8 +1209,28 @@ fn theme_xml(doc: &Document) -> Vec<u8> {
     w.into_bytes()
 }
 
+/// The author the saved file gives a comment or tracked change when the document removes personal
+/// information on save (`w:removePersonalInformation`), as Word does.
+pub(crate) const ANONYMOUS_AUTHOR: &str = "Author";
+const ANONYMOUS_INITIALS: &str = "A";
+
+/// The `w:author` written for an annotation by `author`: "Author" when the document removes
+/// personal information on save, "Unknown" when it has none.
+pub(crate) fn annotation_author<'a>(doc: &Document, author: &'a str) -> &'a str {
+    if doc.settings.remove_personal_info {
+        ANONYMOUS_AUTHOR
+    } else if author.is_empty() {
+        "Unknown"
+    } else {
+        author
+    }
+}
+
 fn core_xml(doc: &Document) -> Vec<u8> {
     let c = &doc.core;
+    // Remove personal information (§17.15.1.70): no creator or last-modified-by in the file.
+    let personal = |v: &String| if doc.settings.remove_personal_info { String::new() } else { v.clone() };
+    let (creator, last_modified_by) = (personal(&c.creator), personal(&c.last_modified_by));
     let mut w = W::new();
     w.open(
         "cp:coreProperties",
@@ -1018,10 +1245,10 @@ fn core_xml(doc: &Document) -> Vec<u8> {
     for (tag, v) in [
         ("dc:title", &c.title),
         ("dc:subject", &c.subject),
-        ("dc:creator", &c.creator),
+        ("dc:creator", &creator),
         ("cp:keywords", &c.keywords),
         ("dc:description", &c.description),
-        ("cp:lastModifiedBy", &c.last_modified_by),
+        ("cp:lastModifiedBy", &last_modified_by),
         ("cp:category", &c.category),
     ] {
         if !v.is_empty() {
@@ -1053,6 +1280,227 @@ fn app_xml(doc: &Document) -> Vec<u8> {
     w.leaf("Words", &[], &doc.word_count().to_string());
     w.leaf("Paragraphs", &[], &doc.paragraph_count().to_string());
     w.leaf("DocSecurity", &[], "0");
+    // Kept properties, except the personal ones when the file asks Word to remove personal
+    // information on save.
+    let private = doc.settings.remove_personal_info;
+    if let Some(kept) = doc.passthrough.get(crate::package::APP_KEPT) {
+        for line in String::from_utf8_lossy(kept).lines().take(crate::package::APP_KEPT_PROPS.len()) {
+            let Some((name, value)) = line.split_once('\t') else { continue };
+            let Some(name) = crate::package::APP_KEPT_PROPS.iter().find(|n| **n == name) else { continue };
+            if private && matches!(*name, "Company" | "Manager") {
+                continue;
+            }
+            w.leaf(name, &[], value);
+        }
+    }
     w.close("Properties");
+    w.into_bytes()
+}
+
+fn to_source_type(kind: &str) -> &str {
+    match kind.to_ascii_lowercase().as_str() {
+        "book" => "Book",
+        "booksection" | "chapter" => "BookSection",
+        "article" | "journal" | "journalarticle" => "JournalArticle",
+        "periodical" | "articleinaperiodical" => "ArticleInAPeriodical",
+        "website" | "site" | "internetsite" => "InternetSite",
+        "documentfrominternetsite" => "DocumentFromInternetSite",
+        "electronicsource" => "ElectronicSource",
+        "report" => "Report",
+        "conference" | "proceedings" | "conferenceproceedings" => "ConferenceProceedings",
+        "case" => "Case",
+        "art" => "Art",
+        "film" => "Film",
+        "interview" => "Interview",
+        "patent" => "Patent",
+        "performance" => "Performance",
+        "soundrecording" => "SoundRecording",
+        "standard" => "Standard",
+        "thesis" => "Thesis",
+        "other" | "misc" => "Misc",
+        _ => "Book",
+    }
+}
+
+pub(crate) fn from_source_type(st: &str) -> String {
+    match st.trim() {
+        "Book" | "book" => "book".into(),
+        "BookSection" | "booksection" => "bookSection".into(),
+        "JournalArticle" | "journalarticle" | "article" => "article".into(),
+        "ArticleInAPeriodical" | "articleinaperiodical" => "periodical".into(),
+        "InternetSite" | "internetsite" | "website" => "website".into(),
+        "DocumentFromInternetSite" | "documentfrominternetsite" => "website".into(),
+        "ElectronicSource" | "electronicsource" => "electronicsource".into(),
+        "Report" | "report" => "report".into(),
+        "ConferenceProceedings" | "conferenceproceedings" => "conference".into(),
+        "Case" | "case" => "case".into(),
+        "SoundRecording" | "soundrecording" => "soundrecording".into(),
+        "Film" | "film" => "film".into(),
+        "Interview" | "interview" => "interview".into(),
+        "Patent" | "patent" => "patent".into(),
+        "Performance" | "performance" => "performance".into(),
+        "Standard" | "standard" => "standard".into(),
+        "Thesis" | "thesis" => "thesis".into(),
+        "Misc" | "misc" => "other".into(),
+        "" => "book".into(),
+        other => other.to_ascii_lowercase(),
+    }
+}
+
+/// The document's citation style, APA when it has none, and a style sheet file name made from
+/// it (`\APA.XSL`, `\MLA.XSL`).
+fn bib_style(doc: &Document) -> (&str, String) {
+    let name = doc.settings.bib_style.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or("APA");
+    let file: String = name.chars().filter(char::is_ascii_alphanumeric).collect();
+    (name, format!("\\{}.XSL", if file.is_empty() { "APA" } else { &file }))
+}
+
+fn write_name_list(w: &mut W, names: &str) {
+    w.open("b:NameList", &[]);
+    let persons: Vec<_> = names.split(';').map(str::trim).filter(|s| !s.is_empty()).collect();
+    for a in persons {
+        w.open("b:Person", &[]);
+        // Parse "Last, First" or "Last, First Middle"
+        let (last, first_middle) = match a.split_once(',') {
+            Some((l, f)) => (l.trim(), f.trim()),
+            None => (a, ""),
+        };
+        w.leaf("b:Last", &[], last);
+        if !first_middle.is_empty() {
+            let parts: Vec<&str> = first_middle.split_whitespace().collect();
+            if let Some(first) = parts.first() {
+                w.leaf("b:First", &[], first);
+            }
+            if let Some(slice) = parts.get(1..).filter(|s| !s.is_empty()) {
+                let mid = slice.join(" ");
+                w.leaf("b:Middle", &[], &mid);
+            }
+        }
+        w.close("b:Person");
+    }
+    w.close("b:NameList");
+}
+
+fn split_accessed_date(s: &str) -> (Option<&str>, Option<&str>, Option<&str>) {
+    let s = s.trim();
+    if s.is_empty() {
+        return (None, None, None);
+    }
+    let parts: Vec<&str> = if s.contains('-') {
+        s.split('-').collect()
+    } else if s.contains('/') {
+        s.split('/').collect()
+    } else {
+        Vec::new()
+    };
+    if let [y, m, d] = parts.as_slice() {
+        (Some(y.trim()), Some(m.trim()), Some(d.trim()))
+    } else if let [y, m] = parts.as_slice() {
+        (Some(y.trim()), Some(m.trim()), None)
+    } else {
+        (Some(s), None, None)
+    }
+}
+
+fn bibliography_xml(doc: &Document) -> Vec<u8> {
+    let (style_name, selected) = bib_style(doc);
+    let mut w = W::new();
+    w.open(
+        "b:Sources",
+        &[
+            ("SelectedStyle", selected.as_str()),
+            ("StyleName", style_name),
+            ("xmlns:b", "http://schemas.openxmlformats.org/officeDocument/2006/bibliography"),
+            ("xmlns", "http://schemas.openxmlformats.org/officeDocument/2006/bibliography"),
+        ],
+    );
+    for src in &doc.sources {
+        w.open("b:Source", &[]);
+        w.leaf("b:Tag", &[], &src.tag);
+        w.leaf("b:SourceType", &[], to_source_type(&src.kind));
+        // Author & Editor
+        if !src.author.is_empty() || !src.editor.is_empty() {
+            w.open("b:Author", &[]);
+            if !src.author.is_empty() {
+                w.open("b:Author", &[]);
+                write_name_list(&mut w, &src.author);
+                w.close("b:Author");
+            }
+            if !src.editor.is_empty() {
+                w.open("b:Editor", &[]);
+                write_name_list(&mut w, &src.editor);
+                w.close("b:Editor");
+            }
+            w.close("b:Author");
+        }
+        if !src.title.is_empty() {
+            w.leaf("b:Title", &[], &src.title);
+        }
+        if !src.year.is_empty() {
+            w.leaf("b:Year", &[], &src.year);
+        }
+        if !src.month.is_empty() {
+            w.leaf("b:Month", &[], &src.month);
+        }
+        if !src.day.is_empty() {
+            w.leaf("b:Day", &[], &src.day);
+        }
+        if !src.city.is_empty() {
+            w.leaf("b:City", &[], &src.city);
+        }
+        if !src.publisher.is_empty() {
+            w.leaf("b:Publisher", &[], &src.publisher);
+        }
+        if !src.journal.is_empty() {
+            w.leaf("b:JournalName", &[], &src.journal);
+        }
+        if !src.edition.is_empty() {
+            w.leaf("b:Edition", &[], &src.edition);
+        }
+        if !src.volume.is_empty() {
+            w.leaf("b:Volume", &[], &src.volume);
+        }
+        if !src.issue.is_empty() {
+            w.leaf("b:Issue", &[], &src.issue);
+        }
+        if !src.pages.is_empty() {
+            w.leaf("b:Pages", &[], &src.pages);
+        }
+        if !src.url.is_empty() {
+            w.leaf("b:URL", &[], &src.url);
+        }
+        if !src.accessed.is_empty() {
+            let (y, m, d) = split_accessed_date(&src.accessed);
+            if let Some(y) = y.filter(|s| !s.is_empty()) {
+                w.leaf("b:YearAccessed", &[], y);
+            }
+            if let Some(m) = m.filter(|s| !s.is_empty()) {
+                w.leaf("b:MonthAccessed", &[], m);
+            }
+            if let Some(d) = d.filter(|s| !s.is_empty()) {
+                w.leaf("b:DayAccessed", &[], d);
+            }
+            w.leaf("b:Accessed", &[], &src.accessed);
+        }
+        if !src.doi.is_empty() {
+            w.leaf("b:DOI", &[], &src.doi);
+            w.leaf("b:StandardNumber", &[], &src.doi);
+        }
+        w.close("b:Source");
+    }
+    w.close("b:Sources");
+    w.into_bytes()
+}
+
+fn bibliography_props_xml() -> Vec<u8> {
+    let mut w = W::new();
+    w.open(
+        "ds:datastoreItem",
+        &[("xmlns:ds", "http://schemas.openxmlformats.org/officeDocument/2006/customXml"), ("ds:itemID", "{3315B9A8-2323-4554-B8B2-1234567890AB}")],
+    );
+    w.open("ds:schemaRefs", &[]);
+    w.empty("ds:schemaRef", &[("ds:uri", "http://schemas.openxmlformats.org/officeDocument/2006/bibliography")]);
+    w.close("ds:schemaRefs");
+    w.close("ds:datastoreItem");
     w.into_bytes()
 }

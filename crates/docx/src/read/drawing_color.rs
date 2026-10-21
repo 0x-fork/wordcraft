@@ -31,7 +31,7 @@ pub(crate) fn fill_colour(e: &El, theme: &[Rgb]) -> Option<Rgb> {
 }
 
 fn is_color(e: &El) -> bool {
-    matches!(e.name.as_str(), "a:srgbClr" | "a:schemeClr" | "a:sysClr")
+    matches!(e.name.as_str(), "a:srgbClr" | "a:schemeClr" | "a:sysClr" | "a:prstClr" | "a:scrgbClr" | "a:hslClr")
 }
 
 /// A colour element (`a:srgbClr`, `a:schemeClr`, `a:sysClr`), or the one inside `e`, with its
@@ -41,7 +41,25 @@ pub(crate) fn color(e: &El, theme: &[Rgb]) -> Option<Rgb> {
     let base = match c.name.as_str() {
         "a:srgbClr" => Rgb::parse(c.attr("val")?)?,
         "a:schemeClr" => *theme.get(scheme_slot(c.attr("val")?)?)?,
-        "a:sysClr" => Rgb::parse(c.attr("lastClr")?)?,
+        "a:sysClr" => match c.attr("lastClr").and_then(Rgb::parse) {
+            Some(rgb) => rgb,
+            None => sys_color(c.attr("val")?)?,
+        },
+        "a:prstClr" => preset_color(c.attr("val")?)?,
+        "a:scrgbClr" => {
+            // Linear 0–100 000 per channel, to sRGB.
+            let ch = |n: &str| -> u8 {
+                let l = c.attr(n).and_then(int).map_or(0.0, |v| (v as f64 / 100_000.0).clamp(0.0, 1.0));
+                let s = if l <= 0.003_130_8 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+                (s * 255.0).round().clamp(0.0, 255.0) as u8
+            };
+            Rgb(ch("r"), ch("g"), ch("b"))
+        }
+        "a:hslClr" => {
+            let v = |n: &str| c.attr(n).and_then(int).unwrap_or(0) as f64;
+            let hue = (v("hue") / 60_000.0).rem_euclid(360.0) / 360.0;
+            from_hsl(hue, (v("sat") / 100_000.0).clamp(0.0, 1.0), (v("lum") / 100_000.0).clamp(0.0, 1.0))
+        }
         _ => return None,
     };
     let val = |m: &El| m.attr("val").and_then(int).map_or(0.0, |v| (v as f64 / 100_000.0).clamp(-10.0, 10.0));
@@ -56,6 +74,60 @@ pub(crate) fn color(e: &El, theme: &[Rgb]) -> Option<Rgb> {
         };
     }
     Some(rgb)
+}
+
+/// A preset colour (`a:prstClr/@val`, ECMA-376 Part 1 §20.1.10.48): the common ones; others are
+/// unknown (`None`).
+pub(crate) fn preset_color(name: &str) -> Option<Rgb> {
+    let lower = name.to_ascii_lowercase();
+    Some(match lower.as_str() {
+        "black" => Rgb(0, 0, 0),
+        "white" => Rgb(0xFF, 0xFF, 0xFF),
+        "red" => Rgb(0xFF, 0, 0),
+        "green" => Rgb(0, 0x80, 0),
+        "lime" => Rgb(0, 0xFF, 0),
+        "blue" => Rgb(0, 0, 0xFF),
+        "yellow" => Rgb(0xFF, 0xFF, 0),
+        "cyan" | "aqua" => Rgb(0, 0xFF, 0xFF),
+        "magenta" | "fuchsia" => Rgb(0xFF, 0, 0xFF),
+        "gray" | "grey" => Rgb(0x80, 0x80, 0x80),
+        "silver" => Rgb(0xC0, 0xC0, 0xC0),
+        "ltgray" | "ltgrey" | "lightgray" | "lightgrey" => Rgb(0xD3, 0xD3, 0xD3),
+        "dkgray" | "dkgrey" | "darkgray" | "darkgrey" => Rgb(0xA9, 0xA9, 0xA9),
+        "maroon" => Rgb(0x80, 0, 0),
+        "navy" => Rgb(0, 0, 0x80),
+        "olive" => Rgb(0x80, 0x80, 0),
+        "purple" => Rgb(0x80, 0, 0x80),
+        "teal" => Rgb(0, 0x80, 0x80),
+        "orange" => Rgb(0xFF, 0xA5, 0),
+        "brown" => Rgb(0xA5, 0x2A, 0x2A),
+        "pink" => Rgb(0xFF, 0xC0, 0xCB),
+        "gold" => Rgb(0xFF, 0xD7, 0),
+        "darkblue" | "dkblue" => Rgb(0, 0, 0x8B),
+        "darkred" | "dkred" => Rgb(0x8B, 0, 0),
+        "darkgreen" | "dkgreen" => Rgb(0, 0x64, 0),
+        "lightblue" | "ltblue" => Rgb(0xAD, 0xD8, 0xE6),
+        "coral" => Rgb(0xFF, 0x7F, 0x50),
+        "salmon" => Rgb(0xFA, 0x80, 0x72),
+        "tomato" => Rgb(0xFF, 0x63, 0x47),
+        "violet" => Rgb(0xEE, 0x82, 0xEE),
+        "indigo" => Rgb(0x4B, 0, 0x82),
+        "beige" => Rgb(0xF5, 0xF5, 0xDC),
+        "ivory" => Rgb(0xFF, 0xFF, 0xF0),
+        _ => return None,
+    })
+}
+
+/// A system colour without its `lastClr`: the usual light-theme values of the common ones.
+fn sys_color(name: &str) -> Option<Rgb> {
+    Some(match name {
+        "windowText" | "btnText" | "menuText" | "captionText" | "infoText" => Rgb(0, 0, 0),
+        "window" | "menu" | "highlightText" => Rgb(0xFF, 0xFF, 0xFF),
+        "btnFace" | "3dLight" => Rgb(0xF0, 0xF0, 0xF0),
+        "grayText" | "btnShadow" => Rgb(0xA0, 0xA0, 0xA0),
+        "highlight" => Rgb(0x00, 0x78, 0xD7),
+        _ => return None,
+    })
 }
 
 /// Index into `Document::settings.theme_colors` (dk1, lt1, dk2, lt2, accent1..6, hlink, folHlink).
@@ -181,5 +253,17 @@ mod tests {
         let a = el("a:srgbClr", r#"val="808080""#, r#"<a:lumMod val="50000"/><a:lumOff val="50000"/>"#);
         let b = el("a:srgbClr", r#"val="808080""#, r#"<a:lumOff val="50000"/><a:lumMod val="50000"/>"#);
         assert_ne!(color(&a, &theme), color(&b, &theme));
+    }
+
+    #[test]
+    fn preset_colors_are_case_insensitive_and_include_common_names() {
+        assert_eq!(preset_color("red"), Some(Rgb(255, 0, 0)));
+        assert_eq!(preset_color("Red"), Some(Rgb(255, 0, 0)));
+        assert_eq!(preset_color("darkBlue"), Some(Rgb(0, 0, 0x8B)));
+        assert_eq!(preset_color("dkBlue"), Some(Rgb(0, 0, 0x8B)));
+        assert_eq!(preset_color("lightGray"), Some(Rgb(0xD3, 0xD3, 0xD3)));
+        assert_eq!(preset_color("ltGray"), Some(Rgb(0xD3, 0xD3, 0xD3)));
+        assert_eq!(preset_color("gold"), Some(Rgb(0xFF, 0xD7, 0)));
+        assert_eq!(preset_color("unknownColor"), None);
     }
 }

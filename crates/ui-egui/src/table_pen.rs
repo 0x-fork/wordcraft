@@ -4,7 +4,7 @@
 //! `table.draw` / `table.eraser` with page coordinates (one undo step each). Esc or the button
 //! again turns it off. The geometry decisions are the engine's (`cmd::table_draw`).
 
-use egui::{Color32, Pos2, Rect, Stroke, Ui, pos2, vec2};
+use egui::{Pos2, Rect, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
 use wordcraft_engine::cmd::table_draw::{self, Stroke as Kind};
 use wordcraft_layout::DocLayout;
@@ -171,7 +171,7 @@ pub fn paint(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLay
                 && let Some(e) = table_draw::erase_target(layout, page, x, y)
                 && let (Some(a), Some(b)) = (to_screen(page, e.from.0, e.from.1), to_screen(page, e.to.0, e.to.1))
             {
-                painter.line_segment([a, b], Stroke::new(3.0, Color32::from_rgb(0xD1, 0x3B, 0x3B)));
+                painter.line_segment([a, b], Stroke::new(3.0, t.red));
             }
         }
         _ => {}
@@ -201,5 +201,23 @@ mod tests {
         // With coordinates it is the engine's command (an error here: nothing to split).
         assert!(a.run("table.draw", json!({"page": 0, "x0": 1, "y0": 1, "x1": 2, "y1": 2})).is_err());
         assert!(a.canvas.table_tool.is_none());
+    }
+
+    /// Deleting a table or removing its last cells turns off the eraser.
+    #[test]
+    fn deleting_table_turns_off_the_eraser() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        a.run("table.eraser", json!({"on": true})).unwrap();
+        assert_eq!(a.canvas.table_tool, Some(TableTool::Erase));
+        a.run("table.deleteTable", json!({})).unwrap();
+        assert_eq!(a.canvas.table_tool, None);
+
+        // Deleting the only row also removes the table and stops the eraser.
+        a.run("insert.table", json!({"rows": 1, "cols": 1})).unwrap();
+        a.run("table.eraser", json!({"on": true})).unwrap();
+        assert_eq!(a.canvas.table_tool, Some(TableTool::Erase));
+        a.run("table.deleteRow", json!({})).unwrap();
+        assert_eq!(a.canvas.table_tool, None);
     }
 }

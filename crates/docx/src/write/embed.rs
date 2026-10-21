@@ -1,4 +1,4 @@
-//! Writing back charts, SmartArt diagrams and OLE objects read from a file (see `read::embed`).
+//! Writing back charts, SmartArt diagrams, native ink and OLE objects read from a file (see `read::embed`).
 //!
 //! Each written object gets its kept markup with fresh relationship ids, pointing at copies of the
 //! parts it needs. The first object to use a part writes it under its original name (unless that
@@ -13,8 +13,11 @@ use wordcraft_doc::graphic::Embedded;
 use wordcraft_doc::para::Float;
 
 use super::PartRels;
-use crate::package::{EMBEDDED_PARTS, EmbeddedManifest, MAX_EMBEDDED_PARTS, VBA_PROJECT_PART, VBA_RELATED, relative};
-use crate::units::emu;
+use crate::package::{
+    CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, FONT_TABLE_PART, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART, VBA_RELATED,
+    rel_is, relative, rt,
+};
+use crate::units::{MAX_LEN_PT, emu, int};
 use crate::xml::{self, El, MAX_DEPTH};
 
 /// Most bytes written for copies of parts (objects pasted more than once).
@@ -43,6 +46,8 @@ pub(crate) struct EmbedWriter<'d> {
     markup_bytes: u64,
     /// Parts to write: (name, bytes, content type, relationships).
     pub parts: Vec<(String, Vec<u8>, String, PartRels)>,
+    /// Leave out the main document's kept glossary (it's written from the model instead).
+    pub drop_glossary: bool,
 }
 
 impl<'d> EmbedWriter<'d> {
@@ -58,12 +63,18 @@ impl<'d> EmbedWriter<'d> {
             "word/endnotes.xml",
             "word/comments.xml",
             "word/commentsextended.xml",
+            "word/commentsids.xml",
+            "word/commentsextensible.xml",
             "[content_types].xml",
         ]
         .iter()
         .map(|s| s.to_string())
         .collect();
         taken.insert(VBA_PROJECT_PART.to_ascii_lowercase());
+        // The bibliography writer uses these names when sources are present (#532).
+        if !doc.sources.is_empty() {
+            taken.extend(["customxml/item1.xml".into(), "customxml/itemprops1.xml".into()]);
+        }
         // The macro project's parts keep their names (see `write_as`).
         if let Some(m) = doc.passthrough.get(VBA_RELATED) {
             for line in String::from_utf8_lossy(m).lines() {
@@ -81,6 +92,15 @@ impl<'d> EmbedWriter<'d> {
             copy_bytes: MAX_COPY_BYTES,
             markup_bytes: MAX_MARKUP_BYTES,
             parts: Vec::new(),
+            drop_glossary: false,
+        }
+    }
+
+    /// Write the font table kept from a file, with the fonts it embeds, relating it from `rels`.
+    pub fn font_table(&mut self, rels: &mut PartRels) {
+        let mut written = Vec::new();
+        if let Some(name) = self.copy_tree(FONT_TABLE_PART, &mut HashMap::new(), &mut written) {
+            rels.add(rt::FONT_TABLE, &relative(STORY_PART, &name), false);
         }
     }
 
@@ -94,13 +114,16 @@ impl<'d> EmbedWriter<'d> {
     /// Names this writer may give its own parts later (headers, footers, package parts).
     fn reserved(lower: &str) -> bool {
         lower.ends_with(".rels")
-            || lower.starts_with("docprops/")
+            || (lower.starts_with("docprops/") && !lower.starts_with("docprops/thumbnail."))
             || lower.starts_with("_rels/")
             || ((lower.starts_with("word/header") || lower.starts_with("word/footer")) && lower.ends_with(".xml"))
     }
 
     /// A free part name for (a copy of) `orig`: `orig` itself if free, else `stem_N.ext`.
     fn alloc(&mut self, orig: &str) -> String {
+        // Suffixes cannot escape reserved directories or a .rels extension. Such a kept
+        // part needs a different base name, otherwise every candidate would be reserved.
+        let orig = if Self::reserved(&orig.to_ascii_lowercase()) { "word/embeddings/part.xml" } else { orig };
         let lower = orig.to_ascii_lowercase();
         if !Self::reserved(&lower) && self.taken.insert(lower) {
             return orig.to_string();
@@ -122,7 +145,7 @@ impl<'d> EmbedWriter<'d> {
     }
 
     /// A number `n` for which every `{stem}{n}{ext}` is a free part name, with those names taken.
-    fn fresh_set(&mut self, stems: &[&str], ext: &str) -> Vec<String> {
+    pub(super) fn fresh_set(&mut self, stems: &[&str], ext: &str) -> Vec<String> {
         let mut n: u32 = 1;
         loop {
             let names: Vec<String> = stems.iter().map(|s| format!("{s}{n}{ext}")).collect();
@@ -155,6 +178,54 @@ impl<'d> EmbedWriter<'d> {
     /// Can part `name` be written (bytes and manifest entry both kept)?
     fn available(&self, name: &str) -> bool {
         self.manifest.parts.contains_key(name) && self.passthrough.contains_key(name)
+    }
+
+    /// Reattach implicit custom XML roots, sharing their kept parts across both owners.
+    pub fn custom_xml_rels(&mut self, owner: &str, rels: &mut PartRels) {
+        let Some(roots) = self.passthrough.get(CUSTOM_XML_ROOTS).cloned() else { return };
+        let mut memo = std::mem::take(&mut self.first);
+        let mut written = Vec::new();
+        for line in String::from_utf8_lossy(&roots).lines().take(MAX_EMBEDDED_RELS * 2) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let [source, kind, target] = fields.as_slice() else { continue };
+            if *source != owner || !rel_is(kind, rt::CUSTOM_XML) {
+                continue;
+            }
+            if let Some(name) = self.copy_tree(target, &mut memo, &mut written) {
+                let source_part = if owner == "P" { "" } else { STORY_PART };
+                rels.add(kind, &relative(source_part, &name), false);
+            }
+        }
+        self.first = memo;
+    }
+
+    /// Reattach the parts kept by `keep_unmodelled` (`UNMODELLED_ROOTS`) to their owner: the
+    /// package (`P`) or the main document (`D`).
+    pub fn unmodelled_rels(&mut self, owner: &str, rels: &mut PartRels) {
+        let Some(roots) = self.passthrough.get(crate::package::UNMODELLED_ROOTS).cloned() else { return };
+        let mut memo = std::mem::take(&mut self.first);
+        let mut written = Vec::new();
+        for line in String::from_utf8_lossy(&roots).lines().take(MAX_EMBEDDED_RELS * 2) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let [source, kind, target] = fields.as_slice() else { continue };
+            if *source != owner || (self.drop_glossary && owner == "D" && rel_is(kind, rt::GLOSSARY)) {
+                continue;
+            }
+            if let Some(name) = self.copy_tree(target, &mut memo, &mut written) {
+                let source_part = if owner == "P" { "" } else { STORY_PART };
+                rels.add(kind, &relative(source_part, &name), false);
+            }
+        }
+        self.first = memo;
+    }
+
+    /// Whether `unmodelled_rels("D", …)` can write the main document's kept glossary back.
+    pub fn kept_glossary(&self) -> bool {
+        let Some(roots) = self.passthrough.get(crate::package::UNMODELLED_ROOTS) else { return false };
+        String::from_utf8_lossy(roots).lines().take(MAX_EMBEDDED_RELS * 2).any(|line| {
+            let fields: Vec<&str> = line.split('\t').collect();
+            matches!(fields.as_slice(), [source, kind, target] if *source == "D" && rel_is(kind, rt::GLOSSARY) && (self.first.contains_key(*target) || self.available(target)))
+        })
     }
 
     /// What copying the parts reached from `roots` costs against the copy budget.
@@ -223,6 +294,12 @@ impl super::Writer<'_> {
     /// the object's current size and position into its own markup (a chart or diagram's frame is
     /// written by the caller). `None` when it can't be written back (its parts are gone).
     pub(super) fn embedded_xml(&mut self, src: &Embedded, rels: &mut PartRels, resize: Option<(f32, f32, &Float, &str)>) -> Option<String> {
+        self.embedded_tree(src, rels, resize).map(|root| root.to_xml())
+    }
+
+    /// The same bounded preservation operation, retaining the parsed tree for a caller that
+    /// must rebuild an ink AlternateContent drawing frame without reparsing unbound prefixes.
+    pub(super) fn embedded_tree(&mut self, src: &Embedded, rels: &mut PartRels, resize: Option<(f32, f32, &Float, &str)>) -> Option<El> {
         let Some(left) = self.embeds.markup_bytes.checked_sub(src.xml.len() as u64) else {
             log::warn!("docx: too much embedded-object markup; the rest is left out");
             return None;
@@ -277,7 +354,7 @@ impl super::Writer<'_> {
         if let Some((w, h, float, alt)) = resize {
             self.resize_object(&mut root, w, h, float, alt, 0);
         }
-        Some(root.to_xml())
+        Some(root)
     }
 
     /// The `a:graphic` of a SmartArt graphic written from its model, laid out `w` × `h` points:
@@ -409,6 +486,83 @@ impl super::Writer<'_> {
             }
         }
     }
+
+    /// Ink's own transform need not fill its outer drawing frame. Scale its original offsets
+    /// and extents proportionally; an unrelated edit must not stretch the preserved strokes.
+    pub(super) fn ink_transform(e: &mut El, from: (f32, f32), to: (f32, f32), float: &Float, depth: usize) {
+        if depth > MAX_DEPTH {
+            return;
+        }
+        if e.name == "w14:xfrm" {
+            e.attrs.retain(|(k, _)| !matches!(k.as_str(), "rot" | "flipH" | "flipV"));
+            for (k, v) in super::story::spin_attrs(float.spin()) {
+                e.attrs.push((k.to_string(), v));
+            }
+            let scale = |old: f32, new: f32| if old.is_finite() && old > 0.0 && new.is_finite() { (new.max(0.0) / old) as f64 } else { 1.0 };
+            let (sx, sy) = (scale(from.0, to.0), scale(from.1, to.1));
+            let max = MAX_LEN_PT as f64 * 12_700.0;
+            for c in e.kids.iter_mut().filter_map(|k| match k {
+                xml::Node::El(c) => Some(c),
+                _ => None,
+            }) {
+                if !matches!(c.name.as_str(), "a:off" | "a:ext") {
+                    continue;
+                }
+                for (key, value) in &mut c.attrs {
+                    let factor = match key.as_str() {
+                        "x" | "cx" => sx,
+                        "y" | "cy" => sy,
+                        _ => continue,
+                    };
+                    if factor != 1.0
+                        && let Some(n) = int(value)
+                    {
+                        let min = if c.name == "a:ext" { 0.0 } else { -max };
+                        *value = ((n as f64 * factor).clamp(min, max).round() as i64).to_string();
+                    }
+                }
+            }
+            return;
+        }
+        for c in e.kids.iter_mut().filter_map(|k| match k {
+            xml::Node::El(c) => Some(c),
+            _ => None,
+        }) {
+            Self::ink_transform(c, from, to, float, depth + 1);
+        }
+    }
+
+    /// Put a group or canvas member kept from a file (native ink and its picture fallback) at
+    /// `frame` ([x, y, w, h] in points, in the group's space, as the group is written): its
+    /// `w14:xfrm` and the fallback's `a:xfrm` get that offset and extent and the member's turn.
+    /// It rewrites every `w14:xfrm` and `a:xfrm` under `e` and doesn't descend into them: right
+    /// for the forms Word writes (the content part's own transform and one `pic:pic` fallback's
+    /// `pic:spPr/a:xfrm`); a fallback holding several transforms (a group) would get one frame.
+    pub(super) fn place_member(e: &mut El, frame: [f32; 4], float: &Float, depth: usize) {
+        if depth > MAX_DEPTH {
+            return;
+        }
+        if matches!(e.name.as_str(), "w14:xfrm" | "a:xfrm") {
+            e.attrs.retain(|(k, _)| !matches!(k.as_str(), "rot" | "flipH" | "flipV"));
+            for (k, v) in super::story::spin_attrs(float.spin()) {
+                e.attrs.push((k.to_string(), v));
+            }
+            let [x, y, w, h] = frame.map(|v| v.clamp(-MAX_LEN_PT, MAX_LEN_PT));
+            e.kids.retain(|k| !matches!(k, xml::Node::El(c) if matches!(c.name.as_str(), "a:off" | "a:ext")));
+            let el = |name: &str, attrs: [(&str, String); 2]| {
+                xml::Node::El(El { name: name.to_string(), attrs: attrs.map(|(k, v)| (k.to_string(), v)).to_vec(), kids: Vec::new() })
+            };
+            e.kids.insert(0, el("a:ext", [("cx", emu(w.max(0.0))), ("cy", emu(h.max(0.0)))]));
+            e.kids.insert(0, el("a:off", [("x", emu(x)), ("y", emu(y))]));
+            return;
+        }
+        for c in e.kids.iter_mut().filter_map(|k| match k {
+            xml::Node::El(c) => Some(c),
+            _ => None,
+        }) {
+            Self::place_member(c, frame, float, depth + 1);
+        }
+    }
 }
 
 /// Set an extent's `cx` and `cy` (those it has) to `w` × `h` points.
@@ -499,9 +653,9 @@ fn vml_style_with(style: &str, w: f32, h: f32, float: &Float) -> String {
         .split(';')
         .filter(|d| {
             let key = d.split_once(':').map_or("", |(k, _)| k).trim().to_ascii_lowercase();
-            !d.trim().is_empty()
-                && !matches!(key.as_str(), "width" | "height" | "rotation" | "flip")
-                && !(absolute && matches!(key.as_str(), "left" | "top" | "margin-left" | "margin-top"))
+            !(d.trim().is_empty()
+                || matches!(key.as_str(), "width" | "height" | "rotation" | "flip")
+                || (absolute && matches!(key.as_str(), "left" | "top" | "margin-left" | "margin-top")))
         })
         .map(|d| d.trim().to_string())
         .collect();

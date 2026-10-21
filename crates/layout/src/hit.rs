@@ -5,7 +5,7 @@ use wordcraft_doc::props::TextDirection;
 use wordcraft_doc::{Document, Path, Pos, StoryRef};
 use wordcraft_geom::{Point, Rect};
 
-use crate::para::ParaLayout;
+use crate::para::{PARA_MARK_WIDTH, ParaLayout};
 use crate::{DocLayout, Page, Placed};
 
 /// Caret geometry on a page: a bar from (`x`, `top`) to (`x + width`, `top + height`). It is
@@ -176,6 +176,37 @@ pub fn page_lines(page: &Page, story: StoryRef) -> Vec<LineHit<'_>> {
     v
 }
 
+/// Of `lines`, the one nearest the caret moving up (`dir < 0`) or down: the lowest above it or
+/// the highest below it.
+fn nearest<'a, 'b>(lines: &[&'b LineHit<'a>], dir: i32) -> Option<&'b LineHit<'a>> {
+    if dir < 0 { lines.iter().copied().max_by(|a, b| a.top.total_cmp(&b.top)) } else { lines.iter().copied().min_by(|a, b| a.top.total_cmp(&b.top)) }
+}
+
+/// The line of `lines` to go to: of the nearest one and the lines of the other cells in its table
+/// row, the one across page x `gx` (else the one horizontally nearest it), on a tie the nearer.
+fn in_row<'a, 'b>(lines: &[&'b LineHit<'a>], gx: f32, dir: i32) -> Option<&'b LineHit<'a>> {
+    let n = nearest(lines, dir)?;
+    let off = |l: &LineHit| (l.left - gx).max(gx - l.right).max(0.0);
+    lines
+        .iter()
+        .copied()
+        .filter(|l| (l.path == n.path && l.li == n.li) || beside(n.path, l.path))
+        .min_by(|a, b| off(a).total_cmp(&off(b)).then(if dir < 0 { b.top.total_cmp(&a.top) } else { a.top.total_cmp(&b.top) }))
+}
+
+/// Whether paragraph `l` is in another cell of the table row paragraph `p` is in: where their
+/// paths part is a cell index (`[block, row, cell, block, …]`).
+fn beside(p: &Path, l: &Path) -> bool {
+    p.0.iter().zip(&l.0).position(|(x, y)| x != y).is_some_and(|i| i % 3 == 2)
+}
+
+/// Whether paragraph `l` comes between paragraphs `a` and `b` (either way round) in document
+/// order, not in another cell of a table row either of them is in (that stands beside it).
+fn between(a: &Path, b: &Path, l: &Path) -> bool {
+    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+    lo < l && l < hi && !beside(a, l) && !beside(b, l)
+}
+
 /// The position in turned text (a table cell's text direction) of `story` under page point
 /// (x, y), if there is turned text there.
 fn turned_hit(page: &Page, story: StoryRef, x: f32, y: f32) -> Option<Pos> {
@@ -211,6 +242,15 @@ fn nearest_turned(page: &Page, story: StoryRef, x: f32, y: f32) -> Option<Pos> {
         .min_by(|a, b| band_dist(v, a.1, a.2).total_cmp(&band_dist(v, b.1, b.2)))?
         .0;
     Some(Pos { story, path: path.clone(), off: para.off_at_x(li, u) })
+}
+
+/// The body line on `page` whose band is nearest height `y` (the leftmost on a tie, so in
+/// columns the first column wins); only top-level paragraphs' lines when `top_only`.
+fn nearest_line_at<'a>(page: &'a Page, y: f32, top_only: bool) -> Option<LineHit<'a>> {
+    page_lines(page, StoryRef::Body)
+        .into_iter()
+        .filter(|l| !top_only || l.path.0.len() <= 1)
+        .min_by(|a, b| band_dist(y, a.top, a.bottom - a.top).total_cmp(&band_dist(y, b.top, b.bottom - b.top)).then(a.left.total_cmp(&b.left)))
 }
 
 /// How far `v` is outside the band `top..top + h`.
@@ -312,12 +352,23 @@ impl DocLayout {
 
     /// Which header/footer (if any) is at (x, y) on a page — for double-click editing.
     pub fn header_footer_at(&self, page: usize, y: f32) -> Option<(StoryRef, bool)> {
+        let (story, header) = self.header_footer_zone(page, y)?;
+        story.map(|s| (s, header))
+    }
+
+    /// Whether y on `page` is in its header area (above the body: `Some((_, true))`) or footer
+    /// area (below it: `Some((_, false))`), with the story shown there — `None` when the page
+    /// has no header/footer yet (double-clicking there creates one, #960).
+    pub fn header_footer_zone(&self, page: usize, y: f32) -> Option<(Option<StoryRef>, bool)> {
         let p = self.pages.get(page)?;
+        if !y.is_finite() {
+            return None;
+        }
         if y < p.body.y {
-            return p.header_story.map(|id| (StoryRef::Part(id), true));
+            return Some((p.header_story.map(StoryRef::Part), true));
         }
         if y > p.body.bottom() {
-            return p.footer_story.map(|id| (StoryRef::Part(id), false));
+            return Some((p.footer_story.map(StoryRef::Part), false));
         }
         None
     }
@@ -396,6 +447,7 @@ impl DocLayout {
             let first = para.lines.get(*l0)?;
             let l = para.lines.get(li)?;
             let cx = para.x_of(li, pos.off)?;
+            let cx = para.caret_limit(li).map_or(cx, |m| cx.min(m));
             // In the lines' own frame (turned text turns it onto the page).
             let top = l.top - first.top;
             // Caret spans the text height (ascent + descent), not the full line spacing.
@@ -426,18 +478,21 @@ impl DocLayout {
                 }
             })
             .collect();
-        let target = if dir < 0 {
-            cands
-                .iter()
-                .filter(|l| gx >= l.left - 2.0 && gx <= l.right + 2.0)
-                .max_by(|a, b| a.top.total_cmp(&b.top))
-                .or_else(|| cands.iter().max_by(|a, b| a.top.total_cmp(&b.top)))
-        } else {
-            cands
-                .iter()
-                .filter(|l| gx >= l.left - 2.0 && gx <= l.right + 2.0)
-                .min_by(|a, b| a.top.total_cmp(&b.top))
-                .or_else(|| cands.iter().min_by(|a, b| a.top.total_cmp(&b.top)))
+        let across: Vec<&LineHit> = cands.iter().copied().filter(|l| gx >= l.left - 2.0 && gx <= l.right + 2.0).collect();
+        let target = match nearest(&across, dir) {
+            // The nearest line across `gx`, unless lines between the caret's paragraph and that
+            // line's in document order come before it on the way: a table row whose cells' text
+            // `gx` misses (left of the table, or in the gap between two cells) is the next line,
+            // as in Word.
+            Some(t) => {
+                let skipped: Vec<&LineHit> = cands
+                    .iter()
+                    .copied()
+                    .filter(|l| (if dir < 0 { l.top > t.top } else { l.top < t.top }) && between(&pos.path, t.path, l.path))
+                    .collect();
+                if skipped.is_empty() { Some(t) } else { in_row(&skipped, gx, dir) }
+            }
+            None => in_row(&cands, gx, dir),
         };
         if let Some(l) = target {
             let off = l.para.off_at_x(l.li, gx - l.x);
@@ -472,6 +527,51 @@ impl DocLayout {
             }
             let mk = |off| Pos { story: pos.story, path: pos.path.clone(), off };
             return Some((mk(l.start), mk(end)));
+        }
+        None
+    }
+
+    /// Word's selection bar (#856): when (x, y) is in the page's left margin, left of the body
+    /// text column, the start of the body line at that height. Not in the header/footer area,
+    /// not beside a table's lines (those are left to the table), nothing on an empty page.
+    pub fn selection_bar_at(&self, page: usize, x: f32, y: f32) -> Option<Pos> {
+        let p = self.pages.get(page)?;
+        if !(x.is_finite() && y.is_finite()) || x < 0.0 || x >= p.body.x || y < p.body.y || y > p.body.bottom() {
+            return None;
+        }
+        let l = nearest_line_at(p, y, false)?;
+        if l.path.0.len() > 1 || l.left < p.body.x - 0.5 {
+            // A table's line, or text hanging into the margin: not the selection bar.
+            return None;
+        }
+        Some(Pos { story: StoryRef::Body, path: l.path.clone(), off: l.para.lines.get(l.li)?.start })
+    }
+
+    /// The start of the top-level body line nearest height `y` on `page` (dragging in the
+    /// selection bar extends line by line, wherever the pointer is across).
+    pub fn body_line_at(&self, page: usize, y: f32) -> Option<Pos> {
+        let p = self.pages.get(page)?;
+        if !y.is_finite() {
+            return None;
+        }
+        let l = nearest_line_at(p, y, true)?;
+        Some(Pos { story: StoryRef::Body, path: l.path.clone(), off: l.para.lines.get(l.li)?.start })
+    }
+
+    /// The whole visual line holding `pos`, trailing spaces and break included: (start, end,
+    /// whether it is the paragraph's last line). What a click in the selection bar selects.
+    pub fn line_span(&self, pos: &Pos, page_hint: usize) -> Option<(Pos, Pos, bool)> {
+        for (_, it) in self.pieces(pos.story, &pos.path, page_hint) {
+            let Placed::Lines { para, l0, l1, .. } = it else { continue };
+            let li = para.line_of(pos.off);
+            if li < *l0 || li >= *l1 {
+                continue;
+            }
+            let l = para.lines.get(li)?;
+            let next = para.lines.get(li.saturating_add(1));
+            let end = next.map_or(l.stop, |n| n.start).max(l.start);
+            let mk = |off| Pos { story: pos.story, path: pos.path.clone(), off };
+            return Some((mk(l.start), mk(end), next.is_none()));
         }
         None
     }
@@ -543,8 +643,8 @@ impl DocLayout {
                         // Selection continuing past the paragraph end shows the paragraph mark.
                         if li + 1 == para.lines.len() && path != b.path {
                             let ex = l.end_x();
-                            let x0 = if l.rtl { ex - 5.0 } else { ex };
-                            put(Rect::new(x0, top, 5.0, l.height));
+                            let x0 = if l.rtl { ex - PARA_MARK_WIDTH } else { ex };
+                            put(Rect::new(x0, top, PARA_MARK_WIDTH, l.height));
                         }
                         continue;
                     }
@@ -553,7 +653,7 @@ impl DocLayout {
                     // Selection continuing past the paragraph end shows the paragraph mark.
                     let last_line = li + 1 == para.lines.len();
                     if last_line && path != b.path {
-                        x1 += 5.0;
+                        x1 += PARA_MARK_WIDTH;
                     }
                     if path == b.path && to >= l.stop && li + 1 < para.lines.len() && b.off > l.stop {
                         x1 = para.x_of(li, l.stop).unwrap_or(x1);
@@ -655,7 +755,7 @@ impl DocLayout {
     pub fn cell_at(&self, page: usize, x: f32, y: f32) -> Option<(StoryRef, Path, usize, usize)> {
         let p = self.pages.get(page)?;
         p.items.iter().rev().find_map(|it| match it {
-            Placed::Cell { rect, table, row, cell, story } if rect.contains(wordcraft_geom::Point::new(x, y)) => {
+            Placed::Cell { rect, table, row, cell, story, covered: false, .. } if rect.contains(wordcraft_geom::Point::new(x, y)) => {
                 Some((*story, table.clone(), *row, *cell))
             }
             _ => None,

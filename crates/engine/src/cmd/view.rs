@@ -1,7 +1,8 @@
 //! View tab and status bar: views, zoom, show/hide, panes.
 
 use serde_json::{Value, json};
-use wordcraft_layout::ViewMode;
+use wordcraft_doc::{Zoom, ZoomFit};
+use wordcraft_layout::{NumeralMode, ViewMode};
 
 use super::sel_result;
 use crate::{CmdError, CmdResult, CommandSpec, Session, p};
@@ -27,6 +28,19 @@ pub fn specs() -> Vec<CommandSpec> {
         // The body as an outline of its headings, with the Outlining tab (`outline.*`).
         CommandSpec::new("view.outline", "Outline", "View › Views", |s, _| mode(s, ViewMode::Outline, false)).key("Mod+Alt+O").pure(),
         CommandSpec::new("view.readMode", "Read Mode", "View › Views", |s, _| mode(s, ViewMode::Print, true)).pure(),
+        CommandSpec::new("view.readColumnWidth", "Reading Column Width", "Reading › Layout", read_column_width)
+            .params(r#"{"value": "auto" | "narrow" | "medium" | "wide" | "page"}"#)
+            .pure(),
+        CommandSpec::new("view.readTextSize", "Reading Text Size", "Reading › Layout", read_text_size)
+            .params(r#"{"value": percent (75–150)}"#)
+            .pure(),
+        CommandSpec::new("view.readLineSpacing", "Reading Line Spacing", "Reading › Layout", read_line_spacing)
+            .params(r#"{"value": "document" | 1.0 | 1.25 | 1.5 | 2.0}"#)
+            .pure(),
+        // Print Layout: hide the white space (margins, headers, footers) between pages. Screen only.
+        CommandSpec::new("view.hideWhiteSpace", "Hide White Space", "View › Show", |s, v| toggle(s, v, |x| &mut x.hide_white_space))
+            .params(r#"{"value"?: bool}"#)
+            .pure(),
         CommandSpec::new("view.focus", "Focus", "View › Immersive", |s, v| toggle(s, v, |x| &mut x.focus_mode)).pure(),
         CommandSpec::new("view.ruler", "Ruler", "View › Show", |s, v| toggle(s, v, |x| &mut x.ruler)).pure(),
         // The drawing grid over the page (screen only; never printed or exported).
@@ -56,6 +70,26 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("view.multiplePages", "Multiple Pages", "View › Zoom", |s, _| zoom(s, &json!({"value": "multiplePages"}))).pure(),
         CommandSpec::new("view.pageWidth", "Page Width", "View › Zoom", |s, _| zoom(s, &json!({"value": "pageWidth"}))).pure(),
         CommandSpec::new("view.darkMode", "Switch Modes", "View › Dark Mode", |s, v| toggle(s, v, |x| &mut x.dark_mode)).pure(),
+        // The interface theme itself (light, dark, or follow the OS), next to dark pages (#1861).
+        // The session can't paint: like split and new windows, this queues a request the front
+        // end applies to its theme setting (which persists per user). Without a value it toggles
+        // light and dark, as the manual switch did.
+        CommandSpec::new("view.interfaceTheme", "Interface Theme", "View › Dark Mode", |s, v| match v.get("value") {
+            None => {
+                s.ui_requests.push(json!({"toggle": "interfaceTheme"}));
+                Ok(json!({"value": "toggle"}))
+            }
+            Some(Value::String(name)) => match name.as_str() {
+                "light" | "dark" | "system" => {
+                    s.ui_requests.push(json!({"interfaceTheme": name}));
+                    Ok(json!({"value": name}))
+                }
+                _ => Err(CmdError::Params("interface theme: light|dark|system".into())),
+            },
+            _ => Err(CmdError::Params("interface theme: light|dark|system".into())),
+        })
+        .params(r#"{"value"?: "light" | "dark" | "system"; without it, toggles light and dark}"#)
+        .pure(),
         CommandSpec::new("view.stylesPane", "Styles Pane", "Home › Styles", |s, v| toggle(s, v, |x| &mut x.styles_pane)).pure(),
         CommandSpec::new("view.commentsPane", "Comments Pane", "Review › Comments", |s, v| toggle(s, v, |x| &mut x.comments_pane)).pure(),
         CommandSpec::new("view.accessibilityPane", "Accessibility Pane", "Review › Accessibility", |s, v| {
@@ -77,16 +111,112 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .key("Mod+Alt+S")
         .pure(),
+        // The window fills the screen, OS-level full screen (#980). F11 as in browsers and most
+        // desktop apps; ⌃⌘F first on macOS, where Ctrl is a key of its own (elsewhere Mod is Ctrl,
+        // so "Mod+Ctrl+F" would read Ctrl+Ctrl+F). Escape also leaves it. The front end applies it.
+        CommandSpec::new("view.fullScreen", "Full Screen", "View › Window", |s, v| toggle(s, v, |x| &mut x.full_screen))
+            .params(r#"{"value"?: bool}"#)
+            .key(super::mac_or("Mod+Ctrl+F / F11", "F11"))
+            .when(full_screen_available)
+            .pure(),
         CommandSpec::new("view.state", "View State", "View", |s, _| serde_json::to_value(&s.view).map_err(|e| CmdError::Failed(e.to_string())))
             .pure(),
+        // Word › File › Options › Advanced › Numeral: how digits look on screen (display
+        // only; the document text keeps the typed codepoints).
+        CommandSpec::new("view.numeral", "Numerals", "File › Options › Advanced", |s, v| match v.get("value") {
+            None => Ok(json!({"value": s.view.numeral})),
+            Some(Value::String(name)) => {
+                let Some(mode) = NumeralMode::parse(name) else {
+                    return Err(CmdError::Params("numeral mode: arabic|hindi|context|system".into()));
+                };
+                s.view.numeral = mode;
+                s.relayout();
+                Ok(json!({"value": s.view.numeral}))
+            }
+            Some(_) => Err(CmdError::Params("numeral mode: arabic|hindi|context|system".into())),
+        })
+        .params(r#"{"value"?: "arabic|hindi|context|system"}"#)
+        .pure(),
     ]
 }
 
+/// The browser keeps full screen to itself (its own F11); the web app can't ask for it.
+fn full_screen_available(_: &Session) -> Option<&'static str> {
+    cfg!(target_arch = "wasm32").then_some("Use the browser's full screen (F11)")
+}
+
 fn mode(s: &mut Session, m: ViewMode, read: bool) -> CmdResult {
+    if read && !s.view.read_mode {
+        // Reading controls are session-only, and reset on each entry to the view.
+        s.view.read_column_width = None;
+        s.view.read_zoom = 1.0;
+        s.view.read_line_spacing = None;
+    }
     s.view.mode = m;
     s.view.read_mode = read;
     s.relayout();
     Ok(json!({"mode": m, "readMode": read}))
+}
+
+fn read_column_width(s: &mut Session, v: &Value) -> CmdResult {
+    let width = match v.get("value").and_then(Value::as_str) {
+        Some("auto") => None,
+        Some("narrow") => Some(180.0),
+        Some("medium") => Some(240.0),
+        Some("wide") => Some(350.0),
+        Some("page") => Some(612.0),
+        _ => return Err(CmdError::Params("column width must be auto, narrow, medium, wide, or page".into())),
+    };
+    s.view.read_column_width = width;
+    Ok(json!({"width": width}))
+}
+
+fn read_text_size(s: &mut Session, v: &Value) -> CmdResult {
+    let Some(pct) = v.get("value").and_then(Value::as_f64) else {
+        return Err(CmdError::Params("reading text size must be a percentage".into()));
+    };
+    if !pct.is_finite() || !(75.0..=150.0).contains(&pct) {
+        return Err(CmdError::Params("reading text size must be 75–150%".into()));
+    }
+    s.view.read_zoom = pct as f32 / 100.0;
+    Ok(json!({"percent": pct}))
+}
+
+fn read_line_spacing(s: &mut Session, v: &Value) -> CmdResult {
+    let value = v.get("value");
+    let spacing = match value {
+        Some(Value::String(s)) if s == "document" => None,
+        Some(Value::Number(n)) if matches!(n.as_f64(), Some(1.0 | 1.25 | 1.5 | 2.0)) => n.as_f64().map(|n| n as f32),
+        _ => return Err(CmdError::Params("reading line spacing must be document, 1, 1.25, 1.5, or 2".into())),
+    };
+    s.view.read_line_spacing = spacing;
+    Ok(json!({"spacing": spacing}))
+}
+
+/// The zoom a document is saved with (#995): the fit mode, else the percentage; `None` at 100%.
+pub(crate) fn saved_zoom(v: &crate::ViewState) -> Option<Zoom> {
+    let fit = match v.fit.as_str() {
+        "onePage" => Some(ZoomFit::OnePage),
+        "pageWidth" => Some(ZoomFit::PageWidth),
+        "textWidth" => Some(ZoomFit::TextWidth),
+        _ => None,
+    };
+    let percent = if v.zoom.is_finite() { (v.zoom * 100.0).round().clamp(10.0, 500.0) as u32 } else { 100 };
+    Some(Zoom { percent, fit }).filter(|z| z.percent != 100 || z.fit.is_some())
+}
+
+/// Show an opened document at the zoom it was saved with.
+pub(crate) fn restore_zoom(s: &mut Session, z: Zoom) {
+    let fit = match z.fit {
+        Some(ZoomFit::OnePage) => "onePage",
+        Some(ZoomFit::PageWidth) => "pageWidth",
+        Some(ZoomFit::TextWidth) => "textWidth",
+        None => "",
+    };
+    s.view.zoom = z.percent.clamp(10, 500) as f32 / 100.0;
+    s.view.fit = fit.into();
+    s.view.multi_page = false;
+    s.view.single_column = fit == "onePage" || fit == "pageWidth";
 }
 
 fn zoom(s: &mut Session, v: &Value) -> CmdResult {
@@ -94,6 +224,7 @@ fn zoom(s: &mut Session, v: &Value) -> CmdResult {
         Some(Value::String(f)) if ["pageWidth", "onePage", "multiplePages", "textWidth"].contains(&f.as_str()) => {
             s.view.fit = f.clone();
             s.view.multi_page = f == "multiplePages";
+            s.view.single_column = f == "onePage" || f == "pageWidth";
         }
         Some(x) => {
             let pct = x.as_f64().ok_or_else(|| CmdError::Params("zoom percent or fit mode".into()))? as f32;

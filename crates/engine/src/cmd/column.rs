@@ -3,6 +3,10 @@
 //! Backspace remove just the block, character formatting applies to each row's piece, paragraph
 //! formatting to the paragraphs it touches. Typing or pasting first deletes the block; any other
 //! edit collapses it to its top-left corner. Any ordinary caret move or selection drops it.
+//! Whole table cells that aren't one run of the text (part of a column, `CellRange`) are a block
+//! of their paragraphs: edits and formatting go cell by cell; table commands take the cells.
+//! Extending the selection from one cell into another (Shift+arrows, Shift+click, a drag) makes
+//! such cells, as in Word (`table::extend_selection`).
 
 use serde_json::{Value, json};
 use wordcraft_doc::edit::Fragment;
@@ -94,7 +98,7 @@ fn make(s: &mut Session, a: Pos, b: Pos, xa: f32, xb: f32) {
     let l = s.layout();
     let segments = l.column_segments(&s.doc, &a, &b, left, right, s.page_hint, MAX_LINES);
     s.sel = Selection { anchor: a, focus: b };
-    s.column = Some(ColumnBlock { sel: s.sel.clone(), anchor_x: xa, focus_x: xb, segments });
+    s.column = Some(ColumnBlock { sel: s.sel.clone(), anchor_x: xa, focus_x: xb, segments, cells: None });
     s.pending = None;
 }
 
@@ -116,6 +120,11 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
         s.column = None;
         s.column_mode = false;
     }
+    // Placing the caret ends a block even where its corners are (a selected empty cell's are
+    // the same place).
+    if matches!(id, "caret.set" | "select.collapse") {
+        s.column = None;
+    }
     if s.column_mode && id.starts_with("caret.") && id != "caret.set" {
         let mut params = v.clone();
         match params.as_object_mut() {
@@ -132,8 +141,37 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
     if matches!(id, "caret.set" | "select.collapse") || (mutates && !id.starts_with("format.") && !id.starts_with("para.")) {
         s.column_mode = false;
     }
+    // Extending the selection (Shift+arrows, Shift+click, a drag) goes on from where it really
+    // runs, then takes whole cells or rows the way Word does around tables.
+    if id.starts_with("caret.") && p::bool(v, "extend") == Some(true) {
+        let shown = s.sel.clone();
+        let cells = s.cell_range().cloned();
+        s.sel = s.sel_ends().clone();
+        let ends = s.sel.clone();
+        if let Err(e) = run(s, v) {
+            s.sel = shown;
+            return Err(e);
+        }
+        let to = s.sel.focus.clone();
+        // Shift+Right out of a cell takes the cell alone first.
+        if !(matches!(id, "caret.right" | "caret.left") && super::table::select_cell_first(s, &ends, &to, cells.as_ref())) {
+            super::table::extend_selection(s, to);
+        }
+        return super::sel_result(s);
+    }
+    // Backspace over whole rows, whole columns or the whole table deletes them, as in Word
+    // (Delete only clears them, as for any other cells).
+    if id == "text.backspace"
+        && let Some(r) = super::table::backspace_cells(s)
+    {
+        return r;
+    }
     let Some(segs) = s.column_segments().map(<[(Pos, Pos)]>::to_vec) else { return run(s, v) };
+    let cells = s.cell_range().is_some();
     match id {
+        // Whole cells: table commands take the rectangle between the corners, and Tab moves on
+        // from it without clearing it, as in Word.
+        _ if cells && (id.starts_with("table.") || matches!(id, "text.tab" | "text.backTab")) => run(s, v),
         "edit.copy" => copy(s, &segs),
         "edit.cut" => {
             let r = copy(s, &segs)?;
@@ -146,7 +184,8 @@ pub(crate) fn dispatch(s: &mut Session, id: &str, mutates: bool, run: fn(&mut Se
         }
         "format.changeCase" | "format.clear" | "format.resetChar" => per_row(s, run, v, &segs),
         _ if id.starts_with("format.") || id.starts_with("para.") || id == "select.column" => run(s, v),
-        _ if mutates && (id.starts_with("text.") || id.starts_with("edit.paste")) => {
+        // Pasting formatting (the format painter) leaves the text alone.
+        _ if mutates && (id.starts_with("text.") || (id.starts_with("edit.paste") && id != "edit.pasteFormat")) => {
             delete(s, &segs)?;
             run(s, v)
         }
@@ -184,7 +223,7 @@ fn copy(s: &mut Session, segs: &[(Pos, Pos)]) -> CmdResult {
     }
     s.clipboard_text = rows.join("\n");
     s.clipboard = Some(Fragment { blocks, parts });
-    Ok(json!({"text": s.clipboard_text}))
+    Ok(super::edit::copy_result(s))
 }
 
 /// Delete each row's piece (bottom up, so earlier positions stay valid) and leave the caret at

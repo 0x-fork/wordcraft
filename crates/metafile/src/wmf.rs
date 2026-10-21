@@ -37,7 +37,13 @@ pub(crate) fn parse(input: Bytes) -> Result<(Canvas, Option<Frame>), Error> {
         return Err(Error::BadHeader);
     }
     let mut pos = hdr.checked_add(hsize.checked_mul(2).ok_or(Error::BadHeader)?).ok_or(Error::BadHeader)?;
+    // Played into a target like Word does: the placeable bounds are the first window, the target (the
+    // picture size) the viewport. A plain WMF's target is its first window.
     let mut cv = Canvas::new();
+    if let Some((c, size)) = bounds {
+        cv.play_into(Some([c[0], c[1], c[2] - c[0], c[3] - c[1]]), size);
+    }
+    let mut player_viewport = bounds.is_some();
     let mut parsed = 0usize;
     while !cv.full() {
         let (Some(words), Some(func)) = (input.u32(pos), pos.checked_add(4).and_then(|o| input.u16(o))) else { break };
@@ -47,6 +53,11 @@ pub(crate) fn parse(input: Bytes) -> Result<(Canvas, Option<Frame>), Error> {
             break;
         }
         record(&mut cv, func, Bytes(rec));
+        if func == 0x020C && cv.window_set && !player_viewport && !cv.viewport_set {
+            let we = cv.map.window_ext();
+            cv.play_into(None, (we.0.abs(), we.1.abs()));
+            player_viewport = true;
+        }
         parsed += 1;
         let Some(next) = pos.checked_add(len) else { break };
         pos = next;
@@ -55,11 +66,18 @@ pub(crate) fn parse(input: Bytes) -> Result<(Canvas, Option<Frame>), Error> {
         return Err(Error::NoRecords);
     }
     let frame = match bounds {
-        // The drawing is in device units, so the logical bounds go through the final mapping.
+        // Played into its target: the frame is the target.
+        Some((_, size)) if !cv.viewport_set && cv.map.uses_extents() => Some(Frame { rect: [0.0, 0.0, size.0, size.1], size: Some(size) }),
+        // The file set its own viewport, so the drawing is in its device units and the logical bounds
+        // go through the final mapping.
         Some((c, size)) => {
             let (a, b) = (cv.map.device((c[0], c[1])), cv.map.device((c[2], c[3])));
             let rect = [a.0.min(b.0), a.1.min(b.1), (b.0 - a.0).abs(), (b.1 - a.1).abs()];
             (rect[2] > 0.0 && rect[3] > 0.0).then_some(Frame { rect, size: Some(size) })
+        }
+        None if player_viewport && !cv.viewport_set && cv.map.uses_extents() => {
+            let ve = cv.map.viewport_ext();
+            Some(Frame { rect: [0.0, 0.0, ve.0, ve.1], size: None })
         }
         None if cv.window_set => Some(Frame { rect: cv.map.window_rect(), size: None }),
         None => None,
@@ -74,6 +92,7 @@ fn record(cv: &mut Canvas, func: u16, r: Bytes) {
     let _ = match func {
         0x0103 => r.u16(6).map(|m| cv.set_map_mode(u32::from(m))),
         0x0106 => r.u16(6).map(|m| cv.set_polyfill(u32::from(m))),
+        0x0104 => r.u16(6).map(|m| cv.set_rop2(u32::from(m))),
         // Y is stored before X in these records.
         0x020B => xy16(r, 6).map(|p| cv.set_window_org(p)),
         0x020C => xy16(r, 6).map(|p| cv.set_window_ext(p)),
@@ -88,16 +107,16 @@ fn record(cv: &mut Canvas, func: u16, r: Bytes) {
         0x0213 => xy16(r, 6).map(|p| cv.line_to(p)),
         0x0325 => counted_points(r).map(|pts| cv.poly(&pts, false, false, true)),
         0x0324 => counted_points(r).map(|pts| cv.poly(&pts, true, true, true)),
-        0x0538 => polypolygon(r).map(|ops| cv.shape(&ops, true, true)),
-        0x041B => rect16(r, 6).map(|[l, t, rr, b]| cv.shape(&geom::rect(l, t, rr, b), true, true)),
+        0x0538 => polypolygon(r).map(|ops| cv.shape(ops, true, true)),
+        0x041B => rect16(r, 6).map(|[l, t, rr, b]| cv.shape(geom::rect(l, t, rr, b), true, true)),
         0x061C => {
             let [ew, eh] = [r.i16(8), r.i16(6)];
             let (Some(ew), Some(eh)) = (ew, eh) else { return };
             rect16(r, 10).map(|[l, t, rr, b]| {
-                cv.shape(&geom::round_rect(l, t, rr, b, f64::from(ew), f64::from(eh)), true, true);
+                cv.shape(geom::round_rect(l, t, rr, b, f64::from(ew), f64::from(eh)), true, true);
             })
         }
-        0x0418 => rect16(r, 6).map(|[l, t, rr, b]| cv.shape(&geom::ellipse(l, t, rr, b), true, true)),
+        0x0418 => rect16(r, 6).map(|[l, t, rr, b]| cv.shape(geom::ellipse(l, t, rr, b), true, true)),
         0x0817 | 0x081A | 0x0830 => arc16(r).map(|(bounds, s, e)| {
             let kind = match func {
                 0x0817 => ArcKind::Arc,
@@ -105,7 +124,7 @@ fn record(cv: &mut Canvas, func: u16, r: Bytes) {
                 _ => ArcKind::Chord,
             };
             let [l, t, rr, b] = bounds;
-            cv.shape(&geom::arc_shape(l, t, rr, b, s, e, kind), kind != ArcKind::Arc, true);
+            cv.shape(geom::arc_shape(l, t, rr, b, s, e, kind), kind != ArcKind::Arc, true);
         }),
         0x02FA => create_pen(cv, r),
         0x02FC => create_brush(cv, r),
@@ -246,9 +265,8 @@ fn dib_blit(cv: &mut Canvas, r: Bytes, at: usize, rop: u32, dst: [f64; 4], src: 
     let n = dib::info_len(dib)?;
     let info = dib.slice(0, n)?;
     let bits = dib.tail(n)?;
-    let mut img = dib::decode(Bytes(info), bits, false)?;
+    let (mut img, dst) = dib::decode_clip(Bytes(info), bits, false, src.map(|v| v as i64), dst)?;
     dib::prepare(&mut img, dib::Blend::Rop(rop));
-    let (img, dst) = dib::clip_blit(&img, src.map(|v| v as i64), dst)?;
     cv.bitmap(dst, img);
     Some(())
 }

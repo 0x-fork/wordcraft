@@ -33,8 +33,16 @@ pub(crate) mod pair {
     pub(crate) const PLCF_BKF: usize = 22;
     pub(crate) const PLCF_BKL: usize = 23;
     pub(crate) const CLX: usize = 33;
+    /// `fcPlcSpaMom` / `fcPlcSpaHdr`: floating shape anchors of the main document / headers.
+    pub(crate) const PLC_SPA_MOM: usize = 40;
+    pub(crate) const PLC_SPA_HDR: usize = 41;
     pub(crate) const PLCF_END_REF: usize = 46;
     pub(crate) const PLCF_END_TXT: usize = 47;
+    /// `fcDggInfo`: the OfficeArt drawing content (BLIP store, shapes).
+    pub(crate) const DGG_INFO: usize = 50;
+    /// `fcPlcftxbxTxt` / `fcPlcfHdrtxbxTxt`: text box stories of the main document / headers.
+    pub(crate) const PLCF_TXBX_TXT: usize = 56;
+    pub(crate) const PLCF_HDR_TXBX_TXT: usize = 58;
     /// `fcPlfLst`: the list definitions (LSTF array, with the LVLs appended after the blob).
     pub(crate) const PLF_LST: usize = 73;
     /// `fcPlfLfo`: the list format overrides (LFO array with LFOData appended).
@@ -72,10 +80,33 @@ impl SubDocs {
     }
 }
 
+/// What the unencrypted head of a password-protected file says (see [`peek_encryption`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Protection {
+    pub(crate) flags: u16,
+    /// `FibBase.lKey`: the XOR verifier, or the size of the RC4 header in the Table stream.
+    pub(crate) lkey: u32,
+    pub(crate) which_tbl_stm: bool,
+}
+
+/// Is the WordDocument stream that of an encrypted Word 97-2003 file? Only the first 68 bytes are
+/// stored in the clear; this reads nothing else. `None` for anything else, including streams that
+/// are too short or have a foreign magic (the full parse reports those).
+pub(crate) fn peek_encryption(word: &[u8]) -> Option<Protection> {
+    if word.len() < crate::crypt::FIB_PLAIN || word.get(0..2)? != W_IDENT.to_le_bytes() {
+        return None;
+    }
+    let flags = u16::from_le_bytes([*word.get(OFF_FLAGS)?, *word.get(OFF_FLAGS + 1)?]);
+    if flags & crate::crypt::F_ENCRYPTED == 0 {
+        return None;
+    }
+    let lkey = u32::from_le_bytes([*word.get(0x0E)?, *word.get(0x0F)?, *word.get(0x10)?, *word.get(0x11)?]);
+    Some(Protection { flags, lkey, which_tbl_stm: flags & 0x0200 != 0 })
+}
+
 /// The parsed FIB.
 #[derive(Clone, Debug)]
 pub(crate) struct Fib {
-    pub(crate) encrypted: bool,
     /// Selects 1Table (true) or 0Table (false).
     pub(crate) which_tbl_stm: bool,
     pub(crate) ccp: SubDocs,
@@ -149,6 +180,6 @@ impl Fib {
             pairs.push(u32le(blob_off + i * 4));
         }
 
-        Ok(Fib { encrypted: flags & 0x0100 != 0, which_tbl_stm: flags & 0x0200 != 0, ccp: sub, pairs })
+        Ok(Fib { which_tbl_stm: flags & 0x0200 != 0, ccp: sub, pairs })
     }
 }

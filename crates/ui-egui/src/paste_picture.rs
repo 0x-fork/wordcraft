@@ -16,8 +16,13 @@ use crate::WordApp;
 pub enum ClipboardPicture {
     /// Straight (not premultiplied) RGBA8 pixels, row by row.
     Pixels { width: usize, height: usize, rgba: Vec<u8> },
+    /// An encoded picture (PNG, JPEG, GIF, WebP, BMP) as another program offered it.
+    Encoded(Vec<u8>),
     /// Copied files (a file manager's Copy); the pictures among them are inserted.
     Files(Vec<PathBuf>),
+    /// A picture the host couldn't read, and why (its format isn't supported, the clipboard
+    /// couldn't be reached) — said instead of "the clipboard is empty" (#833).
+    Unreadable(String),
 }
 
 /// Longest side of a pasted picture, in pixels.
@@ -28,7 +33,7 @@ pub const MAX_PIXELS: usize = 50_000_000;
 pub const MAX_FILE_BYTES: u64 = 200 << 20;
 /// Most picture files one paste inserts.
 const MAX_FILES: usize = 20;
-const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "wmf", "emf"];
 
 /// PNG bytes for clipboard pixels, or why they can't be pasted.
 pub fn png_from_rgba(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>, String> {
@@ -82,6 +87,18 @@ pub(crate) fn paste(app: &mut WordApp) -> Option<Result<Value, String>> {
                 Err(e)
             }
         },
+        ClipboardPicture::Encoded(bytes) if bytes.len() as u64 > MAX_FILE_BYTES => {
+            let e = "the clipboard picture is larger than 200 MB".to_string();
+            app.status(e.clone());
+            Err(e)
+        }
+        ClipboardPicture::Encoded(bytes) => app.execute("insert.picture", json!({"data": wordcraft_engine::cmd::insert::base64_encode(&bytes)})),
+        ClipboardPicture::Unreadable(why) => {
+            let e = format!("the picture on the clipboard couldn't be read: {why}");
+            log::warn!("clipboard picture: {e}");
+            app.status(e.clone());
+            Err(e)
+        }
         ClipboardPicture::Files(files) => {
             let files: Vec<PathBuf> = files.into_iter().filter(|p| is_picture_file(p)).take(MAX_FILES).collect();
             if files.is_empty() {
@@ -104,7 +121,27 @@ pub(crate) fn paste(app: &mut WordApp) -> Option<Result<Value, String>> {
             r
         }
     };
+    // Selected once, after the last picture: a selected picture is replaced by the next insert.
+    app.select_inserted_picture(&r);
     Some(r)
+}
+
+/// The picture on the system clipboard as PNG (or the first copied picture file's bytes), for
+/// Paste Special to offer. `None` when there is none, or it is too large or unreadable.
+pub(crate) fn clipboard_png(app: &WordApp) -> Option<Vec<u8>> {
+    match app.services.clipboard_picture.as_ref()?()? {
+        ClipboardPicture::Pixels { width, height, rgba } => png_from_rgba(width, height, rgba).ok(),
+        ClipboardPicture::Encoded(bytes) => Some(bytes),
+        ClipboardPicture::Files(files) => {
+            let path = files.into_iter().take(MAX_FILES).find(|p| is_picture_file(p))?;
+            let size = std::fs::metadata(&path).ok()?.len();
+            if size > MAX_FILE_BYTES.min(wordcraft_engine::cmd::paste::MAX_PICTURE_BYTES as u64 / 4 * 3) {
+                return None;
+            }
+            std::fs::read(path).ok()
+        }
+        ClipboardPicture::Unreadable(_) => None,
+    }
 }
 
 /// Paste text naming copied picture files: insert the pictures when the clipboard holds those
@@ -161,5 +198,68 @@ mod tests {
         // Copied files that aren't pictures leave Paste to the usual clipboard.
         let mut a = app_with(|| Some(ClipboardPicture::Files(vec![PathBuf::from("/tmp/notes.txt")])));
         assert_eq!(a.run("edit.paste", json!({})).unwrap_err(), "the clipboard is empty");
+    }
+
+    /// The ribbon and context-menu Paste commands send no text; the system clipboard's text is
+    /// pasted, as Ctrl+V pastes it, even with a picture copied alongside (#584).
+    #[test]
+    fn paste_without_text_reads_the_system_clipboard() {
+        let services = Services {
+            clipboard_text: Some(Box::new(|| Some("outside".to_string()))),
+            clipboard_picture: Some(Box::new(|| Some(ClipboardPicture::Pixels { width: 4, height: 4, rgba: vec![200; 4 * 4 * 4] }))),
+            ..Default::default()
+        };
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
+        a.run("edit.paste", json!({})).unwrap();
+        a.run("edit.pasteText", json!({})).unwrap();
+        a.run("edit.pasteMerge", json!({})).unwrap();
+        assert_eq!(pictures(&mut a), 0);
+        let focus = a.session.sel.focus.clone();
+        assert_eq!(a.session.doc.para_at(&focus).map(|p| p.text.clone()), Some("outside".repeat(3)));
+        // Paste Special offers the clipboard's text too.
+        let r = a.run("edit.pasteSpecial", json!({})).unwrap();
+        assert!(r["formats"].as_array().is_some_and(|f| f.iter().any(|x| x["id"] == "text")), "{r}");
+    }
+
+    /// Ribbon Paste after copying a picture file in a file manager inserts the picture, not its
+    /// path, as Ctrl+V does.
+    #[test]
+    fn ribbon_paste_of_copied_picture_files_inserts_them() {
+        let path = std::env::temp_dir().join(format!("wc-ribbon-paste-{}.png", std::process::id()));
+        std::fs::write(&path, png_from_rgba(4, 4, vec![200; 4 * 4 * 4]).unwrap()).unwrap();
+        let (text, file) = (path.to_string_lossy().into_owned(), path.clone());
+        let services = Services {
+            clipboard_text: Some(Box::new(move || Some(text.clone()))),
+            clipboard_picture: Some(Box::new(move || Some(ClipboardPicture::Files(vec![file.clone()])))),
+            ..Default::default()
+        };
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
+        let r = a.run("edit.paste", json!({}));
+        let _ = std::fs::remove_file(&path);
+        r.unwrap();
+        assert_eq!(pictures(&mut a), 1);
+        let focus = a.session.sel.focus.clone();
+        assert_eq!(a.session.doc.para_at(&focus).map(|p| p.text.contains("wc-ribbon-paste")), Some(false));
+    }
+
+    /// A pasted picture is selected, with handles, as one inserted from Insert › Pictures is
+    /// (#965); pasting several copied picture files keeps them all and selects the last.
+    #[test]
+    fn pasted_pictures_are_selected() {
+        let mut a = app_with(|| Some(ClipboardPicture::Pixels { width: 4, height: 4, rgba: vec![200; 4 * 4 * 4] }));
+        a.run("edit.paste", json!({})).unwrap();
+        assert!(!a.session.sel.is_collapsed() && crate::objects::selected(&a).is_some(), "pixels: the pasted picture is selected");
+        let dir = std::env::temp_dir().join(format!("wc-paste-965-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files: Vec<PathBuf> = (0..2).map(|i| dir.join(format!("{i}.png"))).collect();
+        for f in &files {
+            std::fs::write(f, png_from_rgba(4, 4, vec![200; 4 * 4 * 4]).unwrap()).unwrap();
+        }
+        let mut a = app_with(move || Some(ClipboardPicture::Files(files.clone())));
+        let r = a.run("edit.paste", json!({}));
+        let _ = std::fs::remove_dir_all(&dir);
+        r.unwrap();
+        assert_eq!(pictures(&mut a), 2, "files: both pictures are kept");
+        assert!(!a.session.sel.is_collapsed() && crate::objects::selected(&a).is_some(), "files: the last picture is selected");
     }
 }

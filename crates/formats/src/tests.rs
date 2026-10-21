@@ -195,6 +195,21 @@ fn numbered_list_after_bullets_keeps_its_kind() {
 }
 
 #[test]
+fn markdown_list_items_that_start_like_blocks_keep_their_text() {
+    for text in ["---", "--", "1. Intro", "# Agenda", "ordinary item"] {
+        let mut d = Document::new();
+        let bul = d.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+        let mut p = Paragraph::with_text(text, CharProps::default()).styled("ListParagraph");
+        p.props.numbering = Some(wordcraft_doc::props::NumRef { num: bul, level: 0 });
+        d.body = vec![para_block(p)];
+        let bytes = export("md", &d).unwrap().unwrap();
+        let blocks = flat(&import("md", &bytes).unwrap().unwrap());
+        let [FBlock::Para(p)] = blocks.as_slice() else { panic!("{text}: {}", String::from_utf8_lossy(&bytes)) };
+        assert_eq!((p.text().as_str(), p.kind, p.list), (text, Kind::Normal, Some(model::ListInfo { ordered: false, level: 0, start: 1 })));
+    }
+}
+
+#[test]
 fn markdown_round_trip() {
     check_round_trip("md", true);
 }
@@ -278,6 +293,34 @@ fn txt_round_trip() {
     let raw: Vec<u8> = "hello world".encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
     assert_eq!(import("txt", &raw).unwrap().unwrap().plain_text(Default::default()), "hello world");
     assert_eq!(import("txt", &[0x63, 0x61, 0x66, 0xE9, 0x80]).unwrap().unwrap().plain_text(Default::default()), "café€");
+}
+
+#[test]
+fn txt_export_writes_symbol_font_text_as_unicode() {
+    let mut d = Document::from_text("Done J\u{F0FC}");
+    d.format_range(&wordcraft_doc::Pos::body(0, 5), &wordcraft_doc::Pos::body(0, 9), &|c| c.font = Some("Wingdings".into())).unwrap();
+    let out = export("txt", &d).unwrap().unwrap();
+    assert_eq!(String::from_utf8(out).unwrap(), "Done \u{263A}\u{2713}");
+}
+
+/// #569: a file with an extension we don't know opens as text when it is text (a playlist), and
+/// a binary file is told apart.
+#[test]
+fn text_sniffing() {
+    use crate::txt::is_text;
+    assert!(is_text(b""));
+    assert!(is_text(b"#EXTM3U\r\n#EXTINF:123,Artist - Title\r\nC:\\Music\\song.mp3\r\n"));
+    assert!(is_text("#EXTM3U\n#EXTINF:-1,Мелодия — ünïcødé\nhttp://x/y.mp3\n".as_bytes()));
+    assert!(is_text(&[0x23, 0x45, 0x58, 0x54, 0xE9, 0x0D, 0x0A, 0x1A])); // Windows-1252, DOS ^Z
+    assert!(is_text(&[0xEF, 0xBB, 0xBF, b'a']));
+    let u16le: Vec<u8> = "#EXTM3U\r\n".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    assert!(is_text(&u16le));
+    assert!(!is_text(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"));
+    assert!(!is_text(b"PK\x03\x04\x14\0\x06\0"));
+    assert!(!is_text(b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n"));
+    assert!(!is_text(&[0x7F, b'E', b'L', b'F', 2, 1, 1, 3, 4, 5, 6, 7, 8]));
+    // Odd-length bytes with zeros mixed in: binary, not UTF-16.
+    assert!(!is_text(&[1, 0, 2, 0, 3]));
 }
 
 #[test]
@@ -575,6 +618,65 @@ fn hostile_importer_input_takes_linear_time() {
     }
 }
 
+/// Backtick runs that never close, each a different length, sent every code span and every link
+/// bracket scan over them looking for a closing run through the rest of the text: superlinear
+/// time on hostile Markdown.
+#[test]
+fn unmatched_backtick_runs_take_linear_time() {
+    use std::time::{Duration, Instant};
+    // Runs of 1, 2, … 2000 backticks (2 MB), none of them closed.
+    let runs = (1..=2000).map(|n| "`".repeat(n)).collect::<Vec<_>>().join(" ");
+    let cases = [runs.clone(), format!("{}{runs}{}", "[".repeat(8), "]".repeat(8)), format!("[{runs}")];
+    for text in cases {
+        let t = Instant::now();
+        let d = import("md", text.as_bytes()).unwrap().unwrap();
+        let plain = d.plain_text(Default::default());
+        let elapsed = t.elapsed();
+        eprintln!("{:?}... took {elapsed:?}", &text[..4]);
+        assert!(elapsed < Duration::from_secs(5), "{:?}... took {elapsed:?}", &text[..4]);
+        assert_eq!(plain.matches('`').count(), text.matches('`').count(), "every backtick stays text");
+    }
+}
+
+/// Code spans and brackets around backticks read as before the backtick runs were indexed.
+#[test]
+fn code_spans_and_links_around_backticks_read_as_before() {
+    // An escaped backtick before a span, a span holding a shorter run, a run nothing closes, a `]`
+    // inside a code span in link text, and link text with a backtick that nothing closes.
+    let flow = crate::markdown::parse("\\``e` `` a ` b `` then ``` and `c` [x `]` y](http://a.org) [p ` q](http://b.org) ``f");
+    let FBlock::Para(p) = &flow.blocks[0] else { panic!("{:?}", flow.blocks) };
+    let spans: Vec<(String, bool, Option<String>)> =
+        p.inlines.iter().filter_map(|i| if let model::Inline::Text(t, f) = i { Some((t.clone(), f.code, f.link.clone())) } else { None }).collect();
+    let code: Vec<&str> = spans.iter().filter(|s| s.1).map(|s| s.0.as_str()).collect();
+    assert_eq!(code, ["e", "a ` b", "c", "]"], "{spans:?}");
+    let linked = |url: &str| spans.iter().filter(|s| s.2.as_deref() == Some(url)).map(|s| s.0.as_str()).collect::<String>();
+    assert_eq!(linked("http://a.org"), "x ] y");
+    assert_eq!(linked("http://b.org"), "p ` q");
+    assert_eq!(p.text(), "`e a ` b then ``` and c x ] y p ` q ``f");
+}
+
+/// A `[` nothing closes, bracketed text that is not a link and links themselves used up the bracket
+/// scans' budget as if each had read the rest of the text: later links in the paragraph were plain
+/// text.
+#[test]
+fn brackets_do_not_turn_later_links_into_text() {
+    let links = |md: &str| {
+        let flow = crate::markdown::parse(md);
+        let FBlock::Para(p) = &flow.blocks[0] else { panic!("{:?}", flow.blocks) };
+        let mut urls: Vec<String> = p.inlines.iter().filter_map(|i| if let model::Inline::Text(_, f) = i { f.link.clone() } else { None }).collect();
+        urls.dedup();
+        urls
+    };
+    // An interval nothing closes, before a link.
+    assert_eq!(links("Intervals [0, 1) and [docs](http://x.org)"), ["http://x.org"]);
+    // References early in a long paragraph, a link at its end.
+    let refs = (1..=12).map(|n| format!("[{n}]")).collect::<Vec<_>>().join(" ");
+    assert_eq!(links(&format!("{refs} {}[docs](http://x.org)", "word ".repeat(4000))), ["http://x.org"]);
+    // Many links through one paragraph.
+    let urls: Vec<String> = (0..60).map(|n| format!("http://x.org/{n}")).collect();
+    assert_eq!(links(&urls.iter().map(|u| format!("[link]({u}) {}", "word ".repeat(20))).collect::<String>()), urls);
+}
+
 /// The bounded scans must not change how ordinary links, images, tags and entities read.
 #[test]
 fn bounded_scans_keep_ordinary_markdown_and_entities() {
@@ -589,4 +691,61 @@ fn bounded_scans_keep_ordinary_markdown_and_entities() {
     let long = format!("<p>&{};</p>", "a".repeat(40));
     let t = import("html", long.as_bytes()).unwrap().unwrap().plain_text(Default::default());
     assert!(t.contains(&"a".repeat(40)), "{t}");
+}
+
+/// A document's hyperlink can be `javascript:` (WordCraft refuses to follow it); the exported
+/// HTML and Markdown must not hand it to a browser either. Web, mail, bookmark and relative links
+/// still export as links.
+#[test]
+fn exported_links_keep_only_safe_targets() {
+    let links = [
+        ("script", "javascript:alert(1)"),
+        ("split", "java\nscript:alert(1)"),
+        ("vb", "vbscript:MsgBox(1)"),
+        ("data", "data:text/html,<b>x</b>"),
+        ("web", "https://ok.example/x"),
+        ("mail", "mailto:a@b.example"),
+        ("bookmark", "#top"),
+        ("relative", "other.html"),
+    ];
+    let mut d = Document::new();
+    let mut p = Paragraph::with_text("", CharProps::default());
+    for (text, l) in links {
+        let n = p.len();
+        p.insert_text(n, text, &CharProps { link: Some(l.to_string()), ..Default::default() }).unwrap();
+        let n = p.len();
+        p.insert_text(n, " ", &CharProps::default()).unwrap();
+    }
+    d.body = vec![para_block(p)];
+    let html = String::from_utf8(export("html", &d).unwrap().unwrap()).unwrap();
+    let md = String::from_utf8(export("md", &d).unwrap().unwrap()).unwrap();
+    for bad in ["javascript", "vbscript", "data:"] {
+        assert!(!html.to_ascii_lowercase().contains(bad), "html: {html}");
+        assert!(!md.to_ascii_lowercase().replace('\n', "").contains(bad), "md: {md}");
+    }
+    for (text, _) in links {
+        assert!(html.contains(text), "html keeps the text {text:?}: {html}");
+        assert!(md.contains(text), "md keeps the text {text:?}: {md}");
+    }
+    for (text, l) in &links[4..] {
+        assert!(html.contains(&format!("<a href=\"{l}\">{text}</a>")), "html: {html}");
+        assert!(md.contains(&format!("[{text}]({l})")), "md: {md}");
+    }
+    for text in ["script", "split", "vb", "data"] {
+        assert!(!html.contains(&format!(">{text}</a>")), "html: {html}");
+        assert!(!md.contains(&format!("[{text}](")), "md: {md}");
+    }
+}
+
+#[test]
+fn hidden_drawings_are_left_out_of_exports() {
+    let mut d = wordcraft_doc::Document::from_text("x");
+    let key = d.add_media(vec![0x89, b'P', b'N', b'G'], "png");
+    for hidden in [false, true] {
+        let float = wordcraft_doc::para::Float { hidden, ..Default::default() };
+        let image = wordcraft_doc::InlineObject::Image { media: key.clone(), w: 10.0, h: 10.0, alt: "Logo".into(), float, crop: [0.0; 4], ole: None };
+        d.insert_object(&wordcraft_doc::Pos::body(0, 0), image, &Default::default()).unwrap();
+    }
+    // Two pictures, one hidden: one comes out.
+    assert_eq!(crate::html::export(&d).matches("<img").count(), 1);
 }

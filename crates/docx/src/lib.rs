@@ -7,26 +7,32 @@
 //! error or a best-effort document, never a panic.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod bibliography;
 mod chart_spec;
 mod crypt;
 mod custom;
 mod flat;
+mod fonts;
 mod package;
 mod read;
 mod smart_art;
 mod units;
 mod wordml2003;
+mod wordml2003_write;
 mod write;
 mod xml;
 
+pub use bibliography::{MAX_SOURCES, Sources, read_sources};
 pub use chart_spec::{chart_items, chart_xml};
 pub use crypt::{
     DEFAULT_SPIN_COUNT, MAX_PASSWORD_CHARS, PasswordCheck, check_password, check_protection_password, decrypt, encrypt, encrypt_with_spin_count,
     is_encrypted, protection_hash,
 };
 pub use flat::{XmlKind, sniff_xml, write as write_flat};
+pub use fonts::{EmbeddedFont, embedded_fonts};
 pub use read::read;
 pub use smart_art::smart_art_items;
+pub use wordml2003_write::write as write_wordml2003;
 pub use write::{write, write_as};
 
 /// Largest `.xml` file read as a Word XML document.

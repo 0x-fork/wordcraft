@@ -29,14 +29,73 @@ fn substitutes(family: &str) -> &'static [&'static str] {
     const SERIF: &[&str] = &["Caladea", "Times New Roman", "Liberation Serif", "Georgia", "Noto Serif", "DejaVu Serif", "Source Serif 4"];
     const MONO: &[&str] = &["Courier New", "Liberation Mono", "Menlo", "Consolas", "DejaVu Sans Mono", "JetBrains Mono"];
     const ARIAL: &[&str] = &["Liberation Sans", "Helvetica", "Helvetica Neue", "Arimo", "Source Sans 3"];
+    const ARIAL_UNICODE: &[&str] = &["Arial", "Liberation Sans", "Helvetica", "Helvetica Neue", "Arimo", "Source Sans 3"];
     const TIMES: &[&str] = &["Liberation Serif", "Times", "Tinos", "Source Serif 4"];
-    const SYMBOL: &[&str] = &["Apple Symbols", "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols", "Source Sans 3"];
+    // Word's symbol fonts (Symbol, Wingdings…) are proprietary: their characters are drawn as their
+    // Unicode equivalents (`wordcraft_doc::symbol_fonts`) from these faces or any face that has them.
+    const SYMBOL: &[&str] = &["Apple Symbols", "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols", "Noto Sans Symbols 2", "Source Sans 3"];
     // Persian / Arabic document fonts. Naskh (book) faces such as B Nazanin, B Lotus, B Zar and
     // Traditional Arabic, then the sans faces (B Yekan, B Titr, IRANSans) people use for
     // headings and screens. Open fonts with full Persian coverage first.
     const NASKH: &[&str] = &["Noto Naskh Arabic", "XB Zar", "XB Niloofar", "Amiri", "Vazirmatn", "Noto Sans Arabic", "DejaVu Sans", "Source Serif 4"];
     const ARABIC_SANS: &[&str] = &["Vazirmatn", "Sahel", "Shabnam", "Samim", "Noto Sans Arabic", "Noto Naskh Arabic", "DejaVu Sans", "Source Sans 3"];
+    // Hebrew document fonts: platform-specific fonts first, then common open source fallbacks.
+    // Windows: Microsoft Office fonts (David, Miriam) are common; Segoe UI is standard.
+    // macOS: Helvetica has good Hebrew support; Geeza Pro is included by default.
+    // Linux: Noto Sans Hebrew is the best option.
+    #[cfg(windows)]
+    const HEBREW: &[&str] = &["Noto Sans Hebrew", "David", "Miriam", "Segoe UI", "Arial", "Tahoma", "DejaVu Sans", "Source Sans 3"];
+    #[cfg(target_os = "macos")]
+    const HEBREW: &[&str] = &["Helvetica", "Noto Sans Hebrew", "Arial", "Tahoma", "Geeza Pro", "DejaVu Sans", "Source Sans 3"];
+    #[cfg(not(any(windows, target_os = "macos")))]
+    const HEBREW: &[&str] = &["Noto Sans Hebrew", "Segoe UI", "Arial", "Tahoma", "DejaVu Sans", "Source Sans 3"];
+    // Thai document fonts (TH Sarabun New, Cordia New, the UPC families…): Thai faces, every one
+    // with Thai letters; [`substitute`] prefers one with Latin letters and digits too, so a run
+    // mixing Thai and Latin keeps one font at one size, as Word substitutes Cordia New for the
+    // whole run (#1549). Windows' own Thai fonts first, then the Mac's, then the open Noto and Thai
+    // Linux Working Group families. The Mac's Thonburi and Sathu carry Apple's `morx` tables
+    // instead of OpenType ones; the shaper applies those, so their marks stack as they should.
+    #[cfg(windows)]
+    const THAI: &[&str] = &["Cordia New", "Leelawadee UI", "Leelawadee", "Tahoma", "Noto Sans Thai", "Browallia New", "Angsana New"];
+    #[cfg(target_os = "macos")]
+    const THAI: &[&str] = &["Thonburi", "Ayuthaya", "Sathu", "Krungthep", "Noto Sans Thai", "Tahoma"];
+    #[cfg(not(any(windows, target_os = "macos")))]
+    const THAI: &[&str] = &["Noto Sans Thai", "Laksaman", "Garuda", "Waree", "Tlwg Typo", "Loma", "Umpush", "Noto Serif Thai"];
+    // Serif Thai document fonts (Angsana New, EucrosiaUPC, Norasi…) prefer a serif Thai face.
+    #[cfg(windows)]
+    const THAI_SERIF: &[&str] = &["Angsana New", "AngsanaUPC", "Noto Serif Thai", "Cordia New", "Leelawadee UI", "Tahoma", "Noto Sans Thai"];
+    #[cfg(target_os = "macos")]
+    const THAI_SERIF: &[&str] = &["Sathu", "Noto Serif Thai", "Thonburi", "Ayuthaya", "Krungthep", "Noto Sans Thai", "Tahoma"];
+    #[cfg(not(any(windows, target_os = "macos")))]
+    const THAI_SERIF: &[&str] = &["Noto Serif Thai", "Norasi", "Kinnari", "Noto Sans Thai", "Laksaman", "Garuda", "Waree"];
+    // Palatino Linotype / Book Antiqua: macOS ships the same design as "Palatino"; open
+    // look-alikes with matching metrics (TeX Gyre Pagella, URW P052 / Palladio) on Linux.
+    const PALATINO: &[&str] = &[
+        "Palatino Linotype",
+        "Palatino",
+        "Book Antiqua",
+        "TeX Gyre Pagella",
+        "P052",
+        "URW Palladio L",
+        "Palladio",
+        "Caladea",
+        "Times New Roman",
+        "Liberation Serif",
+        "Georgia",
+        "Noto Serif",
+        "DejaVu Serif",
+        "Source Serif 4",
+    ];
     let f = family.to_ascii_lowercase();
+    if is_thai_serif(&f) {
+        return THAI_SERIF;
+    }
+    if is_thai(&f) {
+        return THAI;
+    }
+    if is_hebrew(&f) {
+        return HEBREW;
+    }
     if is_persian_naskh(&f) {
         return NASKH;
     }
@@ -44,16 +103,16 @@ fn substitutes(family: &str) -> &'static [&'static str] {
         return ARABIC_SANS;
     }
     match f.as_str() {
+        "palatino linotype" | "book antiqua" | "palatino" => PALATINO,
         "arial" | "helvetica" | "arial nova" => ARIAL,
+        "arial unicode ms" => ARIAL_UNICODE,
         "times new roman" | "times" => TIMES,
         "courier new" | "courier" | "consolas" | "lucida console" | "cascadia code" | "cascadia mono" => MONO,
-        "symbol" | "wingdings" | "segoe ui symbol" | "webdings" => SYMBOL,
+        "symbol" | "wingdings" | "wingdings 2" | "wingdings 3" | "segoe ui symbol" | "webdings" => SYMBOL,
         "cambria"
         | "cambria math"
         | "georgia"
         | "garamond"
-        | "book antiqua"
-        | "palatino linotype"
         | "constantia"
         | "baskerville old face"
         | "century"
@@ -66,6 +125,20 @@ fn substitutes(family: &str) -> &'static [&'static str] {
         _ if f.contains("serif") && !f.contains("sans") => SERIF,
         _ => SANS,
     }
+}
+
+/// The font a Windows 3.1-era charset name stands for: `Times New Roman Cyr`, `Arial CE`,
+/// `Courier New Baltic`, `Arial (Hebrew)`… are aliases Windows keeps (its FontSubstitutes) for
+/// the font itself, and old Russian and Central European documents name them. Other names are
+/// returned unchanged.
+pub fn charset_base_family(family: &str) -> &str {
+    const SUFFIXES: &[&str] = &[" cyr", " ce", " greek", " tur", " baltic", " (arabic)", " (hebrew)", " (vietnamese)"];
+    let lower = family.trim_end().to_ascii_lowercase();
+    SUFFIXES
+        .iter()
+        .find(|s| lower.ends_with(*s) && lower.len() > s.len())
+        .and_then(|s| family.trim_end().get(..lower.len() - s.len()))
+        .map_or(family, str::trim_end)
 }
 
 /// Naskh-style Persian/Arabic document fonts (the "B …" family names come from the common
@@ -148,6 +221,86 @@ fn is_persian_sans(f: &str) -> bool {
     NAMES.contains(&f) || f.starts_with("iransans") || f.starts_with("iranyekan")
 }
 
+/// Thai document fonts: Word's Thai families (Cordia New, Angsana New, Browallia New, the UPC
+/// families, Leelawadee), the Thai national fonts (TH Sarabun New and the other "TH …" fonts),
+/// the Mac's, the Thai Linux Working Group's and Noto's. Matched by name only.
+fn is_thai(f: &str) -> bool {
+    const NAMES: &[&str] = &[
+        "cordia new",
+        "cordiaupc",
+        "angsana new",
+        "angsanaupc",
+        "browallia new",
+        "browalliaupc",
+        "leelawadee",
+        "leelawadee ui",
+        "leelawadee ui semilight",
+        "th sarabun new",
+        "th sarabunpsk",
+        "th sarabun psk",
+        "th sarabun",
+        "thonburi",
+        "ayuthaya",
+        "sathu",
+        "krungthep",
+        "silom",
+        "sukhumvit set",
+        "norasi",
+        "kinnari",
+        "garuda",
+        "laksaman",
+        "loma",
+        "purisa",
+        "sawasdee",
+        "umpush",
+        "waree",
+        "tlwg typo",
+        "tlwg typist",
+        "tlwg mono",
+    ];
+    NAMES.contains(&f) || f.ends_with("upc") || f.starts_with("th ") || f.contains("thai")
+}
+
+/// Serif Thai document fonts.
+fn is_thai_serif(f: &str) -> bool {
+    const NAMES: &[&str] = &["angsana new", "angsanaupc", "eucrosiaupc", "jasmineupc", "kodchiangupc", "dilleniaupc", "norasi", "kinnari"];
+    NAMES.contains(&f) || (f.contains("thai") && f.contains("serif"))
+}
+
+/// Is `family` a Thai document font ([`is_thai`])? A missing one is drawn in a Thai face for the
+/// whole run, never in a Latin substitute (#1549).
+pub fn is_thai_family(family: &str) -> bool {
+    let f = family.to_ascii_lowercase();
+    is_thai(&f) || is_thai_serif(&f)
+}
+
+/// Hebrew document fonts.
+fn is_hebrew(f: &str) -> bool {
+    const NAMES: &[&str] = &["david", "miriam", "noto sans hebrew", "arial hebrew", "calibri hebrew"];
+    NAMES.contains(&f) || f.contains("hebrew")
+}
+
+/// The first installed substitute for a missing `family`. For a Thai font, the first with Latin
+/// letters and digits as well as Thai ones (a Thai face without Latin would leave a mixed run in
+/// two fonts, #1549), else the first with Thai letters, else the first installed.
+fn substitute(db: &FontDb, family: &str) -> Option<&'static str> {
+    let mut installed = substitutes(family).iter().copied().filter(|s| db.has_family(s));
+    if !is_thai_family(family) {
+        return installed.next();
+    }
+    let installed: Vec<&'static str> = installed.collect();
+    let covers = |name: &str, chars: &[char]| {
+        let face = db.face(name, "Regular");
+        face.named(name) && chars.iter().all(|c| face.covers(*c))
+    };
+    installed
+        .iter()
+        .copied()
+        .find(|s| covers(s, &['\u{0E19}', 'A', 'z', '0', '9']))
+        .or_else(|| installed.iter().copied().find(|s| covers(s, &['\u{0E19}'])))
+        .or_else(|| installed.first().copied())
+}
+
 fn style_name(bold: bool, italic: bool) -> &'static str {
     match (bold, italic) {
         (false, false) => "Regular",
@@ -157,58 +310,65 @@ fn style_name(bold: bool, italic: bool) -> &'static str {
     }
 }
 
-/// Resolve `family` with bold/italic to a face (memoised).
+type Memo = (u64, HashMap<(String, bool, bool), Resolved>);
+
+fn resolve_cache() -> &'static Mutex<Memo> {
+    static CACHE: OnceLock<Mutex<Memo>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new((0, HashMap::new())))
+}
+
+const FAMILY_CACHE_MAX: usize = 4096;
+/// Family names longer than this (bytes) are resolved but never remembered.
+const FAMILY_KEY_MAX: usize = 256;
+
+/// Resolve `family` with bold/italic to a face (memoised until user fonts are added or removed,
+/// [`FontDb::generation`]).
 pub fn resolve(family: &str, bold: bool, italic: bool) -> Resolved {
-    static CACHE: OnceLock<Mutex<HashMap<(String, bool, bool), Resolved>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let key = (family.to_string(), bold, italic);
-    if let Some(r) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
-        return *r;
-    }
+    let cache = resolve_cache();
     let db = FontDb::global();
+    let generation = db.generation();
+    let cacheable = family.len() <= FAMILY_KEY_MAX;
+    let key = (if cacheable { family.to_string() } else { String::new() }, bold, italic);
+    {
+        let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.0 != generation {
+            *c = (generation, HashMap::new());
+        }
+        if cacheable && let Some(r) = c.1.get(&key) {
+            return *r;
+        }
+    }
+    // Printer-driver Symbol aliases use the same encoding as Symbol.
+    let base = if family.trim().eq_ignore_ascii_case("Symbol (PCL6)") { "Symbol" } else { charset_base_family(family) };
     let (fam, substituted) = if db.has_family(family) {
         (family.to_string(), false)
+    } else if base != family && db.has_family(base) {
+        // Windows maps the charset names to the font itself: not a substitution.
+        (base.to_string(), false)
     } else {
-        let s = substitutes(family).iter().find(|s| db.has_family(s)).copied().unwrap_or(crate::FALLBACK_FAMILY);
-        (s.to_string(), true)
+        (substitute(db, base).unwrap_or(crate::FALLBACK_FAMILY).to_string(), true)
     };
     let face = db.face(&fam, style_name(bold, italic));
     let r = Resolved { synth_bold: bold && face.weight < 600.0, synth_italic: italic && !face.italic, substituted, face: FaceRef::of(&face) };
-    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, r);
+    let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if cacheable && c.0 == generation {
+        if c.1.len() >= FAMILY_CACHE_MAX {
+            c.1.clear();
+        }
+        c.1.insert(key, r);
+    }
     r
 }
 
-/// The standard Unicode character for a Symbol or Wingdings character stored the way Word stores
-/// it, as the private-use code U+F000 + the font's own code (U+F0B7 is the Symbol bullet). Used
-/// when that font isn't installed: a substitute draws something else, or nothing, at the
-/// private-use code. `None` for other fonts and for codes not in the table.
-pub fn symbol_font_char(family: &str, c: char) -> Option<char> {
-    let code = u32::from(c).checked_sub(0xF000)?;
-    let u = match (family.to_ascii_lowercase().as_str(), code) {
-        // Adobe Symbol encoding.
-        ("symbol", 0xA7) => '\u{2663}',
-        ("symbol", 0xA8) => '\u{2666}',
-        ("symbol", 0xA9) => '\u{2665}',
-        ("symbol", 0xAA) => '\u{2660}',
-        ("symbol", 0xAE) => '\u{2192}',
-        ("symbol", 0xB7) => '\u{2022}',
-        ("symbol", 0xD7) => '\u{22C5}',
-        ("symbol", 0xE0) => '\u{25CA}',
-        // Wingdings characters common as list bullets.
-        ("wingdings", 0x6C) => '\u{25CF}',
-        ("wingdings", 0x6E) => '\u{25A0}',
-        ("wingdings", 0x76) => '\u{2756}',
-        ("wingdings", 0xA7) => '\u{25AA}',
-        ("wingdings", 0xD8) => '\u{27A2}',
-        ("wingdings", 0xFC) => '\u{2714}',
-        _ => return None,
-    };
-    Some(u)
+/// A line's (ascent, descent) from hhea values, both positive: the line gap goes above the ascent.
+fn hhea_line(ascender: i16, descender: i16, line_gap: i16) -> (f64, f64) {
+    (f64::from(ascender) + f64::from(line_gap.max(0)), f64::from(descender).abs())
 }
 
 /// Line metrics for a face in font units: (ascent, descent), both positive, the way word
-/// processors measure single line spacing (OS/2 usWinAscent/usWinDescent, falling back to the
-/// hhea values plus line gap).
+/// processors measure single line spacing: the hhea values with the line gap above the ascent
+/// (Word puts the first baseline that far below the line top), falling back to OS/2
+/// usWinAscent/usWinDescent.
 pub fn line_metrics(face: &crate::FontFace) -> (f64, f64) {
     static CACHE: OnceLock<Mutex<HashMap<u32, (f64, f64)>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -217,12 +377,9 @@ pub fn line_metrics(face: &crate::FontFace) -> (f64, f64) {
     }
     let mut v = (face.ascent.max(1.0), face.descent.abs());
     if let Some(f) = face.skrifa() {
-        // hhea ascender + descender + line gap (Word on macOS); OS/2 win metrics only when the
-        // hhea values are missing, and never more than twice the em.
-        let hhea = f.hhea().ok().map(|h| {
-            let gap = h.line_gap().to_i16().max(0) as f64;
-            (h.ascender().to_i16() as f64 + gap / 2.0, (h.descender().to_i16() as f64).abs() + gap / 2.0)
-        });
+        // hhea ascender + descender + line gap (Word on macOS), the gap above the ascent; OS/2
+        // win metrics only when the hhea values are missing, and never more than twice the em.
+        let hhea = f.hhea().ok().map(|h| hhea_line(h.ascender().to_i16(), h.descender().to_i16(), h.line_gap().to_i16()));
         let win = f.os2().ok().map(|o| (o.us_win_ascent() as f64, o.us_win_descent() as f64));
         let ok = |m: &(f64, f64)| m.0 > 0.0 && m.0 + m.1 <= face.upem * 2.0;
         if let Some(m) = hhea.filter(ok) {
@@ -240,6 +397,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_line_gap_goes_above_the_ascent() {
+        // Times New Roman (hhea 1825 / -443, gap 87), and a font with a large gap: Word puts the
+        // first baseline the ascent plus the whole gap below the line top.
+        assert_eq!(hhea_line(1825, -443, 87), (1912.0, 443.0));
+        assert_eq!(hhea_line(1536, -512, 452), (1988.0, 512.0));
+        // A negative gap adds nothing; the most negative descender doesn't overflow.
+        assert_eq!(hhea_line(1000, -300, -50), (1000.0, 300.0));
+        assert_eq!(hhea_line(1000, i16::MIN, 0), (1000.0, 32768.0));
+    }
+
+    #[test]
+    fn family_cache_stays_bounded() {
+        for i in 0..(FAMILY_CACHE_MAX + 50) {
+            let _ = resolve(&format!("Zz Missing Family {i}"), false, false);
+        }
+        assert!(resolve_cache().lock().unwrap_or_else(|e| e.into_inner()).1.len() <= FAMILY_CACHE_MAX);
+        let long = "L".repeat(10_000);
+        let _ = resolve(&long, false, false);
+        assert!(!resolve_cache().lock().unwrap_or_else(|e| e.into_inner()).1.keys().any(|k| k.0.len() > 1000));
+    }
+
+    #[test]
     fn unknown_family_substitutes() {
         let r = resolve("Definitely Not A Font 123", false, false);
         assert!(r.substituted);
@@ -251,16 +430,55 @@ mod tests {
     }
 
     #[test]
-    fn symbol_font_chars_map_to_unicode() {
-        assert_eq!(symbol_font_char("Symbol", '\u{F0B7}'), Some('\u{2022}'));
-        assert_eq!(symbol_font_char("symbol", '\u{F0B7}'), Some('\u{2022}'));
-        assert_eq!(symbol_font_char("Wingdings", '\u{F0A7}'), Some('\u{25AA}'));
-        assert_eq!(symbol_font_char("Wingdings", '\u{F0D8}'), Some('\u{27A2}'));
-        // Same code, other font; unknown codes; ordinary characters.
-        assert_eq!(symbol_font_char("Arial", '\u{F0B7}'), None);
-        assert_eq!(symbol_font_char("Symbol", '\u{F041}'), None);
-        assert_eq!(symbol_font_char("Symbol", 'a'), None);
-        assert_eq!(symbol_font_char("Symbol", '\u{10FFFF}'), None);
+    fn palatino_family_prefers_palatino_look_alikes_over_generic_serif() {
+        for name in ["Palatino Linotype", "Book Antiqua", "palatino"] {
+            let list = substitutes(name);
+            let pos = |n: &str| list.iter().position(|x| *x == n);
+            assert!(pos("Palatino").is_some() && pos("TeX Gyre Pagella").is_some() && pos("P052").is_some(), "{name}");
+            // All of them come before the generic serif fallbacks (Caladea, Times New Roman).
+            assert!(pos("Palatino") < pos("Caladea") && pos("TeX Gyre Pagella") < pos("Times New Roman"), "{name}");
+        }
+        // Other serif families are unchanged.
+        assert_eq!(substitutes("Georgia").first(), Some(&"Caladea"));
+        // Charset aliases are the font itself, so they substitute like it.
+        assert_eq!(charset_base_family("Times New Roman Cyr"), "Times New Roman");
+        assert_eq!(charset_base_family("Arial CYR"), "Arial");
+        assert_eq!(charset_base_family("Courier New CE"), "Courier New");
+        assert_eq!(charset_base_family("Arial (Hebrew)"), "Arial");
+        assert_eq!(charset_base_family("Cyr"), "Cyr");
+        assert_eq!(charset_base_family("Calibri"), "Calibri");
+        assert_eq!(substitutes(charset_base_family("Times New Roman Cyr")), substitutes("Times New Roman"));
+    }
+
+    #[test]
+    fn pcl6_symbol_resolves_as_symbol() {
+        let actual = resolve("Symbol (PCL6)", false, false);
+        let db = FontDb::global();
+        if db.has_family("Symbol (PCL6)") {
+            assert_eq!(actual.face.id(), db.face("Symbol (PCL6)", "Regular").id());
+            assert!(!actual.substituted);
+            return;
+        }
+        let expected = resolve("Symbol", false, false);
+        assert_eq!(actual.face.id(), expected.face.id());
+        assert_eq!(actual.substituted, expected.substituted);
+    }
+
+    #[test]
+    fn unicode_arial_is_proportional() {
+        for name in ["Arial Unicode MS", "ARIAL UNICODE MS"] {
+            let candidates = substitutes(name);
+            assert_eq!(candidates.first(), Some(&"Arial"));
+            assert_eq!(&candidates[1..], substitutes("Arial"));
+        }
+        assert_eq!(substitutes("Cascadia Code").first(), Some(&"Courier New"));
+    }
+
+    #[test]
+    fn symbol_fonts_substitute_symbol_faces() {
+        for f in ["Symbol", "Wingdings", "Wingdings 2", "Wingdings 3", "Webdings"] {
+            assert!(substitutes(f).contains(&"Noto Sans Symbols 2"), "{f}");
+        }
     }
 
     #[test]
@@ -280,5 +498,103 @@ mod tests {
         // JetBrains Mono ships only Regular here.
         let r = resolve("JetBrains Mono", true, true);
         assert!(r.synth_bold && r.synth_italic);
+    }
+
+    #[test]
+    fn hebrew_fonts_substitute_hebrew_faces() {
+        for f in ["David", "Miriam", "Arial Hebrew", "Calibri Hebrew", "Noto Sans Hebrew"] {
+            assert!(substitutes(f).contains(&"Noto Sans Hebrew"), "{f}");
+            // David is a Windows font; only the Windows list offers it.
+            if cfg!(target_os = "windows") {
+                assert!(substitutes(f).contains(&"David") || f == "David", "{f}");
+            }
+        }
+        // Generic names with "Hebrew" in them also get Hebrew substitutions
+        assert!(substitutes("SomeFont Hebrew").contains(&"Noto Sans Hebrew"));
+    }
+
+    #[test]
+    fn thai_fonts_substitute_thai_faces() {
+        // Every Thai document family maps to a list of Thai faces, never to the Latin lists.
+        for f in [
+            "TH Sarabun New",
+            "TH SarabunPSK",
+            "Angsana New",
+            "AngsanaUPC",
+            "Cordia New",
+            "CordiaUPC",
+            "Browallia New",
+            "BrowalliaUPC",
+            "JasmineUPC",
+            "KodchiangUPC",
+            "LilyUPC",
+            "DilleniaUPC",
+            "EucrosiaUPC",
+            "FreesiaUPC",
+            "IrisUPC",
+            "Leelawadee",
+            "Leelawadee UI",
+            "Noto Sans Thai",
+            "TH Niramit AS",
+        ] {
+            assert!(is_thai_family(f), "{f}");
+            let list = substitutes(f);
+            assert!(list.iter().any(|s| s.contains("Thai")), "{f}: {list:?}");
+            assert!(!list.contains(&"Carlito") && !list.contains(&"Caladea"), "{f}: {list:?}");
+        }
+        // Serif Thai families prefer a serif Thai face; the sans families a sans one.
+        let pos = |family: &str, name: &str| substitutes(family).iter().position(|s| *s == name).unwrap_or(usize::MAX);
+        assert!(pos("Angsana New", "Noto Serif Thai") < pos("Angsana New", "Noto Sans Thai"));
+        assert!(pos("TH Sarabun New", "Noto Sans Thai") < pos("TH Sarabun New", "Noto Serif Thai"));
+        // Latin and other script families are unchanged.
+        assert!(!is_thai_family("Arial") && !is_thai_family("Tahoma") && !is_thai_family("Calibri") && !is_thai_family("David"));
+        assert_eq!(substitutes("Calibri").first(), Some(&"Carlito"));
+    }
+
+    #[test]
+    fn a_missing_thai_font_resolves_to_an_installed_thai_face() {
+        // The issue's run (#1549): Thai letters and digits, Latin letters, digits and the baht
+        // sign in one run of a Thai font that isn't installed.
+        const RUN: &str = "[D] น้ำ ค่ำ ปั้น ฝั่ง ปู่ ๑๒๓๔๕๖๗๘๙๐ ฿1,250.50";
+        let db = FontDb::global();
+        for family in ["TH Sarabun New", "Angsana New", "Cordia New", "BrowalliaUPC"] {
+            if db.has_family(family) {
+                continue;
+            }
+            let r = resolve(family, false, false);
+            let face = r.face.get();
+            if !face.covers('\u{0E19}') {
+                eprintln!("skipped {family}: no Thai face from its substitute list is installed");
+                continue;
+            }
+            assert!(r.substituted, "{family}");
+            let thai: Vec<char> = RUN.chars().filter(|c| ('\u{0E00}'..='\u{0E7F}').contains(c) && !face.covers(*c)).collect();
+            assert!(thai.is_empty(), "{family} → {} lacks {thai:?}", face.family);
+            // A listed Thai face with Latin letters and digits wins over one without them.
+            let latin = |name: &str| {
+                let f = db.face(name, "Regular");
+                f.named(name) && f.covers('\u{0E19}') && f.covers('D') && f.covers('5')
+            };
+            if substitutes(family).iter().any(|s| db.has_family(s) && latin(s)) {
+                let missing: Vec<char> = RUN.chars().filter(|c| !c.is_whitespace() && !face.covers(*c)).collect();
+                assert!(missing.is_empty(), "{family} → {} lacks {missing:?}", face.family);
+            }
+        }
+    }
+
+    #[test]
+    fn thonburi_stacks_thai_marks_through_its_apple_tables() {
+        // Thonburi has `morx` but no GSUB: the shaper must still move a tone mark up over an upper
+        // vowel (ปั่) instead of drawing it where it sits on a bare consonant (ป่).
+        let db = FontDb::global();
+        if !db.has_family("Thonburi") {
+            eprintln!("skipped: Thonburi not installed");
+            return;
+        }
+        let face = db.face("Thonburi", "Regular");
+        let tone = |text: &str| crate::shape(&face, text, &[], |c| c).into_iter().last().map(|g| (g.gid, g.y_offset));
+        let (bare, stacked) = (tone("\u{0E1B}\u{0E48}"), tone("\u{0E1B}\u{0E31}\u{0E48}"));
+        assert!(bare.is_some() && stacked.is_some());
+        assert_ne!(bare, stacked, "the tone mark over ั is raised or swapped");
     }
 }

@@ -133,3 +133,80 @@ fn hostile_link_chains_stay_bounded() {
         assert_eq!(lines(&l, id).len(), 1, "box {id} shows its own text");
     }
 }
+
+#[test]
+fn own_margins_and_resize_to_fit_keep_the_text_in_view() {
+    // #743: a cover page's two-line box with no margins (`lIns="0"`…) is just tall enough for
+    // its text; with Word's default margins its second line would be cut.
+    let two = |h: f32, body: TextBody| {
+        let mut d = Document::from_text("x");
+        let id = text_box(&mut d, 0, "One", 144.0, h, body);
+        d.parts.get_mut(&id).unwrap().blocks =
+            vec![para_block(Paragraph::with_text("One", Default::default())), para_block(Paragraph::with_text("Two", Default::default()))];
+        let l = lay(&d);
+        let shown: usize = lines(&l, id).iter().map(|(.., l0, l1)| l1 - l0).sum();
+        (shown, lines(&l, id).first().map(|(x, y, ..)| (*x, *y)), frame_of(&l, id))
+    };
+    // How deep the two lines reach without margins, from a box with room to spare.
+    let zero = TextBody { inset: Some([0; 4]), ..Default::default() };
+    let mut d = Document::from_text("x");
+    let id = text_box(&mut d, 0, "One", 144.0, 400.0, zero);
+    d.parts.get_mut(&id).unwrap().blocks =
+        vec![para_block(Paragraph::with_text("One", Default::default())), para_block(Paragraph::with_text("Two", Default::default()))];
+    let l = lay(&d);
+    let r = frame_of(&l, id);
+    let need = l.pages[0]
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Placed::Lines { story: StoryRef::Part(s), para, l0, l1, y, .. } if *s == id => {
+                let (first, last) = (para.lines.get(*l0)?, para.lines.get(l1.checked_sub(1)?)?);
+                Some(y + last.top + last.height - first.top - r.y)
+            }
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    assert!(need > 10.0, "{need}");
+    let (shown, at, r) = two(need + 1.0, zero);
+    assert_eq!(shown, 2, "both lines fit without margins");
+    let (x, y) = at.unwrap();
+    assert!((x - r.x).abs() < 0.5 && (y - r.y).abs() < 0.5, "text starts at the box's corner: {x},{y} in {r:?}");
+    assert_eq!(two(need + 1.0, TextBody::default()).0, 1, "Word's default margins cut the second line");
+    let (shown, ..) = two(need / 2.0, TextBody { auto_fit: true, ..Default::default() });
+    assert_eq!(shown, 2, "a box that resizes to fit its text shows it all");
+    // Hostile margins wider than the box still lay out.
+    let (shown, ..) = two(20.0, TextBody { inset: Some([u32::MAX; 4]), ..Default::default() });
+    assert!(shown >= 1);
+}
+
+#[test]
+fn inline_box_that_resizes_to_fit_takes_its_texts_height() {
+    // #2791: an inline box with Resize shape to fit text, saved 10 cm tall around three short
+    // lines, shrinks to them as in Word; the page break after it stays on the first page.
+    let brk = wordcraft_doc::para::PAGE_BREAK;
+    let doc = |auto_fit: bool| {
+        let filler: Vec<String> = (1..=FILLER).map(|i| format!("Filler line {i}")).collect();
+        let mut d = Document::from_text(&format!("{}\n\n\n{brk}\nSecond page text.", filler.join("\n")));
+        let id = text_box(&mut d, FILLER, "", 453.5, 283.46, TextBody { auto_fit, anchor: VAlign::Center, ..Default::default() });
+        d.parts.get_mut(&id).unwrap().blocks =
+            (1..=3).map(|i| para_block(Paragraph::with_text(&format!("Text box line {i}"), Default::default()))).collect();
+        let l = lay(&d);
+        let r = l.pages.iter().find_map(|p| {
+            p.items.iter().find_map(|it| match it {
+                Placed::Object { rect, text_box: Some(s), .. } if *s == id => Some(*rect),
+                _ => None,
+            })
+        });
+        (l.pages.len(), r.unwrap())
+    };
+    let (pages, r) = doc(true);
+    assert!(r.h > 3.0 * 12.0 && r.h < 80.0, "the box fits its three lines: {r:?}");
+    assert_eq!(pages, 2, "the page break stays on the first page");
+    let (pages, saved) = doc(false);
+    assert_eq!(pages, 3, "a box keeping its 10 cm pushes the page break over");
+    assert!((saved.h - 283.46).abs() < 1.0, "without auto-fit the box keeps its saved height: {saved:?}");
+}
+
+/// Filler paragraphs before the box in [`inline_box_that_resizes_to_fit_takes_its_texts_height`]:
+/// enough that a 10 cm box no longer leaves room for the page break on the first page.
+const FILLER: usize = 22;

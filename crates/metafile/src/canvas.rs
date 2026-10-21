@@ -8,6 +8,7 @@ use crate::{MAX_BYTES, MAX_ITEMS, MAX_OBJECTS, MAX_PATH_OPS, MAX_STACK};
 
 pub(crate) const MM_TEXT: u32 = 1;
 const MM_ISOTROPIC: u32 = 7;
+const MM_ANISOTROPIC: u32 = 8;
 const STOCK: u32 = 0x8000_0000;
 pub(crate) const PS_NULL: u32 = 5;
 /// Pen style bits; the rest of the style word holds end-cap, join and type flags.
@@ -15,6 +16,8 @@ pub(crate) const PS_STYLE_MASK: u32 = 0x0F;
 const BS_SOLID: u32 = 0;
 pub(crate) const BS_NULL: u32 = 1;
 const WINDING: u32 = 2;
+/// SETROP2 mix mode that leaves the destination alone: outlines and fills draw nothing.
+const R2_NOP: u32 = 11;
 const PATCOPY: u32 = 0x00F0_0021;
 const BLACKNESS: u32 = 0x0000_0042;
 const WHITENESS: u32 = 0x00FF_0062;
@@ -135,6 +138,19 @@ impl Mapping {
         det * (sx.abs() + sy.abs()) / 2.0
     }
 
+    /// True when the window-to-viewport extents set the scale (the isotropic and anisotropic modes).
+    pub fn uses_extents(&self) -> bool {
+        matches!(self.mode, MM_ISOTROPIC | MM_ANISOTROPIC)
+    }
+
+    pub fn window_ext(&self) -> P {
+        self.we
+    }
+
+    pub fn viewport_ext(&self) -> P {
+        self.ve
+    }
+
     /// The window in device units as `[x, y, w, h]` with positive extents, used as the picture frame
     /// of a plain WMF.
     pub fn window_rect(&self) -> [f64; 4] {
@@ -160,6 +176,7 @@ struct Saved {
     pen: Pen,
     brush: Brush,
     even_odd: bool,
+    nop: bool,
 }
 
 pub(crate) struct Canvas {
@@ -167,13 +184,23 @@ pub(crate) struct Canvas {
     pub map: Mapping,
     /// True once SETWINDOWEXT was seen, so a plain WMF has a frame to use.
     pub window_set: bool,
+    /// True once the file set the viewport extent itself (not the player, see [`Canvas::play_into`]).
+    pub viewport_set: bool,
     saved: Vec<Saved>,
     /// Bytes held by the items so far (path ops and pixels), capped at [`MAX_BYTES`].
     used: usize,
     objects: Vec<Option<Obj>>,
+    /// Indices below `objects.len()` that hold no object, so the WMF handle table finds its lowest
+    /// free slot without scanning.
+    free: std::collections::BTreeSet<usize>,
+    /// Table slots examined by `add_object(None, ..)`; the tests assert it stays constant per call.
+    #[cfg(test)]
+    pub slot_probes: usize,
     pen: Pen,
     brush: Brush,
     even_odd: bool,
+    /// The mix mode is R2_NOP: shapes draw nothing.
+    nop: bool,
     pos: P,
     in_path: bool,
     path: Vec<Op>,
@@ -186,12 +213,17 @@ impl Canvas {
             items: Vec::new(),
             map: Mapping::identity(),
             window_set: false,
+            viewport_set: false,
             saved: Vec::new(),
             used: 0,
             objects: Vec::new(),
+            free: std::collections::BTreeSet::new(),
+            #[cfg(test)]
+            slot_probes: 0,
             pen: Pen { style: 0, width: 0.0, color: [0, 0, 0, 255] },
             brush: Brush { style: BS_SOLID, color: [255, 255, 255, 255] },
             even_odd: true,
+            nop: false,
             pos: (0.0, 0.0),
             in_path: false,
             path: Vec::new(),
@@ -232,6 +264,22 @@ impl Canvas {
 
     pub fn set_viewport_ext(&mut self, e: P) {
         self.map.ve = e;
+        self.viewport_set = true;
+    }
+
+    /// Sets up the mapping the way a player does before it plays a WMF into a target: anisotropic,
+    /// `window` (`[x, y, w, h]` in logical units) onto a viewport of `size` at the origin. The file's
+    /// own window records then replace the window; the viewport stays unless the file sets one.
+    /// Without a window (a plain WMF) only the viewport extent is set: the map mode and viewport
+    /// origin stay the file's.
+    pub fn play_into(&mut self, window: Option<[f64; 4]>, size: P) {
+        if let Some([x, y, w, h]) = window {
+            self.map.mode = MM_ANISOTROPIC;
+            self.map.wo = (x, y);
+            self.map.we = (w, h);
+            self.map.vo = (0.0, 0.0);
+        }
+        self.map.ve = size;
     }
 
     pub fn set_map_mode(&mut self, mode: u32) {
@@ -247,6 +295,11 @@ impl Canvas {
 
     pub fn set_polyfill(&mut self, mode: u32) {
         self.even_odd = mode != WINDING;
+    }
+
+    /// SETROP2: only R2_NOP changes what is drawn (nothing); the other mix modes draw as copy.
+    pub fn set_rop2(&mut self, mode: u32) {
+        self.nop = mode == R2_NOP;
     }
 
     /// EMF SETWORLDTRANSFORM (`mode` 4) and MODIFYWORLDTRANSFORM (1 identity, 2 left, 3 right, 4 set).
@@ -265,7 +318,7 @@ impl Canvas {
     /// could no longer match the file.
     pub fn save_dc(&mut self) {
         if self.saved.len() < MAX_STACK {
-            self.saved.push(Saved { map: self.map, pen: self.pen, brush: self.brush, even_odd: self.even_odd });
+            self.saved.push(Saved { map: self.map, pen: self.pen, brush: self.brush, even_odd: self.even_odd, nop: self.nop });
         } else {
             self.full = true;
         }
@@ -281,22 +334,30 @@ impl Canvas {
         self.pen = s.pen;
         self.brush = s.brush;
         self.even_odd = s.even_odd;
+        self.nop = s.nop;
     }
 
-    /// Stores an object in `slot` (EMF index), or in the first free slot (WMF handle table).
+    /// Stores an object in `slot` (EMF index), or in the lowest free slot (WMF handle table).
     pub fn add_object(&mut self, slot: Option<usize>, obj: Obj) {
         match slot {
             Some(i) if i < MAX_OBJECTS => {
+                // Growing the table leaves the slots between the old end and `i` free.
+                self.free.extend(self.objects.len()..i);
                 if self.objects.len() <= i {
                     self.objects.resize(i + 1, None);
                 }
+                self.free.remove(&i);
                 if let Some(s) = self.objects.get_mut(i) {
                     *s = Some(obj);
                 }
             }
             Some(_) => {}
-            None => match self.objects.iter().position(Option::is_none) {
+            None => match self.free.pop_first() {
                 Some(i) => {
+                    #[cfg(test)]
+                    {
+                        self.slot_probes += 1;
+                    }
                     if let Some(s) = self.objects.get_mut(i) {
                         *s = Some(obj);
                     }
@@ -308,8 +369,10 @@ impl Canvas {
     }
 
     pub fn delete_object(&mut self, i: u32) {
-        if let Some(s) = self.objects.get_mut(i as usize) {
+        let i = i as usize;
+        if let Some(s) = self.objects.get_mut(i) {
             *s = None;
+            self.free.insert(i);
         }
     }
 
@@ -376,10 +439,16 @@ impl Canvas {
 
     /// Draws logical-space ops with the current pen (`stroke`) and brush (`fill`), or appends them to
     /// the open path bracket, where fill and stroke wait for FILLPATH/STROKEPATH.
-    pub fn shape(&mut self, ops: &[Op], fill: bool, stroke: bool) {
-        let dev: Vec<Op> = ops.iter().map(|o| self.map_op(*o)).collect();
+    pub fn shape(&mut self, mut dev: Vec<Op>, fill: bool, stroke: bool) {
+        // Maps in place: the caller's vector becomes the device-space path, no second copy.
+        for op in &mut dev {
+            *op = self.map_op(*op);
+        }
         if self.in_path {
             return self.push_path_ops(dev);
+        }
+        if self.nop {
+            return;
         }
         let fill = if fill { self.fill_color() } else { None };
         let stroke = if stroke { self.stroke_pen() } else { None };
@@ -410,14 +479,14 @@ impl Canvas {
         if let Some(last) = pts.last() {
             self.pos = *last;
         }
-        self.shape(&ops, fill, stroke);
+        self.shape(ops, fill, stroke);
     }
 
     /// POLYBEZIER: cubic segments that start a new figure at `from`. The current point is unchanged.
     pub fn bezier(&mut self, from: P, pts: &[P]) {
         let mut ops = vec![Op::M(from)];
         ops.extend(cubics(pts));
-        self.shape(&ops, false, true);
+        self.shape(ops, false, true);
     }
 
     /// POLYBEZIERTO: cubic segments from the current point through groups of three control or end
@@ -429,7 +498,7 @@ impl Canvas {
         if let Some(last) = pts.last() {
             self.pos = *last;
         }
-        self.shape(&ops, false, true);
+        self.shape(ops, false, true);
     }
 
     pub fn poly(&mut self, pts: &[P], close: bool, fill: bool, stroke: bool) {
@@ -439,7 +508,7 @@ impl Canvas {
         if close {
             ops.push(Op::Z);
         }
-        self.shape(&ops, fill, stroke);
+        self.shape(ops, fill, stroke);
     }
 
     pub fn begin_path(&mut self) {
@@ -460,6 +529,9 @@ impl Canvas {
     /// FILLPATH, STROKEPATH and STROKEANDFILLPATH: paints the bracketed path and empties it.
     pub fn paint_path(&mut self, fill: bool, stroke: bool) {
         let ops = std::mem::take(&mut self.path);
+        if self.nop {
+            return;
+        }
         let fill = if fill { self.fill_color() } else { None };
         let stroke = if stroke { self.stroke_pen() } else { None };
         if ops.len() < 2 || (fill.is_none() && stroke.is_none()) {
@@ -520,4 +592,105 @@ fn cubics(pts: &[P]) -> Vec<Op> {
         ops.push(Op::C(a, b, e));
     }
     ops
+}
+
+#[cfg(test)]
+mod object_table_tests {
+    use super::*;
+
+    fn pen(id: u32) -> Obj {
+        Obj::Pen(Pen { style: 0, width: 0.0, color: [id as u8, (id >> 8) as u8, 0, 255] })
+    }
+
+    fn id_of(o: &Option<Obj>) -> Option<u32> {
+        match o {
+            Some(Obj::Pen(p)) => Some(u32::from(p.color[0]) | u32::from(p.color[1]) << 8),
+            _ => None,
+        }
+    }
+
+    /// The table as it was before the free-slot set: a scan from index 0 for every handle-table create.
+    struct Naive(Vec<Option<u32>>);
+
+    impl Naive {
+        fn add(&mut self, slot: Option<usize>, id: u32) {
+            match slot {
+                Some(i) if i < MAX_OBJECTS => {
+                    if self.0.len() <= i {
+                        self.0.resize(i + 1, None);
+                    }
+                    self.0[i] = Some(id);
+                }
+                Some(_) => {}
+                None => match self.0.iter().position(Option::is_none) {
+                    Some(i) => self.0[i] = Some(id),
+                    None if self.0.len() < MAX_OBJECTS => self.0.push(Some(id)),
+                    None => {}
+                },
+            }
+        }
+
+        fn delete(&mut self, i: u32) {
+            if let Some(s) = self.0.get_mut(i as usize) {
+                *s = None;
+            }
+        }
+    }
+
+    #[test]
+    fn handle_table_picks_the_same_slots_as_the_first_free_scan() {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut rnd = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for round in 0..20 {
+            // Small tables exercise reuse; some rounds also run past the cap and use explicit EMF slots.
+            let span = if round % 2 == 0 { 12 } else { MAX_OBJECTS as u64 + 50 };
+            let (mut cv, mut naive) = (Canvas::new(), Naive(Vec::new()));
+            for id in 0..20_000u32 {
+                match rnd(10) {
+                    0..=4 => {
+                        cv.add_object(None, pen(id));
+                        naive.add(None, id);
+                    }
+                    5 | 6 if round >= 10 => {
+                        let slot = rnd(span + 20) as usize;
+                        cv.add_object(Some(slot), pen(id));
+                        naive.add(Some(slot), id);
+                    }
+                    _ => {
+                        let i = rnd(span + 5) as u32;
+                        cv.delete_object(i);
+                        naive.delete(i);
+                    }
+                }
+                if id % 500 == 0 || id == 19_999 {
+                    let got: Vec<Option<u32>> = cv.objects.iter().map(id_of).collect();
+                    assert_eq!(got, naive.0, "round {round}, step {id}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn creating_into_a_full_table_does_not_scan_it() {
+        let mut cv = Canvas::new();
+        for i in 0..MAX_OBJECTS as u32 {
+            cv.add_object(None, pen(i));
+        }
+        assert_eq!(cv.objects.len(), MAX_OBJECTS);
+        let before = cv.slot_probes;
+        for i in 0..10_000 {
+            cv.add_object(None, pen(i));
+        }
+        // A scan from index 0 would examine 4096 slots per create; the free set examines none.
+        assert_eq!(cv.slot_probes, before);
+        cv.delete_object(7);
+        cv.add_object(None, pen(99));
+        assert_eq!(cv.slot_probes, before + 1);
+        assert_eq!(cv.objects.get(7).map(id_of), Some(Some(99)));
+    }
 }

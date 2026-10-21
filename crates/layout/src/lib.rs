@@ -8,6 +8,7 @@
 //! - [`hit`]: point ↔ position, caret geometry, line navigation, selection rectangles.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod balloons;
 mod contour;
 pub mod display;
 pub mod fields;
@@ -16,6 +17,7 @@ pub mod kinsoku;
 pub mod math;
 pub mod outline;
 pub mod para;
+pub mod styleref;
 mod table;
 mod textbox;
 mod vertical;
@@ -27,7 +29,7 @@ use std::sync::Arc;
 
 use wordcraft_doc::numbering::{Counters, Level};
 use wordcraft_doc::para::{Anchor, Float, FloatAlign, InlineObject, Wrap, WrapText};
-use wordcraft_doc::props::{Border, CharProps, Rgb, TableFloat, TextDirection};
+use wordcraft_doc::props::{Border, CharProps, HeightRule, Rgb, TableFloat, TextDirection};
 use wordcraft_doc::section::{HeaderSet, SectionProps, SectionStart};
 use wordcraft_doc::{Block, Blocks, Document, Paragraph, Path, StoryRef};
 use wordcraft_geom::{Point, Rect, Spin};
@@ -35,7 +37,7 @@ use wordcraft_geom::{Point, Rect, Spin};
 pub use fields::FieldCtx;
 pub use hit::VisualStep;
 pub use para::{LineEnd, ParaLayout};
-pub use table::{autofit_widths, measure_table_columns};
+pub use table::{autofit_widths, cell_margins, measure_table_columns};
 
 /// How the document is viewed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -47,8 +49,92 @@ pub enum ViewMode {
     Web,
     /// Draft: like web, page breaks shown as rules.
     Draft,
+    /// Reading: reflow into viewport-height narrow pages, navigated horizontally.
+    Read,
     /// Outline: like draft, the body as an outline of its headings ([`outline`]).
     Outline,
+}
+
+/// How digits look on screen (Word › File › Options › Advanced › Numeral).
+///
+/// Display only: the document text keeps the typed codepoints, so find, spelling, copying and
+/// the saved file all see the original digits. Extended Arabic-Indic digits (U+06F0–U+06F9,
+/// Persian/Urdu ۰۱۲۳…) always show as typed; only ASCII and Arabic-Indic (U+0660–U+0669) digits
+/// are substituted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NumeralMode {
+    /// Western digits everywhere (`0123456789`); the default, today's behaviour.
+    #[default]
+    Arabic,
+    /// Eastern Arabic-Indic digits everywhere (`٠١٢٣٤٥٦٧٨٩`).
+    Hindi,
+    /// Hindi digits in and around right-to-left text, Western digits elsewhere (numbers take
+    /// an even bidi level, so the surrounding text decides).
+    Context,
+    /// Hindi digits when the system locale is an Arabic-script language, else Western digits.
+    /// Call [`NumeralMode::resolve`] before laying out.
+    System,
+}
+
+impl NumeralMode {
+    /// Short UI label (Word's option names).
+    pub fn label(self) -> &'static str {
+        match self {
+            NumeralMode::Arabic => "Arabic",
+            NumeralMode::Hindi => "Hindi",
+            NumeralMode::Context => "Context",
+            NumeralMode::System => "System",
+        }
+    }
+
+    /// Parse a command value (`"arabic" | "hindi" | "context" | "system"`, any case).
+    pub fn parse(s: &str) -> Option<NumeralMode> {
+        match s.to_lowercase().as_str() {
+            "arabic" => Some(NumeralMode::Arabic),
+            "hindi" => Some(NumeralMode::Hindi),
+            "context" => Some(NumeralMode::Context),
+            "system" => Some(NumeralMode::System),
+            _ => None,
+        }
+    }
+
+    /// Resolve `System` against the system locale (a BCP 47 or POSIX tag such as `ar-EG` or
+    /// `fa_IR.UTF-8`, found by the shell: layout never reads the environment). Hindi digits for
+    /// Arabic-script languages, else Western; unknown locale = Western. Other modes pass through.
+    pub fn resolve(self, system_locale: Option<&str>) -> NumeralMode {
+        if self != NumeralMode::System {
+            return self;
+        }
+        if system_locale.is_some_and(hindi_locale) { NumeralMode::Hindi } else { NumeralMode::Arabic }
+    }
+
+    /// The displayed form of `c` in a run shaped with direction `rtl`.
+    ///
+    /// One character maps to exactly one character, so shaped text stays codepoint-aligned
+    /// with the document text (only byte offsets shift). A `System` mode that was not
+    /// resolved falls back to Western digits.
+    pub fn map(self, c: char, rtl: bool) -> char {
+        let hindi = match self {
+            NumeralMode::Arabic => false,
+            NumeralMode::Hindi => true,
+            NumeralMode::Context => rtl,
+            NumeralMode::System => false,
+        };
+        if hindi {
+            if c.is_ascii_digit() { char::from_u32(0x660 + (c as u32 - '0' as u32)).unwrap_or(c) } else { c }
+        } else if ('\u{660}'..='\u{669}').contains(&c) {
+            (b'0' + (c as u32 - 0x660) as u8) as char
+        } else {
+            c
+        }
+    }
+}
+
+/// Does locale `tag` use Hindi digits (Arabic, Persian, Urdu, Pashto, Sindhi, Kurdish)?
+fn hindi_locale(tag: &str) -> bool {
+    let lang = tag.split(['_', '-', '.', '@']).next().unwrap_or_default().to_ascii_lowercase();
+    matches!(lang.as_str(), "ar" | "fa" | "ur" | "ps" | "sd" | "ku" | "ckb")
 }
 
 #[derive(Clone, Debug, Default)]
@@ -56,11 +142,30 @@ pub struct LayoutOptions {
     pub view: ViewMode,
     /// Width of the window in Web/Draft views, points.
     pub web_width: f32,
+    /// Page height in Reading Mode (document points).
+    pub read_height: f32,
+    /// Transient read-only line-spacing override; ignored by print/export views.
+    pub read_line_spacing: Option<f32>,
     pub show_hidden: bool,
     /// Final text ("No Markup"): tracked deletions take no space and draw nothing.
     pub hide_deleted: bool,
+    /// Tracked deletions that take no space and draw nothing although markup is shown: those
+    /// Track Changes Options mark Hidden (deletions, or moved-away text). `hide_deleted` and
+    /// `deletions_in_balloons` leave every deletion out whatever this says.
+    pub hide_marked: HideDeleted,
+    /// Show revisions in balloons: tracked deletions in the body take no space and draw nothing
+    /// (the editor shows them in balloons beside the page). Headers, footers, notes and text
+    /// boxes get no balloons, so their deletions stay inline.
+    pub deletions_in_balloons: bool,
     /// Check spelling as you type (squiggles).
     pub proofing: bool,
+    /// How digits look on screen (display only; the text is untouched). Callers resolve
+    /// `System` ([`NumeralMode::resolve`]); an unresolved `System` shows Western digits.
+    pub numeral: NumeralMode,
+    /// Print Markup (PDF, print, page images): widen each page by [`balloons::MARKUP_AREA`]
+    /// and show the comments there in balloons joined to their anchors, as Word prints them.
+    /// The editor draws its own interactive balloons and leaves this off.
+    pub comment_balloons: bool,
     /// Show field codes (`{ PAGE }`, shaded) instead of field results (View › Field Codes, Alt+F9).
     /// A field whose own `code` flag is set shows the other one.
     pub field_codes: bool,
@@ -68,6 +173,17 @@ pub struct LayoutOptions {
     pub outline: Option<outline::OutlineView>,
     /// What the spelling check skips, and whether grammar is marked too (File › Options › Proofing).
     pub proof: ProofOptions,
+    /// The word being typed, which gets no spelling squiggle until the caret leaves it (#1552).
+    pub typing_word: Option<TypingWord>,
+}
+
+/// The word being typed ([`LayoutOptions::typing_word`]): the paragraph by its revision
+/// ([`Paragraph::rev`]) and the word's byte range in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TypingWord {
+    pub rev: u64,
+    pub start: usize,
+    pub end: usize,
 }
 
 /// File › Options › Proofing choices that change the squiggles.
@@ -81,6 +197,33 @@ pub struct ProofOptions {
 impl Default for ProofOptions {
     fn default() -> Self {
         ProofOptions { grammar: true, spelling: wordcraft_proof::Options::default() }
+    }
+}
+
+impl LayoutOptions {
+    /// Which tracked deletions in `story` take no space and draw nothing.
+    pub fn hides_deleted(&self, story: StoryRef) -> HideDeleted {
+        if self.hide_deleted || (self.deletions_in_balloons && story == StoryRef::Body) { HideDeleted::ALL } else { self.hide_marked }
+    }
+}
+
+/// Which tracked deletions are left out of the layout: ordinary ones, and the text a tracked
+/// move took away (the source of a move, `w:moveFrom`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct HideDeleted {
+    pub plain: bool,
+    pub moved_from: bool,
+}
+
+impl HideDeleted {
+    pub const ALL: HideDeleted = HideDeleted { plain: true, moved_from: true };
+    /// Whether any deletion is left out.
+    pub fn any(self) -> bool {
+        self.plain || self.moved_from
+    }
+    /// Whether text deleted by revision `del` (`None`: not deleted) is left out.
+    pub fn hides(self, doc: &Document, del: Option<u32>) -> bool {
+        del.is_some() && if doc.move_name(del).is_some() { self.moved_from } else { self.plain }
     }
 }
 
@@ -133,6 +276,9 @@ pub enum Placed {
         spin: Spin,
         /// Arrowheads and text warp (see [`wordcraft_doc::connector::ShapeExtra`]).
         extra: wordcraft_doc::connector::ShapeExtra,
+        /// The floating object it draws (a Drawing Canvas's members: the canvas's), for leaving
+        /// exactly one object out of a page (see [`crate::display::DisplayOptions::hide_object`]).
+        object: Option<wordcraft_doc::Pos>,
     },
     /// A floating chart or diagram, drawn from its items inside `rect`. The object is the U+FFFC at
     /// byte `off` of paragraph `path` (its alt text).
@@ -152,13 +298,19 @@ pub enum Placed {
         spin: Spin,
         items: Vec<Placed>,
     },
-    /// A table cell's area (for hit testing and cell selection).
+    /// A table cell's area (for hit testing and cell selection). A vertically merged cell is
+    /// one `Cell` as tall as all its rows; its continuation rows get a `covered` `Cell` (their
+    /// own row's height) so the rows keep a box each, but it isn't a cell of its own on screen.
     Cell {
         rect: Rect,
+        covered: bool,
         table: Path,
         row: usize,
         cell: usize,
         story: StoryRef,
+        /// Its row is exactly as tall as it says and the content is taller: what runs past the
+        /// cell is cut off when drawn, as in Word.
+        clip: bool,
     },
     /// The area of a picture, shape or text box, for hit testing, selection handles and dragging
     /// (drawn by `Image`/`Shape`/`Lines`). The object is the U+FFFC at byte `off` of paragraph
@@ -295,6 +447,17 @@ pub fn turn_rect(turn: TextDirection, x: f32, y: f32, r: Rect) -> Rect {
     }
 }
 
+/// Which header/footer of its section a page shows ([`Page::hf_slot`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HfSlot {
+    #[default]
+    Default,
+    /// The first page of a section with "Different First Page".
+    First,
+    /// An even page with "Different Odd & Even Pages".
+    Even,
+}
+
 /// One laid-out page.
 #[derive(Clone, Debug, Default)]
 pub struct Page {
@@ -312,8 +475,15 @@ pub struct Page {
     pub body: Rect,
     pub header_story: Option<u32>,
     pub footer_story: Option<u32>,
+    /// Which of its section's headers/footers this page shows (first page, even page or the
+    /// default), whether or not the section has one: double-clicking an empty header area
+    /// creates that one (#960).
+    pub hf_slot: HfSlot,
     /// Top-level body block index at the start of the page.
     pub first_block: usize,
+    /// Width of the markup area on the right of `w` that holds comment balloons (Print Markup,
+    /// [`LayoutOptions::comment_balloons`]); 0 without one. The document page is `w - markup` wide.
+    pub markup: f32,
 }
 
 /// The whole layout.
@@ -333,23 +503,40 @@ struct Key {
     rev: u64,
     width: u32,
     label: Option<String>,
-    page: Option<(u32, u32, u32, u32)>,
+    page: Option<(u32, u32, u32, u32, u64, wordcraft_doc::section::NumFormat)>,
+    /// The pages a split paragraph's fields are on after its first (`FieldCtx::page_from`).
+    page_from: u64,
     table: u64,
     notes: u64,
     excl: u64,
     eq: u32,
+    read_spacing: Option<u32>,
     grid: (u32, u32, u32, bool),
+    fit: bool,
+    /// Heights of the paragraph's inline boxes that resize to fit their text.
+    fitted: u64,
+    hide_deleted: HideDeleted,
+    /// STYLEREF results in headers and footers ([`FieldCtx::styleref_key`]).
+    sref: u64,
+    /// The word being typed in this paragraph, left without a spelling squiggle.
+    typing: Option<(usize, usize)>,
 }
 
 /// Memoised paragraph layouts.
 #[derive(Default)]
 pub struct LayoutCache {
     paras: HashMap<Key, Arc<ParaLayout>>,
+    /// Narrowest and widest content of paragraphs measured for table autofit ([`Ctx::para_measured`]).
+    measures: HashMap<Key, (f32, f32)>,
     /// Outlines of pictures' opaque pixels (Tight and Through wrapping), by media key, the
     /// media's bytes (address and length) and crop.
     outlines: HashMap<(String, usize, usize, [u32; 4]), Option<Arc<Vec<(f32, f32)>>>>,
     env: u64,
     used: HashSet<Key>,
+    /// The STYLEREF style index of the last pass and what it was built from: the body blocks
+    /// (shared, so an edited block is a different pointer) and `env` (styles and numbering). Kept
+    /// while both are unchanged, so headers using STYLEREF don't rebuild it on every pass.
+    styleref: Option<(Blocks, u64, Arc<styleref::StyleIndex>)>,
     pub hits: u64,
     pub misses: u64,
 }
@@ -366,7 +553,23 @@ impl LayoutCache {
     }
     pub fn clear(&mut self) {
         self.paras.clear();
+        self.measures.clear();
         self.outlines.clear();
+        self.styleref = None;
+    }
+
+    /// The STYLEREF style index for `doc`, rebuilt only when the body or the styles changed.
+    fn style_index(&mut self, doc: &Document) -> Arc<styleref::StyleIndex> {
+        if let Some((body, env, ix)) = &self.styleref
+            && *env == self.env
+            && body.len() == doc.body.len()
+            && body.iter().zip(doc.body.iter()).all(|(a, b)| Arc::ptr_eq(a, b))
+        {
+            return ix.clone();
+        }
+        let ix = Arc::new(styleref::StyleIndex::build(doc));
+        self.styleref = Some((doc.body.to_vec(), self.env, ix.clone()));
+        ix
     }
 }
 
@@ -384,7 +587,10 @@ fn env_hash(doc: &Document, opts: &LayoutOptions) -> u64 {
         s,
         opts.show_hidden,
         opts.hide_deleted,
+        opts.hide_marked,
+        opts.deletions_in_balloons,
         opts.proofing,
+        opts.numeral,
         opts.field_codes,
         opts.proof,
         wordcraft_proof::dictionary_generation(),
@@ -402,10 +608,15 @@ fn hyphenation_key(doc: &Document) -> (bool, u32, bool, u32) {
 fn has_page_fields(p: &Paragraph) -> bool {
     p.objects.iter().any(|o| match o {
         InlineObject::Field { instr, .. } => {
-            matches!(fields::field_name(instr).as_str(), "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "SECTION")
+            matches!(fields::field_name(instr).as_str(), "PAGE" | "NUMPAGES" | "SECTIONPAGES" | "SECTION" | "PAGEREF")
         }
         _ => false,
     })
+}
+
+/// Does `p` show a PAGE field, whose result is the number of the page it lands on?
+fn has_page_number_fields(p: &Paragraph) -> bool {
+    p.objects.iter().any(|o| matches!(o, InlineObject::Field { instr, .. } if fields::field_name(instr) == "PAGE"))
 }
 
 /// Does `p` show a page total, which depends on how many pages the document has?
@@ -428,13 +639,28 @@ impl Totals {
     fn first_guess(sections: usize) -> Totals {
         Totals { pages: 1, sections: vec![1; sections] }
     }
-    /// The totals of laid-out `pages` (a section without a page of its own counts one, as in
-    /// headers and footers).
-    fn of(pages: &[Page], sections: usize) -> Totals {
-        let mut per = vec![0u32; sections];
-        for p in pages {
-            if let Some(n) = per.get_mut(p.section) {
-                *n = n.saturating_add(1);
+    /// Count each section on every page containing its body, including a shared continuous
+    /// start page. The page owner still selects headers and footers; empty sections count one.
+    fn of(pages: &[Page], sections: &[(usize, &SectionProps)]) -> Totals {
+        let mut per = vec![0u32; sections.len()];
+        for page in pages {
+            let mut present = HashSet::from([page.section]);
+            for item in &page.items {
+                let path = match item {
+                    Placed::Lines { story: StoryRef::Body, path, .. }
+                    | Placed::Image { story: StoryRef::Body, path, .. }
+                    | Placed::Graphic { story: StoryRef::Body, path, .. }
+                    | Placed::Object { story: StoryRef::Body, path, .. }
+                    | Placed::Cell { story: StoryRef::Body, table: path, .. } => path,
+                    _ => continue,
+                };
+                let Some(&block) = path.0.first() else { continue };
+                present.insert(sections.partition_point(|(end, _)| *end < block as usize));
+            }
+            for section in present {
+                if let Some(n) = per.get_mut(section) {
+                    *n = n.saturating_add(1);
+                }
             }
         }
         for n in &mut per {
@@ -474,11 +700,81 @@ struct Ctx<'a> {
     chains: textbox::Chains,
     /// The current section's document grid (body text only: none for headers and footers).
     grid: para::Grid,
+    /// Whether tracked deletions are left out in the story being laid out
+    /// ([`LayoutOptions::hides_deleted`]): the body's, or the story of the [`layout_box`] at work.
+    hide_deleted: HideDeleted,
     /// Whether body text (or its notes) laid out so far shows a page total (`NUMPAGES`,
     /// `SECTIONPAGES`), which is only known once the whole body is paginated.
     uses_totals: bool,
     /// Whether to note `uses_totals` now (off while laying out headers and footers).
     track_totals: bool,
+    /// The width a top-level table's percentage width is a share of, when it isn't the box's:
+    /// an inherited header or footer's tables follow the section that defines it.
+    pct_base: Option<f32>,
+    /// Empty body paragraphs with hidden marks or continuous section breaks, in order:
+    /// they take no room (see [`place_para`]).
+    quiet_marks: Vec<usize>,
+    /// Whether even pages are mirrored (mirrored margins, on pages): see [`mirror_even_pages`].
+    mirror: bool,
+    /// Cache-key hashes of the table-style text formatting cells were laid out with
+    /// ([`Ctx::table_key`]).
+    table_keys: Vec<(para::CellText, u64)>,
+    /// While a header or footer with tables is laid out: its page, for floats in its cells placed
+    /// on the page (see [`with_pin`]).
+    pin: Option<Pin>,
+    footer_wraps: HashMap<(usize, u32, bool), Vec<WrapArea>>,
+    header_tables: HashMap<(usize, u32, bool), Vec<Rect>>,
+    /// Heights of text boxes that resize to fit their text, by (story, width), worked out once
+    /// per layout ([`textbox::fitted_height`]).
+    fitted: HashMap<(u32, u32), Option<f32>>,
+}
+
+/// A header or footer (`story`) laid out for page `number` of a section (`sect`, `mirror`): its
+/// table cells' floats placed on the page rather than in their cell ([`Float::outside_cell`],
+/// Word's picture watermark in a header that starts with a table), drawn behind the header's
+/// text (`behind`) or in front, in page coordinates. Once each (`seen`): a cell may be laid out
+/// more than once.
+struct Pin {
+    story: StoryRef,
+    sect: SectionProps,
+    number: u32,
+    mirror: bool,
+    behind: Vec<Placed>,
+    front: Vec<Placed>,
+    seen: HashSet<(Vec<u32>, usize)>,
+}
+
+/// Whether a float's position on both axes is measured on the page (from its edges or margins),
+/// not from its column, paragraph, character or line: one that can be placed on the page from
+/// anywhere.
+fn page_anchored(f: &Float) -> bool {
+    use Anchor::*;
+    matches!(f.h_rel, Page | Margin | LeftMargin | RightMargin | InsideMargin | OutsideMargin)
+        && matches!(f.v_rel, Page | Margin | TopMargin | BottomMargin | InsideMargin | OutsideMargin)
+}
+
+/// Run `f`, a layout of header or footer `id` for page `number` of `sect`, with the floats in its
+/// table cells that are placed on the page put there (see [`Pin`]). Returns `f`'s result and those
+/// floats' items, in page coordinates: behind the header's text, and in front.
+fn with_pin<T>(ctx: &mut Ctx, id: u32, sect: &SectionProps, number: u32, f: impl FnOnce(&mut Ctx) -> T) -> (T, Vec<Placed>, Vec<Placed>) {
+    let tables = ctx.doc.parts.get(&id).is_some_and(|p| p.blocks.iter().any(|b| matches!(**b, Block::Table(_))));
+    if !tables {
+        return (f(ctx), Vec::new(), Vec::new());
+    }
+    let pin = Pin {
+        story: StoryRef::Part(id),
+        sect: sect.clone(),
+        number,
+        mirror: ctx.mirror,
+        behind: Vec::new(),
+        front: Vec::new(),
+        seen: HashSet::new(),
+    };
+    let outer = ctx.pin.replace(pin);
+    let out = f(ctx);
+    let pin = std::mem::replace(&mut ctx.pin, outer);
+    let (behind, front) = pin.map(|p| (p.behind, p.front)).unwrap_or_default();
+    (out, behind, front)
 }
 
 impl Ctx<'_> {
@@ -519,12 +815,17 @@ impl Ctx<'_> {
             fields: &self.fields,
             show_hidden: false,
             field_codes: false,
-            hide_deleted: false,
+            hide_deleted: Default::default(),
             table: None,
             proofing: None,
+            typing_word: None,
+            numeral: self.opts.numeral,
             exclusions: &[],
             eq_number: 0,
+            read_line_spacing: None,
             grid: para::Grid::default(),
+            fit_objects: false,
+            fitted: &[],
         };
         let pl = Arc::new(para::layout_para(&p, &env));
         self.numbers.insert(n, pl.clone());
@@ -533,6 +834,14 @@ impl Ctx<'_> {
 
     /// The list label of `p`, advancing the list counters: call it once per paragraph, in
     /// document order (only for paragraphs that will show).
+    /// Whether `p` gets a list label ([`Ctx::next_label`] is `Some`), without counting it.
+    fn has_label(&self, p: &Paragraph) -> bool {
+        p.props
+            .numbering
+            .or_else(|| self.doc.styles.resolve_para(&p.props).numbering)
+            .filter(|n| n.num != 0)
+            .is_some_and(|n| self.doc.numbering.shows_label(n.num, n.level))
+    }
     fn next_label(&mut self, p: &Paragraph) -> Option<(String, Level)> {
         let n = p.props.numbering.or_else(|| self.doc.styles.resolve_para(&p.props).numbering).filter(|n| n.num != 0)?;
         self.counters.next_label(&self.doc.numbering, n.num, n.level)
@@ -548,6 +857,81 @@ impl Ctx<'_> {
         exclusions: &[para::Exclusion],
         label: Option<(String, Level)>,
     ) -> Arc<ParaLayout> {
+        let fitted = self.fitted_boxes(p);
+        let (key, eq_number) = self.para_key(p, width, table, exclusions, label.as_ref(), &fitted);
+        self.cache.used.insert(key.clone());
+        if let Some(pl) = self.cache.paras.get(&key) {
+            self.cache.hits += 1;
+            return pl.clone();
+        }
+        self.cache.misses += 1;
+        let typing = key.typing;
+        let pl = Arc::new(para::layout_para(p, &self.para_env(width, label, table, exclusions, eq_number, typing, &fitted)));
+        self.cache.paras.insert(key, pl.clone());
+        pl
+    }
+
+    /// What `measure` reads from `p` laid out as [`Ctx::para_labelled`] would, remembering only
+    /// the result: a table's columns measure every cell once at an unbounded width, and keeping
+    /// those layouts would double what a long table holds (and walk them all again on each pass).
+    fn para_measured(
+        &mut self,
+        p: &Paragraph,
+        width: f32,
+        table: Option<&para::CellText>,
+        label: Option<(String, Level)>,
+        measure: impl FnOnce(&ParaLayout) -> (f32, f32),
+    ) -> (f32, f32) {
+        let fitted = self.fitted_boxes(p);
+        let (key, eq_number) = self.para_key(p, width, table, &[], label.as_ref(), &fitted);
+        self.cache.used.insert(key.clone());
+        if let Some(m) = self.cache.measures.get(&key) {
+            self.cache.hits += 1;
+            return *m;
+        }
+        self.cache.misses += 1;
+        let typing = key.typing;
+        let m = measure(&para::layout_para(p, &self.para_env(width, label, table, &[], eq_number, typing, &fitted)));
+        self.cache.measures.insert(key, m);
+        m
+    }
+
+    /// The heights of `p`'s inline text boxes that resize to fit their text, by object index
+    /// ([`para::ParaEnv::fitted`]).
+    fn fitted_boxes(&mut self, p: &Paragraph) -> Vec<(usize, f32)> {
+        let mut out = Vec::new();
+        for (k, o) in p.objects.iter().enumerate() {
+            let InlineObject::Shape { story: Some(id), w, float, .. } = o else { continue };
+            if float.wrap != Wrap::Inline || float.rot != 0.0 {
+                continue;
+            }
+            let key = (*id, w.to_bits());
+            let h = match self.fitted.get(&key) {
+                Some(h) => *h,
+                None => {
+                    let h = textbox::fitted_height(self, *id, *w);
+                    self.fitted.insert(key, h);
+                    h
+                }
+            };
+            if let Some(h) = h {
+                out.push((k, h));
+            }
+        }
+        out
+    }
+
+    /// The cache key of `p` laid out with these inputs, and its first automatic equation number
+    /// (advancing the count past its equations).
+    fn para_key(
+        &mut self,
+        p: &Paragraph,
+        width: f32,
+        table: Option<&para::CellText>,
+        exclusions: &[para::Exclusion],
+        label: Option<&(String, Level)>,
+        fitted: &[(usize, f32)],
+    ) -> (Key, u32) {
         let page = if has_page_fields(p) { Some(self.fields.page_key()) } else { None };
         if self.track_totals && !self.uses_totals && has_total_fields(p) {
             self.uses_totals = true;
@@ -566,52 +950,90 @@ impl Ctx<'_> {
         let key = Key {
             rev: p.rev,
             width: width.to_bits(),
-            label: label.as_ref().map(|(t, l)| format!("{t}|{}|{}|{:?}|{:?}|{:?}|{:?}", l.indent, l.hanging, l.suffix, l.align, l.tab, l.chr)),
+            label: label.map(|(t, l)| format!("{t}|{}|{}|{:?}|{:?}|{:?}|{:?}", l.indent, l.hanging, l.suffix, l.align, l.tab, l.chr)),
+            page_from: if page.is_some() && !self.fields.page_from.is_empty() { hash_of(&self.fields.page_from) } else { 0 },
             page,
-            table: table.map(|t| hash_of(&format!("{t:?}"))).unwrap_or(0),
+            table: table.map(|t| self.table_key(t)).unwrap_or(0),
             notes: if p.objects.iter().any(|o| matches!(o, InlineObject::NoteRef { .. })) { self.notes_hash } else { 0 },
             excl: if exclusions.is_empty() { 0 } else { hash_of(&format!("{exclusions:?}")) },
             eq: if eq_here > 0 { eq_number } else { 0 },
+            read_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing.map(f32::to_bits) } else { None },
             grid: self.grid.key(),
+            fit: self.boxes.inside(),
+            fitted: if fitted.is_empty() { 0 } else { hash_of(&format!("{fitted:?}")) },
+            hide_deleted: self.hide_deleted,
+            sref: if self.fields.styleref.is_some() && styleref::has_styleref(p) { self.fields.styleref_key(p) } else { 0 },
+            typing: self.opts.typing_word.filter(|t| t.rev == p.rev).map(|t| (t.start, t.end)),
         };
-        self.cache.used.insert(key.clone());
-        if let Some(pl) = self.cache.paras.get(&key) {
-            self.cache.hits += 1;
-            return pl.clone();
+        (key, eq_number)
+    }
+
+    /// The cache-key hash of a cell's table-style text formatting. Hashing it means formatting it
+    /// as text, which a long table would otherwise do for each of its paragraphs on every pass; a
+    /// document's tables only give their text a few different formats.
+    fn table_key(&mut self, t: &para::CellText) -> u64 {
+        if let Some((_, h)) = self.table_keys.iter().find(|(c, _)| c == t) {
+            return *h;
         }
-        self.cache.misses += 1;
-        let env = para::ParaEnv {
+        let h = hash_of(&format!("{t:?}"));
+        if self.table_keys.len() >= 64 {
+            self.table_keys.clear();
+        }
+        self.table_keys.push((t.clone(), h));
+        h
+    }
+
+    fn para_env<'b>(
+        &'b self,
+        width: f32,
+        label: Option<(String, Level)>,
+        table: Option<&'b para::CellText>,
+        exclusions: &'b [para::Exclusion],
+        eq_number: u32,
+        typing_word: Option<(usize, usize)>,
+        fitted: &'b [(usize, f32)],
+    ) -> para::ParaEnv<'b> {
+        para::ParaEnv {
             doc: self.doc,
             width,
             label,
             fields: &self.fields,
             show_hidden: self.opts.show_hidden,
             field_codes: self.opts.field_codes,
-            hide_deleted: self.opts.hide_deleted,
+            hide_deleted: self.hide_deleted,
             table,
             proofing: self.opts.proofing.then_some(self.opts.proof),
+            typing_word,
+            numeral: self.opts.numeral,
             exclusions,
             eq_number,
+            read_line_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing } else { None },
             grid: self.grid,
-        };
-        let pl = Arc::new(para::layout_para(p, &env));
-        self.cache.paras.insert(key, pl.clone());
-        pl
+            fit_objects: self.boxes.inside(),
+            fitted,
+        }
     }
 }
 
 /// Which of `p`'s objects (by index) the layout leaves out ([`para::left_out`]): anchored in hidden
-/// text unless `show_hidden`, or in a tracked deletion with `hide_deleted`. `table_chr` is the
+/// text unless `show_hidden`, in a tracked deletion with `hide_deleted`, or a hidden drawing
+/// (`Float::hidden`, whatever is shown). `table_chr` is the
 /// cell's table-style character formatting ([`para::CellText::chr`]), resolved as the paragraph is
 /// laid out with (`StyleSheet::resolve_char_in`).
-fn left_out_objects(doc: &Document, p: &Paragraph, table_chr: Option<&CharProps>, show_hidden: bool, hide_deleted: bool) -> impl Fn(usize) -> bool {
+fn left_out_objects(
+    doc: &Document,
+    p: &Paragraph,
+    table_chr: Option<&CharProps>,
+    show_hidden: bool,
+    hide_deleted: HideDeleted,
+) -> impl Fn(usize) -> bool {
     let mut left = Vec::new();
-    // Nothing can be left out with hidden text shown and markup on.
-    if (hide_deleted || !show_hidden) && !p.objects.is_empty() {
+    // No text left out with hidden text shown and markup on (hidden drawings still are, below).
+    if (hide_deleted.any() || !show_hidden) && !p.objects.is_empty() {
         let style = p.props.style.as_deref();
         let is_left = |c: &CharProps| {
             let rc = doc.styles.resolve_char_in(style, table_chr, c);
-            para::left_out(&rc, show_hidden, hide_deleted)
+            para::left_out(doc, &rc, show_hidden, hide_deleted)
         };
         // Runs and objects are both in order: one walk finds each object's run (past the last run,
         // the paragraph mark, as `props_of_char` gives), resolving a run's formatting only once.
@@ -633,7 +1055,8 @@ fn left_out_objects(doc: &Document, p: &Paragraph, table_chr: Option<&CharProps>
             left.push(l);
         }
     }
-    move |k| left.get(k).copied().unwrap_or(false)
+    // A hidden drawing is left out whatever is shown (Word shows it in no view).
+    move |k| left.get(k).copied().unwrap_or(false) || p.objects.get(k).and_then(InlineObject::frame).is_some_and(|(_, _, f)| f.hidden)
 }
 
 /// Footnote and endnote numbers (each kind counted separately), in document order, as each
@@ -641,7 +1064,7 @@ fn left_out_objects(doc: &Document, p: &Paragraph, table_chr: Option<&CharProps>
 /// section or (footnotes) on each page. `pages` gives the page each footnote was placed on by an
 /// earlier pass (empty: numbered on). With `hide_deleted`, notes whose reference mark is a
 /// tracked deletion are left out, as in the final text.
-fn note_info(doc: &Document, hide_deleted: bool, pages: &HashMap<u32, usize>) -> HashMap<u32, fields::NoteNum> {
+fn note_info(doc: &Document, hide_deleted: HideDeleted, pages: &HashMap<u32, usize>) -> HashMap<u32, fields::NoteNum> {
     use wordcraft_doc::section::NoteRestart;
     let sections = doc.sections();
     let opts: Vec<[wordcraft_doc::section::NoteOptions; 2]> =
@@ -652,15 +1075,16 @@ fn note_info(doc: &Document, hide_deleted: bool, pages: &HashMap<u32, usize>) ->
     let mut order = [0u32; 2];
     let mut si = 0usize;
     // Reading order, text boxes included where they are. A hidden reference mark still takes
-    // its number, as in Word; a deleted one (or one in a deleted text box) does not.
+    // its number, as in Word; a deleted one (or one in a deleted or hidden text box) does not,
+    // and `para_notes` doesn't place its note either.
     let mut cur: Option<(usize, Vec<bool>)> = None;
     doc.objects_in_reading_order_by_block(&mut |block, p, k| {
         let key = p as *const Paragraph as usize;
         if cur.as_ref().is_none_or(|(at, _)| *at != key) {
-            let deleted = left_out_objects(doc, p, None, true, hide_deleted);
-            cur = Some((key, (0..p.objects.len()).map(deleted).collect()));
+            let gone = left_out_objects(doc, p, None, true, hide_deleted);
+            cur = Some((key, (0..p.objects.len()).map(gone).collect()));
         }
-        if cur.as_ref().is_some_and(|(_, deleted)| deleted.get(k).copied().unwrap_or(false)) {
+        if cur.as_ref().is_some_and(|(_, gone)| gone.get(k).copied().unwrap_or(false)) {
             return false;
         }
         if let Some(InlineObject::NoteRef { kind, id, .. }) = p.objects.get(k) {
@@ -696,7 +1120,7 @@ fn note_info(doc: &Document, hide_deleted: bool, pages: &HashMap<u32, usize>) ->
 
 /// Note part ids → numbers, numbered on (see [`note_info`]).
 #[cfg(test)]
-fn note_numbers(doc: &Document, hide_deleted: bool) -> HashMap<u32, u32> {
+fn note_numbers(doc: &Document, hide_deleted: HideDeleted) -> HashMap<u32, u32> {
     note_info(doc, hide_deleted, &HashMap::new()).into_iter().map(|(id, n)| (id, n.n)).collect()
 }
 
@@ -715,6 +1139,12 @@ fn footnote_pages(doc: &Document, pages: &[Page]) -> HashMap<u32, usize> {
     m
 }
 
+/// Cell identity is independent of optional table-style formatting.
+enum BoxContext<'a> {
+    Other,
+    Cell(Option<&'a para::CellText>),
+}
+
 /// Lay out a block list into a free-standing box of `width` (no page breaks): table cells,
 /// headers, footers, notes, text boxes. Returns items relative to (0, 0) and the height. `frame`
 /// says where the box sits on its page, for floating objects positioned relative to the page or
@@ -726,10 +1156,21 @@ fn layout_box(
     blocks: &Blocks,
     prefix: &[u32],
     width: f32,
-    table: Option<&para::CellText>,
+    context: BoxContext<'_>,
     depth: usize,
     frame: Option<PageFrame>,
 ) -> BoxLayout {
+    // Deletions in balloons leave the body's text only: a header, note or text box keeps its own
+    // inline (restored for the story around this box when it's done).
+    let outer_hide = std::mem::replace(&mut ctx.hide_deleted, ctx.opts.hides_deleted(story));
+    let empty_cell = para::CellText::default();
+    let (table, in_cell) = match context {
+        BoxContext::Other => (None, false),
+        BoxContext::Cell(table) => (Some(table.unwrap_or(&empty_cell)), true),
+    };
+    // Word 16.113.3: the override applies in modes 11/12/14, but not mode 15.
+    let allow_same_style_space =
+        in_cell && ctx.doc.settings.allow_space_of_same_style_in_table && matches!(ctx.doc.settings.compat_mode, 11 | 12 | 14);
     let mut items = Vec::new();
     // Pictures behind the text go first; `behind` counts them.
     let mut behind = 0;
@@ -737,31 +1178,93 @@ fn layout_box(
     let mut excl: Vec<WrapArea> = Vec::new();
     // Areas of the box's floating tables, which other floating tables may have to avoid.
     let mut float_tables: Vec<Rect> = Vec::new();
+    let mut table_areas = Vec::new();
+    let mut page_table_wraps = Vec::new();
     let mut y = 0.0f32;
     let mut prev_after = 0.0f32;
+    let mut prev_after_auto = false;
+    let mut prev_listed = false;
     let mut prev_style: Option<(String, bool)> = None;
+    let mut last_top = 0.0f32;
+    // Word has no frames in a text box: a framed paragraph there (its style's frame, usually)
+    // runs with the box's text (#2357).
+    let frames = !matches!(story, StoryRef::Part(id) if ctx.doc.parts.get(&id).is_some_and(|p| p.kind == wordcraft_doc::PartKind::TextBox));
     for (i, b) in blocks.iter().enumerate() {
+        last_top = y;
         let mut path = prefix.to_vec();
         path.push(i as u32);
         match &**b {
             Block::Para(p) => {
                 let label = ctx.next_label(p);
+                let listed = label.is_some();
                 let mut pl = ctx.para_labelled(p, width, table, &[], label.clone());
-                let ctxl = pl.rp.contextual_spacing;
-                let same = prev_style.as_ref().is_some_and(|(s, c)| *s == pl.rp.style && (*c || ctxl));
-                let before = if same && ctxl { 0.0 } else { pl.rp.space_before };
-                if same && ctxl {
-                    y -= prev_after;
+                // A text frame (a footer's page number in a frame, say) is placed apart, like a
+                // floating object, and the text after it wraps around it; it takes no room in
+                // the flow.
+                if let Some(fr) = pl.rp.frame.clone().filter(|_| frames) {
+                    let fw = fr.w.unwrap_or_else(|| natural_width(&pl)).clamp(1.0, 1584.0);
+                    let pf = if (fw - width).abs() > 0.01 { ctx.para_labelled(p, fw, table, &[], label) } else { pl };
+                    let h = match fr.h {
+                        Some(h) if fr.h_exact => h,
+                        Some(h) => h.max(pf.height),
+                        None => pf.height,
+                    };
+                    let float = frame_float(&fr);
+                    let r = float_rect(frame, (0.0, width), y, fw, h, &float);
+                    push_para(&mut items, story, &path, &pf, 0, pf.lines.len(), r.x, r.y, fw);
+                    excl.extend(wrap_area(r, &float, None));
+                    float_tables.push(r);
+                    continue;
                 }
-                // Word: space between paragraphs is before + after (no collapsing).
+                // A legacy table compatibility flag lets same-style paragraphs in a table keep their
+                // spacing (`allow_same_style_space`).
+                let ctxl = pl.rp.contextual_spacing && !allow_same_style_space;
+                let mut before = pl.rp.space_before;
+                if let Some((style, previous_contextual)) = &prev_style
+                    && *style == pl.rp.style
+                    && !allow_same_style_space
+                {
+                    if *previous_contextual {
+                        y -= prev_after;
+                        before = (before - prev_after).max(0.0);
+                        prev_after = 0.0;
+                    }
+                    if ctxl {
+                        before = 0.0;
+                    }
+                }
+                // Automatic spacing: none between two list items (as in an HTML list).
+                if i > 0 && prev_listed && listed {
+                    if prev_after_auto {
+                        y -= prev_after;
+                        prev_after = 0.0;
+                    }
+                    if pl.rp.before_auto {
+                        before = 0.0;
+                    }
+                }
+                // Automatic spacing: none at the top of a cell or box, and it collapses with the
+                // space after the paragraph above (the larger one counts).
+                if pl.rp.before_auto && i == 0 {
+                    before = 0.0;
+                } else if i > 0 && before > 0.0 && prev_after > 0.0 && !ctx.doc.settings.sum_paragraph_spacing {
+                    before = (before - prev_after).max(0.0);
+                }
                 y += if i == 0 { before } else { before.max(0.0) };
                 // Floating objects anchored here: place them, then wrap the text around them.
                 // One left out of the layout (hidden, or deleted in the final text) takes no room.
                 let mut floats = HashMap::new();
-                let left_out = left_out_objects(ctx.doc, p, table.map(|t| &t.chr), ctx.opts.show_hidden, ctx.opts.hide_deleted);
+                // A header or footer cell's floats placed on the page: no room taken in the cell.
+                let mut pinned = HashMap::new();
+                let left_out = left_out_objects(ctx.doc, p, table.map(|t| &t.chr), ctx.opts.show_hidden, ctx.hide_deleted);
                 for (oi, o) in p.objects.iter().enumerate() {
                     let Some((w, h, float)) = floating(o) else { continue };
                     if left_out(oi) {
+                        continue;
+                    }
+                    if let Some(pin) = ctx.pin.as_ref().filter(|pin| in_cell && pin.story == story && float.outside_cell && page_anchored(float)) {
+                        let page = PageFrame { sect: &pin.sect, origin: (0.0, 0.0), number: pin.number, mirror: pin.mirror };
+                        pinned.insert(oi, float_rect(Some(page), (0.0, width), y, w, h, float));
                         continue;
                     }
                     let r = float_rect(frame, (0.0, width), y, w, h, float);
@@ -777,19 +1280,31 @@ fn layout_box(
                 push_para(&mut items, story, &path, &pl, 0, pl.lines.len(), 0.0, y + lead, width);
                 // Pictures, shapes and text boxes: drawn, their areas and text boxes' text.
                 if !p.objects.is_empty() {
-                    let at = ObjFrame { page: frame, col: (0.0, width), para_y: y, table_chr: table.map(|t| &t.chr) };
+                    let at = ObjFrame { page: frame, col: (0.0, width), para_y: y, table_chr: table.map(|t| &t.chr), pinned: Some(&pinned) };
                     let (back, front) = place_objects(ctx, story, &path, p, &pl, (0, pl.lines.len()), (0.0, y + lead), &at, &floats, depth);
                     let at = behind.min(items.len());
                     behind += back.len();
                     items.splice(at..at, back);
                     items.extend(front);
                 }
-                y += pl.height + pl.rp.space_after;
-                prev_after = if same && ctxl { 0.0 } else { pl.rp.space_after };
+                // Automatic space after: none after the last paragraph of a cell or box.
+                let after = if pl.rp.after_auto && i + 1 == blocks.len() { 0.0 } else { pl.rp.space_after };
+                y += pl.height + after;
+                prev_after = after;
+                prev_after_auto = pl.rp.after_auto;
+                prev_listed = listed;
                 prev_style = Some((pl.rp.style.clone(), ctxl));
             }
             Block::Table(t) => {
                 if depth > 8 {
+                    continue;
+                }
+                // Page tables do not contribute to the footer text's intrinsic height.
+                if frame.is_none()
+                    && !in_cell
+                    && matches!(story, StoryRef::Part(id) if ctx.doc.parts.get(&id).is_some_and(|p| p.kind == wordcraft_doc::PartKind::Footer))
+                    && t.props.float.is_some_and(|f| f.v_rel == Anchor::Page)
+                {
                     continue;
                 }
                 let tl = table::layout_table(ctx, story, t, &path, width, depth + 1);
@@ -801,6 +1316,10 @@ fn layout_box(
                         let (r, area) = box_float_table_rect(frame, width, y, &tl, &f, legacy, &float_tables);
                         excl.push((area, false, None, WrapText::BothSides));
                         float_tables.push(area);
+                        table_areas.push(area);
+                        if f.v_rel == Anchor::Page {
+                            page_table_wraps.push((area, false, None, WrapText::BothSides));
+                        }
                         (r.x, r.y)
                     }
                     // A table in the text flow starts below the floating objects in its way.
@@ -824,15 +1343,67 @@ fn layout_box(
         }
     }
     let floats_bottom = float_tables.iter().map(|r| r.bottom()).fold(0.0, f32::max);
-    BoxLayout { items, height: y.max(0.0), floats_bottom }
+    ctx.hide_deleted = outer_hide;
+    BoxLayout { items, height: y.max(0.0), floats_bottom, last_top: last_top.max(0.0), table_areas, page_table_wraps }
 }
 
-/// A laid-out box: items relative to its top-left, the height of its text flow, and where its
-/// floating tables end (a table cell grows to hold them).
+/// The width a text frame without one takes: its widest line, with the paragraph's indents.
+fn natural_width(pl: &ParaLayout) -> f32 {
+    let widest = (0..pl.lines.len())
+        .filter_map(|li| {
+            let l = pl.lines.get(li)?;
+            Some((pl.x_of(li, l.stop)? - pl.x_of(li, l.start)?).abs())
+        })
+        .fold(0.0f32, f32::max);
+    widest + pl.rp.indent_left.max(0.0) + pl.rp.indent_right.max(0.0)
+}
+
+/// A text frame's placement as a floating object's (`w:framePr` → anchors, alignment, wrap).
+fn frame_float(fr: &wordcraft_doc::props::TextFrame) -> Float {
+    let anchor = |a: &str, text: Anchor| match a {
+        "page" => Anchor::Page,
+        "margin" => Anchor::Margin,
+        _ => text,
+    };
+    let align = |a: Option<&str>| match a {
+        Some("left" | "top") => Some(FloatAlign::Start),
+        Some("center") => Some(FloatAlign::Center),
+        Some("right" | "bottom") => Some(FloatAlign::End),
+        Some("inside") => Some(FloatAlign::Inside),
+        Some("outside") => Some(FloatAlign::Outside),
+        _ => None,
+    };
+    Float {
+        wrap: match fr.wrap.as_str() {
+            "notBeside" => Wrap::TopAndBottom,
+            "none" => Wrap::InFrontOfText,
+            "tight" => Wrap::Tight,
+            "through" => Wrap::Through,
+            _ => Wrap::Square,
+        },
+        h_rel: anchor(&fr.h_anchor, Anchor::Column),
+        v_rel: anchor(&fr.v_anchor, Anchor::Paragraph),
+        x: fr.x,
+        y: fr.y,
+        h_align: align(fr.x_align.as_deref()),
+        v_align: align(fr.y_align.as_deref()),
+        dist: fr.h_space,
+        dist_top: fr.v_space,
+        dist_bottom: fr.v_space,
+        ..Default::default()
+    }
+}
+
+/// A laid-out box: items relative to its top-left, the height of its text flow, where its
+/// floating tables end (a table cell grows to hold them) and where its last block starts (the
+/// height without it).
 struct BoxLayout {
     items: Vec<Placed>,
+    table_areas: Vec<Rect>,
+    page_table_wraps: Vec<WrapArea>,
     height: f32,
     floats_bottom: f32,
+    last_top: f32,
 }
 
 /// Where floating table `tl` goes in a box `width` wide whose next paragraph starts at `y`, and
@@ -849,17 +1420,21 @@ fn box_float_table_rect(
 ) -> (Rect, Rect) {
     let h = tl.rows.iter().map(|r| r.height).sum::<f32>().clamp(0.0, 100_000.0);
     let w = tl.width.clamp(1.0, 100_000.0);
-    let page_x = |s: &SectionProps| match f.h_rel {
-        Anchor::Page => Some((0.0, s.page_w)),
-        Anchor::Margin => Some((s.margin_left + s.gutter, s.text_width())),
-        _ => None,
+    // Across, as laid out before an even page is mirrored (see `float_rect`).
+    let page_x = |fr: &PageFrame| {
+        let (left, _, shift) = fr.sides();
+        match f.h_rel {
+            Anchor::Page => Some((-shift, fr.sect.page_w)),
+            Anchor::Margin => Some((left - shift, fr.sect.text_width())),
+            _ => None,
+        }
     };
     let page_y = |s: &SectionProps| match f.v_rel {
         Anchor::Page => Some((0.0, s.page_h)),
         Anchor::Margin => Some((s.margin_top, s.text_height())),
         _ => None,
     };
-    let h_area = frame.and_then(|fr| page_x(fr.sect).map(|(a, e)| (a - fr.origin.0, e))).unwrap_or((0.0, width));
+    let h_area = frame.and_then(|fr| page_x(&fr).map(|(a, e)| (a - fr.origin.0, e))).unwrap_or((0.0, width));
     // In a cell an offset from the page or margin has nothing to measure from: the table stands
     // where the text is.
     let (v_area, y_off) = match frame.and_then(|fr| page_y(fr.sect).map(|(a, e)| (a - fr.origin.1, e))) {
@@ -869,7 +1444,7 @@ fn box_float_table_rect(
     };
     // Nor is there an area to align in: the table starts where the text is.
     let v_align = if frame.is_none() && matches!(f.v_rel, Anchor::Page | Anchor::Margin) { None } else { f.v_align };
-    let x = align_in(h_area, f.x, w, f.h_align) - if f.h_align.is_none() { legacy } else { 0.0 };
+    let x = align_in(h_area, f.x, w, PageFrame::h_align(frame.as_ref(), f.h_align)) - if f.h_align.is_none() { legacy } else { 0.0 };
     let r = clear_of_float_tables(Rect::new(x, align_in(v_area, y_off, h, v_align), w, h), f, legacy, h_area.0, float_tables);
     let [dl, dt, dr, db] = f.dist_from_text();
     (r, r.inset(-dl, -dt, -dr, -db))
@@ -892,8 +1467,11 @@ fn clear_of_float_tables(mut r: Rect, f: &TableFloat, legacy: f32, text_left: f3
     r
 }
 
-/// A text box's internal margins (Word's defaults: 0.1" left/right, 0.05" top/bottom).
+/// A text box's default internal margins (Word's: 0.1" left/right, 0.05" top/bottom); a box's
+/// own come from its [`wordcraft_doc::TextBody`].
+#[cfg(test)]
 const BOX_INSET_X: f32 = 7.2;
+#[cfg(test)]
 const BOX_INSET_Y: f32 = 3.6;
 
 /// Keep what fits in a box `height` tall (items relative to its top): lines that don't fit are
@@ -1007,8 +1585,18 @@ struct PageBuilder<'a> {
     carry: Vec<NoteBox>,
     /// Page bottom before footnotes took space.
     orig_bottom: f32,
-    /// The previous paragraph: (style, contextual spacing, space after) for contextual spacing.
-    prev: Option<(String, bool, f32)>,
+    /// The paragraph above: its style, contextual spacing, space after, whether that is automatic
+    /// and whether it is a list item.
+    prev: Option<(String, bool, f32, bool, bool)>,
+    /// The previous paragraph ended with a page break (its mark stayed with the break): the next
+    /// paragraph, first on the new page, gets no space before (Word).
+    after_break_mark: bool,
+    /// The next section starts on a new page: this section's closing mark, when empty, needs no
+    /// room (Word leaves it on a full page rather than starting a page for it).
+    next_starts_page: bool,
+    /// The number the next page takes instead of counting on: a section restarting its
+    /// numbering, possibly at 0 (a cover page numbered 0).
+    restart_at: Option<u32>,
     /// Wrap areas of floating objects on this page (see [`wrap_area`]).
     excl: Vec<WrapArea>,
     /// Wrap areas of the floating tables on this page, which others may not overlap.
@@ -1017,6 +1605,13 @@ struct PageBuilder<'a> {
     line_no: u32,
     /// Index of the first body item of the current page (vertical alignment shifts from here).
     page_items_start: usize,
+    /// Where each top-level block after the first starts on the current page: its first item's
+    /// index counted after the items behind the text (justified vertical alignment spreads the
+    /// blocks apart there).
+    block_marks: Vec<usize>,
+    /// The vertical alignment of the section the current page started in: a page finished when
+    /// the next section starts is aligned as its own section asks, not the next one.
+    page_valign: wordcraft_doc::section::PageVAlign,
     /// The document's own footnote separators, laid out for the section's text width.
     seps: NoteSeps,
     /// Per page: how many items were inserted at the front of its list (behind the text), so a
@@ -1081,7 +1676,7 @@ impl NoteSeps {
 
 /// A note separator or continuation notice story (`blocks`) laid out `width` wide.
 fn sep_box(ctx: &mut Ctx, blocks: &Blocks, width: f32) -> SepBox {
-    let bl = layout_box(ctx, DECOR_STORY, blocks, &[], width, None, 0, None);
+    let bl = layout_box(ctx, DECOR_STORY, blocks, &[], width, BoxContext::Other, 0, None);
     let mut items = bl.items;
     items.extend(separator_rules(blocks, &items));
     (items, bl.height)
@@ -1351,12 +1946,50 @@ impl PageBuilder<'_> {
             }
         }
     }
-    /// Section vertical alignment: move the page's body down (centre/bottom).
+    /// A top-level block starts here (see `block_marks`).
+    fn mark_block(&mut self) {
+        if let Some(pg) = self.pages.last() {
+            let behind = self.behind.last().copied().unwrap_or(0);
+            self.block_marks.push(pg.items.len().saturating_sub(behind));
+        }
+    }
+    /// Justified vertical alignment: share the room left below the page's text out equally
+    /// between the gaps of its blocks, so the last line sits on the bottom margin (above the
+    /// footnotes). A page with one block, or several columns, stays at the top.
+    fn justify_page(&mut self) {
+        if self.web || self.cols.len() > 1 {
+            return;
+        }
+        let behind = self.behind.last().copied().unwrap_or(0);
+        let first = self.page_items_start;
+        // The room is measured below the last paragraph's space after: Word for Mac 16.113.4 keeps
+        // it inside the justified height (72 pt after leaves the last line 72 pt above the margin).
+        let space = (self.orig_bottom - self.notes_h() - self.y).max(0.0);
+        let Some(pg) = self.pages.last_mut() else { return };
+        let front = pg.items.len().saturating_sub(behind);
+        // Blocks that moved on to the next page whole leave a mark at the end: not a gap here.
+        let mut cuts: Vec<usize> = self.block_marks.iter().copied().filter(|&m| m > first && m < front).collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        if cuts.is_empty() || space <= 0.0 {
+            return;
+        }
+        let gap = space / cuts.len() as f32;
+        for (i, it) in pg.items.iter_mut().enumerate().skip(behind.saturating_add(first)) {
+            let k = cuts.partition_point(|&c| c <= i.saturating_sub(behind));
+            if k > 0 {
+                it.translate(0.0, gap * k as f32);
+            }
+        }
+    }
+    /// Section vertical alignment: move the page's body down (centre/bottom), or spread its
+    /// blocks out (justified).
     fn apply_valign(&mut self) {
-        let k = match self.sect.valign {
-            wordcraft_doc::props::VAlign::Top => return,
-            wordcraft_doc::props::VAlign::Center => 0.5,
-            wordcraft_doc::props::VAlign::Bottom => 1.0,
+        let k = match self.page_valign {
+            wordcraft_doc::section::PageVAlign::Top => return,
+            wordcraft_doc::section::PageVAlign::Justify => return self.justify_page(),
+            wordcraft_doc::section::PageVAlign::Center => 0.5,
+            wordcraft_doc::section::PageVAlign::Bottom => 1.0,
         };
         if self.web {
             return;
@@ -1369,6 +2002,26 @@ impl PageBuilder<'_> {
             }
         }
     }
+    /// Takes back the page a page break has just started while nothing is on it, so a page start
+    /// that follows (a next-page section) doesn't leave it blank: Word keeps the break's mark on
+    /// the page before, and starts one page.
+    fn take_back_break_page(&mut self) -> bool {
+        let empty = self.after_break_mark
+            && self.at_top()
+            && self.notes.is_empty()
+            && self.pages.len() > 1
+            && self.pages.last().is_some_and(|p| p.items.len() == self.page_items_start);
+        if !empty {
+            return false;
+        }
+        self.pages.pop();
+        self.behind.pop();
+        self.number = self.number.saturating_sub(1);
+        self.after_break_mark = false;
+        // The page before was aligned when it was left: nothing on it moves again.
+        self.page_items_start = self.pages.last().map_or(0, |p| p.items.len());
+        true
+    }
     fn new_page(&mut self, first_block: usize, body_top: f32) {
         self.apply_valign();
         self.flush_notes();
@@ -1379,7 +2032,7 @@ impl PageBuilder<'_> {
             self.line_no = 0;
         }
         let s = self.sect;
-        self.number = self.number.saturating_add(1);
+        self.number = self.restart_at.take().unwrap_or_else(|| self.number.saturating_add(1));
         let (w, h) = if self.web { (s.page_w, f32::MAX / 4.0) } else { (s.page_w, s.page_h) };
         // A footer taller than the bottom margin pushes the body up (Word: no gap), leaving it at
         // least a little room.
@@ -1402,6 +2055,8 @@ impl PageBuilder<'_> {
             }
         }
         self.page_items_start = decor.len();
+        self.block_marks.clear();
+        self.page_valign = s.valign;
         self.pages.push(Page { w, h, section: self.sect_idx, number: self.number, body, first_block, items: decor, ..Default::default() });
         self.behind.push(0);
         self.col = 0;
@@ -1515,10 +2170,12 @@ fn layout_pass(
     let env = env_hash(doc, opts);
     if env != cache.env {
         cache.paras.clear();
+        cache.measures.clear();
         cache.env = env;
     }
     cache.used.clear();
-    let notes = note_info(doc, opts.hide_deleted, note_pages);
+    // Note references are counted as the body shows them.
+    let notes = note_info(doc, opts.hides_deleted(StoryRef::Body), note_pages);
     let notes_hash = hash_of(&{
         let mut v: Vec<_> = notes.iter().map(|(a, b)| (*a, b.n, b.fmt)).collect();
         v.sort_by_key(|(a, ..)| *a);
@@ -1528,6 +2185,7 @@ fn layout_pass(
         doc,
         cache,
         opts,
+        hide_deleted: opts.hides_deleted(StoryRef::Body),
         counters: Counters::default(),
         fields: FieldCtx {
             page: 1,
@@ -1547,9 +2205,36 @@ fn layout_pass(
         grid: para::Grid::default(),
         uses_totals: false,
         track_totals: true,
+        pct_base: None,
+        quiet_marks: Vec::new(),
+        mirror: false,
+        table_keys: Vec::new(),
+        fitted: HashMap::new(),
+        header_tables: HashMap::new(),
+        footer_wraps: HashMap::new(),
+        pin: None,
     };
     let sections = doc.sections();
-    let web = opts.view != ViewMode::Print;
+    let web = matches!(opts.view, ViewMode::Web | ViewMode::Draft | ViewMode::Outline);
+    let read = opts.view == ViewMode::Read;
+    let reflow = web || read;
+    ctx.mirror = doc.settings.mirror_margins && !reflow;
+    ctx.quiet_marks = sections
+        .windows(2)
+        .filter(|w| w[1].1.start == SectionStart::Continuous)
+        .map(|w| w[0].0)
+        .filter(|end| doc.body.get(*end).and_then(|b| b.as_para()).is_some_and(|p| p.text.is_empty()))
+        .collect();
+    if !opts.show_hidden {
+        ctx.quiet_marks.extend(
+            doc.body
+                .iter()
+                .enumerate()
+                .filter_map(|(i, b)| b.as_para().filter(|p| p.mark.hidden == Some(true) && p.plain_text().is_empty()).map(|_| i)),
+        );
+    }
+    ctx.quiet_marks.sort_unstable();
+    ctx.quiet_marks.dedup();
     let outline = (opts.view == ViewMode::Outline).then(|| OutlinePass::new(doc, opts.outline.clone().unwrap_or_default()));
     let default_sect = SectionProps::default();
     let mut web_sect;
@@ -1557,14 +2242,21 @@ fn layout_pass(
         Some((_, s)) => *s,
         None => &default_sect,
     };
-    let sect_ref = if web {
+    let sect_ref = if reflow {
         web_sect = first_sect.clone();
-        web_sect.page_w = opts.web_width.max(144.0);
+        web_sect.page_w = if opts.web_width.is_finite() { opts.web_width.clamp(144.0, 20_000.0) } else { 300.0 };
+        if read {
+            web_sect.page_h = if opts.read_height.is_finite() { opts.read_height.clamp(144.0, 20_000.0) } else { 500.0 };
+            web_sect.margin_bottom = 18.0;
+            web_sect.page_borders = None;
+            web_sect.line_numbers = None;
+        }
         web_sect.margin_left = 18.0;
         web_sect.margin_right = 18.0;
         web_sect.margin_top = 18.0;
         web_sect.gutter = 0.0;
         web_sect.columns = Default::default();
+        web_sect.valign = wordcraft_doc::section::PageVAlign::Top;
         &web_sect
     } else {
         first_sect
@@ -1584,10 +2276,15 @@ fn layout_pass(
         carry: Vec::new(),
         orig_bottom: 0.0,
         prev: None,
+        after_break_mark: false,
+        next_starts_page: false,
+        restart_at: None,
         excl: Vec::new(),
         float_tables: Vec::new(),
         line_no: 0,
         page_items_start: 0,
+        block_marks: Vec::new(),
+        page_valign: wordcraft_doc::section::PageVAlign::Top,
         seps: NoteSeps::default(),
         behind: Vec::new(),
         max_y: 0.0,
@@ -1626,10 +2323,10 @@ fn layout_pass(
         .collect();
     let mut prev_turn = TextDirection::Horizontal;
     for (si, (end, sect)) in sections.iter().enumerate() {
-        let turn = if web { TextDirection::Horizontal } else { sect.text_direction };
+        let turn = if reflow { TextDirection::Horizontal } else { sect.text_direction };
         let sect: &SectionProps = match turned.get(si) {
             Some(Some(t)) => t,
-            _ if web => sect_ref,
+            _ if reflow => sect_ref,
             _ => sect,
         };
         pb.sect = sect;
@@ -1644,10 +2341,25 @@ fn layout_pass(
         ctx.fields.section_pages = totals.section(si);
         // Headers and footers left out are linked to the previous section's, and take its room.
         let (heads, feet) = (linked(&sections, si, |s| s.headers), linked(&sections, si, |s| s.footers));
-        let body_top = if web || turn.is_turned() { sect.margin_top } else { body_top_for(&mut ctx, sect, heads.default) };
-        let first_top = if web || turn.is_turned() || !sect.title_page { body_top } else { body_top_for(&mut ctx, sect, heads.first) };
-        let foot_top = if web || turn.is_turned() { f32::MAX } else { foot_top_for(&mut ctx, sect, feet.default) };
-        let first_foot = if web || turn.is_turned() || !sect.title_page { foot_top } else { foot_top_for(&mut ctx, sect, feet.first) };
+        let hb = |i: Option<u32>| defining_width(&sections, si, |s| s.headers, i);
+        let fb = |i: Option<u32>| defining_width(&sections, si, |s| s.footers, i);
+        let body_top = if reflow || turn.is_turned() {
+            sect.margin_top
+        } else {
+            with_pct_base(&mut ctx, hb(heads.default), |c| body_top_for(c, sect, heads.default))
+        };
+        let first_top = if reflow || turn.is_turned() || !sect.title_page {
+            body_top
+        } else {
+            with_pct_base(&mut ctx, hb(heads.first), |c| body_top_for(c, sect, heads.first))
+        };
+        let foot_top =
+            if reflow || turn.is_turned() { f32::MAX } else { with_pct_base(&mut ctx, fb(feet.default), |c| foot_top_for(c, sect, feet.default)) };
+        let first_foot = if reflow || turn.is_turned() || !sect.title_page {
+            foot_top
+        } else {
+            with_pct_base(&mut ctx, fb(feet.first), |c| foot_top_for(c, sect, feet.first))
+        };
         ctx.grid = para::Grid::of(doc, sect);
         let restart = sect.page_num_start;
         if sect.line_numbers.as_ref().is_some_and(|l| l.restart == wordcraft_doc::section::LineNumberRestart::Section) {
@@ -1658,18 +2370,31 @@ fn layout_pass(
             // one long page
         } else if pb.pages.is_empty() || start != SectionStart::Continuous || turn != prev_turn {
             // A page holds text running one way: a section turning the other way starts a page.
-            if let Some(n) = restart {
-                pb.number = n.saturating_sub(1);
+            if !web {
+                pb.take_back_break_page();
+            }
+            let s = &doc.settings;
+            let (filler, restart) = section_side(start, restart, pb.number, pb.pages.len(), s.even_odd_headers, s.mirror_margins);
+            // The blank page that puts the section on the right side ends the previous section.
+            if filler
+                && !web
+                && let Some((_, prev)) = si.checked_sub(1).and_then(|k| sections.get(k))
+            {
+                pb.sect = prev;
+                pb.sect_idx = si - 1;
+                let (ph, pf) = (linked(&sections, si - 1, |s| s.headers), linked(&sections, si - 1, |s| s.footers));
+                let top = body_top_for(&mut ctx, prev, ph.default);
+                pb.foot_top = foot_top_for(&mut ctx, prev, pf.default);
+                pb.new_page(block, top);
+                pb.sect = sect;
+                pb.sect_idx = si;
+            }
+            if restart.is_some() {
+                pb.restart_at = restart;
             }
             pb.foot_top = first_foot;
             pb.new_page(block, first_top);
             pb.foot_top = foot_top;
-            if !web && matches!(start, SectionStart::EvenPage | SectionStart::OddPage) {
-                let want_even = start == SectionStart::EvenPage;
-                if pb.number.is_multiple_of(2) != want_even {
-                    pb.new_page(block, body_top);
-                }
-            }
         } else {
             // Continuous: new column layout below the current text (its tallest column).
             pb.cols = sect.column_boxes();
@@ -1686,13 +2411,15 @@ fn layout_pass(
         // start of the block that reaches it, with shorter columns (see `balance_columns`).
         let balance = !web
             && pb.cols.len() > 1
-            && sect.valign == wordcraft_doc::props::VAlign::Top
+            && sect.valign == wordcraft_doc::section::PageVAlign::Top
             && sections.get(si + 1).is_some_and(|(_, s)| s.start == SectionStart::Continuous);
         pb.col_break_page = None;
+        pb.next_starts_page = !web && sections.get(si + 1).is_some_and(|(_, s)| s.start != SectionStart::Continuous);
         let mut from = balance.then(|| (block, Snap::take(&mut pb, &ctx)));
         while block <= last {
             let Some(b) = doc.body.get(block) else { break };
             let before = balance.then(|| (pb.pages.len(), Snap::take(&mut pb, &ctx)));
+            pb.mark_block();
             match (&**b, &outline) {
                 (Block::Para(p), Some(o)) => place_outline_para(&mut ctx, &mut pb, p, block, o),
                 (Block::Table(_), Some(o)) if o.hidden.get(block).copied().unwrap_or(false) => {}
@@ -1756,23 +2483,29 @@ fn layout_pass(
         p.h = bottom + 36.0;
     }
     ctx.grid = para::Grid::default();
-    if !web && ctx.uses_totals && may_repeat {
-        let found = Totals::of(&pages, sections.len());
-        if found != *totals {
+    if !reflow {
+        let found = Totals::of(&pages, &sections);
+        if ctx.uses_totals && may_repeat && found != *totals {
             return Pass::Again(found);
         }
-    }
-    if !web {
         ctx.track_totals = false;
-        headers_footers(&mut ctx, &mut pages, &sections);
+        // Page references in headers and footers are filled in after pagination, like their page
+        // totals: they don't make the body lay out again.
+        if headers_footers_refer_to_pages(doc) {
+            let marks = bookmark_pages(doc, &pages, &sections);
+            ctx.fields.bookmarks_key = marks_key(&marks);
+            ctx.fields.bookmark_pages = Arc::new(marks);
+        }
+        headers_footers(&mut ctx, &mut pages, &sections, &found);
         if doc.settings.mirror_margins {
             mirror_even_pages(&mut pages, &sections);
         }
     }
     // Evict paragraph layouts that weren't used this pass if the cache grew large.
-    if ctx.cache.paras.len() > 4 * ctx.cache.used.len().max(1024) {
+    if ctx.cache.paras.len() + ctx.cache.measures.len() > 4 * ctx.cache.used.len().max(1024) {
         let used = std::mem::take(&mut ctx.cache.used);
         ctx.cache.paras.retain(|k, _| used.contains(k));
+        ctx.cache.measures.retain(|k, _| used.contains(k));
         ctx.cache.used = used;
     }
     let mut index: HashMap<(StoryRef, Path), Vec<(usize, usize)>> = HashMap::new();
@@ -1783,7 +2516,12 @@ fn layout_pass(
             }
         }
     }
-    Pass::Done(DocLayout { pages, index, ms: 0.0, text_boxes: ctx.boxes.total().saturating_sub(boxes_discarded) })
+    let mut lay = DocLayout { pages, index, ms: 0.0, text_boxes: 0 };
+    if opts.comment_balloons && !web {
+        balloons::add(&mut ctx, &mut lay);
+    }
+    lay.text_boxes = ctx.boxes.total().saturating_sub(boxes_discarded);
+    Pass::Done(lay)
 }
 
 /// Pagination state saved before a block, to lay the blocks from there out again (balancing
@@ -1966,7 +2704,7 @@ fn place_endnotes(ctx: &mut Ctx, pb: &mut PageBuilder, ids: Vec<u32>, block: usi
     for id in ids {
         let Some(part) = ctx.doc.parts.get(&id) else { continue };
         let blocks = part.blocks.clone();
-        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.col_w(), None, 0, None);
+        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.col_w(), BoxContext::Other, 0, None);
         // A note longer than the room left continues at a line break in the next column or on
         // a new page (Word). Each page takes at least a line, so this ends; the page cap is a
         // backstop (the rest then runs off the last page).
@@ -2016,15 +2754,68 @@ fn item_bottom(y: f32, para: &ParaLayout, l0: usize, l1: usize) -> Option<f32> {
     Some(y + l.top + l.height - f.top)
 }
 
+/// Whether a section that starts on a new page needs a blank page first so it lands on the right
+/// side, and the page number it restarts at. `last` is the number of the page before it and
+/// `pages` how many pages there are so far.
+/// - An odd- or even-page break counts on from the previous section's numbers. A section that
+///   restarts its numbering gets no blank page unless the document prints both sides (different
+///   odd and even headers, or mirror margins); a restart at the wrong parity takes the next number.
+/// - With different odd and even headers, a next-page break that restarts the numbers at an odd
+///   (even) number starts on an odd (even) sheet.
+///
+/// (Word's output for docxide-pdf's fixtures: bush_fires_act_comparison has a blank page 2.)
+fn section_side(start: SectionStart, restart: Option<u32>, last: u32, pages: usize, even_odd: bool, mirror: bool) -> (bool, Option<u32>) {
+    match start {
+        SectionStart::OddPage | SectionStart::EvenPage => {
+            let want_odd = start == SectionStart::OddPage;
+            let continuing_odd = last.saturating_add(1) % 2 == 1;
+            let filler = pages > 0 && continuing_odd != want_odd && (restart.is_none() || even_odd || mirror);
+            let restart = restart.map(|n| if (n % 2 == 1) == want_odd { n } else { n.saturating_add(1) });
+            (filler, restart)
+        }
+        SectionStart::NextPage => {
+            let filler = even_odd && pages > 0 && restart.is_some_and(|n| (n % 2 == 1) != ((pages + 1) % 2 == 1));
+            (filler, restart)
+        }
+        SectionStart::Continuous | SectionStart::NextColumn => (false, restart),
+    }
+}
+
+/// The text width of the section that defines header or footer `id`, when section `si` inherits
+/// it rather than naming it (`None` when it names it). Measured in Word: an inherited part's
+/// percentage-width tables are sized by that section, though it's laid out on `si`'s pages.
+fn defining_width(sections: &[(usize, &SectionProps)], si: usize, get: fn(&SectionProps) -> HeaderSet, id: Option<u32>) -> Option<f32> {
+    let id = id?;
+    let names = |s: &SectionProps| {
+        let h = get(s);
+        [h.default, h.first, h.even].contains(&Some(id))
+    };
+    let own = sections.get(si)?.1;
+    if names(own) {
+        return None;
+    }
+    sections.iter().take(si).rev().find(|(_, s)| names(s)).map(|(_, s)| s.text_width()).filter(|w| (w - own.text_width()).abs() > 0.01)
+}
+
+/// Lay out with percentage-width tables sized by `base` (see [`defining_width`]).
+fn with_pct_base<T>(ctx: &mut Ctx, base: Option<f32>, f: impl FnOnce(&mut Ctx) -> T) -> T {
+    let before = std::mem::replace(&mut ctx.pct_base, base);
+    let out = f(ctx);
+    ctx.pct_base = before;
+    out
+}
+
 /// Where body text starts: the top margin, or below the header if it's taller.
 fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 {
     let Some(id) = header else { return sect.margin_top };
     let Some(part) = ctx.doc.parts.get(&id) else { return sect.margin_top };
     let blocks = part.blocks.clone();
     // Placed as `headers_footers` draws it, so page-relative floats wrap the same way.
-    let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header) };
+    let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header), number: 1, mirror: ctx.mirror };
     let track = std::mem::replace(&mut ctx.track_totals, false);
-    let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), None, 0, Some(frame)).height;
+    let (h, ..) = with_pin(ctx, id, sect, 1, |ctx| {
+        layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, Some(frame)).height
+    });
     ctx.track_totals = track;
     // Word starts the body right below a header that reaches past the top margin, no gap.
     sect.margin_top.max(sect.header + h)
@@ -2034,8 +2825,45 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
 fn foot_top_for(ctx: &mut Ctx, sect: &SectionProps, footer: Option<u32>) -> f32 {
     let Some(part) = footer.and_then(|id| ctx.doc.parts.get(&id).map(|p| (id, p))) else { return f32::MAX };
     let (id, blocks) = (part.0, part.1.blocks.clone());
-    let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), None, 0, None).height;
-    sect.page_h - sect.footer - h
+    // A page total in the footer is filled in after pagination, like the header's: it doesn't
+    // make the body lay out again.
+    let track = std::mem::replace(&mut ctx.track_totals, false);
+    let (laid, ..) =
+        with_pin(ctx, id, sect, 1, |ctx| layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, None));
+    ctx.track_totals = track;
+    let top = sect.page_h - sect.footer - laid.height;
+    // Flow-table strokes extend above their cell boxes. Floating decorations keep their wrap rules.
+    let flow_cells: Vec<_> = laid
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Placed::Cell { rect, table, story: own, .. }
+                if *own == StoryRef::Part(id)
+                    && table.0.len() == 1
+                    && table
+                        .0
+                        .first()
+                        .and_then(|i| blocks.get(*i as usize))
+                        .is_some_and(|b| matches!(&**b, Block::Table(t) if t.props.float.is_none())) =>
+            {
+                Some(rect)
+            }
+            _ => None,
+        })
+        .collect();
+    laid.items
+        .iter()
+        .filter_map(|item| match item {
+            Placed::Rule { x0, x1, y0, y1, border }
+                if border.is_visible()
+                    && (y0 - y1).abs() < 0.01
+                    && flow_cells.iter().any(|r| (r.y - y0).abs() < 0.01 && *x0 <= r.x + 0.01 && *x1 >= r.right() - 0.01) =>
+            {
+                Some(top + y0 - border.width / 2.0)
+            }
+            _ => None,
+        })
+        .fold(top, f32::min)
 }
 
 /// Where a box of laid-out items sits on its page, for floating objects positioned relative to
@@ -2045,6 +2873,34 @@ struct PageFrame<'a> {
     sect: &'a SectionProps,
     /// Page position of the box's (0, 0); (0, 0) for body text.
     origin: (f32, f32),
+    /// The page's number: inside and outside are left and right on odd pages, the other way
+    /// round on even ones.
+    number: u32,
+    /// Whether an even page is mirrored ([`mirror_even_pages`]).
+    mirror: bool,
+}
+
+impl PageFrame<'_> {
+    fn even(&self) -> bool {
+        self.number.is_multiple_of(2)
+    }
+
+    /// The widths of the page's left and right margins (the gutter is on the inside), and how
+    /// far [`mirror_even_pages`] moves what is laid out on it.
+    fn sides(&self) -> (f32, f32, f32) {
+        let (inside, outside) = (self.sect.margin_left + self.sect.gutter, self.sect.margin_right);
+        let shift = outside - inside;
+        if self.mirror && self.even() && shift.is_finite() { (outside, inside, shift) } else { (inside, outside, 0.0) }
+    }
+
+    /// Alignment `a` across the page: inside and outside become right and left on an even page.
+    fn h_align(frame: Option<&Self>, a: Option<FloatAlign>) -> Option<FloatAlign> {
+        match a {
+            Some(FloatAlign::Inside) if frame.is_some_and(|f| f.even()) => Some(FloatAlign::End),
+            Some(FloatAlign::Outside) if frame.is_some_and(|f| f.even()) => Some(FloatAlign::Start),
+            a => a,
+        }
+    }
 }
 
 /// A floating (not inline) picture, chart or shape: its size and placement.
@@ -2058,16 +2914,22 @@ fn floating(o: &InlineObject) -> Option<(f32, f32, &Float)> {
 /// to the box itself.
 fn float_rect(frame: Option<PageFrame>, col: (f32, f32), y0: f32, w: f32, h: f32, float: &Float) -> Rect {
     let (w, h) = (w.clamp(1.0, 4000.0), h.clamp(1.0, 4000.0));
-    // Each axis: the reference area's start and extent, in page coordinates.
-    let page_x = |s: &SectionProps| {
-        let left = s.margin_left + s.gutter;
-        match float.h_rel {
-            Anchor::Page => Some((0.0, s.page_w)),
-            Anchor::Margin => Some((left, s.text_width())),
-            Anchor::LeftMargin | Anchor::InsideMargin => Some((0.0, left)),
-            Anchor::RightMargin | Anchor::OutsideMargin => Some((s.page_w - s.margin_right, s.margin_right)),
-            _ => None,
-        }
+    // Each axis: the reference area's start and extent, in page coordinates. Across, as laid out
+    // before an even page is mirrored (less the shift it then gets).
+    let page_x = |f: &PageFrame| {
+        let (s, even) = (f.sect, f.even());
+        let (left, right, shift) = f.sides();
+        let (start, extent) = match float.h_rel {
+            Anchor::Page => (0.0, s.page_w),
+            Anchor::Margin => (left, s.text_width()),
+            Anchor::LeftMargin => (0.0, left),
+            Anchor::RightMargin => (s.page_w - right, right),
+            Anchor::InsideMargin if even => (s.page_w - right, right),
+            Anchor::OutsideMargin if !even => (s.page_w - right, right),
+            Anchor::InsideMargin | Anchor::OutsideMargin => (0.0, left),
+            _ => return None,
+        };
+        Some((start - shift, extent))
     };
     let page_y = |s: &SectionProps| match float.v_rel {
         Anchor::Page => Some((0.0, s.page_h)),
@@ -2076,9 +2938,10 @@ fn float_rect(frame: Option<PageFrame>, col: (f32, f32), y0: f32, w: f32, h: f32
         Anchor::BottomMargin | Anchor::OutsideMargin => Some((s.page_h - s.margin_bottom, s.margin_bottom)),
         _ => None,
     };
-    let hx = frame.and_then(|f| page_x(f.sect).map(|(a, e)| (a - f.origin.0, e))).unwrap_or(col);
+    let hx = frame.and_then(|f| page_x(&f).map(|(a, e)| (a - f.origin.0, e))).unwrap_or(col);
     let vy = frame.and_then(|f| page_y(f.sect).map(|(a, e)| (a - f.origin.1, e))).unwrap_or((y0, 0.0));
-    Rect::new(align_in(hx, float.x, w, float.h_align), align_in(vy, float.y, h, float.v_align), w, h)
+    let h_align = PageFrame::h_align(frame.as_ref(), float.h_align);
+    Rect::new(align_in(hx, float.x, w, h_align), align_in(vy, float.y, h, float.v_align), w, h)
 }
 
 /// Where an object of `size` starts on one axis of `area` (start, extent): at `offset` from the
@@ -2144,6 +3007,7 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
             vec![Placed::Image { rect, media: media.clone(), crop: *crop, story, path: Path(path.to_vec()), off, spin }]
         }
         InlineObject::Shape { kind, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
+            let object = wordcraft_doc::Pos { story, path: Path(path.to_vec()), off };
             vec![Placed::Shape {
                 rect,
                 kind: *kind,
@@ -2154,6 +3018,7 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
                 freeform: freeform.clone(),
                 spin,
                 extra: extra.clone(),
+                object: Some(object),
             }]
         }
         InlineObject::Graphic { graphic, .. } => {
@@ -2181,6 +3046,7 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
                             freeform: None,
                             spin,
                             extra: Default::default(),
+                            object: Some(wordcraft_doc::Pos { story, path: Path(path.to_vec()), off }),
                         },
                         Placed::Clip { rect, spin, items: members },
                     ]
@@ -2202,7 +3068,12 @@ fn carried(rect: Rect, spin: Spin, centre: Point) -> Rect {
 }
 
 fn group_members(o: &InlineObject, rect: Rect) -> Vec<(Rect, &InlineObject)> {
-    o.group_rects(rect.x, rect.y, rect.w, rect.h).into_iter().map(|([x, y, w, h], c)| (Rect::new(x, y, w, h), c)).collect()
+    // Hidden members aren't placed (nor their text boxes laid out).
+    o.group_rects(rect.x, rect.y, rect.w, rect.h)
+        .into_iter()
+        .filter(|(_, c)| !c.frame().is_some_and(|(_, _, f)| f.hidden))
+        .map(|([x, y, w, h], c)| (Rect::new(x, y, w, h), c))
+        .collect()
 }
 
 /// Position the floating objects anchored in `p` for a paragraph whose text starts at `y0` in
@@ -2213,24 +3084,26 @@ fn anchor_floats(
     pb: &mut PageBuilder,
     p: &Paragraph,
     y0: f32,
+    before: f32,
     excl_mark: usize,
     label: &Option<(String, Level)>,
-) -> (HashMap<usize, Rect>, Arc<ParaLayout>) {
+) -> (HashMap<usize, Rect>, Arc<ParaLayout>, Vec<para::Exclusion>) {
     pb.excl.truncate(excl_mark);
     ctx.fields.page = pb.number;
     let (col_x, width) = (pb.col_x(), pb.col_w());
     let mut rects = HashMap::new();
     if !pb.web {
-        let frame = PageFrame { sect: pb.sect, origin: (0.0, 0.0) };
+        let frame = PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror };
         // An object left out of the layout (hidden, or deleted in the final text) is not placed, so
         // it takes no room either.
-        let left_out = left_out_objects(ctx.doc, p, None, ctx.opts.show_hidden, ctx.opts.hide_deleted);
+        let left_out = left_out_objects(ctx.doc, p, None, ctx.opts.show_hidden, ctx.hide_deleted);
         for (oi, o) in p.objects.iter().enumerate() {
             let Some((w, h, float)) = floating(o) else { continue };
             if left_out(oi) {
                 continue;
             }
-            let r = float_rect(Some(frame), (col_x, width), y0, w, h, float);
+            // Positions relative to the paragraph start above its space before (Word for Windows).
+            let r = float_rect(Some(frame), (col_x, width), y0 - before, w, h, float);
             rects.insert(oi, r);
             let outline = ctx.wrap_outline(o);
             if let Some(area) = wrap_area(r, float, outline.as_deref().map(|v| v.as_slice())) {
@@ -2238,8 +3111,77 @@ fn anchor_floats(
             }
         }
     }
-    let rel = rel_exclusions(&pb.excl, col_x, y0);
-    (rects, ctx.para_labelled(p, width, None, &rel, label.clone()))
+    let rel = rel_exclusions(&body_wraps(ctx, pb), col_x, y0);
+    let pl = ctx.para_labelled(p, width, None, &rel, label.clone());
+    (rects, pl, rel)
+}
+
+/// Footer page tables wrap only the intersecting body lines, which resume below them.
+fn footer_table_wraps(ctx: &mut Ctx, pb: &PageBuilder) -> Vec<WrapArea> {
+    if pb.web || ctx.opts.view == ViewMode::Read {
+        return Vec::new();
+    }
+    let Some(page) = pb.pages.last() else { return Vec::new() };
+    let first = pb.pages.iter().rev().nth(1).is_none_or(|prev| prev.section != page.section);
+    let key = (page.section, page.number, first);
+    if let Some(areas) = ctx.footer_wraps.get(&key) {
+        return areas.clone();
+    }
+    ctx.footer_wraps.insert(key, Vec::new());
+    let doc = ctx.doc;
+    let sections = doc.sections();
+    let Some((_, sect)) = sections.get(page.section) else { return Vec::new() };
+    if sect.text_direction.is_turned() {
+        return Vec::new();
+    }
+    let set = linked(&sections, page.section, |s| s.footers);
+    let id = if sect.title_page && first {
+        set.first
+    } else if doc.settings.even_odd_headers && page.number.is_multiple_of(2) {
+        set.even.or(set.default)
+    } else {
+        set.default
+    };
+    let Some(id) = id else { return Vec::new() };
+    let Some(part) = doc.parts.get(&id) else { return Vec::new() };
+    let blocks = part.blocks.clone();
+    let x = sect.margin_left + sect.gutter;
+    let base = defining_width(&sections, page.section, |s| s.footers, Some(id));
+    let counters = std::mem::take(&mut ctx.counters);
+    let boxes = std::mem::take(&mut ctx.boxes);
+    let chains = std::mem::take(&mut ctx.chains);
+    let fields = ctx.fields.clone();
+    let grid = std::mem::take(&mut ctx.grid);
+    let track = std::mem::replace(&mut ctx.track_totals, false);
+    ctx.fields.page = page.number;
+    let areas = again(ctx, 0, |ctx| {
+        with_pct_base(ctx, base, |ctx| {
+            let story = StoryRef::Part(id);
+            let h = layout_box(ctx, story, &blocks, &[], sect.text_width(), BoxContext::Other, 0, None).height;
+            let y = sect.page_h - sect.footer - h;
+            let frame = PageFrame { sect, origin: (x, y), number: page.number, mirror: ctx.mirror };
+            let mut areas = layout_box(ctx, story, &blocks, &[], sect.text_width(), BoxContext::Other, 0, Some(frame)).page_table_wraps;
+            for (rect, ..) in &mut areas {
+                rect.x += x;
+                rect.y += y;
+            }
+            areas
+        })
+    });
+    ctx.counters = counters;
+    ctx.boxes = boxes;
+    ctx.chains = chains;
+    ctx.fields = fields;
+    ctx.grid = grid;
+    ctx.track_totals = track;
+    ctx.footer_wraps.insert(key, areas.clone());
+    areas
+}
+
+fn body_wraps(ctx: &mut Ctx, pb: &PageBuilder) -> Vec<WrapArea> {
+    let mut areas = footer_table_wraps(ctx, pb);
+    areas.extend_from_slice(&pb.excl);
+    areas
 }
 
 /// Where a paragraph's floating objects are positioned from, when they aren't placed already:
@@ -2252,6 +3194,9 @@ struct ObjFrame<'a> {
     para_y: f32,
     /// A table's character formatting under the paragraph's (see `left_out_objects`).
     table_chr: Option<&'a CharProps>,
+    /// Floats placed on the page from a header or footer cell (by object index, in page
+    /// coordinates): their items go to [`Ctx::pin`].
+    pinned: Option<&'a HashMap<usize, Rect>>,
 }
 
 /// The pictures, shapes and text boxes in lines `l0..l1` of paragraph `p` (story `story`, at
@@ -2274,8 +3219,18 @@ fn place_objects(
     let (mut behind, mut front) = (Vec::new(), Vec::new());
     let Some(fl) = pl.lines.get(l0) else { return (behind, front) };
     // Objects left out of the layout (hidden, or deleted in the final text) aren't placed.
-    let left_out = left_out_objects(ctx.doc, p, at.table_chr, ctx.opts.show_hidden, ctx.opts.hide_deleted);
-    for li in l0..l1 {
+    let left_out = left_out_objects(ctx.doc, p, at.table_chr, ctx.opts.show_hidden, ctx.hide_deleted);
+    // A floating object belongs to its paragraph, not to its line: Word puts it on the page the
+    // paragraph starts on (a cover page is a paragraph holding a page break and then the text
+    // box with the title; the box stays on the cover). So the paragraph's first piece places
+    // every floating object, whichever of its lines holds the anchor, and later pieces none;
+    // inline objects go with their own line.
+    let first = l0 == 0;
+    for li in 0..pl.lines.len() {
+        let in_piece = (l0..l1).contains(&li);
+        if !in_piece && !first {
+            continue;
+        }
         let Some(line) = pl.lines.get(li) else { continue };
         for k in line.c0..line.c1 {
             let Some(c) = pl.clusters.get(k) else { continue };
@@ -2286,7 +3241,14 @@ fn place_objects(
             let Some(obj) = p.objects.get(oi) else { continue };
             let Some((w, h, float)) = obj.frame() else { continue };
             let floating = float.wrap != Wrap::Inline;
-            let rect = if floating {
+            if if floating { !first } else { !in_piece } {
+                continue;
+            }
+            let pinned = at.pinned.and_then(|m| m.get(&oi)).copied().filter(|_| floating);
+            let marks = (behind.len(), front.len());
+            let rect = if let Some(r) = pinned {
+                r
+            } else if floating {
                 floats.get(&oi).copied().unwrap_or_else(|| float_rect(at.page, at.col, at.para_y, w, h, float))
             } else {
                 let cx = x + line.cl_left(k).unwrap_or(0.0);
@@ -2335,6 +3297,16 @@ fn place_objects(
                 let layer = if float.wrap == Wrap::BehindText { &mut behind } else { &mut front };
                 layer.extend(items);
             }
+            // Placed on the page from a header or footer cell: drawn with the header, once.
+            if pinned.is_some() {
+                let (b, f) = (behind.split_off(marks.0.min(behind.len())), front.split_off(marks.1.min(front.len())));
+                if let Some(pin) = ctx.pin.as_mut()
+                    && pin.seen.insert((path.to_vec(), c.start))
+                {
+                    pin.behind.extend(b);
+                    pin.front.extend(f);
+                }
+            }
         }
     }
     (behind, front)
@@ -2347,7 +3319,7 @@ fn para_notes(doc: &Document, p: &Paragraph, pl: &ParaLayout) -> Vec<(usize, u32
     if p.objects.iter().any(|o| !o.text_boxes().is_empty()) {
         for (ci, c) in pl.clusters.iter().enumerate() {
             if let para::ClKind::Object(oi) = c.kind
-                && let Some(o) = p.objects.get(oi)
+                && let Some(o) = p.objects.get(oi).filter(|o| !o.frame().is_some_and(|(_, _, f)| f.hidden))
             {
                 for id in o.text_boxes() {
                     notes.extend(doc.notes_in_text_box(id).into_iter().map(|n| (ci, n)));
@@ -2358,7 +3330,88 @@ fn para_notes(doc: &Document, p: &Paragraph, pl: &ParaLayout) -> Vec<(usize, u32
     notes
 }
 
+/// A closing mark before a continuous section takes no room after content. An otherwise empty
+/// section starting a new page retains its paragraph line.
 fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, body_top: f32) {
+    if !pb.web && ctx.quiet_marks.binary_search(&block).is_ok() {
+        let follows_section = block.checked_sub(1).and_then(|i| ctx.doc.body.get(i)).and_then(|b| b.as_para()).is_some_and(|p| p.section.is_some());
+        let section = pb.sect_idx;
+        let own_page = pb.page().is_some_and(|page| page.section == section);
+        // Word keeps the line when a new page's section contains only this mark.
+        if p.section.is_some()
+            && p.objects.is_empty()
+            && (ctx.opts.show_hidden || !ctx.doc.styles.resolve_char(p.props.style.as_deref(), &p.mark).hidden)
+            && !ctx.has_label(p)
+            && (block == 0 || follows_section)
+            && pb.at_top()
+            && own_page
+        {
+            place_para_in_flow(ctx, pb, p, block, body_top);
+            return;
+        }
+        // Its (empty) line stays where the text ended, even at the bottom of a full column.
+        let (y, prev, bottom, content_bottom, at) = (pb.y, pb.prev.clone(), pb.bottom, pb.content_bottom, (pb.pages.len(), pb.col));
+        pb.bottom = f32::MAX / 4.0;
+        place_para_in_flow(ctx, pb, p, block, body_top);
+        pb.bottom = bottom;
+        if (pb.pages.len(), pb.col) == at {
+            (pb.y, pb.prev, pb.content_bottom) = (y, prev, content_bottom);
+        }
+        return;
+    }
+    place_para_in_flow(ctx, pb, p, block, body_top);
+}
+
+/// How many times one body paragraph is laid out again for the page numbers of the later pages
+/// it runs onto (#1352).
+const MAX_PAGE_RELAYS: usize = 64;
+
+/// Run `f`, a layout of a paragraph again, with the automatic equation numbers it counted from
+/// (`eq_start`) the first time, and leave the count where it was: laying it out again doesn't
+/// count its numbered equations twice.
+fn again<T>(ctx: &mut Ctx, eq_start: u32, f: impl FnOnce(&mut Ctx) -> T) -> T {
+    let now = std::mem::replace(&mut ctx.eq_count, eq_start);
+    let out = f(ctx);
+    ctx.eq_count = now;
+    out
+}
+
+/// How many times one body paragraph's lines are broken again for the wrap areas of the later
+/// columns and pages it runs onto (#1374).
+const MAX_WRAP_RELAYS: usize = 64;
+
+#[cfg(test)]
+thread_local! {
+    /// How many wrap relays (#1374) the layouts on this thread made: tests check none happen
+    /// without something new to wrap around.
+    static WRAP_RELAYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The wrap areas for a paragraph laid out against `rel` (relative to its top) whose lines from the
+/// one at `t` (relative to its top) on go into the column starting at `x0`, that line at `y` on
+/// the page, which has the wrap areas `excl` (#1374). The areas the lines before were broken
+/// around end at `t`; the column's start there (one reaching above `t` with an outline keeps its
+/// whole outline, so it may change a line before, and the paragraph is then not broken again).
+/// Areas well clear of the column (outside `-width..2 * width`, room for negative indents) can't
+/// touch its lines and are left out.
+fn continued_exclusions(rel: &[para::Exclusion], excl: &[WrapArea], x0: f32, y: f32, t: f32, width: f32) -> Vec<para::Exclusion> {
+    let before = rel.iter().filter(|e| e.top < t).map(|e| para::Exclusion { bottom: e.bottom.min(t), ..e.clone() });
+    let here = rel_exclusions(excl, x0, y - t)
+        .into_iter()
+        .filter(|e| e.bottom > t && e.right > -width && e.left < 2.0 * width)
+        .map(|e| if e.top < t && e.contour.is_none() { para::Exclusion { top: t, ..e } } else { e });
+    before.chain(here).collect()
+}
+
+/// Run `f` with `map` as the field context's page map (`FieldCtx::page_from`), then take it back.
+fn with_page_map<T>(ctx: &mut Ctx, map: &mut Vec<(usize, u32)>, f: impl FnOnce(&mut Ctx) -> T) -> T {
+    ctx.fields.page_from = std::mem::take(map);
+    let out = f(ctx);
+    *map = std::mem::take(&mut ctx.fields.page_from);
+    out
+}
+
+fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, body_top: f32) {
     let width = pb.col_w();
     // Floating objects anchored here join the page's wrap areas before the text is laid out; if
     // the paragraph then starts somewhere else (another column or page, or contextual spacing
@@ -2367,52 +3420,173 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
     let excl_mark = pb.excl.len();
     let guess = pb.y + space_before;
     let label = ctx.next_label(p);
-    let (mut float_rects, mut pl) = anchor_floats(ctx, pb, p, guess, excl_mark, &label);
-    // The anchor paragraph's top the floats were placed from.
-    let mut anchor_y = guess;
+    // The pages this paragraph's fields are on after its first (`FieldCtx::page_from`), kept here
+    // and lent to the field context only while this paragraph itself is laid out, so footnotes,
+    // text boxes and headers laid out in between never see it (#1352).
+    let mut page_map: Vec<(usize, u32)> = Vec::new();
+    // Where its automatic equation numbers start: each layout of it again counts from here.
+    let eq_start = ctx.eq_count;
+    let (mut float_rects, mut pl, mut rel) = anchor_floats(ctx, pb, p, guess, space_before, excl_mark, &label);
+    // The page its fields were laid out for (and the width), and how many times it was laid out again for a later
+    // page (bounded: a paragraph over hundreds of pages keeps the last number it got).
+    let (mut laid_page, mut laid_width) = (pb.number, pb.col_w());
+    let mut page_relays = 0usize;
+    // How many times its lines were broken again for the wrap areas of a later column (#1374).
+    let mut wrap_relays = 0usize;
+    // The anchor paragraph's top (above its space before) the floats were placed from.
+    let mut anchor_y = pb.y;
     let spot = |pb: &PageBuilder| (pb.pages.len(), pb.col);
     let placed_at = spot(pb);
-    if pl.rp.page_break_before && !pb.at_top() && !pb.web {
+    let broke_before = pl.rp.page_break_before && !pb.at_top() && !pb.web;
+    if broke_before {
         pb.new_page(block, body_top);
     }
-    // Contextual spacing: no space between paragraphs of the same style when either asks for it.
+    // Same-style contextual spacing removes this paragraph's before-space, or subtracts the
+    // previous paragraph's after-space from the merged gap (ISO/IEC 29500-1 §17.3.1.9).
     let mut before = pl.rp.space_before;
-    if let Some((style, ctxl, after)) = pb.prev.take()
-        && style == pl.rp.style
+    let prev_para = pb.prev.clone();
+    // At the top of a page, measured in Word for Windows: no space before after a paragraph that
+    // ended with a page break, nor (from Word 2013's layout, compatibility mode 15) for a page
+    // break before; a section break or, in older modes, a page break before keeps it.
+    let after_break_mark = std::mem::take(&mut pb.after_break_mark);
+    if pb.at_top() && (after_break_mark || (broke_before && ctx.doc.settings.compat_mode >= 15)) {
+        before = 0.0;
+    } else if pb.at_top()
+        && !ctx.doc.settings.sum_paragraph_spacing
+        && let Some((_, _, after, _, _)) = &prev_para
+    {
+        // After a page break before or a section break the space between the paragraphs is
+        // still counted as one: the previous paragraph's space after (left on its page) comes
+        // off the space before here (Word: 24 pt before after 10 pt after leaves 14 pt).
+        before = (before - after.max(0.0)).max(0.0);
+    }
+    if let Some((style, ctxl, mut after, after_auto, listed)) = pb.prev.take()
         && !pb.at_top()
     {
-        if ctxl {
-            pb.y -= after;
+        // Contextual spacing suppresses each paragraph's own side of the gap.
+        if style == pl.rp.style {
+            if ctxl {
+                pb.y -= after;
+                before = (before - after).max(0.0);
+                after = 0.0;
+            }
+            if pl.rp.contextual_spacing {
+                before = 0.0;
+            }
         }
-        if pl.rp.contextual_spacing {
-            before = 0.0;
+        // Automatic spacing: none between two list items (as in an HTML list; measured in Word:
+        // any two items, of one list or two, at any level).
+        if listed && label.is_some() {
+            if after_auto {
+                pb.y -= after;
+                after = 0.0;
+            }
+            if pl.rp.before_auto {
+                before = 0.0;
+            }
+        }
+        // The space between two paragraphs is the larger of the first's space after and the
+        // second's space before, not their sum.
+        if before > 0.0 && after > 0.0 && !ctx.doc.settings.sum_paragraph_spacing {
+            before = (before - after).max(0.0);
         }
     }
+    // Automatic spacing: none at the top of the document.
+    if pl.rp.before_auto && block == 0 {
+        before = 0.0;
+    }
     pb.y += before;
-    // Keep lines together: if it doesn't fit but would on an empty column, move it.
-    if pl.rp.keep_lines || pl.rp.keep_next {
-        let need = pl.height + if pl.rp.keep_next { next_first_line(ctx, block, width) } else { 0.0 };
+    let mut applied_before = before;
+    // Keep lines together: if it doesn't fit but would on an empty column, move it. Keep with
+    // next alone moves a paragraph only when it would fit here by itself (Word for Windows): one
+    // that doesn't breaks as usual, its last lines going over with the next paragraph.
+    if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + pl.height <= pb.bottom + 0.01) {
+        let need = pl.height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
         if pb.y + need > pb.bottom && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
             pb.advance(block, body_top);
             pb.y += pl.rp.space_before.min(0.0);
+            applied_before = pl.rp.space_before.min(0.0);
         }
     }
     // A different top only matters when there is something to wrap around.
     if spot(pb) != placed_at || ((pb.y - guess).abs() > 0.01 && !pb.excl.is_empty()) {
         let y0 = pb.y;
-        (float_rects, pl) = anchor_floats(ctx, pb, p, y0, excl_mark, &label);
-        anchor_y = y0;
+        (float_rects, pl, rel) = again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, y0, applied_before, excl_mark, &label));
+        (laid_page, laid_width) = (pb.number, pb.col_w());
+        anchor_y = y0 - applied_before;
     }
     let mut n = pl.lines.len();
+    // Worked out only for a last line on a page with notes.
+    let mut after_on_page: Option<f32> = None;
     let mut l0 = 0;
     while l0 < n {
+        // The lines going into a new column (or page) were broken around the wrap areas where the
+        // paragraph started: break them again around this column's (the lines before stay as they
+        // were, and so do the paragraph's own floating objects), when they differ (#1374).
+        if l0 > 0
+            && !pb.web
+            && wrap_relays < MAX_WRAP_RELAYS
+            && let Some((resume, t)) = pl.lines.get(l0).map(|l| (l.start, l.top))
+        {
+            let here = continued_exclusions(&rel, &body_wraps(ctx, pb), pb.col_x(), pb.y, t, laid_width);
+            if here != rel {
+                wrap_relays += 1;
+                ctx.fields.page = laid_page;
+                #[cfg(test)]
+                WRAP_RELAYS.with(|c| c.set(c.get() + 1));
+                let relaid =
+                    with_page_map(ctx, &mut page_map, |ctx| again(ctx, eq_start, |ctx| ctx.para_labelled(p, laid_width, None, &here, label.clone())));
+                // Only if the rest still starts at the same line, at the same height (an outline
+                // reaching above it could move the lines before down, and the column's areas with them).
+                if let Some(k) = relaid.lines.iter().position(|l| l.start == resume)
+                    && relaid.lines.get(k).is_some_and(|l| (l.top - t).abs() < 0.01)
+                {
+                    (pl, rel) = (relaid, here);
+                    n = pl.lines.len();
+                    l0 = k;
+                }
+            }
+        }
+        // Page fields in the lines going onto a new page show that page's number: lay the
+        // paragraph out again with the fields from there on on this page (the lines before stay as
+        // they were, so the line the rest starts with is still there), breaking the rest again for
+        // the new results' widths (#1352). Only a paragraph with page fields pays for this.
+        if l0 > 0
+            && pl.has_page_fields
+            && !pb.web
+            && page_relays < MAX_PAGE_RELAYS
+            && let Some(resume) = pl.lines.get(l0).map(|l| l.start)
+            && page_map.last().map_or(laid_page, |e| e.1) != pb.number
+            && has_page_number_fields(p)
+        {
+            page_relays += 1;
+            page_map.push((resume, pb.number));
+            ctx.fields.page = laid_page;
+            let relaid =
+                with_page_map(ctx, &mut page_map, |ctx| again(ctx, eq_start, |ctx| ctx.para_labelled(p, laid_width, None, &rel, label.clone())));
+            match relaid.lines.iter().position(|l| l.start == resume) {
+                Some(k) => {
+                    pl = relaid;
+                    n = pl.lines.len();
+                    l0 = k;
+                }
+                None => {
+                    page_map.pop();
+                }
+            }
+        }
+        // What is laid out for these lines from here (their footnotes) is on this page.
+        ctx.fields.page = pb.number;
         // How many lines fit?
         let Some(first) = pl.lines.get(l0) else { break };
         // A paragraph's first line may start below its top (pushed down by a floating object).
         let lead = if l0 == 0 { first.top.max(0.0) } else { 0.0 };
         let mut l1 = l0;
         let mut forced_break = None;
+        // A page break followed only by the paragraph mark: the mark's (empty) line stays on this
+        // page with the break, so nothing of the paragraph goes to the next page (Word).
+        let mut mark_with_break = false;
         let mut new_notes: Vec<NoteBox> = Vec::new();
         let notes = para_notes(ctx.doc, p, &pl);
         while l1 < n {
@@ -2428,7 +3602,7 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
                     {
                         let blocks = part.blocks.clone();
                         let BoxLayout { items, height: h, .. } =
-                            layout_box(ctx, StoryRef::Part(*id), &blocks, &[], pb.sect.text_width(), None, 0, None);
+                            layout_box(ctx, StoryRef::Part(*id), &blocks, &[], pb.sect.text_width(), BoxContext::Other, 0, None);
                         line_notes.push(NoteBox { id: *id, items, h, cont: false });
                     }
                 }
@@ -2440,6 +3614,17 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
                 - if pb.notes.is_empty() && !new_notes.is_empty() { pb.seps.sep_h(false) } else { 0.0 }
                 - extra;
             let bottom = pb.y + lead + (l.top + l.height - first.top);
+            // On a page with footnotes the paragraph's last line keeps its space after clear of
+            // the separator (Word): if the space doesn't fit, the line goes to the next page (and,
+            // with widow control, one more with it). Without notes the space after may run past
+            // the bottom margin as usual.
+            let has_notes = !pb.notes.is_empty() || !new_notes.is_empty() || !line_notes.is_empty();
+            let tail = if has_notes && l1 + 1 == n {
+                *after_on_page.get_or_insert_with(|| space_after_kept(ctx, block, &pl.rp, label.is_some()))
+            } else {
+                0.0
+            };
+            let over = bottom + tail > limit + 0.01;
             // Notes too long for the rest of the page continue on the next one: the line still
             // fits if the notes before its last one, and that one's first line, fit below it.
             // The notes then take the rest of the page.
@@ -2449,7 +3634,7 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
                     let sep = pb.seps.sep_h(pb.notes.first().is_some_and(|n| n.cont));
                     pb.body_floor().max(bottom) + sep + before + last.first_piece() + pb.seps.notice_h() <= pb.orig_bottom + 0.01
                 });
-            if bottom > limit + 0.01 && l1 > l0 && !split {
+            if over && l1 > l0 && !split {
                 break;
             }
             // A line holding nothing but a page or column break stays at the bottom of the page
@@ -2459,13 +3644,20 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
                 && p.text
                     .get(l.start..l.stop)
                     .is_some_and(|t| t.chars().all(|c| matches!(c, wordcraft_doc::para::PAGE_BREAK | wordcraft_doc::para::COLUMN_BREAK)));
-            if bottom > limit + 0.01 && l1 == l0 && !pb.at_top() && !split && !only_break {
+            // An empty paragraph closing a section before a new page: measured in Word, it stays
+            // on a full page instead of starting one of its own.
+            let closing_mark = pb.next_starts_page && p.section.is_some() && p.text.is_empty();
+            if over && l1 == l0 && !pb.at_top() && !split && !only_break && !closing_mark {
                 break;
             }
             new_notes.extend(line_notes);
             l1 += 1;
             if matches!(l.end, LineEnd::PageBreak | LineEnd::ColumnBreak) && !pb.web {
                 forced_break = Some(l.end);
+                if l.end == LineEnd::PageBreak && l1 + 1 == n && pl.lines.get(l1).is_some_and(|m| only_markers(p, m.start..m.stop)) {
+                    l1 += 1;
+                    mark_with_break = true;
+                }
                 break;
             }
             if split {
@@ -2476,8 +3668,12 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
         if forced_break.is_none() && l1 < n && pl.rp.widow_control && n >= 2 {
             if l1 - l0 == 1 && l0 == 0 && !pb.at_top() {
                 l1 = l0; // orphan: move the first line to the next page
-            } else if n - l1 == 1 && l1 - l0 >= 3 {
+            } else if n - l1 == 1 && (l1 - l0 >= 3 || (l0 > 0 && l1 - l0 >= 2)) {
                 l1 -= 1; // widow: take one more line along
+            } else if n - l1 == 1 && l0 == 0 && l1 - l0 == 2 && !pb.at_top() {
+                // Neither split of a three-line paragraph is allowed (two and a widow, or an
+                // orphan and two): it moves whole, as in Word.
+                l1 = l0;
             }
         }
         // A row (text both sides of a floating object) stays together.
@@ -2491,7 +3687,8 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
                 pb.advance(block, body_top);
                 if l0 == 0 {
                     let y0 = pb.y;
-                    (float_rects, pl) = anchor_floats(ctx, pb, p, y0, excl_mark, &label);
+                    (float_rects, pl, rel) = again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, y0, 0.0, excl_mark, &label));
+                    (laid_page, laid_width) = (pb.number, pb.col_w());
                     anchor_y = y0;
                     n = pl.lines.len();
                 }
@@ -2527,10 +3724,11 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
         push_para(&mut items, StoryRef::Body, &[block as u32], &pl, l0, l1, x, y, width);
         // Pictures, shapes and text boxes in these lines (web view: floats placed by this piece).
         let at = ObjFrame {
-            page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0) }),
+            page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror }),
             col: (x, width),
             para_y: if pb.web { y } else { anchor_y },
             table_chr: None,
+            pinned: None,
         };
         let (behind, front) = place_objects(ctx, StoryRef::Body, &[block as u32], p, &pl, (l0, l1), (x, y), &at, &float_rects, 0);
         items.extend(front);
@@ -2576,18 +3774,58 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
             pb.content_bottom = pb.content_bottom.max(pb.y);
         }
         l0 = l1;
+        // A paragraph that starts with a page break starts on the new page, its space before
+        // there (Word).
+        let starts_with_break = l0 == 1
+            && pl.lines.first().is_some_and(|l| {
+                p.text.get(l.start..l.stop).is_some_and(|t| !t.is_empty() && t.chars().all(|c| c == wordcraft_doc::para::PAGE_BREAK))
+            });
         match forced_break {
+            Some(LineEnd::PageBreak) if mark_with_break => {
+                pb.new_page(block, body_top);
+                pb.after_break_mark = true;
+            }
+            Some(LineEnd::PageBreak) if starts_with_break && !pb.web => {
+                pb.new_page(block, body_top);
+                pb.y += pl.rp.space_before.max(0.0);
+            }
             Some(LineEnd::PageBreak) => pb.new_page(block, body_top),
             Some(LineEnd::ColumnBreak) => {
                 pb.col_break_page = Some(pb.pages.len().saturating_sub(1));
-                pb.advance(block, body_top)
+                pb.advance(block, body_top);
+                // Unequal columns: the text after the break is broken for its own column's width
+                // (Word), not the width of the column it started in.
+                if (pb.col_w() - width).abs() > 0.5
+                    && let Some(resume) = pl.lines.get(l0).map(|l| l.start)
+                {
+                    let y0 = pb.y;
+                    let (rects, relaid, relaid_rel) =
+                        with_page_map(ctx, &mut page_map, |ctx| again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, y0, 0.0, excl_mark, &label)));
+                    if let Some(k) = relaid.lines.iter().position(|l| l.start == resume) {
+                        (float_rects, pl, rel) = (rects, relaid, relaid_rel);
+                        (laid_page, laid_width) = (pb.number, pb.col_w());
+                        anchor_y = y0;
+                        n = pl.lines.len();
+                        l0 = k;
+                    }
+                }
             }
             _ if l0 < n => pb.advance(block, body_top),
             _ => {}
         }
     }
-    pb.y += pl.rp.space_after;
-    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, pl.rp.space_after));
+    // A mark that stayed with its page break keeps its space after on that page too: the next page
+    // starts with the next paragraph (Word, compatibility modes 12 to 15).
+    let space_after = if pb.after_break_mark { 0.0 } else { pl.rp.space_after };
+    pb.y += space_after;
+    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, space_after, pl.rp.after_auto, label.is_some()));
+}
+
+/// Whether `range` of `p`'s text holds nothing but zero-width markers (bookmarks, field and
+/// control boundaries…), or nothing at all: a line of them takes no room after a page break.
+fn only_markers(p: &Paragraph, range: std::ops::Range<usize>) -> bool {
+    let Some(text) = p.text.get(range.clone()) else { return false };
+    text.char_indices().all(|(i, c)| c == wordcraft_doc::para::OBJ && p.object_at(range.start + i).is_some_and(InlineObject::is_marker))
 }
 
 /// The outline of the body for an Outline view pass.
@@ -2627,7 +3865,13 @@ fn place_outline_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let y = pb.y + pl.lines.first().map(|f| f.top.max(0.0)).unwrap_or(0.0);
     let mut items = Vec::new();
     push_para(&mut items, StoryRef::Body, &[block as u32], &pl, 0, l1, x, y, width);
-    let at = ObjFrame { page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0) }), col: (x, width), para_y: y, table_chr: None };
+    let at = ObjFrame {
+        page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror }),
+        col: (x, width),
+        para_y: y,
+        table_chr: None,
+        pinned: None,
+    };
     let (behind, front) = place_objects(ctx, StoryRef::Body, &[block as u32], &q, &pl, (0, l1), (x, y), &at, &HashMap::new(), 0);
     items.extend(front);
     let children = level < outline::BODY && outline::has_children(&o.levels, block);
@@ -2656,8 +3900,35 @@ fn mirror_shift(rp: &wordcraft_doc::resolve::ResolvedPara, number: u32, web: boo
     right - left
 }
 
-/// Height of the first line of the block after `block` (for keep-with-next).
-fn next_first_line(ctx: &mut Ctx, block: usize, width: f32) -> f32 {
+/// The space after body paragraph `block` (resolved as `rp`) that is really left below it: none
+/// when contextual spacing or automatic spacing between list items drops it before the next
+/// paragraph. Same tests as the spacing between paragraphs in `place_para_in_flow`: contextual
+/// spacing removes this paragraph's space after only when this one asks for it, and the next
+/// counts as a list item when it gets a label.
+fn space_after_kept(ctx: &Ctx, block: usize, rp: &wordcraft_doc::resolve::ResolvedPara, listed: bool) -> f32 {
+    let after = rp.space_after.max(0.0);
+    if after <= 0.0 {
+        return 0.0;
+    }
+    if let Some(Block::Para(next)) = ctx.doc.body.get(block + 1).map(|b| &**b) {
+        let nrp = ctx.doc.styles.resolve_para(&next.props);
+        if nrp.style == rp.style && rp.contextual_spacing {
+            return 0.0;
+        }
+        if listed && rp.after_auto && ctx.has_label(next) {
+            return 0.0;
+        }
+    }
+    after
+}
+
+/// The room the paragraphs after `block` need on the page for keep with next: enough of the
+/// next one to start there — its first line, two of its lines with widow/orphan control (it
+/// doesn't leave a single line at the bottom of a page; it moves over whole instead), or all
+/// of it under keep lines together — or all of it and what it keeps with in turn when it is
+/// kept with the next too (a chain moves together in Word). Word carries a kept heading over
+/// when the paragraph after it cannot start on the page (#966).
+fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32 {
     match ctx.doc.body.get(block + 1).map(|b| &**b) {
         Some(Block::Para(p)) => {
             // Don't advance list counters for a lookahead: lay out without the label.
@@ -2669,20 +3940,79 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32) -> f32 {
                 fields: &ctx.fields,
                 show_hidden: ctx.opts.show_hidden,
                 field_codes: ctx.opts.field_codes,
-                hide_deleted: ctx.opts.hide_deleted,
+                hide_deleted: ctx.opts.hides_deleted(StoryRef::Body),
                 table: None,
                 proofing: None,
+                typing_word: None,
+                numeral: ctx.opts.numeral,
                 exclusions: &[],
                 eq_number: ctx.eq_count,
+                read_line_spacing: if ctx.opts.view == ViewMode::Read { ctx.opts.read_line_spacing } else { None },
                 grid: ctx.grid,
+                fit_objects: false,
+                fitted: &[],
             };
             let _ = rp;
             let pl = para::layout_para(p, &env);
-            pl.rp.space_before + pl.lines.first().map(|l| l.height).unwrap_or(0.0)
+            if pl.rp.keep_next && depth < 8 {
+                pl.rp.space_before + pl.height + pl.rp.space_after + next_first_line(ctx, block + 1, width, depth + 1)
+            } else {
+                // The room this one needs to start on the page with the kept paragraph before
+                // it (#966).
+                let to = |k: usize| match (pl.lines.first(), pl.lines.get(k)) {
+                    (Some(first), Some(last)) => last.top + last.height - first.top,
+                    _ => 0.0,
+                };
+                pl.rp.space_before
+                    + if pl.rp.keep_lines {
+                        pl.height
+                    } else if pl.rp.widow_control && pl.lines.len() >= 2 {
+                        to(1)
+                    } else {
+                        to(0)
+                    }
+            }
         }
         Some(Block::Table(_)) => 24.0,
         None => 0.0,
     }
+}
+
+fn row_keeps_next(row: &table::RowLayout) -> bool {
+    let Some(items) = row.cells.first().and_then(|cell| row.items.get(cell.items.clone())) else { return false };
+    let Some((depth, story)) = items
+        .iter()
+        .filter_map(|item| match item {
+            Placed::Cell { table, story, .. } => Some((table.0.len() + 3, *story)),
+            _ => None,
+        })
+        .min_by_key(|(depth, _)| *depth)
+    else {
+        return false;
+    };
+    // Word takes the row's keep flag from the first paragraph of its first cell.
+    items
+        .iter()
+        .find_map(|item| match item {
+            Placed::Lines { path, story: own, para, .. } if path.0.len() == depth && path.0.last() == Some(&0) && *own == story => {
+                Some(para.rp.keep_next)
+            }
+            _ => None,
+        })
+        .unwrap_or(false)
+}
+
+fn row_can_start(row: &wordcraft_doc::Row, laid: &table::RowLayout, room: f32, page_height: f32) -> bool {
+    if laid.height <= room + 0.01 {
+        return true;
+    }
+    if row.props.header || row.props.cant_split || (row.props.height_rule == HeightRule::Exact && row.props.height.is_some_and(|h| h > 0.0)) {
+        return false;
+    }
+    if row.props.height_rule == HeightRule::AtLeast && row.props.height.is_some_and(|h| h > room + 0.01 && h <= page_height + 0.01) {
+        return false;
+    }
+    table::split_row(laid, room).is_some()
 }
 
 fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, block: usize, body_top: f32) {
@@ -2695,16 +4025,36 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
         let legacy = if ctx.doc.settings.compat_mode < 15 { table::first_cell_left_margin(ctx, t) } else { 0.0 };
         let h: f32 = tl.rows.iter().map(|r| r.height).sum();
         if h <= pb.uncapped_bottom() - pb.top + 0.01 {
-            place_floating_table(pb, &tl, &f, legacy, block, body_top);
+            place_floating_table(ctx, pb, &tl, &f, legacy, block, body_top);
             return;
         }
         // Too tall for a page: Word lets it run across pages like a table in the text, from its
         // own left edge.
-        tl.x = float_table_x(pb, tl.width, &f, legacy) - pb.col_x();
+        tl.x = float_table_x(pb, tl.width, &f, legacy, ctx.mirror) - pb.col_x();
     }
     // A table in the text flow starts below the floating objects in its way.
-    below_floats(pb, pb.col_x() + tl.x, pb.col_x() + tl.x + tl.width);
+    below_floats(ctx, pb, pb.col_x() + tl.x, pb.col_x() + tl.x + tl.width);
     let header_rows: Vec<usize> = (0..t.rows.len()).take_while(|r| t.rows.get(*r).is_some_and(|row| row.props.header)).collect();
+    // Header rows are re-placed on every page a table spills onto, so a table with many header
+    // rows that each spill onto their own page is O(header rows × pages) placed items — a few KB
+    // of document can otherwise fill memory. Once this many header rows have been repeated across
+    // the whole table, later pages carry none; pagination still finishes. Far above any real
+    // table (e.g. 3 header rows over 30 000 pages).
+    const MAX_HEADER_REPEATS: usize = 200_000;
+    let mut header_repeats = 0usize;
+    // Resolve kept chains once; nested paragraphs cannot keep their enclosing row.
+    let mut kept: Vec<(usize, f32)> = (0..tl.rows.len()).map(|i| (i, 0.0)).collect();
+    for i in (0..tl.rows.len().saturating_sub(1)).rev() {
+        let Some(row) = tl.rows.get(i) else { continue };
+        if i < header_rows.len() || !row_keeps_next(row) {
+            continue;
+        }
+        let Some((end, height)) = kept.get(i + 1).copied() else { continue };
+        if let Some(group) = kept.get_mut(i) {
+            *group = (end, row.height + height);
+        }
+    }
+    let repeated_height: f32 = header_rows.iter().filter_map(|i| tl.rows.get(*i)).map(|r| r.height).sum();
     let place = |pb: &mut PageBuilder, row: &table::RowLayout| {
         let (x, y) = (pb.col_x() + tl.x, pb.y);
         if let Some(pg) = pb.page() {
@@ -2717,18 +4067,66 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
         pb.y += row.height;
         pb.content_bottom = pb.content_bottom.max(pb.y);
     };
+    // Measured in Word: an at-least row's minimum height is reserved, not split. Where less room
+    // than that is left on a page that already holds something, the row starts the next page
+    // whole; a row taller than a page then splits from the top of that page.
+    let short_of_min = |ri: usize, room: f32| {
+        t.rows.get(ri).is_some_and(|r| r.props.height_rule == HeightRule::AtLeast && r.props.height.is_some_and(|h| h > room + 0.01))
+    };
+    // Like Word, repeated header rows don't stay alone at the bottom of a page: when the first row
+    // after them can't start under them there, the table starts on the next page.
+    let first = header_rows.len();
+    if !header_rows.is_empty()
+        && !pb.at_top()
+        && let Some(row) = tl.rows.get(first)
+    {
+        let room = pb.bottom - pb.y - tl.rows.iter().take(first).map(|r| r.height).sum::<f32>();
+        let splittable = !t.rows.get(first).is_some_and(|r| r.props.cant_split);
+        if row.height > room + 0.01 && (short_of_min(first, room) || !(splittable && table::split_row(row, room).is_some())) {
+            pb.advance(block, body_top);
+        }
+    }
+    // For the move-on rule, the table's own header rows at the top of a page leave it empty.
+    let table_at_top = pb.at_top();
     for (ri, row) in tl.rows.iter().enumerate() {
-        let splittable = !header_rows.contains(&ri) && !t.rows.get(ri).is_some_and(|r| r.props.cant_split);
+        // Word never splits a row of an exact height: it moves on whole.
+        let splittable = !header_rows.contains(&ri)
+            && !t
+                .rows
+                .get(ri)
+                .is_some_and(|r| r.props.cant_split || (r.props.height_rule == HeightRule::Exact && r.props.height.is_some_and(|h| h > 0.0)));
         let mut rest: Option<table::RowLayout> = None;
         // On a new page holding only the repeated header rows.
         let mut fresh = false;
+        // Nothing but this table's header rows above it on a page it started at the top of.
+        let under_top_headers = ri == first && table_at_top;
         // Each pass places the part of the row that fits, then breaks the page.
         for _ in 0..1000 {
             let cur = rest.as_ref().unwrap_or(row);
-            if pb.y + cur.height <= pb.bottom + 0.01 {
+            // A fitting kept row follows the next row when that row cannot start below it.
+            // Move only the prefix's start; an oversized follower cannot separate its kept rows.
+            let defer_kept = pb.y + cur.height <= pb.bottom + 0.01
+                && !pb.web
+                && !pb.at_top()
+                && !fresh
+                && rest.is_none()
+                && !ri.checked_sub(1).and_then(|prev| kept.get(prev)).is_some_and(|&(end, _)| end >= ri)
+                && kept.get(ri).is_some_and(|&(end, height)| {
+                    if end == ri {
+                        return false;
+                    }
+                    let (Some(next), Some(laid)) = (t.rows.get(end), tl.rows.get(end)) else { return false };
+                    let page_height = pb.bottom - body_top - repeated_height;
+                    height <= page_height + 0.01 && !row_can_start(next, laid, pb.bottom - pb.y - height, page_height)
+                });
+            if pb.y + cur.height <= pb.bottom + 0.01 && !defer_kept {
                 break;
             }
-            let split = if splittable { table::split_row(cur, pb.bottom - pb.y) } else { None };
+            // An at-least row with less room than its minimum moves on whole, unless nothing
+            // is above it on this page (moving on would gain nothing).
+            let room = pb.bottom - pb.y;
+            let moves_on = rest.is_none() && !pb.at_top() && !fresh && !under_top_headers && short_of_min(ri, room);
+            let split = if splittable && !moves_on && !defer_kept { table::split_row(cur, room) } else { None };
             match split {
                 Some((a, b)) => {
                     place(pb, &a);
@@ -2741,11 +4139,15 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
                 None => {}
             }
             pb.advance(block, body_top);
-            // Repeat header rows.
-            if !header_rows.contains(&ri) {
+            // Repeat header rows, up to this table's cap.
+            if !header_rows.contains(&ri) && header_repeats < MAX_HEADER_REPEATS {
                 for hr in &header_rows {
+                    if header_repeats >= MAX_HEADER_REPEATS {
+                        break;
+                    }
                     if let Some(h) = tl.rows.get(*hr) {
                         place(pb, h);
+                        header_repeats += 1;
                     }
                 }
             }
@@ -2778,36 +4180,94 @@ fn table_notes(ctx: &mut Ctx, pb: &mut PageBuilder, items: &[Placed]) {
     for id in ids {
         let Some(part) = ctx.doc.parts.get(&id).filter(|p| p.kind == wordcraft_doc::PartKind::Footnote) else { continue };
         let blocks = part.blocks.clone();
-        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.sect.text_width(), None, 0, None);
+        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.sect.text_width(), BoxContext::Other, 0, None);
         pb.notes.push(NoteBox { id, items, h, cont: false });
     }
     pb.bottom -= pb.notes_h() - before;
 }
 
+/// Header tables can displace a non-overlapping body table. Page-positioned drawings keep
+/// their own wrapping rules, so only table areas are retained from the header layout.
+fn header_table_areas(ctx: &mut Ctx, pb: &PageBuilder) -> Vec<Rect> {
+    if pb.web || ctx.opts.view == ViewMode::Read {
+        return Vec::new();
+    }
+    let Some(page) = pb.pages.last() else { return Vec::new() };
+    let first = pb.pages.iter().rev().nth(1).is_none_or(|prev| prev.section != page.section);
+    let key = (page.section, page.number, first);
+    if let Some(areas) = ctx.header_tables.get(&key) {
+        return areas.clone();
+    }
+    let sections = ctx.doc.sections();
+    let Some((_, sect)) = sections.get(page.section) else { return Vec::new() };
+    if sect.text_direction.is_turned() {
+        return Vec::new();
+    }
+    let set = linked(&sections, page.section, |s| s.headers);
+    let id = if sect.title_page && first {
+        set.first
+    } else if ctx.doc.settings.even_odd_headers && page.number.is_multiple_of(2) {
+        set.even.or(set.default)
+    } else {
+        set.default
+    };
+    let Some(id) = id else { return Vec::new() };
+    let Some(part) = ctx.doc.parts.get(&id) else { return Vec::new() };
+    let blocks = part.blocks.clone();
+    let x = sect.margin_left + sect.gutter;
+    let frame = PageFrame { sect, origin: (x, sect.header), number: page.number, mirror: ctx.mirror };
+    let base = defining_width(&sections, page.section, |s| s.headers, Some(id));
+    let counters = std::mem::take(&mut ctx.counters);
+    let boxes = std::mem::take(&mut ctx.boxes);
+    let chains = std::mem::take(&mut ctx.chains);
+    let fields = ctx.fields.clone();
+    let grid = std::mem::take(&mut ctx.grid);
+    let track = std::mem::replace(&mut ctx.track_totals, false);
+    ctx.fields.page = page.number;
+    let mut areas = again(ctx, 0, |ctx| {
+        with_pct_base(ctx, base, |ctx| layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, Some(frame)))
+            .table_areas
+    });
+    ctx.counters = counters;
+    ctx.boxes = boxes;
+    ctx.chains = chains;
+    ctx.fields = fields;
+    ctx.grid = grid;
+    ctx.track_totals = track;
+    for r in &mut areas {
+        r.x += x;
+        r.y += sect.header;
+    }
+    ctx.header_tables.insert(key, areas.clone());
+    areas
+}
+
 /// Place floating table `tl` (`w:tblpPr`): at its own position, which takes no room in the text
 /// flow; the text after it wraps around it.
-fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &TableFloat, legacy: f32, block: usize, body_top: f32) {
+fn place_floating_table(ctx: &mut Ctx, pb: &mut PageBuilder, tl: &table::TableLayout, f: &TableFloat, legacy: f32, block: usize, body_top: f32) {
     let h: f32 = tl.rows.iter().map(|r| r.height).sum::<f32>().clamp(0.0, 100_000.0);
     let w = tl.width.clamp(1.0, 100_000.0);
     let [dl, dt, dr, db] = f.dist_from_text();
     for attempt in 0..2 {
         let s = pb.sect;
-        let h_area = float_table_h_area(pb, f);
+        let h_area = float_table_h_area(pb, f, ctx.mirror);
         // The text a table anchored to it stands in: where the next paragraph starts.
         let v_area = match f.v_rel {
             Anchor::Page => (0.0, s.page_h),
             Anchor::Margin => (s.margin_top, s.text_height()),
             _ => (pb.y, 0.0),
         };
-        let x = float_table_x(pb, w, f, legacy);
-        let r = clear_of_float_tables(Rect::new(x, align_in(v_area, f.y, h, f.v_align), w, h), f, legacy, h_area.0, &pb.float_tables);
+        let x = float_table_x(pb, w, f, legacy, ctx.mirror);
+        let mut obstacles = if f.overlap { Vec::new() } else { header_table_areas(ctx, pb) };
+        obstacles.extend_from_slice(&pb.float_tables);
+        let r = clear_of_float_tables(Rect::new(x, align_in(v_area, f.y, h, f.v_align), w, h), f, legacy, h_area.0, &obstacles);
         // Like Word, a table that doesn't fit below the text before it moves to the next page with
         // its anchor: one placed relative to the paragraph when it would run off the page, one
         // placed on the page or margin when it would also cover the text already on the page.
         let moves = if f.v_rel == Anchor::Paragraph {
             r.bottom() > pb.bottom + 0.01
         } else {
-            let covers_text = r.y < pb.y - 0.01 && r.bottom() > pb.top + 0.01 && r.x < pb.col_x() + pb.col_w() && r.right() > pb.col_x();
+            let covers_text = pb.page().is_some_and(|page| page.items.iter().any(|item| placed_intersects(item, &r)));
             covers_text && pb.y + h > pb.bottom + 0.01
         };
         if attempt == 0 && moves && !pb.at_top() {
@@ -2832,27 +4292,69 @@ fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &Table
     }
 }
 
-/// The area a floating table's `x` is measured in: its start and width on the page.
-fn float_table_h_area(pb: &PageBuilder, f: &TableFloat) -> (f32, f32) {
+fn placed_intersects(item: &Placed, rect: &Rect) -> bool {
+    match item {
+        Placed::Lines { para, l0, l1, x, y, .. } => para.lines.get(*l0..*l1).is_some_and(|lines| {
+            lines.iter().enumerate().any(|(offset, line)| {
+                if para.label.is_some() && *l0 + offset == 0 {
+                    return Rect::new(x + line.left, y + line.top, line.right - line.left, line.height).intersects(rect);
+                }
+                para.clusters.get(line.c0..line.c1).is_some_and(|clusters| {
+                    clusters.iter().enumerate().any(|(index, cluster)| {
+                        if !matches!(
+                            cluster.kind,
+                            crate::para::ClKind::Text | crate::para::ClKind::Space | crate::para::ClKind::Tab | crate::para::ClKind::Object(_)
+                        ) {
+                            return false;
+                        }
+                        let ci = line.c0 + index;
+                        let Some(left) = line.cl_left(ci) else { return false };
+                        let Some(right) = line.cl_right(ci) else { return false };
+                        Rect::new(x + left, y + line.top, right - left, line.height).intersects(rect)
+                    })
+                })
+            })
+        }),
+        Placed::Fill { rect: bounds, .. }
+        | Placed::Image { rect: bounds, .. }
+        | Placed::Shape { rect: bounds, .. }
+        | Placed::Graphic { rect: bounds, .. }
+        | Placed::Cell { rect: bounds, .. }
+        | Placed::Object { rect: bounds, .. }
+        | Placed::Clip { rect: bounds, .. } => bounds.intersects(rect),
+        Placed::Rule { x0, y0, x1, y1, .. } => Rect::new(x0.min(*x1), y0.min(*y1), (x1 - x0).abs(), (y1 - y0).abs()).intersects(rect),
+    }
+}
+
+/// The page `pb` is filling, for placing floating objects on it (`mirror`: [`Ctx::mirror`]).
+fn page_frame<'a>(pb: &PageBuilder<'a>, mirror: bool) -> PageFrame<'a> {
+    PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror }
+}
+
+/// The area a floating table's `x` is measured in: its start and width on the page, as laid out
+/// before an even page is mirrored (see [`float_rect`]).
+fn float_table_h_area(pb: &PageBuilder, f: &TableFloat, mirror: bool) -> (f32, f32) {
     let s = pb.sect;
+    let (left, _, shift) = page_frame(pb, mirror).sides();
     match f.h_rel {
-        Anchor::Page => (0.0, s.page_w),
-        Anchor::Margin => (s.margin_left + s.gutter, s.text_width()),
+        Anchor::Page => (-shift, s.page_w),
+        Anchor::Margin => (left - shift, s.text_width()),
         _ => (pb.col_x(), pb.col_w()),
     }
 }
 
 /// A floating table's left edge on the page (`legacy`: the first cell's left margin before Word
 /// 2013 layout, when an offset places the cell's text).
-fn float_table_x(pb: &PageBuilder, w: f32, f: &TableFloat, legacy: f32) -> f32 {
-    let x = align_in(float_table_h_area(pb, f), f.x, w, f.h_align);
+fn float_table_x(pb: &PageBuilder, w: f32, f: &TableFloat, legacy: f32, mirror: bool) -> f32 {
+    let align = PageFrame::h_align(Some(&page_frame(pb, mirror)), f.h_align);
+    let x = align_in(float_table_h_area(pb, f, mirror), f.x, w, align);
     if f.h_align.is_none() { x - legacy } else { x }
 }
 
 /// Move `pb.y` below the floating objects in the way of something spanning `x0..x1` that
 /// starts there (a table in the text flow doesn't wrap around them).
-fn below_floats(pb: &mut PageBuilder, x0: f32, x1: f32) {
-    pb.y = below(&pb.excl, pb.y, x0, x1);
+fn below_floats(ctx: &mut Ctx, pb: &mut PageBuilder, x0: f32, x1: f32) {
+    pb.y = below(&body_wraps(ctx, pb), pb.y, x0, x1);
 }
 
 /// `y`, moved below the wrap areas in `excl` in the way of something spanning `x0..x1` that
@@ -2882,14 +4384,86 @@ fn linked(sections: &[(usize, &SectionProps)], si: usize, get: fn(&SectionProps)
     set
 }
 
-fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &SectionProps)]) {
-    let total = pages.len() as u32;
-    // Pages per section.
-    let mut per_section: HashMap<usize, u32> = HashMap::new();
-    for p in pages.iter() {
-        *per_section.entry(p.section).or_default() += 1;
+/// Whether a header, a footer or a text box shows a `PAGEREF` field, which they resolve from the
+/// paginated body (see [`bookmark_pages`]).
+fn headers_footers_refer_to_pages(doc: &Document) -> bool {
+    use wordcraft_doc::PartKind;
+    doc.parts.iter().filter(|(_, part)| matches!(part.kind, PartKind::Header | PartKind::Footer | PartKind::TextBox)).any(|(id, _)| {
+        let story = StoryRef::Part(*id);
+        doc.para_paths(story)
+            .iter()
+            .filter_map(|path| doc.para(story, path))
+            .any(|p| p.objects.iter().any(|o| matches!(o, InlineObject::Field { instr, .. } if fields::field_name(instr) == "PAGEREF")))
+    })
+}
+
+/// Where each bookmark in the body starts: the number and number format of the page it is placed
+/// on (with two of the same name, the first in the document).
+fn bookmark_pages(doc: &Document, pages: &[Page], sections: &[(usize, &SectionProps)]) -> fields::BookmarkPages {
+    // Each paragraph's bookmarks: name, offset, and its line in the paragraph layout last looked
+    // up (the pieces of a paragraph usually share one).
+    let mut wanted: HashMap<Path, Vec<(String, usize, Option<(usize, usize)>)>> = HashMap::new();
+    let mut seen = HashSet::new();
+    for path in doc.para_paths(StoryRef::Body) {
+        let Some(p) = doc.para(StoryRef::Body, &path) else { continue };
+        if !p.objects.iter().any(|o| matches!(o, InlineObject::BookmarkStart { .. })) {
+            continue;
+        }
+        for (off, o) in p.object_offsets().into_iter().zip(&p.objects) {
+            if let InlineObject::BookmarkStart { name } = o
+                && seen.insert(name.as_str())
+            {
+                wanted.entry(path.clone()).or_default().push((name.clone(), off, None));
+            }
+        }
     }
+    let mut out = fields::BookmarkPages::new();
+    for page in pages {
+        if wanted.is_empty() {
+            break;
+        }
+        let format = sections.get(page.section).map(|(_, s)| s.page_num_format).unwrap_or_default();
+        for it in &page.items {
+            let Placed::Lines { story: StoryRef::Body, path, para, l0, l1, .. } = it else { continue };
+            let Some(marks) = wanted.get_mut(path) else { continue };
+            let layout = Arc::as_ptr(para) as usize;
+            marks.retain_mut(|(name, off, line)| {
+                let li = match *line {
+                    Some((k, li)) if k == layout => li,
+                    _ => {
+                        let li = para.line_of(*off);
+                        *line = Some((layout, li));
+                        li
+                    }
+                };
+                if !(*l0..*l1).contains(&li) {
+                    return true;
+                }
+                out.insert(std::mem::take(name), (page.number, format));
+                false
+            });
+            if marks.is_empty() {
+                wanted.remove(path);
+            }
+        }
+    }
+    out
+}
+
+/// A key for caches standing for `marks` (0 for none).
+fn marks_key(marks: &fields::BookmarkPages) -> u64 {
+    if marks.is_empty() {
+        return 0;
+    }
+    let mut v: Vec<_> = marks.iter().collect();
+    v.sort_by(|a, b| a.0.cmp(b.0));
+    hash_of(&v)
+}
+
+fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &SectionProps)], totals: &Totals) {
+    let total = pages.len() as u32;
     let even_odd = ctx.doc.settings.even_odd_headers;
+    let styles = styleref::headers_use_styleref(ctx.doc).then(|| ctx.cache.style_index(ctx.doc));
     let mut first_of_section: HashSet<usize> = HashSet::new();
     let mut seen = HashSet::new();
     for (i, p) in pages.iter().enumerate() {
@@ -2912,40 +4486,64 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         };
         let hid = pick(|s| s.headers);
         let fid = pick(|s| s.footers);
+        page.hf_slot = if sect.title_page && first_of_section.contains(&i) {
+            HfSlot::First
+        } else if even_odd && page.number % 2 == 0 {
+            HfSlot::Even
+        } else {
+            HfSlot::Default
+        };
         ctx.fields.page = page.number;
         ctx.fields.page_format = sect.page_num_format;
         ctx.fields.pages = total;
-        ctx.fields.section_pages = per_section.get(&page.section).copied().unwrap_or(1);
+        ctx.fields.section_pages = totals.section(page.section);
         ctx.fields.section = page.section as u32 + 1;
+        // STYLEREF: the body paragraphs on this page.
+        ctx.fields.styleref = styles.as_ref().map(|ix| {
+            let paths = page.items.iter().filter_map(|it| match it {
+                Placed::Lines { story: StoryRef::Body, path, .. } => Some(path),
+                _ => None,
+            });
+            (ix.clone(), ix.page_at(paths, page.first_block))
+        });
         let w = sect.text_width();
         let x = sect.margin_left + sect.gutter;
         if let Some(id) = hid
             && let Some(part) = ctx.doc.parts.get(&id)
         {
             let blocks = part.blocks.clone();
-            let frame = PageFrame { sect, origin: (x, sect.header) };
-            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, Some(frame)).items;
+            let frame = PageFrame { sect, origin: (x, sect.header), number: page.number, mirror: ctx.mirror };
+            let base = defining_width(sections, page.section, |s| s.headers, hid);
+            let (mut items, behind, front) = with_pin(ctx, id, sect, page.number, |ctx| {
+                with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items)
+            });
             for it in &mut items {
                 it.translate(x, sect.header);
             }
-            page.header = items;
+            page.header = behind.into_iter().chain(items).chain(front).collect();
             page.header_story = Some(id);
         }
         if let Some(id) = fid
             && let Some(part) = ctx.doc.parts.get(&id)
         {
             let blocks = part.blocks.clone();
+            let base = defining_width(sections, page.section, |s| s.footers, fid);
             // The footer's height fixes where it sits, which page-relative floats need.
-            let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, None).height;
-            let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h) };
-            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, Some(frame)).items;
+            let (h, ..) = with_pin(ctx, id, sect, page.number, |ctx| {
+                with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, None).height)
+            });
+            let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h), number: page.number, mirror: ctx.mirror };
+            let (mut items, behind, front) = with_pin(ctx, id, sect, page.number, |ctx| {
+                with_pct_base(ctx, base, |c| layout_box(c, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items)
+            });
             for it in &mut items {
                 it.translate(x, sect.page_h - sect.footer - h);
             }
-            page.footer = items;
+            page.footer = behind.into_iter().chain(items).chain(front).collect();
             page.footer_story = Some(id);
         }
     }
+    ctx.fields.styleref = None;
 }
 
 /// Mirrored margins: even pages have the inside margin (and gutter) on the right, so their
@@ -2989,11 +4587,21 @@ pub fn now_ms() -> f64 {
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_autospace;
+#[cfg(test)]
 mod tests_bidi;
+#[cfg(test)]
+mod tests_complex;
 #[cfg(test)]
 mod tests_grid;
 #[cfg(test)]
+mod tests_ligature;
+#[cfg(test)]
+mod tests_numeral;
+#[cfg(test)]
 mod tests_pages;
+#[cfg(test)]
+mod tests_styleref;
 #[cfg(test)]
 mod tests_textbox;
 #[cfg(test)]

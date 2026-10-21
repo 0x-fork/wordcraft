@@ -1,10 +1,10 @@
 //! Character formatting (Home › Font).
 
 use serde_json::{Value, json};
-use wordcraft_doc::Pos;
 use wordcraft_doc::eq::{EncloseShape, EncloseStyle, Enclosure};
 use wordcraft_doc::props::{Border, CharProps, Highlight, Rgb, TextColor, Underline, VertAlign};
 use wordcraft_doc::resolve::ResolvedChar;
+use wordcraft_doc::{Pos, RevisionKind};
 
 use super::sel_result;
 use crate::{CmdError, CmdResult, CommandSpec, Session, p};
@@ -15,15 +15,14 @@ pub const SIZES: [f32; 17] = [8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("format.bold", "Bold", "Home › Font", |s, v| {
-            // Like Word's button, for complex-script (Persian, Arabic) text too: an unset `bold_cs`
-            // follows `bold`.
+            // The button formats both plain and complex-script text explicitly.
             toggle(
                 s,
                 v,
                 |r| r.bold,
                 |c, on| {
                     c.bold = Some(on);
-                    c.bold_cs = None;
+                    c.bold_cs = Some(on);
                 },
             )
         })
@@ -36,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 |r| r.italic,
                 |c, on| {
                     c.italic = Some(on);
-                    c.italic_cs = None;
+                    c.italic_cs = Some(on);
                 },
             )
         })
@@ -54,6 +53,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .key("Mod+Shift+W"),
         CommandSpec::new("format.strikethrough", "Strikethrough", "Home › Font", |s, v| toggle(s, v, |r| r.strike, |c, on| c.strike = Some(on)))
+            .key("Mod+Shift+X")
             .params(r#"{"value"?: bool}"#),
         // Note: off clears the direct property only; a border inherited from a character style stays on.
         CommandSpec::new("format.border", "Character Border", "Home › Font", |s, v| {
@@ -168,13 +168,15 @@ fn target(s: &Session) -> Option<(Pos, Pos)> {
     None
 }
 
-/// The non-empty rows of a column selection, if one is active.
+/// The non-empty rows of a column selection, if one is active. Of whole cells, every paragraph:
+/// an empty one's mark takes the formatting.
 fn column_rows(s: &Session) -> Option<Vec<(Pos, Pos)>> {
     let segs = s.column_segments()?;
+    let cells = s.cell_range().is_some();
     let rows: Vec<(Pos, Pos)> = segs
         .iter()
         .map(|(a, b)| (s.doc.clamp(a), s.doc.clamp(b)))
-        .filter(|(a, b)| a != b && a.path == b.path && a.story == b.story)
+        .filter(|(a, b)| (a != b || cells) && a.path == b.path && a.story == b.story)
         .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
         .collect();
     // An empty block (column mode just started) formats like a caret.
@@ -187,6 +189,10 @@ pub fn apply(s: &mut Session, f: &dyn Fn(&mut CharProps)) -> CmdResult {
     if let Some(rows) = column_rows(s) {
         for (a, b) in rows {
             s.doc.format_range(&a, &b, f)?;
+            // An empty cell's paragraph only had its mark formatted: lay it out again.
+            if a == b {
+                s.doc.para_mut(a.story, &a.path)?.touch();
+            }
         }
         return sel_result(s);
     }
@@ -217,6 +223,10 @@ fn resolved(s: &Session) -> Vec<ResolvedChar> {
     if let Some(rows) = column_rows(s) {
         for (a, b) in rows {
             let Some(p) = s.doc.para_at(&a) else { continue };
+            // An empty cell: its mark's formatting.
+            if a == b {
+                out.push(s.doc.styles.resolve_char(p.props.style.as_deref(), &p.mark));
+            }
             for (r, c) in p.run_ranges() {
                 if r.end > a.off && r.start < b.off {
                     out.push(s.doc.styles.resolve_char(p.props.style.as_deref(), c));
@@ -319,7 +329,7 @@ fn size(s: &mut Session, v: &Value) -> CmdResult {
     let sz = (sz * 2.0).round() / 2.0;
     apply(s, &|c| {
         c.size = Some(sz);
-        c.size_cs = None;
+        c.size_cs = Some(sz);
     })
 }
 
@@ -338,7 +348,7 @@ fn step_size(s: &mut Session, dir: i32) -> CmdResult {
     // Each run steps from its own size when the selection mixes sizes.
     apply(s, &|c| {
         c.size = Some(next);
-        c.size_cs = None;
+        c.size_cs = Some(next);
     })
 }
 
@@ -346,17 +356,13 @@ fn nudge_size(s: &mut Session, d: f32) -> CmdResult {
     let next = (current_size(s) + d).clamp(1.0, 1638.0);
     apply(s, &|c| {
         c.size = Some(next);
-        c.size_cs = None;
+        c.size_cs = Some(next);
     })
 }
 
 fn color(s: &mut Session, v: &Value) -> CmdResult {
     let c = p::req_str(v, "color")?;
-    let tc = if c.eq_ignore_ascii_case("auto") || c.eq_ignore_ascii_case("automatic") {
-        TextColor::Auto
-    } else {
-        TextColor::Rgb(Rgb::parse(c).ok_or_else(|| CmdError::Params("color must be RRGGBB or auto".into()))?)
-    };
+    let tc = TextColor::parse(c).ok_or_else(|| CmdError::Params("color must be RRGGBB or auto".into()))?;
     apply(s, &|x| x.color = Some(tc))
 }
 
@@ -380,7 +386,22 @@ fn change_case(s: &mut Session, v: &Value) -> CmdResult {
     if a == b {
         return sel_result(s);
     }
-    let text = s.doc.copy_range(&a, &b).plain_text();
+    // Changing case rewrites the characters: refused in content locked against editing.
+    super::controls::check_edit(s, &a, &b)?;
+    // Only text that isn't a tracked deletion counts, for the mode and the conversion: after a
+    // tracked change of case the old letters are still there, deleted (#1329).
+    let text: String = s
+        .doc
+        .paths_between(&a, &b)
+        .iter()
+        .filter_map(|path| {
+            let p = s.doc.para(a.story, path)?;
+            let from = if *path == a.path { a.off } else { 0 };
+            let to = if *path == b.path { b.off } else { p.len() };
+            Some(live_chars(p, from, to).into_iter().map(|(_, c)| c).collect::<String>())
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let mode = p::str(v, "mode").map(str::to_string).unwrap_or_else(|| {
         // Shift+F3 cycles: lower → UPPER → Title → lower.
         if text.chars().any(char::is_lowercase) && text.chars().any(char::is_uppercase) && !is_title(&text) {
@@ -399,28 +420,64 @@ fn change_case(s: &mut Session, v: &Value) -> CmdResult {
             let Some(p) = s.doc.para(a.story, &path) else { continue };
             let from = if path == a.path { a.off } else { 0 };
             let to = if path == b.path { b.off } else { p.len() };
-            let Some(src) = p.text.get(from..to) else { continue };
-            case_groups(p, from, src, &convert_chars(src, &mode, from == 0))
+            let chars = live_chars(p, from, to);
+            let src: String = chars.iter().map(|(_, c)| c).collect();
+            case_groups(p, &chars, &convert_chars(&src, &mode, from == 0))
         };
         if groups.is_empty() {
             continue;
         }
+        // With Track Changes on, a changed stretch is a tracked deletion of the old characters
+        // followed by a tracked insertion of the new, so Reject All restores the old case (#1329).
+        // Text this author inserted is rewritten in place (it stays one insertion); text already
+        // deleted isn't in the stretches.
+        let tracked = s.doc.settings.track_changes;
+        let kinds: Vec<Tracked> = {
+            let Some(p) = s.doc.para(a.story, &path) else { continue };
+            groups
+                .iter()
+                .map(|(start, _, _)| {
+                    let c = p.props_of_char(*start);
+                    let own = c.ins.and_then(|i| s.doc.revisions.get(i as usize)).is_some_and(|rv| rv.author == s.author);
+                    if tracked && !own { Tracked::Replace } else { Tracked::No }
+                })
+                .collect()
+        };
+        let revs = if kinds.contains(&Tracked::Replace) {
+            Some((super::new_revision(s, RevisionKind::Delete), super::new_revision(s, RevisionKind::Insert)))
+        } else {
+            None
+        };
         // Each stretch keeps its own run's formatting (#421); right to left so offsets hold.
         let para = s.doc.para_mut(a.story, &path)?;
-        for (start, end, new) in groups.iter().rev() {
-            if new.len() == end - start {
-                if para.text.get(*start..*end).is_some() {
-                    para.text.replace_range(*start..*end, new);
+        let mut spans: Vec<(usize, usize, usize)> = Vec::with_capacity(groups.len());
+        for ((start, end, new), kind) in groups.iter().zip(&kinds).rev() {
+            let old_len = end.saturating_sub(*start);
+            match (kind, revs) {
+                (Tracked::Replace, Some((del, ins))) => {
+                    let mut props = para.props_of_char(*start).clone();
+                    para.format(*start, *end, &|c| c.del = Some(del))?;
+                    (props.ins, props.del, props.fmt_change) = (Some(ins), None, None);
+                    para.insert_text(*end, new, &props)?;
+                    spans.push((*start, *end, old_len.saturating_add(new.len())));
                 }
-            } else {
-                let props = para.props_of_char(*start).clone();
-                para.delete(*start, *end)?;
-                para.insert_text(*start, new, &props)?;
+                _ => {
+                    if new.len() == old_len {
+                        if para.text.get(*start..*end).is_some() {
+                            para.text.replace_range(*start..*end, new);
+                        }
+                    } else {
+                        let props = para.props_of_char(*start).clone();
+                        para.delete(*start, *end)?;
+                        para.insert_text(*start, new, &props)?;
+                    }
+                    spans.push((*start, *end, new.len()));
+                }
             }
         }
+        spans.reverse();
         para.touch();
         // The selection keeps covering the converted text when its length changed (#420).
-        let spans: Vec<(usize, usize, usize)> = groups.iter().map(|(x, y, n)| (*x, *y, n.len())).collect();
         for end in [&mut s.sel.anchor, &mut s.sel.focus] {
             if end.story == a.story && end.path == path {
                 end.off = map_offset(&spans, end.off);
@@ -430,14 +487,39 @@ fn change_case(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// Group the characters of `src` (at `from` in `p`) whose converted form `conv` differs into
-/// stretches that stay inside one run: `(start, end, replacement)`, in text order.
-fn case_groups(p: &wordcraft_doc::Paragraph, from: usize, src: &str, conv: &[String]) -> Vec<(usize, usize, String)> {
+/// How Change Case rewrites one stretch under Track Changes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tracked {
+    /// In place: tracking is off, or the text is this author's own insertion.
+    No,
+    /// A tracked deletion of the old text and a tracked insertion of the new.
+    Replace,
+}
+
+/// The characters of `p` in `from..to` that aren't tracked deletions, with their offsets.
+fn live_chars(p: &wordcraft_doc::Paragraph, from: usize, to: usize) -> Vec<(usize, char)> {
+    let mut out = Vec::new();
+    for (r, c) in p.run_ranges() {
+        let (x, y) = (r.start.max(from), r.end.min(to));
+        if c.del.is_some() || x >= y {
+            continue;
+        }
+        if let Some(t) = p.text.get(x..y) {
+            out.extend(t.char_indices().map(|(i, ch)| (x + i, ch)));
+        }
+    }
+    out
+}
+
+/// Group the characters `chars` (offsets in `p`) whose converted form `conv` differs into
+/// stretches of adjacent characters that stay inside one run: `(start, end, replacement)`, in
+/// text order.
+fn case_groups(p: &wordcraft_doc::Paragraph, chars: &[(usize, char)], conv: &[String]) -> Vec<(usize, usize, String)> {
     let runs: Vec<std::ops::Range<usize>> = p.run_ranges().map(|(r, _)| r).collect();
     let run_of = |off: usize| runs.iter().position(|r| r.contains(&off));
     let mut out: Vec<(usize, usize, String, Option<usize>)> = Vec::new();
-    for ((i, c), new) in src.char_indices().zip(conv) {
-        let (start, end) = (from + i, from + i + c.len_utf8());
+    for (&(start, c), new) in chars.iter().zip(conv) {
+        let end = start + c.len_utf8();
         let mut buf = [0u8; 4];
         if new.as_str() == c.encode_utf8(&mut buf) {
             continue;
@@ -568,7 +650,12 @@ fn char_style(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 fn set(s: &mut Session, v: &Value) -> CmdResult {
-    let props: CharProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
+    let mut props: CharProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
+    // The font dialog and callers supplying one value format both scripts. Explicit
+    // complex-script values still take precedence; importing a DOCX never uses this command.
+    props.size_cs = props.size_cs.or(props.size);
+    props.bold_cs = props.bold_cs.or(props.bold);
+    props.italic_cs = props.italic_cs.or(props.italic);
     apply(s, &|c| c.overlay(&props))
 }
 
@@ -598,10 +685,15 @@ pub fn state(s: &Session) -> Value {
         "caps": all.iter().all(|r| r.caps),
         "hidden": all.iter().all(|r| r.hidden),
         "spacing": same(&|r| json!(r.spacing)),
+        // Kerning for fonts: the smallest kerned size, points; 0 = off.
+        "kern": same(&|r| json!(r.kern)),
         "color": same(&|r| json!(match r.color { TextColor::Auto => "auto".to_string(), TextColor::Rgb(c) => c.hex() })),
         "highlight": same(&|r| json!(r.highlight.map(|c| c.hex()))),
         "style": style,
         "styleName": style_name,
+        // The proofing language (a BCP 47 tag; null when mixed or unset) and "Do not check".
+        "lang": same(&|r| json!(r.lang)),
+        "noProof": all.iter().all(|r| r.no_proof),
     })
 }
 
@@ -711,7 +803,14 @@ fn enclose(s: &mut Session, v: &Value) -> CmdResult {
         Some(shape) => {
             let style = style.or(t.current.as_ref().map(|e| e.style)).unwrap_or_default();
             let e = Enclosure { shape, style, text: t.text.clone() };
-            let obj = wordcraft_doc::InlineObject::Field { instr: e.instr(), result: t.text, locked: false, code: false };
+            let obj = wordcraft_doc::InlineObject::Field {
+                instr: e.instr(),
+                result: t.text,
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+            };
             s.doc.insert_object(&at, obj, &t.props)?
         }
         None => s.doc.insert_text(&at, &t.text, &t.props)?,

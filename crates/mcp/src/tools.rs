@@ -4,6 +4,14 @@ use serde_json::{Value, json};
 
 use crate::backend::Backend;
 
+/// An image tool result from a reply carrying base64 PNG in `png`.
+fn png_result(v: &Value, info: &Value) -> ToolResult {
+    match v.get("png").and_then(Value::as_str) {
+        Some(png) if !png.is_empty() => ToolResult::image(png.to_string(), info),
+        _ => ToolResult::error("the reply carried no picture"),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolResult {
     pub content: Vec<Value>,
@@ -80,8 +88,8 @@ pub fn tool_definitions() -> Value {
         tool(
             "open_document",
             "Open",
-            "Open a .docx, .odt, .rtf, .md, .tex, .html, .txt or .json file.",
-            obj(json!({"path": s("File path")}), &["path"]),
+            "Open a .docx, .doc, .odt, .rtf, .md, .tex, .html, .txt or .json file, or any other text file (.m3u, .log, .ini…) as plain text. Give `password` for a protected file; without it the call fails asking for one.",
+            obj(json!({"path": s("File path"), "password": s("Password, if the file is protected")}), &["path"]),
             false
         ),
         tool(
@@ -105,7 +113,7 @@ pub fn tool_definitions() -> Value {
             obj(json!({"text": s("Text to find"), "occurrence": n("1-based")}), &["text"]),
             false
         ),
-        tool("get_text", "Document text", "Plain text of the document body.", obj(json!({}), &[]), true),
+        tool("get_text", "Document text", "Body text with tracked deletions omitted.", obj(json!({}), &[]), true),
         tool(
             "inspect_document",
             "Inspect document",
@@ -201,7 +209,7 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
             ToolResult::json(&Value::Array(out))
         }
         "new_document" => wrap(exec(b, "file.new", json!({"template": st("template").unwrap_or("blank")}))),
-        "open_document" => wrap(exec(b, "file.open", json!({"path": st("path").unwrap_or("")}))),
+        "open_document" => wrap(exec(b, "file.open", json!({"path": st("path").unwrap_or(""), "password": st("password")}))),
         "save_document" => {
             let p = st("path");
             let ext = p.and_then(|x| x.rsplit('.').next()).unwrap_or("").to_ascii_lowercase();
@@ -225,6 +233,9 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
                 for (i, line) in t.split('\n').enumerate() {
                     if i > 0 {
                         last = exec(b, "text.newParagraph", json!({}));
+                        if last.is_err() {
+                            break;
+                        }
                     }
                     if !line.is_empty() {
                         last = exec(b, "text.insert", json!({"text": line, "raw": true}));
@@ -244,40 +255,81 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
         "get_text" => wrap(exec(b, "document.text", json!({}))),
         "inspect_document" => wrap(b.call("document.inspect", json!({}))),
         "parity" => wrap(b.call("ui.parity", json!({}))),
+        // Pictures travel inside the reply (`png`), headless or through the app: no file with a
+        // predictable name in the shared temporary folder.
         "render_page" => {
-            if b.has_ui() {
-                let path = std::env::temp_dir().join("wordcraft-mcp-page.png");
-                let path_s = path.to_string_lossy().to_string();
-                match b.call("ui.render", json!({"path": path_s, "page": a.get("page").cloned().unwrap_or(json!(1)), "scale": a.get("scale").cloned().unwrap_or(json!(1.0))})) {
-                    Ok(info) => match std::fs::read(&path) {
-                        Ok(bytes) => ToolResult::image(wordcraft_engine::cmd::insert::base64_encode(&bytes), &info),
-                        Err(e) => ToolResult::error(e.to_string()),
-                    },
-                    Err(e) => ToolResult::error(e),
-                }
-            } else {
-                match b.call("ui.render", a.clone()) {
-                    Ok(v) => {
-                        let png = v.get("png").and_then(Value::as_str).unwrap_or("").to_string();
-                        ToolResult::image(png, &json!({"width": v["width"], "height": v["height"], "pages": v["pages"]}))
-                    }
-                    Err(e) => ToolResult::error(e),
-                }
-            }
-        }
-        "screenshot" => {
-            let path = std::env::temp_dir().join("wordcraft-mcp-shot.png");
-            match b.call("ui.screenshot", json!({"path": path.to_string_lossy()})) {
-                Ok(info) => match std::fs::read(&path) {
-                    Ok(bytes) => ToolResult::image(wordcraft_engine::cmd::insert::base64_encode(&bytes), &info),
-                    Err(e) => ToolResult::error(e.to_string()),
-                },
+            let params = json!({"page": a.get("page").cloned().unwrap_or(json!(1)), "scale": a.get("scale").cloned().unwrap_or(json!(1.0))});
+            match b.call("ui.render", params) {
+                Ok(v) => png_result(&v, &json!({"width": v["width"], "height": v["height"], "pages": v["pages"]})),
                 Err(e) => ToolResult::error(e),
             }
         }
+        "screenshot" => match b.call("ui.screenshot", json!({})) {
+            Ok(v) => png_result(&v, &json!({"width": v["width"], "height": v["height"]})),
+            Err(e) => ToolResult::error(e),
+        },
         "click" => wrap(b.call("ui.click", a.clone())),
         "key" => wrap(b.call("ui.key", a.clone())),
         "ui_inspect" => wrap(b.call("ui.inspect", json!({}))),
         other => ToolResult::error(format!("unknown tool `{other}`")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A backend that keeps what it was asked for, so a test can read the forwarded params.
+    struct Recording {
+        seen: Option<(String, Value)>,
+    }
+
+    impl Backend for Recording {
+        fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+            self.seen = Some((method.to_string(), params));
+            Ok(json!({"encrypted": true}))
+        }
+        fn has_ui(&self) -> bool {
+            false
+        }
+        fn describe(&self) -> String {
+            "recording".into()
+        }
+    }
+
+    /// What the backend was asked for: `file.open` runs through `engine.execute`, so the
+    /// command and its parameters are nested one level down.
+    fn forwarded(args: Value) -> Value {
+        let mut b = Recording { seen: None };
+        let r = call_tool(&mut b, "open_document", &args);
+        assert!(!r.is_error, "open_document failed: {:?}", r);
+        let (method, mut call) = b.seen.expect("the backend was called");
+        assert_eq!(method, "engine.execute");
+        assert_eq!(call["command"], json!("file.open"));
+        call["params"].take()
+    }
+
+    #[test]
+    fn open_document_forwards_the_password_to_file_open() {
+        let p = forwarded(json!({"path": "/tmp/a.docx", "password": "s3cret"}));
+        assert_eq!(p["path"], json!("/tmp/a.docx"));
+        assert_eq!(p["password"], json!("s3cret"));
+    }
+
+    /// Without a password the parameter stays null rather than an empty string: `file.open` reads
+    /// an empty one as "no password given", so a protected file would come back unprotected.
+    #[test]
+    fn open_document_without_a_password_passes_null() {
+        assert_eq!(forwarded(json!({"path": "/tmp/a.docx"}))["password"], Value::Null);
+    }
+
+    /// The password has to be in the schema, or a client has no way to know it can be sent.
+    #[test]
+    fn the_schema_advertises_the_password_as_optional() {
+        let tools = tool_definitions();
+        let open = tools.as_array().expect("the tools are a list").iter().find(|t| t["name"] == "open_document").expect("open_document is offered");
+        let schema = &open["inputSchema"];
+        assert!(schema["properties"]["password"].is_object(), "the schema offers no password");
+        assert_eq!(schema["required"], json!(["path"]), "the password stays optional");
     }
 }

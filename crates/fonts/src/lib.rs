@@ -7,18 +7,24 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+pub mod color;
 mod fontdb;
 pub mod math;
+mod script;
 mod ui_fallback;
 pub mod word;
 
-pub use fontdb::{FALLBACK_FAMILY, FaceRef, FontDb, FontFace, LocalName, base_style, bundled, name_language_matches, system_font_dirs};
+pub use fontdb::{
+    FALLBACK_FAMILY, FONT_FILE_EXTS, FaceRef, FontDb, FontFace, FontFormat, Installed, LocalName, MAX_FONT_FILE_BYTES, UserFont, UserFontError,
+    base_style, bundled, decode_font_file, is_font_file_name, name_language_matches, sniff, system_font_dirs,
+};
 pub use harfrust::Feature;
 use harfrust::{Direction, ShapeOptions, Tag, UnicodeBuffer};
 pub use kurbo::BezPath;
+pub use script::{fallback_rank, needs_layout_tables, script_fallbacks};
 use skrifa::MetadataProvider;
 use skrifa::instance::Size;
-pub use ui_fallback::{SystemUiFont, is_cjk, system_cjk_ui_font, ui_needs_system_cjk, ui_uncovered_cjk};
+pub use ui_fallback::{SystemUiFont, is_cjk, system_cjk_ui_font, system_cjk_ui_font_for, ui_needs_system_cjk, ui_uncovered_cjk};
 
 /// A font from the optional craft-fonts build input (https://github.com/storytold/craft-fonts;
 /// empty unless built with `CRAFT_FONTS_DIR`, see `build.rs`).
@@ -59,15 +65,32 @@ pub fn chinese_fonts() -> impl Iterator<Item = &'static CraftFont> {
     CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Hans"))
 }
 
-/// The CJK interface faces, Regular styles only (the UI fakes no bold): the Japanese UI face and
-/// the Chinese face, Chinese first when `prefer_hans` (a Chinese interface), Japanese first
-/// otherwise. Mixing the two within a line would mix glyph styles, so the first face should
-/// cover the interface language. Empty without craft-fonts.
+/// The craft-fonts faces for Korean (`"Kore"`), in manifest order. Empty without craft-fonts.
+pub fn korean_fonts() -> impl Iterator<Item = &'static CraftFont> {
+    CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Kore"))
+}
+
+/// The CJK interface faces, Regular styles only (the UI fakes no bold), with the Japanese UI,
+/// Chinese, and Korean faces ordered for the selected interface language. Mixing the faces within
+/// a line would mix glyph styles, so the first face should cover the interface language. Empty
+/// without craft-fonts.
 pub fn ui_cjk_fonts(prefer_hans: bool) -> Vec<&'static CraftFont> {
+    ui_cjk_fonts_for(prefer_hans, false)
+}
+
+/// The CJK interface faces in the preferred writing system's order.
+pub fn ui_cjk_fonts_for(prefer_hans: bool, prefer_korean: bool) -> Vec<&'static CraftFont> {
     let regular = |f: &&CraftFont| f.style == "Regular";
     let ja = japanese_ui_fonts(false).into_iter().filter(regular).take(1);
     let zh = chinese_fonts().filter(regular).take(1);
-    if prefer_hans { zh.chain(ja).collect() } else { ja.chain(zh).collect() }
+    let ko = korean_fonts().filter(regular).take(1);
+    if prefer_korean {
+        ko.chain(ja).chain(zh).collect()
+    } else if prefer_hans {
+        zh.chain(ja).chain(ko).collect()
+    } else {
+        ja.chain(zh).chain(ko).collect()
+    }
 }
 
 /// The bundled serif used when a document asks for nothing better.
@@ -180,21 +203,27 @@ fn shape_dir(face: &FontFace, text: &str, features: &[Feature], map: &impl Fn(ch
     let mut out = Vec::with_capacity(text.len());
     let shaped = face.hb().map(|hb| {
         let shaper = face.shaper.shaper(&hb).instance(face.instance.as_ref()).build();
-        let mut buf = UnicodeBuffer::new();
-        for (i, c) in text.char_indices() {
-            buf.add(map(c), i as u32);
-        }
-        buf.guess_segment_properties();
-        buf.set_direction(if rtl { Direction::RightToLeft } else { Direction::LeftToRight });
-        let gb = shaper.shape(buf, ShapeOptions::new().features(features));
-        for (info, pos) in gb.glyph_infos().iter().zip(gb.glyph_positions()) {
-            out.push(ShapedGlyph {
-                gid: info.glyph_id,
-                cluster: info.cluster as usize,
-                x_advance: pos.x_advance,
-                x_offset: pos.x_offset,
-                y_offset: pos.y_offset,
-            });
+        // One script per shaping call: the shaper picks its script engine (Myanmar, Khmer,
+        // Indic, USE reordering…) from the run's script, so "Hi မြန်မာ" in one face must not be
+        // shaped as Latin. Runs come in text order; right-to-left callers regroup by cluster.
+        for r in script::script_runs(text) {
+            let Some(sub) = text.get(r.clone()) else { continue };
+            let mut buf = UnicodeBuffer::new();
+            for (i, c) in sub.char_indices() {
+                buf.add(map(c), (r.start + i) as u32);
+            }
+            buf.guess_segment_properties();
+            buf.set_direction(if rtl { Direction::RightToLeft } else { Direction::LeftToRight });
+            let gb = shaper.shape(buf, ShapeOptions::new().features(features));
+            for (info, pos) in gb.glyph_infos().iter().zip(gb.glyph_positions()) {
+                out.push(ShapedGlyph {
+                    gid: info.glyph_id,
+                    cluster: info.cluster as usize,
+                    x_advance: pos.x_advance,
+                    x_offset: pos.x_offset,
+                    y_offset: pos.y_offset,
+                });
+            }
         }
     });
     if shaped.is_none()
@@ -347,6 +376,46 @@ mod tests {
         let latin = db.face(DEFAULT_FAMILY, "Regular");
         let fb = db.fallback_for('語', latin.id()).unwrap();
         assert!(fb.family.contains("Mincho"), "{fb:?}");
+    }
+
+    #[test]
+    fn east_asian_run_uses_one_face_covering_the_whole_run() {
+        let db = FontDb::with_font_dirs(Vec::new());
+        db.set_system_fallback(false);
+        let latin = db.face(DEFAULT_FAMILY, "Regular");
+        if CRAFT_FONTS.is_empty() {
+            // No bundled CJK font and no system fallback: nothing can draw the run.
+            assert!(db.fallback_for_run(&['分', '类'], latin.id(), false, false).is_none());
+            return;
+        }
+        // JIS-covered ideographs alone would fall back to a Mincho and simplified-only ones to the
+        // SC sans: the run-level pick must cover every character in one face, or a run mixes
+        // serif and sans glyphs (the per-character fallback still applies when it returns None).
+        let run: Vec<char> = "分类监督学习".chars().collect();
+        let f = db.fallback_for_run(&run, latin.id(), false, false).expect("a CJK face covers the run");
+        for c in &run {
+            assert!(f.covers(*c), "{f:?} covers {c}");
+        }
+        // Pure Japanese still gets the document serif (Mincho first).
+        let jp: Vec<char> = "日本語".chars().collect();
+        let f2 = db.fallback_for_run(&jp, latin.id(), false, false).expect("a CJK face");
+        assert!(f2.family.contains("Mincho"), "{f2:?}");
+    }
+
+    #[test]
+    fn arabic_and_persian_fall_back_to_the_craft_fonts_arabic_face() {
+        // #1652: with no system fonts (a headless CLI), Arabic and Persian drew as empty boxes.
+        let Some(arabic) = CRAFT_FONTS.iter().find(|f| f.scripts.contains(&"Arab")) else {
+            eprintln!("skipped: no Arabic face in the optional craft-fonts input");
+            return;
+        };
+        let db = FontDb::with_font_dirs(Vec::new());
+        db.set_system_fallback(false);
+        let latin = db.face(DEFAULT_FAMILY, "Regular");
+        for c in "مرحبا پچژگ۱۲۳".chars().filter(|c| !c.is_whitespace()) {
+            let fb = db.fallback_for(c, latin.id()).unwrap_or_else(|| panic!("no fallback for {c}"));
+            assert_eq!(fb.family, arabic.family, "{c}");
+        }
     }
 
     #[test]

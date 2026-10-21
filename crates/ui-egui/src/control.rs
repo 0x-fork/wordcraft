@@ -2,13 +2,15 @@
 //!
 //! Methods (JSON lines over the host's transport, see `docs/control-protocol.md`):
 //! - `engine.execute {command, params}`: run any command (engine or `ui.*`)
-//! - `engine.commands`: every command with its enablement
+//! - `engine.commands {search?}`: engine and app print commands with enablement and parameters
 //! - `document.inspect`: document structure; `ui.inspect`: UI state, canvas geometry, perf
+//! - `ui.wheel {x, y, dx?, dy, unit?, phase?}`: a mouse-wheel / trackpad scroll at a window point.
 //! - `ui.click {x, y, button?, count?, shift?, cmd?}`, `ui.move {x, y}`, `ui.drag {x, y, toX, toY}`:
 //!   real pointer input in screen points (reaches every widget)
 //! - `ui.clickText {page, x, y}`: click at a page position (points from the page's top-left)
 //! - `ui.key {key, shift?, alt?, cmd?}`, `ui.text {text}`: keyboard input through egui
-//! - `ui.screenshot {path?}`: PNG of the window; `ui.render {path, page?, scale?}`: page PNG
+//! - `ui.screenshot {path?}`: PNG of the window; `ui.render {path?, page?, scale?}`: page PNG
+//!   (without `path`, both reply with the PNG as base64 `png`)
 //! - `ui.parity`: feature catalog parity
 
 use std::sync::mpsc::Sender;
@@ -103,6 +105,24 @@ fn click_events(app: &mut WordApp, pos: egui::Pos2, button: egui::PointerButton,
     }
 }
 
+/// Programmatic calls never open the Save prompt, so closing unsaved work must be explicit:
+/// save first, or pass `"force": true` (only a real boolean true counts) to discard it (#1268).
+pub(crate) fn close_refused(app: &WordApp, id: &str, params: &Value) -> Option<&'static str> {
+    let force = params.get("force").and_then(Value::as_bool) == Some(true);
+    if force {
+        return None;
+    }
+    if id == "file.close" && app.session.dirty {
+        return Some("the document has unsaved changes: save it first, or pass {\"force\": true} to discard them and close");
+    }
+    // Comment text still being typed is unsaved work too (#1348): replacing the document would drop it.
+    (crate::discards_document(id, params) && crate::panes::has_comment_drafts(app))
+        .then_some("a comment is still being edited: finish it first, or pass {\"force\": true} to discard it")
+}
+
+/// The reply to a request that needs a document while none is open (#1129).
+const NO_DOCUMENT: &str = "no document is open; create one (file.new) or open one (file.open) first";
+
 pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
     let p = &req.params;
     let s = |k: &str| p.get(k).and_then(Value::as_str);
@@ -111,6 +131,9 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
         "engine.execute" | "command" => {
             let Some(id) = s("command").or(s("id")) else { return err("missing `command`") };
             let params = p.get("params").cloned().filter(|v| !v.is_null()).unwrap_or(json!({}));
+            if let Some(e) = close_refused(app, id, &params) {
+                return err(e);
+            }
             match app.execute(id, params) {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
@@ -118,13 +141,22 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
         }
         "engine.commands" => {
             let reg = app.session.registry.clone();
-            ok(Value::Array(
-                reg.all()
-                    .iter()
-                    .map(|c| json!({"id": c.id, "label": c.label, "location": c.location, "shortcut": c.shortcut, "params": c.params, "enabled": (c.enabled)(&app.session).is_none()}))
-                    .collect(),
-            ))
+            let mut commands: Vec<Value> = reg.all().iter()
+                .map(|c| json!({"id": c.id, "label": c.label, "location": c.location, "shortcut": c.shortcut, "params": c.params, "enabled": (c.enabled)(&app.session).is_none()}))
+                .collect();
+            commands.extend(crate::printing::commands(app));
+            let search = s("search").unwrap_or("").to_ascii_lowercase();
+            if !search.is_empty() {
+                commands.retain(|command| {
+                    ["id", "label", "location", "params"]
+                        .iter()
+                        .any(|field| command.get(field).and_then(Value::as_str).is_some_and(|text| text.to_ascii_lowercase().contains(&search)))
+                });
+            }
+            ok(Value::Array(commands))
         }
+        // The Start screen's empty window has no document to inspect or render (#1129).
+        "document.inspect" | "ui.render" if !app.has_document() => err(NO_DOCUMENT),
         "document.inspect" => match app.session.run("document.inspect", p) {
             Ok(v) => ok(v),
             Err(e) => err(e),
@@ -196,6 +228,25 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
             app.synthetic.push(egui::Event::Key { key: k, physical_key: None, pressed: false, repeat: false, modifiers: m });
             ok(json!({"queued": true}))
         }
+        "ui.wheel" => {
+            // Mouse-wheel or trackpad scroll at (x, y): `dy` points (positive scrolls up), or
+            // lines with `"unit": "line"`; `phase` "start"/"move"/"end" for a trackpad gesture.
+            let (Some(x), Some(y)) = (f("x"), f("y")) else { return err("missing x/y") };
+            let unit = match s("unit") {
+                Some("line") => egui::MouseWheelUnit::Line,
+                Some("page") => egui::MouseWheelUnit::Page,
+                _ => egui::MouseWheelUnit::Point,
+            };
+            let phase = match s("phase") {
+                Some("start") => egui::TouchPhase::Start,
+                Some("end") => egui::TouchPhase::End,
+                _ => egui::TouchPhase::Move,
+            };
+            let delta = egui::vec2(f("dx").unwrap_or(0.0), f("dy").unwrap_or(0.0));
+            app.synthetic.push(egui::Event::PointerMoved(egui::pos2(x, y)));
+            app.synthetic.push(egui::Event::MouseWheel { unit, delta, phase, modifiers: mods(p) });
+            ok(json!({"queued": true}))
+        }
         "ui.text" => {
             let Some(t) = s("text") else { return err("missing text") };
             app.synthetic.push(egui::Event::Text(t.to_string()));
@@ -203,11 +254,19 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
         }
         "ui.screenshot" => Outcome::Screenshot { path: s("path").map(str::to_string) },
         "ui.render" => {
-            let path = s("path").unwrap_or("/tmp/wordcraft-page.png");
             let page = p.get("page").and_then(Value::as_u64).unwrap_or(1);
-            match app.session.run("file.exportPng", &json!({"path": path, "page": page, "scale": f("scale").unwrap_or(2.0)})) {
-                Ok(v) => ok(v),
-                Err(e) => err(e),
+            let scale = f("scale").unwrap_or(2.0);
+            match s("path") {
+                Some(path) => match app.session.run("file.exportPng", &json!({"path": path, "page": page, "scale": scale})) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                },
+                // No path: the PNG travels in the reply. Never a fixed name in the shared
+                // temporary folder, where another user could have planted a link to a file.
+                None => match render_png(app, page, scale) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                },
             }
         }
         "ui.resize" => {
@@ -226,6 +285,9 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
         }
         other => {
             // Anything else: a command id.
+            if let Some(e) = close_refused(app, other, p) {
+                return err(e);
+            }
             match app.execute(other, p.clone()) {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
@@ -234,12 +296,27 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
     }
 }
 
+/// A page rendered by the engine, as base64 PNG in the reply (the same shape as the headless
+/// MCP server's `ui.render`).
+fn render_png(app: &WordApp, page: u64, scale: f32) -> Result<Value, String> {
+    let page = usize::try_from(page.max(1)).unwrap_or(usize::MAX).saturating_sub(1);
+    let l = app.session.export_layout();
+    let pg = l.pages.get(page).ok_or_else(|| format!("no page {}", page + 1))?;
+    let img = wordcraft_render::render_page(&app.session.doc, pg, scale.clamp(0.1, 8.0), &Default::default());
+    let png = img.to_png();
+    Ok(json!({"png": wordcraft_engine::cmd::insert::base64_encode(&png), "width": img.width, "height": img.height, "pages": l.pages.len()}))
+}
+
+/// The window screenshot: written to `path` when one was given, else base64 PNG in the reply
+/// (never a fixed name in the shared temporary folder).
 pub fn save_screenshot(image: &egui::ColorImage, path: Option<&str>) -> Value {
-    let path = path.unwrap_or("/tmp/wordcraft-screenshot.png");
     let [w, h] = image.size;
     let bytes: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
     let rendered = wordcraft_render::Rendered { width: w as u32, height: h as u32, pixels: bytes };
     let png = rendered.to_png();
+    let Some(path) = path else {
+        return json!({"ok": true, "result": {"png": wordcraft_engine::cmd::insert::base64_encode(&png), "width": w, "height": h}});
+    };
     #[cfg(target_arch = "wasm32")]
     let _ = (&png, path);
     #[cfg(not(target_arch = "wasm32"))]
