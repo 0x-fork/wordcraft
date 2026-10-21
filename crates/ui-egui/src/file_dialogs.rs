@@ -320,17 +320,19 @@ impl WordApp {
                 // The save's error, kept for the Save Changes prompt to explain (#1445). A plain
                 // Save As (Backstage's Browse…, AutoSave) has no prompt to carry it to, so it was
                 // otherwise dropped: a failed write (no permission, disk full, a bad path) left the
-                // Save As page sitting there with nothing to say why. Put it on the status bar instead.
+                // Save As page sitting there with nothing to say why, since its own render loop
+                // skips the status bar while Backstage is open. `fail_save_as` reaches both.
                 let result = picked.map(|path| self.run("file.save", json!({"path": path})));
                 let saved = matches!(&result, Some(Ok(v)) if v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some());
                 if saved {
                     self.ui.backstage = false;
                     self.canvas.want_focus = true;
+                    self.clear_save_as_error();
                 }
                 match after {
                     AfterSave::Nothing => {
                         if let Some(Err(error)) = &result {
-                            self.status(error.clone());
+                            self.fail_save_as(error);
                         }
                         Ok(json!({"saved": saved}))
                     }
@@ -338,7 +340,7 @@ impl WordApp {
                         if saved {
                             self.autosave = true;
                         } else if let Some(Err(error)) = &result {
-                            self.status(error.clone());
+                            self.fail_save_as(error);
                         }
                         Ok(json!({"saved": saved}))
                     }
@@ -359,6 +361,24 @@ impl WordApp {
     /// Ask where to save, then save there (File › Save As).
     pub fn save_as_dialog(&mut self) {
         let _ = self.save_as(AfterSave::Nothing);
+    }
+
+    /// A plain Save As (Backstage's Browse…, AutoSave) failed to write: say so on the status bar,
+    /// and, if the Save As page is what's showing, there too — its own render loop skips the
+    /// status bar while Backstage is open, so that page was otherwise left with nothing to explain
+    /// a failed write (no permission, disk full, a bad path).
+    fn fail_save_as(&mut self, error: &str) {
+        self.status(error.to_string());
+        if let Some(ctx) = self.ctx.clone() {
+            ctx.data_mut(|d| d.insert_temp(crate::backstage::save_as_error_id(), error.to_string()));
+        }
+    }
+
+    /// Drop a Save As page error once a later attempt has actually saved.
+    fn clear_save_as_error(&mut self) {
+        if let Some(ctx) = self.ctx.clone() {
+            crate::backstage::forget_save_as_error(&ctx);
+        }
     }
 
     /// Ask where to save, save there, then do `after`.
