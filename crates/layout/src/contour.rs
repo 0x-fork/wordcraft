@@ -207,9 +207,12 @@ pub fn picture_outline(bytes: &[u8], crop: [f32; 4]) -> Option<Vec<(f32, f32)>> 
             .any(|y| (px0..px1).step_by(step as usize).any(|x| img.get_pixel_checked(x, y).is_some_and(|p| p.0[3] >= 128)))
     };
     let pts = alpha_outline(gw as usize, gh as usize, opaque)?;
-    // The grid may reach a little past the picture (its last cells are partial).
-    let (sx, sy) = ((gw * cell) as f32 / cw as f32, (gh * cell) as f32 / ch as f32);
-    Some(pts.into_iter().map(|(x, y)| ((x * sx).min(1.0), (y * sy).min(1.0))).collect())
+    // Grid points onto the picture as the renderers draw the window, whose edges fall within
+    // pixels (crop fractions are f32 too: 0.7 is 0.69999…). The grid may reach a little past the
+    // pixels (its last cells are partial).
+    let place =
+        |g: f32, cells: u32, p0: u32, lo: f64, len: f64| ((f64::from(p0) + f64::from(g) * f64::from(cells * cell) - lo) / len).clamp(0.0, 1.0) as f32;
+    Some(pts.into_iter().map(|(x, y)| (place(x, gw, x0, fw * cl, fw * vw), place(y, gh, y0, fh * ct, fh * vh))).collect())
 }
 
 #[cfg(test)]
@@ -274,6 +277,29 @@ mod tests {
             let across = |p: &(f32, f32)| if column { p.1 } else { p.0 };
             // The grid's cells are 3 pixels, so the half starts a little before 0.5.
             assert!(pts.len() >= 3 && pts.iter().all(|p| across(p) > 0.4), "{crop:?}: {pts:?}");
+        }
+        // Crop fractions are f32 (0.7 is 0.69999…), so an edge on a whole pixel comes out a hair
+        // off it: the outline neither takes in the neighbouring column nor drops the last one. Only
+        // the top half of the 30 columns each crop keeps (of 100) is opaque, so it spans 0–1 across.
+        for (crop, kept) in [([0.7, 0.0, 0.0, 0.0], 70..100), ([0.0, 0.0, 0.7, 0.0], 0..30)] {
+            let img = image::RgbaImage::from_fn(100, 20, |x, y| image::Rgba([0, 0, 0, if kept.contains(&x) && y < 10 { 255 } else { 0 }]));
+            let pts = picture_outline(&png(img.into()), crop).unwrap_or_default();
+            let xs = pts.iter().map(|p| p.0);
+            let (lo, hi) = (xs.clone().fold(f32::MAX, f32::min), xs.fold(f32::MIN, f32::max));
+            assert!(lo < 1e-6 && hi > 1.0 - 1e-6, "{crop:?}: {pts:?}");
+        }
+        // A window whose edges fall within pixels (2.5–5.5 of 10) is placed as the renderers draw
+        // it: pixel 2, the only opaque one (in half the rows), covers the first sixth of the
+        // picture, not a quarter (whole pixels 2–5 stretched over it). Across and down alike.
+        for down in [false, true] {
+            let img = image::RgbaImage::from_fn(10, 10, |x, y| {
+                let (a, b) = if down { (y, x) } else { (x, y) };
+                image::Rgba([0, 0, 0, if a == 2 && b < 5 { 255 } else { 0 }])
+            });
+            let crop = if down { [0.0, 0.25, 0.0, 0.45] } else { [0.25, 0.0, 0.45, 0.0] };
+            let pts = picture_outline(&png(img.into()), crop).unwrap_or_default();
+            let far = pts.iter().map(|p| if down { p.1 } else { p.0 }).fold(f32::MIN, f32::max);
+            assert!(pts.len() >= 3 && (far - 1.0 / 6.0).abs() < 1e-3, "{crop:?}: {pts:?}");
         }
     }
 
