@@ -1679,8 +1679,8 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
             // no alignment or size, so the guide's own attributes stay in the document model.
             Inline::Ruby { base, ruby, fmt } => {
                 let (open, close) = fmt_tags(fmt);
-                o.push_str(&open);
                 let at_start = o.is_empty();
+                o.push_str(&open);
                 o.push_str(&format!("<ruby>{}<rt>{}</rt></ruby>", text_html(base, at_start), text_html(ruby, false)));
                 for c in close.iter().rev() {
                     o.push_str(c);

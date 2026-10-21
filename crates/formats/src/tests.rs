@@ -252,6 +252,22 @@ fn html_ruby_round_trip() {
 }
 
 #[test]
+fn html_ruby_at_the_paragraph_start_keeps_a_leading_space() {
+    // #1681: the ruby's base text goes through the text escaper with the paragraph-start state
+    // taken before its formatting tags, so a leading space becomes `&nbsp;` instead of a space
+    // HTML may collapse.
+    let props = CharProps { bold: Some(true), ..Default::default() };
+    let mut p = Paragraph::with_text("", CharProps::default());
+    let n = p.len();
+    p.insert_object(n, model::ruby_object(" 漢字".into(), "かんじ".into(), 20.0), &props).unwrap();
+    let mut d = Document::new();
+    d.body = vec![para_block(p)];
+
+    let html = String::from_utf8(export("html", &d).unwrap().unwrap()).unwrap();
+    assert!(html.contains("<strong><ruby>&nbsp;漢字<rt>かんじ</rt></ruby></strong>"), "{html}");
+}
+
+#[test]
 fn rtf_round_trip() {
     check_round_trip("rtf", true);
     let back = import("rtf", &export("rtf", &sample()).unwrap().unwrap()).unwrap().unwrap();
