@@ -4346,6 +4346,7 @@ fn custom_table_style_applies_modifies_and_saves() {
     assert_eq!((st.kind, st.name.as_str(), st.based_on.as_deref()), (StyleKind::Table, "Thesis Table", Some("TableGrid")));
     let parts = st.table.as_ref().unwrap();
     assert_eq!((parts.header_fill, parts.band_fill, parts.band_size), (Some(Rgb(0xC0, 0, 0)), Some(Rgb(0xEE, 0xEE, 0xEE)), Some(2)));
+    assert_eq!(parts.col_band_size, Some(1), "a new style bands one column at a time and writes it, so Word bands it too (#3415)");
     assert_eq!((parts.header_chr.bold, parts.band_chr.italic), (Some(false), Some(true)));
     assert!(parts.header_borders.is_some_and(|b| b.any_visible()));
     let t = back.body.iter().find_map(|b| b.as_table()).unwrap();

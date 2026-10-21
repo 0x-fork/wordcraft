@@ -1077,8 +1077,9 @@ type Region = PartSet;
 
 /// The parts of the cell at grid column `g` spanning `span` of `ncols` columns in row `ri`.
 fn region_of(t: &Table, style: Option<&TableStyleProps>, ri: usize, g: usize, span: usize, ncols: usize) -> Region {
-    let size = style.and_then(|s| s.parts.band_size).unwrap_or(1);
-    PartSet::of_cell(&t.props.look, size, (ri, t.rows.len()), (g, span, ncols))
+    let rows = style.and_then(|s| s.parts.band_size).unwrap_or(0);
+    let cols = style.and_then(|s| s.parts.col_band_size).unwrap_or(0);
+    PartSet::of_cell(&t.props.look, (rows, cols), (ri, t.rows.len()), (g, span, ncols))
 }
 
 /// The table style's text formatting in `region`: each part's character formatting and paragraph
