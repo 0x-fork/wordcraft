@@ -5852,6 +5852,9 @@ fn list_buttons_follow_the_paragraphs_own_level() {
     run(&mut s, "para.listLevel", json!({"level": 1}));
     assert_eq!(state(&s), ListButtons { bullets: false, numbering: true, multilevel: false });
     run(&mut s, "para.numbering", json!({}));
+    assert_eq!(state(&s), ListButtons::default(), "Numbering toggles off the paragraph's effective numbered level");
+    run(&mut s, "para.numbering", json!({}));
+    run(&mut s, "para.listLevel", json!({"level": 1}));
     assert_eq!(state(&s), ListButtons { bullets: false, numbering: true, multilevel: false }, "1. a. i. is not multilevel");
     // Legal numbering (1. 1.1. 1.1.1.) numbers levels together, even on its first level. (Its
     // first level reads like "1." numbering, which the button would toggle off, so start plain.)

@@ -2161,6 +2161,7 @@ fn right_arrow_moves_through_a_ligature_one_letter_at_a_time() {
     assert!(xs.windows(2).all(|w| w[0].1 < w[1].1), "caret x after each Right press: {xs:?}");
 }
 
+/// Two original paragraphs whose list comes from a style, optionally through a basedOn chain.
 fn style_inherited_list(kind: wordcraft_doc::numbering::ListKind, chain: bool) -> Session {
     use wordcraft_doc::props::NumRef;
     use wordcraft_doc::styles::Style;
@@ -2237,5 +2238,119 @@ fn explicit_list_off_override_is_not_toggled_off_again() {
             let p = s.doc.para_at(&Pos::body(i, 0)).unwrap();
             assert!(s.doc.styles.resolve_para(&p.props).numbering.is_some_and(|n| n.num != 0));
         }
+    }
+}
+
+#[test]
+fn list_toggle_uses_effective_level_and_override() {
+    use wordcraft_doc::numbering::{ListKind, levels_for};
+    use wordcraft_doc::props::NumRef;
+    for (kind, command, wrong) in [(ListKind::Bullet, "para.bullets", "para.numbering"), (ListKind::Numbered, "para.numbering", "para.bullets")] {
+        for override_level in [false, true] {
+            for explicit_kind in [false, true] {
+                let mut s = style_inherited_list(kind, true);
+                let opposite = if kind == ListKind::Bullet { ListKind::Numbered } else { ListKind::Bullet };
+                let num = s.doc.styles.styles.iter_mut().find(|x| x.id == "ListBase").unwrap().para.numbering.as_mut().unwrap();
+                num.level = 1;
+                let num_id = num.num;
+                s.doc.numbering.abstracts[0].levels[0] = levels_for(opposite)[0].clone();
+                if override_level {
+                    s.doc.numbering.abstracts[0].levels[1] = levels_for(opposite)[1].clone();
+                    s.doc.numbering.nums[0].level_overrides.push((1, levels_for(kind)[1].clone()));
+                }
+                let before = s.doc.clone();
+                let params = if explicit_kind { json!({"kind": if kind == ListKind::Bullet { "bullet" } else { "numbered" }}) } else { json!({}) };
+                run(&mut s, command, params);
+                assert_eq!(
+                    s.doc.para_at(&Pos::body(0, 0)).unwrap().props.numbering,
+                    Some(NumRef { num: 0, level: 0 }),
+                    "{command}, override={override_level}, explicit={explicit_kind}"
+                );
+                assert_eq!(s.doc.styles, before.styles);
+                assert_eq!(s.doc.numbering, before.numbering);
+                assert_eq!(s.doc.para_at(&Pos::body(1, 0)), before.para_at(&Pos::body(1, 0)));
+                let mut other = Session::new(before);
+                run(&mut other, wrong, json!({}));
+                assert!(other.doc.para_at(&Pos::body(0, 0)).unwrap().props.numbering.is_some_and(|n| n.num != 0));
+                assert!(other.doc.numbering.level(num_id, 1).is_some());
+            }
+        }
+    }
+}
+
+#[test]
+fn list_paragraph_style_survives_inherited_toggle_off() {
+    use wordcraft_doc::numbering::ListKind;
+    use wordcraft_doc::props::{Align, ParaProps};
+    use wordcraft_doc::styles::Style;
+    for kind in [ListKind::Bullet, ListKind::Numbered] {
+        let mut s = style_inherited_list(kind, false);
+        *s.doc.styles.styles.iter_mut().find(|x| x.id == "ListParagraph").unwrap() = Style {
+            id: "ListParagraph".into(),
+            name: "Original formatted list".into(),
+            based_on: Some("ListBase".into()),
+            para: ParaProps { align: Some(Align::Right), space_after: Some(17.0), ..Default::default() },
+            ..Default::default()
+        };
+        s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props.style = Some("ListParagraph".into());
+        let before = s.doc.clone();
+        run(&mut s, if kind == ListKind::Bullet { "para.bullets" } else { "para.numbering" }, json!({}));
+        let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+        assert_eq!(p.props.style.as_deref(), Some("ListParagraph"));
+        let effective = s.doc.styles.resolve_para(&p.props);
+        assert!(effective.numbering.is_none());
+        assert_eq!(effective.align, Align::Right);
+        assert_eq!(effective.space_after, 17.0);
+        assert_eq!(s.doc.styles, before.styles);
+        assert_eq!(s.doc.numbering, before.numbering);
+        assert_eq!(s.doc.para_at(&Pos::body(1, 0)), before.para_at(&Pos::body(1, 0)));
+        let after = s.doc.clone();
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(s.doc, before);
+        run(&mut s, "edit.redo", json!({}));
+        assert_eq!(s.doc, after);
+        let bytes = crate::io::save_bytes("list.docx", &s.doc).unwrap();
+        let saved = crate::io::open_bytes("list.docx", &bytes).unwrap();
+        let p = saved.para_at(&Pos::body(0, 0)).unwrap();
+        assert_eq!(p.props.style.as_deref(), Some("ListParagraph"));
+        let effective = saved.styles.resolve_para(&p.props);
+        assert!(effective.numbering.is_none());
+        assert_eq!(effective.align, Align::Right);
+        assert_eq!(effective.space_after, 17.0);
+    }
+}
+
+#[test]
+fn direct_list_toggle_still_clears_the_automatic_list_paragraph_style() {
+    for command in ["para.bullets", "para.numbering"] {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Direct list"));
+        run(&mut s, command, json!({}));
+        assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.style.as_deref(), Some("ListParagraph"));
+        run(&mut s, command, json!({}));
+        let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+        assert!(p.props.style.is_none());
+        assert!(s.doc.styles.resolve_para(&p.props).numbering.is_none());
+    }
+}
+
+#[test]
+fn a_new_list_uses_the_requested_kind_after_a_mixed_format_list() {
+    use wordcraft_doc::numbering::{ListKind, levels_for};
+    use wordcraft_doc::props::{NumRef, ParaProps};
+    for (kind, command) in [(ListKind::Bullet, "para.bullets"), (ListKind::Numbered, "para.numbering")] {
+        let mut s = style_inherited_list(kind, false);
+        let opposite = if kind == ListKind::Bullet { ListKind::Numbered } else { ListKind::Bullet };
+        s.doc.numbering.abstracts[0].levels[0] = levels_for(opposite)[0].clone();
+        let num = s.doc.numbering.nums[0].id;
+        s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props.numbering = Some(NumRef { num, level: 1 });
+        s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(1)).unwrap().props = ParaProps::default();
+        let before = s.doc.para_at(&Pos::body(0, 0)).unwrap().clone();
+        s.sel = crate::Selection::caret(Pos::body(1, 0));
+        run(&mut s, command, json!({}));
+        let n = s.doc.para_at(&Pos::body(1, 0)).unwrap().props.numbering.unwrap();
+        assert_eq!(n.level, 0);
+        let level = s.doc.numbering.level(n.num, n.level).unwrap();
+        assert_eq!(level.format == wordcraft_doc::section::NumFormat::Bullet, kind == ListKind::Bullet);
+        assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap(), &before);
     }
 }
