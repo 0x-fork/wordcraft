@@ -456,11 +456,11 @@ fn link(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// Whether `name` can name a bookmark: starts with a letter, contains only alphanumeric characters
-/// or underscores, and is at most 40 characters (#3491).
+/// Whether `name` can name a bookmark: starts with a letter or underscore, contains only alphanumeric characters
+/// or underscores, and is at most 40 characters (#3491). Word allows leading underscores for hidden bookmarks (_Toc, _Ref).
 pub fn bookmark_name_ok(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_alphabetic()) && chars.all(|c| c.is_alphanumeric() || c == '_') && name.chars().count() <= 40
+    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_') && chars.all(|c| c.is_alphanumeric() || c == '_') && name.chars().count() <= 40
 }
 
 /// Where bookmark `name` is: see [`bookmark_span`]. `None` when there is no such bookmark.
@@ -1182,6 +1182,9 @@ mod tests {
         assert!(bookmark_name_ok("Mark1"));
         assert!(bookmark_name_ok("A"));
         assert!(bookmark_name_ok("Alpha_Beta_123"));
+        // Valid leading underscore (Word hidden bookmarks, e.g. _Toc, _Ref, _Hidden):
+        assert!(bookmark_name_ok("_Hidden"));
+        assert!(bookmark_name_ok("_foo"));
         // Valid 27-character Unicode Cyrillic name (51 UTF-8 bytes):
         assert!(bookmark_name_ok("быстрый_доступ_к_документам"));
         // Valid 40-character name:
@@ -1194,8 +1197,6 @@ mod tests {
         assert!(!bookmark_name_ok(""));
         // Invalid: leading digit
         assert!(!bookmark_name_ok("1mark"));
-        // Invalid: leading underscore
-        assert!(!bookmark_name_ok("_foo"));
         // Invalid: symbols / punctuation
         assert!(!bookmark_name_ok("a&b"));
         assert!(!bookmark_name_ok("a!b"));
@@ -1209,7 +1210,8 @@ mod tests {
         // Verification through `insert.bookmark` command
         let mut s = Session::new(wordcraft_doc::Document::from_text("Test content"));
         assert!(s.run("insert.bookmark", &json!({"name": "быстрый_доступ_к_документам"})).is_ok());
-        assert!(s.run("insert.bookmark", &json!({"name": "_foo"})).is_err());
+        assert!(s.run("insert.bookmark", &json!({"name": "_Hidden"})).is_ok());
+        assert!(s.run("insert.bookmark", &json!({"name": "1mark"})).is_err());
         assert!(s.run("insert.bookmark", &json!({"name": "a&b"})).is_err());
         assert!(s.run("insert.bookmark", &json!({"name": "a!b"})).is_err());
     }
