@@ -456,9 +456,11 @@ fn link(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// Whether `name` can name a bookmark: no spaces, at most 40 characters, not starting with a digit.
+/// Whether `name` can name a bookmark: starts with a letter, contains only alphanumeric characters
+/// or underscores, and is at most 40 characters (#3491).
 pub fn bookmark_name_ok(name: &str) -> bool {
-    !name.is_empty() && !name.contains(' ') && name.len() <= 40 && !name.chars().next().is_some_and(|c| c.is_ascii_digit())
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_alphabetic()) && chars.all(|c| c.is_alphanumeric() || c == '_') && name.chars().count() <= 40
 }
 
 /// Where bookmark `name` is: see [`bookmark_span`]. `None` when there is no such bookmark.
@@ -1171,6 +1173,45 @@ mod tests {
         s.run("insert.bookmark", &json!({"name": "Spot"})).unwrap();
         assert_eq!(bookmark_marks(&s), vec![(1, true, "Spot".into()), (1, false, "Spot".into())]);
         assert_eq!(crate::cmd::references::bookmark_text(&s.doc, "Spot").as_deref(), Some("delta"));
+    }
+
+    /// #3491: Bookmark names are validated by Unicode character count and character classes.
+    #[test]
+    fn bookmark_name_validation_rules() {
+        // Valid names:
+        assert!(bookmark_name_ok("Mark1"));
+        assert!(bookmark_name_ok("A"));
+        assert!(bookmark_name_ok("Alpha_Beta_123"));
+        // Valid 27-character Unicode Cyrillic name (51 UTF-8 bytes):
+        assert!(bookmark_name_ok("быстрый_доступ_к_документам"));
+        // Valid 40-character name:
+        let exactly_40 = "a".repeat(40);
+        assert!(bookmark_name_ok(&exactly_40));
+        let exactly_40_unicode = "я".repeat(40);
+        assert!(bookmark_name_ok(&exactly_40_unicode));
+
+        // Invalid: empty
+        assert!(!bookmark_name_ok(""));
+        // Invalid: leading digit
+        assert!(!bookmark_name_ok("1mark"));
+        // Invalid: leading underscore
+        assert!(!bookmark_name_ok("_foo"));
+        // Invalid: symbols / punctuation
+        assert!(!bookmark_name_ok("a&b"));
+        assert!(!bookmark_name_ok("a!b"));
+        assert!(!bookmark_name_ok("a-b"));
+        assert!(!bookmark_name_ok("a.b"));
+        assert!(!bookmark_name_ok("foo bar"));
+        // Invalid: more than 40 characters
+        assert!(!bookmark_name_ok(&"a".repeat(41)));
+        assert!(!bookmark_name_ok(&"я".repeat(41)));
+
+        // Verification through `insert.bookmark` command
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Test content"));
+        assert!(s.run("insert.bookmark", &json!({"name": "быстрый_доступ_к_документам"})).is_ok());
+        assert!(s.run("insert.bookmark", &json!({"name": "_foo"})).is_err());
+        assert!(s.run("insert.bookmark", &json!({"name": "a&b"})).is_err());
+        assert!(s.run("insert.bookmark", &json!({"name": "a!b"})).is_err());
     }
 
     /// Insert › Symbol with a font: only the symbol takes it, the caret's font carries on after.
