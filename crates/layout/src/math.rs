@@ -1518,7 +1518,11 @@ impl Ctx {
                 }
             }
         }
-        let total: f32 = col_w.iter().sum();
+        let aligned: f32 = col_w.iter().sum();
+        // A row without `&` wider than the aligned columns widens the array; the aligned rows
+        // then centre as a block under it.
+        let lone = segs_rows.iter().filter(|r| ncols > 1 && r.len() == 1).map(|r| r[0].w).fold(0.0f32, f32::max);
+        let total = aligned.max(lone);
         let mut placed = Vec::new();
         for (r, path) in segs_rows.into_iter().zip(row_paths) {
             let mut row = Bx::default();
@@ -1531,7 +1535,7 @@ impl Ctx {
                     0.0
                 } else if single {
                     // A row without `&` is centred across the whole array.
-                    (total - bw) / 2.0
+                    ((total - bw) / 2.0).max(0.0)
                 } else if i % 2 == 0 {
                     cw - bw
                 } else {
@@ -1541,7 +1545,16 @@ impl Ctx {
                 x += cw;
                 row.w = row.w.max(x);
             }
-            let rx = if ncols == 1 { (total - row.w) / 2.0 } else { 0.0 };
+            if single {
+                row.w = row.w.max(total);
+            }
+            let rx = if ncols == 1 {
+                (total - row.w) / 2.0
+            } else if single {
+                0.0
+            } else {
+                (total - aligned) / 2.0
+            };
             finalize(&mut row, &path, em);
             placed.push((row, rx.max(0.0)));
         }
@@ -2264,6 +2277,24 @@ mod tests {
         assert!(left.iter().all(|x| *x >= -0.5), "nothing hangs left of the array: {left:?}");
         // The short row starts right of the aligned row's first segment.
         assert!(ls[0].1.first().is_some_and(|(x, _)| *x > left[1] + 1.0), "short row centred, not flush left: {ls:?}");
+    }
+
+    #[test]
+    fn eqarr_row_without_an_align_marker_wider_than_the_columns_widens_the_array() {
+        use wordcraft_doc::math::*;
+        // The `&`-less row is wider than the aligned columns: it must not hang left of the
+        // origin, the array is as wide as it, and the aligned rows centre under it.
+        let rows: Vec<Vec<MNode>> = vec![vec![MNode::Run(MRun::new("bbbbbbbbbb"))], vec![MNode::Run(MRun::new("a&c"))]];
+        let math = Math { nodes: vec![MNode::EqArr { rows }], ..Default::default() };
+        let m = lay_in(&math, "", true, 400.0, &MathProps::default());
+        let ls = lines(&m);
+        assert_eq!(ls.len(), 2, "{ls:?}");
+        let left: Vec<f32> = ls.iter().map(|(_, gs)| gs.iter().map(|(x, _)| *x).fold(f32::MAX, f32::min)).collect();
+        assert!(left.iter().all(|x| *x >= -0.5), "nothing hangs left of the array: {left:?}");
+        assert!(left[0].abs() < 0.5, "the wide row starts at the origin: {left:?}");
+        let narrow = lay_in(&Math { nodes: vec![MNode::EqArr { rows: vec![vec![MNode::Run(MRun::new("a&c"))]] }], ..Default::default() }, "", true, 400.0, &MathProps::default());
+        assert!(m.width > narrow.width + 1.0, "the array is as wide as its widest row: {} vs {}", m.width, narrow.width);
+        assert!(left[1] > 1.0, "the aligned row is centred under the wide one: {left:?}");
     }
 
     #[test]
