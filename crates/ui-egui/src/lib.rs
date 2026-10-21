@@ -5812,6 +5812,7 @@ mod tests {
 
     /// #3424: Pressing Ctrl+Alt+Q (German shortcut for @, or AltGr+Q) types '@' and does not
     /// close the window.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn ctrl_alt_q_types_at_symbol_without_closing() {
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
