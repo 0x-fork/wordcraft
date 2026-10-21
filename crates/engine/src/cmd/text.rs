@@ -139,7 +139,10 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
 fn list_autoformat(s: &mut Session) -> Result<bool, CmdError> {
     let f = s.sel.focus.clone();
     let Some(para) = s.doc.para_at(&f) else { return Ok(false) };
-    if para.props.numbering.is_some_and(|n| n.num != 0) {
+    // A style-linked list (a heading-linked Multilevel List preset, #1793) numbers the paragraph
+    // without `props.numbering` itself being set: resolve it, so autoformat doesn't paper over an
+    // already-numbered heading with a fresh bullet.
+    if s.doc.styles.resolve_para(&para.props).numbering.is_some_and(|n| n.num != 0) {
         return Ok(false);
     }
     let Some(prefix) = para.text.get(..f.off) else { return Ok(false) };
