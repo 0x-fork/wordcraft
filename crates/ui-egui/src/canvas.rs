@@ -1726,7 +1726,18 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         if with_toolbar {
             crate::mini_toolbar::show_in_context_menu(app, ui);
             ui.add_space(4.0);
-            egui::Frame::popup(ui.style()).show(ui, |ui| context_menu(app, ui));
+            // The command panel keeps its own width, not the toolbar's: the popup's justified
+            // layout would stretch it, so it takes the width egui measures in its sizing pass.
+            let width_id = ui.id().with("context_menu_width");
+            let width = ui.data(|d| d.get_temp::<f32>(width_id)).filter(|_| !ui.is_sizing_pass());
+            let size = egui::vec2(width.unwrap_or(ui.available_width()), ui.available_height());
+            let rect = egui::Rect::from_min_size(ui.cursor().min, size);
+            let panel = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| context_menu(app, ui)).response.rect.width()
+            });
+            if ui.is_sizing_pass() {
+                ui.data_mut(|d| d.insert_temp(width_id, panel.inner));
+            }
         } else {
             context_menu(app, ui);
         }

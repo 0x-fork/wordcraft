@@ -656,6 +656,28 @@ mod tests {
         }
     }
 
+    /// The command panel under the context toolbar was stretched to the toolbar's width; each
+    /// keeps its own width, so the panel matches the menu shown without the toolbar.
+    #[test]
+    fn context_menu_panel_keeps_its_own_width_under_the_toolbar() {
+        use egui_kittest::kittest::Queryable;
+        let copy_width = |toolbar: bool| {
+            let mut h = bar_over("brown fox");
+            h.state_mut().ui.mini_toolbar = toolbar;
+            h.state_mut().run("ui.contextMenu", json!({})).unwrap();
+            steps(&mut h);
+            let top = h.state().canvas.viewport.unwrap().top();
+            let copy = h.query_all_by_label_contains("Copy").map(|n| n.rect()).find(|r| r.min.y > top).expect("the menu has Copy");
+            let bar = h.query_all_by_label("Justify").map(|n| n.rect()).find(|r| r.min.y > top);
+            (copy, bar)
+        };
+        let (plain, _) = copy_width(false);
+        let (copy, justify) = copy_width(true);
+        let justify = justify.expect("the context toolbar is shown");
+        assert!((copy.width() - plain.width()).abs() < 0.5, "panel {} vs plain menu {}", copy.width(), plain.width());
+        assert!(copy.max.x + 20.0 < justify.max.x, "the panel ({copy:?}) is narrower than the toolbar ({justify:?})");
+    }
+
     #[test]
     fn escape_in_a_ribbon_list_does_not_open_the_context_menu() {
         use egui::accesskit::Role;
