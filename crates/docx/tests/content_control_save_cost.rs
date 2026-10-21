@@ -134,6 +134,12 @@ fn the_controls_are_written_where_they_were() {
     }
 }
 
+/// The names of the parts of a package, in the order they are in it.
+fn part_names(bytes: &[u8]) -> Vec<String> {
+    let z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip");
+    z.file_names().map(str::to_string).collect()
+}
+
 /// The body of the document part of a package.
 fn document_body(bytes: &[u8]) -> String {
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip");
@@ -201,8 +207,22 @@ fn pinned_doc() -> Document {
 fn the_document_body_is_written_as_it_was() {
     let bytes = write(&pinned_doc()).expect("write");
     assert_eq!(document_body(&bytes), PINNED_BODY);
+    // The parts are the same ones, so nothing is added to the package and nothing is lost.
+    assert_eq!(part_names(&bytes), PINNED_PARTS);
 }
 
 /// The body of the document part of [`pinned_doc`], as the writer wrote it before it was made
 /// faster.
+const PINNED_PARTS: &[&str] = &[
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "word/document.xml",
+    "word/_rels/document.xml.rels",
+    "word/styles.xml",
+    "word/settings.xml",
+    "word/theme/theme1.xml",
+    "docProps/core.xml",
+    "docProps/app.xml",
+];
+
 const PINNED_BODY: &str = r#"<w:body><w:p><w:r><w:t xml:space="preserve">before </w:t></w:r><w:sdt><w:sdtPr><w:text/></w:sdtPr><w:sdtContent><w:r><w:t xml:space="preserve">inside a</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve"> between </w:t></w:r><w:sdt><w:sdtPr></w:sdtPr><w:sdtContent><w:r><w:t xml:space="preserve">inside b</w:t></w:r></w:sdtContent></w:sdt><w:r><w:t xml:space="preserve"> after</w:t></w:r></w:p><w:sdt><w:sdtPr></w:sdtPr><w:sdtContent><w:p></w:p><w:p><w:r><w:t xml:space="preserve">in the block</w:t></w:r></w:p></w:sdtContent></w:sdt><w:sectPr><w:type w:val="nextPage"/><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/><w:cols w:space="720" w:num="1"/></w:sectPr></w:body>"#;
