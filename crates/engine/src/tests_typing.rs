@@ -310,6 +310,22 @@ fn list_autoformat_triggers() {
     assert_eq!(s.doc.numbering.level(n.num, 0).map(|l| l.format), Some(wordcraft_doc::section::NumFormat::LowerLetter));
 }
 
+/// #3352: typing the trigger at the start of an already-written paragraph (not only a fresh,
+/// empty one) still turns it into a list item, keeping the rest of the paragraph's text — as in
+/// Word, confirmed in Word for Windows 2026-10-21.
+#[test]
+fn list_autoformat_triggers_in_front_of_existing_text() {
+    let mut s = s();
+    typ(&mut s, "On peut faire mieux");
+    run(&mut s, "caret.home", json!({}));
+    typ(&mut s, "- ");
+    assert_eq!(paras(&s), vec![para("On peut faire mieux", Some(0))]);
+    assert_eq!(label_at(&s, 0), "-");
+    // Undo right after takes only the AutoFormat back, as for a fresh paragraph.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(paras(&s), vec![("- On peut faire mieux".to_string(), None, false)]);
+}
+
 #[test]
 fn typing_1_dot_starts_numbering_again() {
     let s = typed("1. a\nb\n\nmid\n1. c\nd");

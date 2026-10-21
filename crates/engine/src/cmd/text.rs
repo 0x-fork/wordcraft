@@ -133,14 +133,17 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// "* " / "- " / "> " → bullets, "1. " / "a) " → numbering, typed at the start of a paragraph.
+/// "* " / "- " / "> " → bullets, "1. " / "a) " → numbering, typed at the start of a paragraph
+/// (Word triggers on the paragraph's first characters, whatever text already follows the caret,
+/// not only when the trigger is the paragraph's entire content — #3352).
 fn list_autoformat(s: &mut Session) -> Result<bool, CmdError> {
     let f = s.sel.focus.clone();
     let Some(para) = s.doc.para_at(&f) else { return Ok(false) };
-    if para.props.numbering.is_some_and(|n| n.num != 0) || f.off != para.len() {
+    if para.props.numbering.is_some_and(|n| n.num != 0) {
         return Ok(false);
     }
-    let kind = match para.text.as_str() {
+    let Some(prefix) = para.text.get(..f.off) else { return Ok(false) };
+    let kind = match prefix {
         "* " => ListKind::Bullet,
         "- " => ListKind::BulletChar('-'),
         // Arrow bullets (Word draws these from a symbol font; we use the Unicode arrows).
@@ -168,8 +171,7 @@ fn list_autoformat(s: &mut Session) -> Result<bool, CmdError> {
         None => s.doc.numbering.try_add_list(kind)?,
     };
     let para = s.doc.para_mut(f.story, &f.path)?;
-    let len = para.len();
-    para.delete(0, len)?;
+    para.delete(0, f.off)?;
     para.props.numbering = Some(NumRef { num, level: 0 });
     // A heading stays a heading (Word: "1. " in a Heading 1 gives a numbered Heading 1).
     if para.props.style.as_deref().is_none_or(|st| st == "Normal") {
