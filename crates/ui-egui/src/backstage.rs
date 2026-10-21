@@ -998,6 +998,55 @@ mod tests {
         assert!(!h.state().file_dialog_open());
     }
 
+    /// Repro: a brand-new document, typed text, File > Save (unnamed) > Save As page > Browse…,
+    /// answered asynchronously by a native dialog (as the desktop host does), should land back on
+    /// the document, not the "no document" screen.
+    #[test]
+    fn backstage_save_browse_native_dialog_lands_on_the_document() {
+        use std::sync::mpsc::channel;
+        let shown: std::rc::Rc<std::cell::RefCell<Vec<(crate::FileDialogRequest, std::sync::mpsc::Sender<crate::FileDialogAnswer>)>>> =
+            Default::default();
+        let log = shown.clone();
+        let services = Services {
+            file_dialog: Some(Box::new(move |req| {
+                let (tx, rx) = channel();
+                log.borrow_mut().push((req, tx));
+                rx
+            })),
+            ..Default::default()
+        };
+        let dir = std::env::temp_dir().join(format!("wordcraft-backstage-save-repro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Document1.docx");
+
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("text.insert", json!({"text": "Hello from the repro"})).unwrap();
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_label("Save").click();
+        h.run_steps(4);
+        assert_eq!(h.state().ui.backstage_page, "saveAs", "unnamed Save opens Save As page");
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        assert!(h.state().file_dialog_open(), "Browse opened the native dialog");
+        let (_, tx) = shown.borrow_mut().pop().unwrap();
+        tx.send(Ok(vec![path.to_string_lossy().to_string()])).unwrap();
+        h.run_steps(6);
+        assert!(h.state().session.path.as_deref() == Some(path.as_path()), "the document was saved to the picked path");
+        assert!(!h.state().ui.backstage, "backstage closes once saved");
+        assert!(h.state().has_document(), "the document stays open after Save");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn backstage_save_closes_when_saved() {
         let got: std::rc::Rc<std::cell::RefCell<Vec<(String, Vec<u8>)>>> = Default::default();

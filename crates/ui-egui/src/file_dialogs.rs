@@ -317,7 +317,10 @@ impl WordApp {
                 if document != self.session.document_id() {
                     return Err("the document for this save has been replaced".into());
                 }
-                // The save's error, kept for the Save Changes prompt to explain (#1445).
+                // The save's error, kept for the Save Changes prompt to explain (#1445). A plain
+                // Save As (Backstage's Browse…, AutoSave) has no prompt to carry it to, so it was
+                // otherwise dropped: a failed write (no permission, disk full, a bad path) left the
+                // Save As page sitting there with nothing to say why. Put it on the status bar instead.
                 let result = picked.map(|path| self.run("file.save", json!({"path": path})));
                 let saved = matches!(&result, Some(Ok(v)) if v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some());
                 if saved {
@@ -325,10 +328,17 @@ impl WordApp {
                     self.canvas.want_focus = true;
                 }
                 match after {
-                    AfterSave::Nothing => Ok(json!({"saved": saved})),
+                    AfterSave::Nothing => {
+                        if let Some(Err(error)) = &result {
+                            self.status(error.clone());
+                        }
+                        Ok(json!({"saved": saved}))
+                    }
                     AfterSave::AutoSave => {
                         if saved {
                             self.autosave = true;
+                        } else if let Some(Err(error)) = &result {
+                            self.status(error.clone());
                         }
                         Ok(json!({"saved": saved}))
                     }
@@ -730,6 +740,29 @@ mod tests {
         assert_eq!(r, json!({"saved": false}));
         assert!(a.file_dialog_open(), "F12's saveAs request opens the dialog");
         assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "two.docx".into() });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Backstage File > Save > Save As page > Browse… picks a folder that can't be written to
+    /// (missing, no permission...): the write fails, but the page previously said nothing about
+    /// it, leaving the user with a Browse… button and no document, no clue why. The failure now
+    /// reaches the status bar, and the document (and its unsaved text) stays open regardless.
+    #[test]
+    fn a_failed_save_as_says_so_and_keeps_the_document() {
+        let dir = scratch("write-fails");
+        let bogus = dir.join("does-not-exist").join("out.docx");
+        let (mut a, shown) = async_app();
+        typed(&mut a);
+        a.run("ui.backstage", json!({"value": true, "page": "saveAs"})).unwrap();
+        a.save_as_dialog();
+        answer(&shown, Some(&bogus.to_string_lossy()));
+        let r = a.poll_file_dialog().unwrap().unwrap();
+        assert_eq!(r["saved"], false, "the write failed");
+        assert!(!bogus.exists());
+        assert!(a.ui.backstage, "backstage stays open: nothing was actually saved");
+        assert!(a.has_document() && body_text(&a).contains(UNSAVED), "the document and its text are kept");
+        let msg = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+        assert!(!msg.is_empty(), "the failure is no longer silent");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
