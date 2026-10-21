@@ -301,3 +301,33 @@ fn toc_gallery_around_the_engine_form_goes_to_the_toc() {
         assert!(xml.find("</w:sdt>").unwrap() < xml.rfind(">Chapter One<").unwrap(), "pass {pass}: {xml}");
     }
 }
+
+/// A rich text control around the heading and the first entry of a TOC in the engine's form,
+/// inside Word's Table of Contents control: the writer doesn't put a TOC control around a heading
+/// already in a block control, so the outer one is kept as read rather than lost on save.
+#[test]
+fn toc_gallery_around_a_toc_whose_heading_is_in_a_block_control_round_trips() {
+    let style = |s: &str, inner: &str| format!(r#"<w:p><w:pPr><w:pStyle w:val="{s}"/></w:pPr>{inner}</w:p>"#);
+    let begin = r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>"#;
+    let end = r#"<w:r><w:fldChar w:fldCharType="end"/></w:r>"#;
+    let content = format!(
+        "{}{}",
+        sdt(
+            r#"<w:id w:val="31"/><w:richText/>"#,
+            &format!("{}{}", style("TOCHeading", &t("Contents")), style("TOC1", &format!("{begin}{}", t("Chapter One\t1"))))
+        ),
+        style("TOC2", &format!("{}{end}", t("Section\t2")))
+    );
+    let pr = r#"<w:id w:val="-1234567"/><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj>"#;
+    let mut bytes = package(&format!("{}{}", sdt(pr, &content), p(&t("Chapter One"))));
+    for pass in 0..2 {
+        let d = read(&bytes).unwrap();
+        bytes = write(&d).unwrap();
+        let xml = document_xml(&bytes);
+        assert_eq!(xml.matches("<w:sdt>").count(), 2, "pass {pass}: {xml}");
+        let (gallery, rich) =
+            (xml.find(&format!("<w:sdtPr>{pr}")).unwrap_or_else(|| panic!("pass {pass}: {xml}")), xml.find(r#"<w:id w:val="31"/>"#).unwrap());
+        assert!(gallery < rich && rich < xml.find(">Contents<").unwrap(), "pass {pass}: {xml}");
+        assert!(xml.rfind("</w:sdt>").unwrap() < xml.rfind(">Chapter One<").unwrap(), "pass {pass}: {xml}");
+    }
+}

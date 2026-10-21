@@ -460,8 +460,21 @@ fn toc_control_to_toc(body: &mut Blocks) {
         let _ = p.delete(0, OBJ.len_utf8());
     }
     toc_field_to_heading(&mut toc);
-    if crate::write::toc_span(&toc) == Some((s, e)) {
+    let written = |bl: &Blocks| crate::write::written_toc_span(bl) == Some((s, e));
+    if written(&toc) {
         *body = toc;
+        return;
+    }
+    // A heading that isn't a `TOCHeading` is written empty, its field opening in the first entry.
+    // That TOC is handed over as the range read, which Update Table turns back into the engine's
+    // TOC in that paragraph (`range_toc_to_field`); kept in the control, the paragraph wouldn't be
+    // empty and each save and update would add a blank line above the entries (#2182).
+    if toc.get(s).and_then(|b| b.as_para()).is_some_and(|p| p.is_empty() && p.section.is_none()) {
+        let mut engine = toc.clone();
+        field_to_heading(&mut engine, s + 1);
+        if written(&engine) {
+            *body = toc;
+        }
     }
 }
 
@@ -469,43 +482,44 @@ fn toc_control_to_toc(body: &mut Blocks) {
 /// reproduce exactly. Other imported TOCs keep their explicit boundaries, independent of styles.
 fn toc_field_to_heading(body: &mut Blocks) {
     for i in 1..body.len() {
-        let heading = body[i - 1].as_para().filter(|p| p.props.style.as_deref() == Some("TOCHeading"));
-        let has_toc = |o: &InlineObject| matches!(o, InlineObject::Field { instr, .. } if is_toc(instr));
-        if heading.is_none_or(|h| h.objects.iter().any(has_toc)) {
-            continue;
+        if body[i - 1].as_para().is_some_and(|p| p.props.style.as_deref() == Some("TOCHeading")) {
+            field_to_heading(body, i);
         }
-        let Some((field, props, end)) = body[i].as_para().and_then(|p| {
-            let (field, end) = match p.object_at(0) {
-                Some(InlineObject::FieldStart { instr, locked, dirty }) if is_toc(instr) => (
-                    InlineObject::Field {
-                        instr: instr.clone(),
-                        result: String::new(),
-                        locked: *locked,
-                        dirty: *dirty,
-                        code: false,
-                        form: String::new(),
-                    },
-                    Some(toc_range_end(body, i)?),
-                ),
-                Some(f @ InlineObject::Field { result, .. }) if result.is_empty() && has_toc(f) => (f.clone(), None),
-                _ => return None,
-            };
-            Some((field, p.props_of_char(0).clone(), end))
-        }) else {
-            continue;
+    }
+}
+
+/// Moves the TOC field that opens paragraph `i` (a complete range over the entries, or an empty
+/// field) to the end of paragraph `i - 1`, the engine's TOC heading, unless that one has a TOC
+/// field already.
+fn field_to_heading(body: &mut Blocks, i: usize) {
+    let has_toc = |o: &InlineObject| matches!(o, InlineObject::Field { instr, .. } if is_toc(instr));
+    if i == 0 || body.get(i - 1).and_then(|b| b.as_para()).is_none_or(|h| h.objects.iter().any(has_toc)) {
+        return;
+    }
+    let Some((field, props, end)) = body.get(i).and_then(|b| b.as_para()).and_then(|p| {
+        let (field, end) = match p.object_at(0) {
+            Some(InlineObject::FieldStart { instr, locked, dirty }) if is_toc(instr) => (
+                InlineObject::Field { instr: instr.clone(), result: String::new(), locked: *locked, dirty: *dirty, code: false, form: String::new() },
+                Some(toc_range_end(body, i)?),
+            ),
+            Some(f @ InlineObject::Field { result, .. }) if result.is_empty() && has_toc(f) => (f.clone(), None),
+            _ => return None,
         };
-        // Delete the end first: the two markers may occupy the same paragraph.
-        if let Some(Block::Para(p)) = end.and_then(|end| body.get_mut(end)).map(Arc::make_mut) {
-            let off = p.len().saturating_sub(OBJ.len_utf8());
-            let _ = p.delete(off, p.len());
-        }
-        if let Some(Block::Para(p)) = body.get_mut(i).map(Arc::make_mut) {
-            let _ = p.delete(0, OBJ.len_utf8());
-        }
-        if let Some(Block::Para(h)) = body.get_mut(i - 1).map(Arc::make_mut) {
-            let end = h.len();
-            let _ = h.insert_object(end, field, &props);
-        }
+        Some((field, p.props_of_char(0).clone(), end))
+    }) else {
+        return;
+    };
+    // Delete the end first: the two markers may occupy the same paragraph.
+    if let Some(Block::Para(p)) = end.and_then(|end| body.get_mut(end)).map(Arc::make_mut) {
+        let off = p.len().saturating_sub(OBJ.len_utf8());
+        let _ = p.delete(off, p.len());
+    }
+    if let Some(Block::Para(p)) = body.get_mut(i).map(Arc::make_mut) {
+        let _ = p.delete(0, OBJ.len_utf8());
+    }
+    if let Some(Block::Para(h)) = body.get_mut(i - 1).map(Arc::make_mut) {
+        let end = h.len();
+        let _ = h.insert_object(end, field, &props);
     }
 }
 
