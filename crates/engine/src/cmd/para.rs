@@ -515,8 +515,10 @@ fn list(s: &mut Session, v: &Value, default: ListKind) -> CmdResult {
     let off = p::bool(v, "off").unwrap_or(false);
     let a = s.sel.ordered().0;
     // Toggle: if every selected paragraph already has this kind of list, remove it.
-    let current: Vec<Option<NumRef>> =
-        super::selected_paths(s).iter().map(|p| s.doc.para(a.story, p).and_then(|x| x.props.numbering).filter(|n| n.num != 0)).collect();
+    let current: Vec<Option<NumRef>> = super::selected_paths(s)
+        .iter()
+        .map(|p| s.doc.para(a.story, p).and_then(|x| s.doc.styles.resolve_para(&x.props).numbering).filter(|n| n.num != 0))
+        .collect();
     let same_kind = |n: &NumRef| {
         s.doc.numbering.level(n.num, 0).is_some_and(|l| {
             let want = wordcraft_doc::numbering::levels_for(kind);

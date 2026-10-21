@@ -2160,3 +2160,82 @@ fn right_arrow_moves_through_a_ligature_one_letter_at_a_time() {
     assert_eq!(offs, [0, 1, 2, 3]);
     assert!(xs.windows(2).all(|w| w[0].1 < w[1].1), "caret x after each Right press: {xs:?}");
 }
+
+fn style_inherited_list(kind: wordcraft_doc::numbering::ListKind, chain: bool) -> Session {
+    use wordcraft_doc::props::NumRef;
+    use wordcraft_doc::styles::Style;
+    let mut doc = wordcraft_doc::Document::from_text("Alpha\nBeta");
+    let num = doc.numbering.try_add_list(kind).unwrap();
+    doc.styles.styles.push(Style {
+        id: "ListBase".into(),
+        name: "Original List".into(),
+        para: wordcraft_doc::ParaProps { numbering: Some(NumRef { num, level: 0 }), ..Default::default() },
+        ..Default::default()
+    });
+    if chain {
+        doc.styles.styles.push(Style {
+            id: "ListChild".into(),
+            name: "Original Derived".into(),
+            based_on: Some("ListBase".into()),
+            ..Default::default()
+        });
+    }
+    for i in 0..2 {
+        doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(i)).unwrap().props.style = Some(if chain { "ListChild" } else { "ListBase" }.into());
+    }
+    Session::new(doc)
+}
+
+#[test]
+fn toggle_style_inherited_list_off_preserves_other_paragraphs_and_round_trips() {
+    use wordcraft_doc::numbering::ListKind;
+    for (kind, command) in [(ListKind::Bullet, "para.bullets"), (ListKind::Numbered, "para.numbering")] {
+        for chain in [false, true] {
+            let mut s = style_inherited_list(kind, chain);
+            let before = s.doc.clone();
+            s.sel = crate::Selection::caret(Pos::body(0, 2));
+            run(&mut s, command, json!({}));
+            let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+            assert_eq!(p.props.numbering.unwrap().num, 0, "{command}, chain={chain}");
+            assert_eq!(p.props.style, before.para_at(&Pos::body(0, 0)).unwrap().props.style);
+            assert_eq!(s.doc.para_at(&Pos::body(1, 0)), before.para_at(&Pos::body(1, 0)));
+            assert_eq!(s.doc.styles, before.styles);
+            assert_eq!(s.doc.numbering, before.numbering);
+            let after = s.doc.clone();
+            run(&mut s, "edit.undo", json!({}));
+            assert_eq!(s.doc, before);
+            run(&mut s, "edit.redo", json!({}));
+            assert_eq!(s.doc, after);
+            let bytes = crate::io::save_bytes("list.docx", &s.doc).unwrap();
+            let saved = crate::io::open_bytes("list.docx", &bytes).unwrap();
+            let a = saved.para_at(&Pos::body(0, 0)).unwrap();
+            let b = saved.para_at(&Pos::body(1, 0)).unwrap();
+            assert_eq!(a.props.numbering.unwrap().num, 0);
+            assert!(saved.styles.resolve_para(&a.props).numbering.is_none());
+            assert!(saved.styles.resolve_para(&b.props).numbering.is_some_and(|n| n.num != 0));
+            assert_eq!(a.text, "Alpha");
+            assert_eq!(b.text, "Beta");
+        }
+    }
+}
+
+#[test]
+fn explicit_list_off_override_is_not_toggled_off_again() {
+    use wordcraft_doc::numbering::ListKind;
+    use wordcraft_doc::props::NumRef;
+    for (kind, command) in [(ListKind::Bullet, "para.bullets"), (ListKind::Numbered, "para.numbering")] {
+        let mut s = style_inherited_list(kind, true);
+        s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props.numbering = Some(NumRef { num: 0, level: 0 });
+        s.sel = crate::Selection::caret(Pos::body(0, 2));
+        run(&mut s, command, json!({}));
+        assert!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.numbering.is_some_and(|n| n.num != 0));
+        // A mixed selection must turn the list on, rather than remove the inherited item.
+        s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props.numbering = Some(NumRef { num: 0, level: 0 });
+        s.sel = crate::Selection { anchor: Pos::body(0, 0), focus: Pos::body(1, 4) };
+        run(&mut s, command, json!({}));
+        for i in 0..2 {
+            let p = s.doc.para_at(&Pos::body(i, 0)).unwrap();
+            assert!(s.doc.styles.resolve_para(&p.props).numbering.is_some_and(|n| n.num != 0));
+        }
+    }
+}
