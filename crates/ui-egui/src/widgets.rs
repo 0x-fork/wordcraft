@@ -331,6 +331,9 @@ pub fn split(
     let (arrow_title, _) = tooltip_lines(&crate::i18n::fmt(tl!("{name} options"), &[("name", tip)]), "", "", None);
     show_hint(&aresp, &arrow_title, &[]);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
+    // The arrow opens the choices beside the button: it says whose, so it is not just "button"
+    // (#3172).
+    aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, &arrow_title));
     if !on {
         return;
     }
@@ -869,6 +872,11 @@ fn combo_impl(
         // The arrow's box is painted here, under the field, once its size is known.
         let arrow_bg = ui.painter().add(egui::Shape::Noop);
         let resp = ui.add(te);
+        // The field says what it is: without a name a screen reader has only "edit" to say
+        // (#3172). The arrow says whose options it opens, as the split buttons' arrow does.
+        if !tip.is_empty() {
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, ui.is_enabled(), tip));
+        }
         keytip_badge(ui, resp.rect, "combo", id);
         focused = resp.has_focus();
         let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -921,6 +929,10 @@ fn combo_impl(
             out = Some(text.clone());
         }
         let (ar, aresp) = ui.allocate_exact_size(vec2(16.0, resp.rect.height()), Sense::click());
+        if !tip.is_empty() {
+            let arrow_name = crate::i18n::fmt(tl!("{name} options"), &[("name", tip)]);
+            aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &arrow_name));
+        }
         // It reaches one border width under the field, so the field's right border is the only line
         // between them: two borders side by side read as a double-width divider.
         let ar_radius = CornerRadius { nw: 0, sw: 0, ne: r.ne, se: r.se };
