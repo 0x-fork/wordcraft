@@ -786,6 +786,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The AutoSave switch's own Save As (clicked while blocked on `Unsaved`, chrome.rs) goes
+    /// through the same `AfterPick::SaveAs` arm as Backstage's, under `AfterSave::AutoSave`
+    /// instead of `AfterSave::Nothing`: a write failure there must reach the status bar too
+    /// (visible here, since the switch only shows while Backstage is closed), and AutoSave must
+    /// stay off rather than claim coverage it doesn't have (the raw `autosave` flag defaults to
+    /// `true`; what actually governs coverage is `autosaves()`, the flag plus the block).
+    #[test]
+    fn a_failed_autosave_switch_save_as_says_so_and_leaves_autosave_off() {
+        let dir = scratch("autosave-switch-write-fails");
+        let bogus = dir.join("does-not-exist").join("out.docx");
+        let (mut a, shown) = async_app();
+        typed(&mut a);
+        assert!(matches!(a.autosave_block(), Some(crate::AutoSaveBlock::Unsaved)), "a new document blocks AutoSave until saved");
+        assert!(!a.autosaves(), "blocked: AutoSave isn't covering the document yet");
+        a.save_as(AfterSave::AutoSave);
+        answer(&shown, Some(&bogus.to_string_lossy()));
+        let r = a.poll_file_dialog().unwrap().unwrap();
+        assert_eq!(r["saved"], false, "the write failed");
+        assert!(!a.autosaves(), "still blocked: the save that would have lifted it never happened");
+        assert!(a.session.path.is_none(), "unsaved: the write never actually landed");
+        assert!(a.has_document() && body_text(&a).contains(UNSAVED), "the document and its text are kept");
+        let msg = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+        assert!(!msg.is_empty(), "the failure is no longer silent");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// While a dialog is open, more Save As / Open / Export / Picture clicks don't open a second one.
     #[test]
     fn a_second_dialog_while_one_is_open_is_ignored() {
