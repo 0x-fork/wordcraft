@@ -2208,6 +2208,10 @@ impl WordApp {
         if self.session.view.focus_mode && self.dialog.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
             let _ = self.run("view.focus", json!({"value": false}));
         }
+        // A failed Recent open is news only until File closes (#2938).
+        if !self.ui.backstage {
+            backstage::forget_open_error(&ctx);
+        }
         if self.ui.backstage {
             backstage::show(self, ui);
         } else if !self.has_document() {
@@ -2998,6 +3002,29 @@ mod tests {
         b.run("ui.startScreen", json!({"value": false})).unwrap();
         assert!(!b.start_screen(), "off: today's behaviour");
         assert!(!b.ui.backstage && b.has_document());
+    }
+
+    /// #3045: on the empty window (no document behind the Start screen) the ribbon is greyed
+    /// out, but the tab strip works: File reaches the Start screen again, where a document can
+    /// be made. Disabling the Share / Editing / Comments row disabled the whole line, the tab
+    /// strip with it: the tabs took clicks that did nothing.
+    #[test]
+    fn empty_window_ribbon_tabs_reach_the_start_screen() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.start_screen();
+        let mut h = harness(a);
+        h.run_steps(4);
+        // Esc (or the back arrow) leaves the Start screen for the empty window, as #1129 has it.
+        h.key_press(egui::Key::Escape);
+        h.run_steps(4);
+        assert!(!h.state().ui.backstage, "the empty window");
+        assert!(!h.state().has_document(), "with no document");
+        // File, the first tab, is live and reaches the Start screen.
+        h.get_by_label("File").click();
+        h.run_steps(4);
+        assert!(h.state().ui.backstage && h.state().ui.backstage_page == "home", "File reaches the Start screen");
+        assert!(h.query_by_label("Blank document").is_some(), "where a document can be made");
     }
 
     /// #1908: with no document open the Home ribbon's split buttons grey out like the plain
@@ -5623,10 +5650,12 @@ mod tests {
         h.step();
         h.event(egui::Event::Text("x".into()));
         h.run_steps(2);
+        assert!(h.query(By::new().role(Role::TextInput).value("x")).is_some(), "the query replaced the font name");
         assert!(h.query_by_label("Recently Used Fonts").is_none(), "a query lists its matches only");
         assert_eq!(h.query_all_by_label("Recent Font Alpha").count(), 0);
         h.event(key(egui::Key::Backspace, egui::Modifiers::NONE));
         h.run_steps(2);
+        assert!(h.query(By::new().role(Role::TextInput).value("")).is_some(), "Backspace cleared the query");
         assert!(h.query_by_label("Recently Used Fonts").is_some(), "the section shows while nothing is typed");
         assert!(h.query_by_label("All Fonts").is_some());
         assert_eq!(h.query_all_by_label("Recent Font Beta").count(), 1);

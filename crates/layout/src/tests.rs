@@ -2567,6 +2567,71 @@ fn a_cell_emptied_by_widow_control_takes_its_row_to_the_next_page() {
     assert_eq!(pages_of(45, 4, true)[..2], [(0, 0), (1, 4)], "an orphan: the whole row moves");
 }
 
+// Use real paragraph and table layout to distinguish content from trailing spacing.
+fn row_content_pieces(text: &str, props: ParaProps, room: f32) -> Vec<(usize, usize)> {
+    use wordcraft_doc::props::LineSpacing;
+
+    let exact = ParaProps { line_spacing: Some(LineSpacing::Exactly(14.0)), space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+    let mut d = Document::from_text("Filler");
+    *para_props(&mut d, 0) = ParaProps { line_spacing: Some(LineSpacing::Exactly(d.last_section.text_height() - room)), ..exact.clone() };
+    let mut table = Table::new(1, 2, 400.0);
+    table.props.style = None;
+    table.props.cell_margins = Some([0.0; 4]);
+    let neighbor = ["First", "Second", "Third", "Fourth"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    for (cell, text) in [text, neighbor.as_str()].into_iter().enumerate() {
+        let mut p = Paragraph::with_text(text, Default::default());
+        p.props = exact.clone();
+        if cell == 0 {
+            p.props.space_after = props.space_after;
+            p.props.widow_control = props.widow_control;
+        } else {
+            p.props.widow_control = Some(false);
+        }
+        table.rows[0].cells[cell].blocks = vec![wordcraft_doc::para_block(p)];
+    }
+    d.body.push(std::sync::Arc::new(Block::Table(table)));
+    lay(&d)
+        .pages
+        .iter()
+        .map(|page| {
+            let count = |cell| {
+                page.items
+                    .iter()
+                    .filter_map(|item| match item {
+                        Placed::Lines { path, l0, l1, .. } if path.0 == [1, 0, cell, 0] => Some(l1 - l0),
+                        _ => None,
+                    })
+                    .sum::<usize>()
+            };
+            (count(0), count(1))
+        })
+        .collect()
+}
+
+#[test]
+fn row_split_ignores_afterspace() {
+    let two = ["Top", "Bottom"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    for (text, room, expected) in [("Label", 18.0, vec![(0, 1), (1, 3)]), (two.as_str(), 32.0, vec![(0, 2), (2, 2)])] {
+        let props = ParaProps { space_after: Some(8.0), widow_control: Some(true), ..Default::default() };
+        assert_eq!(row_content_pieces(text, props, room), expected, "text={text:?}, room={room}");
+    }
+}
+
+#[test]
+fn row_split_respects_widows() {
+    let two = ["Top", "Bottom"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    let three = ["Top", "Middle", "Bottom"].join(&wordcraft_doc::para::LINE_BREAK.to_string());
+    for (text, widow, room, expected) in [
+        (two.as_str(), true, 18.0, vec![(0, 0), (2, 4)]),
+        (two.as_str(), false, 18.0, vec![(1, 1), (1, 3)]),
+        (three.as_str(), true, 32.0, vec![(0, 0), (3, 4)]),
+        (three.as_str(), false, 32.0, vec![(2, 2), (1, 2)]),
+    ] {
+        let props = ParaProps { space_after: Some(0.0), widow_control: Some(widow), ..Default::default() };
+        assert_eq!(row_content_pieces(text, props, room), expected, "text={text:?}, widow={widow}, room={room}");
+    }
+}
+
 /// The cell's last paragraph needs its space after on the page too: a row ending in an empty
 /// paragraph with 8pt after, whose text fits but whose space after doesn't, splits before it
 /// (Word keeps the "Remarks:" line on the page) instead of moving whole.
@@ -4413,6 +4478,128 @@ fn no_line_break_right_after_a_slash() {
         }
     }
     assert!(lines > 10, "{lines} lines");
+}
+
+/// #2963: a word after a slash ("caption /заполняется") wraps whole, as in Word. UAX #14 forbids a
+/// break between the space and the slash, and the break after the slash is dropped (Word keeps
+/// "and/or" whole), so the slash word had no break before it and split between two letters.
+#[test]
+fn a_word_after_a_slash_wraps_whole() {
+    let (head, slash, tail) = ("ЖСН енгізілмеген жағдайда толтырылады", " /", "заполняется в случае неприсвоения ИИН");
+    let text = format!("{head}{slash}{tail}");
+    let italic = wordcraft_doc::CharProps { italic: Some(true), ..Default::default() };
+    let mut p = wordcraft_doc::Paragraph::new();
+    p.text = text.clone();
+    p.runs = vec![
+        wordcraft_doc::Run { len: head.len(), props: italic.clone() },
+        wordcraft_doc::Run { len: slash.len(), props: Default::default() },
+        wordcraft_doc::Run { len: tail.len(), props: italic },
+    ];
+    let mut wrapped = 0;
+    // Down to the width where the longest word still fits on a line: from there on, a line may
+    // only end at a space.
+    for m in 100..=450 {
+        let mut d = Document::from_text("");
+        d.body = vec![wordcraft_doc::para_block(p.clone())];
+        d.last_section.margin_right = m as f32;
+        let l = lay(&d);
+        let lines: Vec<String> = l.pages[0]
+            .items
+            .iter()
+            .filter_map(|it| {
+                if let Placed::Lines { para, l0, l1, .. } = it {
+                    Some(para.lines[*l0..*l1].iter().map(|line| text[line.start..line.stop].to_string()).collect::<Vec<_>>())
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+        if lines.len() < 2 {
+            continue; // fits on one line
+        }
+        wrapped += 1;
+        let (last, rest) = lines.split_last().expect("lines");
+        assert!(rest.iter().all(|l| l.ends_with(' ')), "a word is split at margin {m}: {lines:?}");
+        assert!(!last.is_empty());
+    }
+    assert!(wrapped > 100, "{wrapped} widths wrapped");
+}
+
+/// #2963 happened in a fixed-width table cell: the cell's own width is the line width there.
+#[test]
+fn a_word_after_a_slash_wraps_whole_in_a_fixed_cell() {
+    let (head, slash, tail) = ("ЖСН енгізілмеген жағдайда толтырылады", " /", "заполняется в случае неприсвоения ИИН");
+    let text = format!("{head}{slash}{tail}");
+    let italic = wordcraft_doc::CharProps { italic: Some(true), ..Default::default() };
+    let mut p = wordcraft_doc::Paragraph::new();
+    p.text = text.clone();
+    p.runs = vec![
+        wordcraft_doc::Run { len: head.len(), props: italic.clone() },
+        wordcraft_doc::Run { len: slash.len(), props: Default::default() },
+        wordcraft_doc::Run { len: tail.len(), props: italic },
+    ];
+    let mut wrapped = 0;
+    // From the width where the longest word fits in the cell.
+    for width in 90..=400 {
+        let mut table = Table::new(1, 1, width as f32);
+        table.props.style = None;
+        table.props.fixed = true;
+        table.props.cell_margins = Some([0.0; 4]);
+        table.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(p.clone())];
+        let mut d = Document::new();
+        d.body = vec![std::sync::Arc::new(Block::Table(table))];
+        let l = lay(&d);
+        let lines: Vec<String> = l.pages[0]
+            .items
+            .iter()
+            .filter_map(|it| {
+                if let Placed::Lines { para, l0, l1, .. } = it {
+                    Some(para.lines[*l0..*l1].iter().map(|line| text[line.start..line.stop].to_string()).collect::<Vec<_>>())
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+        if lines.len() < 2 {
+            continue; // fits on one line
+        }
+        wrapped += 1;
+        let (_, rest) = lines.split_last().expect("lines");
+        assert!(rest.iter().all(|l| l.ends_with(' ')), "a word is split at cell width {width}: {lines:?}");
+    }
+    assert!(wrapped > 100, "{wrapped} widths wrapped");
+}
+
+/// The break before a slash word (#2963) needs a breakable space: a no-break space before the
+/// slash keeps it on the line.
+#[test]
+fn a_no_break_space_before_a_slash_still_holds() {
+    let starts = |nb: char| -> (usize, usize) {
+        // Varying word lengths, so the lines end at different places in the pattern.
+        let text: String = (0..80).map(|i| format!("caption{nb}/word {} ", "w".repeat(1 + i % 5))).collect();
+        let l = lay(&Document::from_text(&text));
+        let (mut lines, mut at_slash) = (0, 0);
+        for p in &l.pages {
+            for it in &p.items {
+                if let Placed::Lines { para, l0, l1, .. } = it {
+                    for line in &para.lines[*l0..*l1] {
+                        lines += 1;
+                        at_slash += usize::from(text[..line.start].ends_with(nb));
+                    }
+                }
+            }
+        }
+        (lines, at_slash)
+    };
+    let (lines, at_slash) = starts(' ');
+    assert!(lines > 10 && at_slash > 0, "control: {at_slash} of {lines} lines start at a slash word");
+    for nb in ['\u{a0}', '\u{2007}', '\u{202f}'] {
+        let (lines, at_slash) = starts(nb);
+        assert!(lines > 10, "{lines} lines");
+        assert_eq!(at_slash, 0, "lines start after {nb:?}");
+    }
 }
 
 #[test]
@@ -6870,10 +7057,14 @@ fn paragraph_relative_floats_start_above_the_space_before() {
         let mut d = Document::from_text("");
         d.body = vec![wordcraft_doc::para_block(first), wordcraft_doc::para_block(p)];
         let l = lay(&d);
-        let first_bottom = {
-            let c = l.caret(&Pos::body(0, 0)).unwrap();
-            c.top + c.height
-        };
+        let first_bottom = l.pages[0]
+            .items
+            .iter()
+            .find_map(|i| match i {
+                Placed::Lines { path, para, l0, y, .. } if *path == Path::top(0) => para.lines.get(*l0).map(|ln| y + ln.height),
+                _ => None,
+            })
+            .unwrap();
         let top = l.pages[0].items.iter().find_map(|i| if let Placed::Shape { rect, .. } = i { Some(rect.y) } else { None }).unwrap();
         (top, first_bottom)
     };
@@ -9212,4 +9403,23 @@ fn shared_band_grid_spans() {
         })
         .unwrap();
     assert_eq!(height, 27.0);
+}
+
+#[test]
+fn caret_height_ignores_line_spacing() {
+    // #2920: extra line spacing is leading below the text; the caret stays the height of the font.
+    use wordcraft_doc::props::LineSpacing;
+    let caret_height = |spacing: Option<LineSpacing>| {
+        let mut d = Document::new();
+        let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+        let mut p = wordcraft_doc::Paragraph::with_text("Alpha probe", chr);
+        p.props = ParaProps { line_spacing: spacing, ..Default::default() };
+        d.body = vec![wordcraft_doc::para_block(p)];
+        lay(&d).caret(&Pos::body(0, 3)).unwrap().height
+    };
+    let single = caret_height(Some(LineSpacing::Multiple(1.0)));
+    for spacing in [LineSpacing::Multiple(2.0), LineSpacing::AtLeast(40.0), LineSpacing::Exactly(40.0)] {
+        let wide = caret_height(Some(spacing));
+        assert!((single - wide).abs() < 0.01, "{spacing:?}: single {single}, wide {wide}");
+    }
 }
