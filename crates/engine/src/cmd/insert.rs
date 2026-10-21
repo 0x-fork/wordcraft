@@ -842,16 +842,16 @@ pub fn format_date_parts(fmt: &str, y: i64, m: usize, d: u32, (hh, mm, ss): (u32
             n += 1;
         }
         match (c, n) {
-            ('y', 4..) => out.push_str(&format!("{y:04}")),
-            ('y', _) => out.push_str(&format!("{:02}", y % 100)),
+            ('y' | 'Y', 4..) => out.push_str(&format!("{y:04}")),
+            ('y' | 'Y', _) => out.push_str(&format!("{:02}", y % 100)),
             ('M', 4..) => out.push_str(month),
             ('M', 3) => out.push_str(month.get(..3).unwrap_or(month)),
             ('M', 2) => out.push_str(&format!("{m:02}")),
             ('M', 1) => out.push_str(&m.to_string()),
-            ('d', 4..) => out.push_str(day),
-            ('d', 3) => out.push_str(day.get(..3).unwrap_or(day)),
-            ('d', 2) => out.push_str(&format!("{d:02}")),
-            ('d', 1) => out.push_str(&d.to_string()),
+            ('d' | 'D', 4..) => out.push_str(day),
+            ('d' | 'D', 3) => out.push_str(day.get(..3).unwrap_or(day)),
+            ('d' | 'D', 2) => out.push_str(&format!("{d:02}")),
+            ('d' | 'D', 1) => out.push_str(&d.to_string()),
             ('H', 2..) => out.push_str(&format!("{hh:02}")),
             ('H', _) => out.push_str(&hh.to_string()),
             ('h', _) => out.push_str(&(if hh.is_multiple_of(12) { 12 } else { hh % 12 }).to_string()),
@@ -1210,6 +1210,9 @@ mod tests {
 
     #[test]
     fn date_pictures() {
+        // Word accepts either case for the day and year instructions.
+        assert_eq!(format_date_parts("MM/DD/YYYY", 2026, 10, 21, (17, 27, 3), 0), "10/21/2026");
+        assert_eq!(format_date_parts("D MMMM YYYY", 2026, 10, 21, (17, 27, 3), 0), "21 October 2026");
         let d = format_date("yyyy-MM-dd");
         assert_eq!(d.len(), 10);
         assert!(format_date("MMMM d, yyyy").contains(", "));
