@@ -12,8 +12,9 @@
 //! fallback skipping, `\'hh` and 8-bit text in the document's code page (`\ansicpg`, `\mac`, `\pc`, `\pca`) or
 //! the current font's (`\fcharset`, `\cpg`: Cyrillic, Central European, Greek, Mac OS Roman, the
 //! East Asian multibyte pages 932/936/949/950…; Windows-1252 when none is named). A multibyte
-//! code page's bytes are held and decoded as a run, so a lead byte and its trail byte decode
-//! together; the formatting words above, stylesheet-based
+//! code page's bytes stream through one decoder, so a lead byte and its trail byte decode
+//! together and a run that looks like a UTF-8 BOM is not mistaken for one; the formatting words
+//! above, stylesheet-based
 //! headings and `\outlinelevel`, lists through `\ls`/`\ilvl`, fields, bookmarks, pictures and
 //! tables. Group nesting and picture sizes are capped.
 
@@ -1419,22 +1420,90 @@ impl Reader {
         if self.mb_cp != cp || self.mb_decoder.is_none() {
             self.finish_multibyte();
             self.mb_cp = cp;
-            self.mb_decoder = Some(encoding.new_decoder());
+            self.mb_decoder = Some(encoding.new_decoder_without_bom_handling());
         }
-        if let Some(decoder) = self.mb_decoder.as_mut() {
-            // `decode_to_string` writes into the string's spare capacity only, so reserve for the
-            // widest one-byte result (U+FFFD is three bytes) before feeding it.
-            let mut out = String::with_capacity(16);
-            let _ = decoder.decode_to_string(&[b], &mut out, false);
-            if !out.is_empty() {
-                self.text(&out);
+        self.decode_run(&[b]);
+    }
+
+    /// Feed 8-bit text bytes to the open multibyte decoder and append what it emits. A single
+    /// `\'hh` byte decodes into a stack buffer (no heap allocation per byte of escaped text); a
+    /// raw run decodes in one call, so a long ASCII run in a Japanese, Chinese or Korean document
+    /// costs one append instead of one per byte. The destination's spare capacity is all
+    /// `decode_to_*` writes into, so a full buffer is drained and decoding continues.
+    fn decode_run(&mut self, bytes: &[u8]) {
+        // The decoder is taken out so the text it produced can be appended (which borrows the
+        // reader) before it goes back.
+        let Some(mut decoder) = self.mb_decoder.take() else { return };
+        let mut read = 0;
+        if bytes.len() <= 16 {
+            // A character is at most 4 UTF-8 bytes, and a byte may also replace a pending lead
+            // byte (3 more), so one escaped byte always fits the stack buffer.
+            let mut buf = [0u8; 16];
+            let (result, got, written, _) = decoder.decode_to_utf8(bytes, &mut buf, false);
+            read = got;
+            let full = matches!(result, encoding_rs::CoderResult::OutputFull);
+            if written > 0
+                && let Ok(s) = std::str::from_utf8(&buf[..written])
+            {
+                self.text(s);
             }
+            if !full {
+                self.mb_decoder = Some(decoder);
+                return;
+            }
+        }
+        let mut out = String::with_capacity(bytes.len().saturating_mul(2));
+        let mut rest = bytes.get(read..).unwrap_or_default();
+        loop {
+            let (result, got, _) = decoder.decode_to_string(rest, &mut out, false);
+            rest = rest.get(got..).unwrap_or_default();
+            if !matches!(result, encoding_rs::CoderResult::OutputFull) {
+                break;
+            }
+            out.reserve(16.max(rest.len().saturating_mul(2)));
+        }
+        self.mb_decoder = Some(decoder);
+        if !out.is_empty() {
+            self.text(&out);
         }
     }
 
-    /// Decode the multibyte bytes read so far in the code page they were read in, with U+FFFD for
-    /// invalid sequences, as Word writes them. A code page switch, a group end and the end of the
-    /// document flush; the buffer is capped, so it never grows with the input.
+    /// A run of raw 8-bit text from the file (not `\'hh` escapes): a single-byte code page maps
+    /// each byte to a char; a multibyte one decodes the whole run in one pass, so a long ASCII run
+    /// in a Japanese, Chinese or Korean document costs one decode and one append instead of one
+    /// per byte.
+    ///
+    /// The decoder is created without BOM handling: the code page comes from `\ansicpg`, `\cpg` or
+    /// `\fcharset` and must not change. With BOM sniffing, a run that starts `EF BB BF` in GBK,
+    /// Big5 or UHC (a valid character pair followed by a lead byte) would be dropped as a UTF-8
+    /// BOM and the rest decoded as UTF-8.
+    fn run(&mut self, chunk: &[u8]) {
+        if self.skip_chars > 0 {
+            for b in chunk {
+                self.byte(*b);
+            }
+            return;
+        }
+        let cp = self.code_page();
+        let Some(encoding) = multibyte_encoding(cp) else {
+            self.finish_multibyte();
+            let mut out = String::with_capacity(chunk.len());
+            for b in chunk {
+                out.push(wordcraft_doc::encoding::code_page_byte(cp, *b));
+            }
+            if !out.is_empty() {
+                self.text(&out);
+            }
+            return;
+        };
+        if self.mb_cp != cp || self.mb_decoder.is_none() {
+            self.finish_multibyte();
+            self.mb_cp = cp;
+            self.mb_decoder = Some(encoding.new_decoder_without_bom_handling());
+        }
+        self.decode_run(chunk);
+    }
+
     /// Ends the current multibyte run: the streaming decoder emits whatever it still holds (a lone
     /// lead byte becomes U+FFFD, as Word writes it) and is dropped. A code page switch, a single-byte
     /// run, a group end and the end of the document finish the run this way.
@@ -1445,14 +1514,6 @@ impl Reader {
         if !out.is_empty() {
             self.text(&out);
         }
-    }
-
-    /// Whether 8-bit input is read as a multibyte run: the current code page is one, or its bytes
-    /// are still pending.
-    /// Whether 8-bit input goes through a multibyte decoder: the ASCII fast path must not overtake
-    /// text the decoder has not emitted yet.
-    fn has_pending_multibyte(&self) -> bool {
-        self.mb_decoder.is_some() || wordcraft_doc::encoding::is_multibyte_code_page(self.code_page())
     }
 
     fn commit_style(&mut self) {
@@ -2629,7 +2690,12 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                         match h {
                             Some(v) => {
                                 if r.st.dest == Dest::Pict {
-                                    r.text(&format!("{v:02x}"));
+                                    // Hex digits, two at a time, without a String per picture byte.
+                                    const HEX: &[u8; 16] = b"0123456789abcdef";
+                                    let h = [HEX[usize::from(v >> 4)], HEX[usize::from(v & 0x0f)]];
+                                    if let Ok(s) = std::str::from_utf8(&h) {
+                                        r.text(s);
+                                    }
                                 } else {
                                     r.byte(v);
                                 }
@@ -2675,14 +2741,19 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                     j += 1;
                 }
                 let chunk = bytes.get(i..j).unwrap_or(b"");
-                if r.skip_chars == 0 && chunk.is_ascii() && !r.has_pending_multibyte() {
+                if r.st.dest == Dest::Pict && r.skip_chars == 0 && chunk.is_ascii() {
+                    // Picture hex is not text: it needs no decoder, so neither a pending lead byte
+                    // nor the code page's single-byte path applies to it.
+                    if let Ok(s) = std::str::from_utf8(chunk) {
+                        r.text(s);
+                    }
+                } else if r.skip_chars == 0 && chunk.is_ascii() && r.mb_decoder.is_none() {
+                    // Plain ASCII with no multibyte run open: append it as it is.
                     if let Ok(s) = std::str::from_utf8(chunk) {
                         r.text(s);
                     }
                 } else {
-                    for b in chunk {
-                        r.byte(*b);
-                    }
+                    r.run(chunk);
                 }
                 i = j;
                 first_in_group = false;
@@ -3141,6 +3212,21 @@ mod tests {
         assert_eq!(texts(&f), ["Normal:\u{FFFD}", "Normal:after"]);
         let f = parse(b"{\\rtf1\\ansi\\ansicpg932 \x93\xfa\x93 x\x96\x8c\\par}").unwrap();
         assert_eq!(texts(&f), ["Normal:日\u{FFFD} x膜"]);
+    }
+
+    /// The decoder never sniffs a BOM: the code page is named by `\ansicpg`, `\cpg` or `\fcharset`,
+    /// so a run that starts `EF BB BF` is a character pair and a lead byte, not a UTF-8 BOM (which
+    /// would switch the rest of the document to UTF-8 and garble it).
+    #[test]
+    fn a_bom_like_byte_triple_is_text_in_a_multibyte_code_page() {
+        // GBK EF BB = 锘, then BF B5 = 康; UHC EF BB = 癤, then BF C0 = 오; Big5 EF BB = 嚜, then
+        // BF 40 = 濃.
+        let f = parse(br"{\rtf1\ansi\ansicpg936 \'ef\'bb\'bf\'b5\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:锘康"]);
+        let f = parse(br"{\rtf1\ansi\ansicpg949 \'ef\'bb\'bf\'c0\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:癤오"]);
+        let f = parse(br"{\rtf1\ansi\ansicpg950 \'ef\'bb\'bf\'40\par}").unwrap();
+        assert_eq!(texts(&f), ["Normal:嚜濃"]);
     }
 
     /// A multibyte run longer than any fixed buffer keeps every character: the streaming decoder
