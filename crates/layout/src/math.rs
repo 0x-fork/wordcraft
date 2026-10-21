@@ -2292,7 +2292,13 @@ mod tests {
         let left: Vec<f32> = ls.iter().map(|(_, gs)| gs.iter().map(|(x, _)| *x).fold(f32::MAX, f32::min)).collect();
         assert!(left.iter().all(|x| *x >= -0.5), "nothing hangs left of the array: {left:?}");
         assert!(left[0].abs() < 0.5, "the wide row starts at the origin: {left:?}");
-        let narrow = lay_in(&Math { nodes: vec![MNode::EqArr { rows: vec![vec![MNode::Run(MRun::new("a&c"))]] }], ..Default::default() }, "", true, 400.0, &MathProps::default());
+        let narrow = lay_in(
+            &Math { nodes: vec![MNode::EqArr { rows: vec![vec![MNode::Run(MRun::new("a&c"))]] }], ..Default::default() },
+            "",
+            true,
+            400.0,
+            &MathProps::default(),
+        );
         assert!(m.width > narrow.width + 1.0, "the array is as wide as its widest row: {} vs {}", m.width, narrow.width);
         assert!(left[1] > 1.0, "the aligned row is centred under the wide one: {left:?}");
     }
