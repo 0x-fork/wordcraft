@@ -175,6 +175,10 @@ pub struct LayoutOptions {
     pub proof: ProofOptions,
     /// The word being typed, which gets no spelling squiggle until the caret leaves it (#1552).
     pub typing_word: Option<TypingWord>,
+    /// Document file name for FILENAME fields ([`FieldCtx::filename`]).
+    pub filename: Option<Arc<str>>,
+    /// Document full path for FILENAME \p fields ([`FieldCtx::filepath`]).
+    pub filepath: Option<Arc<str>>,
 }
 
 /// The word being typed ([`LayoutOptions::typing_word`]): the paragraph by its revision
@@ -2195,6 +2199,8 @@ fn layout_pass(
             notes: Arc::new(notes),
             title: doc.core.title.as_str().into(),
             author: doc.core.creator.as_str().into(),
+            filename: opts.filename.clone().unwrap_or_else(|| "".into()),
+            filepath: opts.filepath.clone().unwrap_or_else(|| "".into()),
             ..Default::default()
         },
         notes_hash,

@@ -1013,6 +1013,19 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                 "TITLE" => updates.push((k, s.doc.core.title.clone())),
                 "AUTHOR" => updates.push((k, s.doc.core.creator.clone())),
                 "NUMWORDS" => updates.push((k, s.doc.word_count().to_string())),
+                "FILENAME" => {
+                    let text = if has_switch(instr, 'p') {
+                        s.path.as_ref().map(|p| p.to_string_lossy().to_string()).or_else(|| s.file_name.clone()).unwrap_or_else(|| "Document1".into())
+                    } else {
+                        s.path
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .map(|n| n.to_string_lossy().to_string())
+                            .or_else(|| s.file_name.clone())
+                            .unwrap_or_else(|| "Document1".into())
+                    };
+                    updates.push((k, text));
+                }
                 _ => {}
             }
         }
@@ -1323,6 +1336,19 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn update_fields_filename() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.path = Some(std::path::PathBuf::from("/docs/my_thesis.docx"));
+        s.run("insert.field", &serde_json::json!({"instr": "FILENAME"})).unwrap();
+        let fields = story_fields(&s, StoryRef::Body);
+        assert_eq!(fields[0], ("FILENAME".into(), "my_thesis.docx".into()));
+
+        s.run("insert.field", &serde_json::json!({"instr": r"FILENAME \p"})).unwrap();
+        let fields = story_fields(&s, StoryRef::Body);
+        assert_eq!(fields[1], (r"FILENAME \p".into(), "/docs/my_thesis.docx".into()));
     }
 
     /// #1706 (Word check): Update Field with the caret in the body leaves a header's fields alone.

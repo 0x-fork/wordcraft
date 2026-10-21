@@ -54,9 +54,11 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
                 crate::io::rename_file(path, &destination).map_err(CmdError::Failed)?;
             }
             s.path = Some(destination);
+            s.relayout();
         }
     } else {
         s.file_name = Some(name.to_string());
+        s.relayout();
     }
     Ok(json!({"name": name, "path": s.path}))
 }
@@ -306,6 +308,7 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     if ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
         s.path = Some(path.clone());
         s.dirty = false;
+        s.relayout();
     }
     Ok(json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted}))
 }

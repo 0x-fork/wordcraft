@@ -833,6 +833,17 @@ impl Session {
         {
             return l.clone();
         }
+        let (filename, filepath): (Option<Arc<str>>, Option<Arc<str>>) = if let Some(path) = &self.path {
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string_lossy().to_string());
+            let full = path.to_string_lossy().to_string();
+            (Some(Arc::from(name.as_str())), Some(Arc::from(full.as_str())))
+        } else if let Some(name) = &self.file_name {
+            (Some(Arc::from(name.as_str())), Some(Arc::from(name.as_str())))
+        } else if !self.doc.core.title.is_empty() {
+            (Some(Arc::from(self.doc.core.title.as_str())), Some(Arc::from(self.doc.core.title.as_str())))
+        } else {
+            (Some(Arc::from("Document1")), Some(Arc::from("Document1")))
+        };
         let opts = LayoutOptions {
             view: mode,
             web_width: width,
@@ -849,6 +860,8 @@ impl Session {
             outline: outline.clone(),
             proof: wordcraft_layout::ProofOptions { grammar: self.prefs.mark_grammar, spelling: self.prefs.spelling() },
             typing_word: typing,
+            filename: filename.clone(),
+            filepath: filepath.clone(),
         };
         let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
         self.layout = Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing));

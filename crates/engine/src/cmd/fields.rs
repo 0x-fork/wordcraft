@@ -201,7 +201,21 @@ fn shown_text(s: &mut Session, f: &FieldAt) -> String {
         section,
         title: s.doc.core.title.as_str().into(),
         author: s.doc.core.creator.as_str().into(),
-        filename: s.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default().into(),
+        filename: s
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .or_else(|| s.file_name.clone())
+            .unwrap_or_else(|| "Document1".into())
+            .into(),
+        filepath: s
+            .path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .or_else(|| s.file_name.clone())
+            .unwrap_or_else(|| "Document1".into())
+            .into(),
         ..Default::default()
     };
     wordcraft_layout::fields::field_text(&instr, &result, &ctx).0
