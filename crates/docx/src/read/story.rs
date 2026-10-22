@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use wordcraft_doc::connector::{ConnEnd, ShapeExtra};
-use wordcraft_doc::control::{ContentControl, ControlKind, ControlWrap};
+use wordcraft_doc::control::{ContentControl, ControlWrap};
 use wordcraft_doc::effects::{Glow, Shadow, ShapeEffects};
 use wordcraft_doc::graphic::{Embedded, Graphic, GraphicItem, GraphicKind};
 use wordcraft_doc::para::{AltText, Anchor, Float, FloatAlign, NoteKind, PTabAlign, PTabBase, ShapeKind, Wrap, WrapText, cap_alt};
@@ -265,10 +265,9 @@ impl Reader<'_> {
         ctl.run_props = e.child("w:sdtPr").and_then(|pr| pr.child("w:rPr")).map(|r| self.pc.rpr(r));
         let mut inner = Blocks::new();
         self.read_blocks(sc, content, rels, &mut inner, depth + 1);
-        // A table of contents' control belongs to the TOC: the writer puts it back around the
-        // TOC field and its entries, which References › Update Table rebuilds.
-        let toc = matches!(&ctl.kind, ControlKind::Gallery { list: false, gallery, .. } if gallery == "Table of Contents");
-        if inner.is_empty() || toc {
+        // A table of contents' control is handed to the TOC later, when the writer puts it back
+        // (`toc_control_to_toc`).
+        if inner.is_empty() {
             out.extend(inner);
             return;
         }

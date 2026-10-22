@@ -2858,6 +2858,60 @@ fn toc_menu_offers_update_field_after_save_and_reopen() {
     }
 }
 
+/// Word's own TOC layout (#2427): its Table of Contents control around a `TOCHeading`, the entries
+/// with the field opening in the first, and the field's end alone in a paragraph after them. Update
+/// Table and a save keep one control around the heading and the new entries, and repeating them
+/// doesn't grow the document.
+#[test]
+fn word_toc_control_with_the_field_end_after_the_entries_survives_update_and_save() {
+    use std::io::{Read, Write};
+    let style = |st: &str, inner: &str| format!(r#"<w:p><w:pPr><w:pStyle w:val="{st}"/></w:pPr>{inner}</w:p>"#);
+    let t = |s: &str| format!(r#"<w:r><w:t xml:space="preserve">{s}</w:t></w:r>"#);
+    let begin = r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>"#;
+    let toc = format!(
+        "{}{}{}<w:p><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>",
+        style("TOCHeading", &t("Contents")),
+        style("TOC1", &format!("{begin}{}", t("Chapter One\t1"))),
+        style("TOC2", &t("Section\t1")),
+    );
+    let gallery = format!(
+        r#"<w:sdt><w:sdtPr><w:id w:val="-1234567"/><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>{toc}</w:sdtContent></w:sdt>"#
+    );
+    let xml = format!(
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{gallery}{}{}</w:body></w:document>"#,
+        style("Heading1", &t("Chapter One")),
+        style("Heading2", &t("Section"))
+    );
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, value) in [
+        ("word/document.xml", xml.as_str()),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(value.as_bytes()).unwrap();
+    }
+    let mut s = Session::new(wordcraft_docx::read(&zip.finish().unwrap().into_inner()).unwrap());
+    let mut blocks = None;
+    for round in 0..3 {
+        run(&mut s, "references.updateToc", json!({}));
+        let bytes = wordcraft_docx::write(&s.doc).unwrap();
+        let mut xml = String::new();
+        zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap().by_name("word/document.xml").unwrap().read_to_string(&mut xml).unwrap();
+        assert_eq!(xml.matches("<w:sdt>").count(), 1, "round {round}: {xml}");
+        let (open, close) = (xml.find("<w:sdt>").unwrap(), xml.find("</w:sdt>").unwrap());
+        assert!(open < xml.find(">Contents<").unwrap(), "round {round}: the heading is in the control: {xml}");
+        let entries = xml.find(r#"<w:pStyle w:val="TOC1"/>"#).unwrap();
+        assert!(open < entries && xml.rfind(r#"<w:pStyle w:val="TOC2"/>"#).unwrap() < close, "round {round}: {xml}");
+        assert!(close < xml.rfind(">Chapter One<").unwrap(), "round {round}: {xml}");
+        s = Session::new(wordcraft_docx::read(&bytes).unwrap());
+        assert!(blocks.is_none_or(|n| n == s.doc.body.len()), "round {round}: the document grew: {}", text(&s));
+        blocks = Some(s.doc.body.len());
+    }
+}
+
 /// #2182: with two TOCs only the one Update Table would refresh is offered Update Field; the other
 /// range TOC doesn't claim the menu, so it never refreshes a different table.
 #[test]
