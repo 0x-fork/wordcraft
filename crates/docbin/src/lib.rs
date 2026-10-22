@@ -583,7 +583,7 @@ fn finish_field(pb: &mut ParaBuild, f: FieldBuild) {
 fn hyperlink_target(instr: &str) -> Option<String> {
     let t = instr.trim();
     let rest = if t.get(..9).is_some_and(|h| h.eq_ignore_ascii_case("hyperlink")) {
-        t[9..].trim()
+        t.get(9..).filter(|r| r.is_empty() || r.starts_with(char::is_whitespace))?.trim()
     } else {
         return None;
     };
@@ -610,7 +610,7 @@ fn hyperlink_target(instr: &str) -> Option<String> {
             while i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'*') {
                 i += 1;
             }
-            switch = Some(&rest[start..i]);
+            switch = Some(rest.get(start..i).unwrap_or(""));
             continue;
         }
         let arg = if bytes[i] == b'"' {
@@ -619,7 +619,7 @@ fn hyperlink_target(instr: &str) -> Option<String> {
             while i < bytes.len() && bytes[i] != b'"' {
                 i += 1;
             }
-            let val = &rest[start..i];
+            let val = rest.get(start..i).unwrap_or("");
             if i < bytes.len() && bytes[i] == b'"' {
                 i += 1;
             }
@@ -629,7 +629,7 @@ fn hyperlink_target(instr: &str) -> Option<String> {
             while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
                 i += 1;
             }
-            rest[start..i].to_string()
+            rest.get(start..i).unwrap_or("").to_string()
         };
         let clean_arg = arg.replace("%22", "\"");
         match switch.take() {

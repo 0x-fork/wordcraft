@@ -1363,6 +1363,13 @@ fn hyperlink_target_sublocation_and_quotes() {
     assert_eq!(super::hyperlink_target(r#"HYPERLINK \l "bm" \o "tip""#), Some("#bm".into()));
 }
 
+/// A field whose name only starts with HYPERLINK is not a hyperlink.
+#[test]
+fn hyperlink_target_needs_the_whole_field_name() {
+    assert_eq!(super::hyperlink_target(r#"HYPERLINKS "x""#), None);
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK	"http://example.com""#), Some("http://example.com".into()));
+}
+
 #[test]
 fn bookmarks_become_objects() {
     let text = "Hello world\r";
