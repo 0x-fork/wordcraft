@@ -2800,3 +2800,5 @@ template	Letter	Brev
 	Statement   5.50" × 8.50"	Statement   5,50" × 8,50"
 	Tabloid   11.00" × 17.00"	Tabloid   11,00" × 17,00"
 	More tabs	Fler flikar
+# #3013: Insert Table of Figures
+	Include label and number	Ta med etikett och nummer

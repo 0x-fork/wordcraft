@@ -2797,3 +2797,5 @@ preview	Title	Esempio
 	Wait for the print job to finish submitting before closing.	Attendi che l'invio del lavoro di stampa sia terminato prima di chiudere.
 template	Letter	Lettera
 	More tabs	Altre schede
+# #3013: Insert Table of Figures
+	Include label and number	Includi etichetta e numero
