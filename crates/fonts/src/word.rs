@@ -328,7 +328,9 @@ pub fn is_thai_family(family: &str) -> bool {
 /// Khmer document fonts: the Khmer OS family, Khmer Mool1 and the like, Windows' and the Mac's
 /// own and Noto's. Matched by name only.
 fn is_khmer(f: &str) -> bool {
-    f.starts_with("khmer") || f.contains("khmer") || matches!(f, "daunpenh" | "moolboran" | "limon" | "battambang" | "bokor" | "content" | "dangrek" | "angkor")
+    f.starts_with("khmer")
+        || f.contains("khmer")
+        || matches!(f, "daunpenh" | "moolboran" | "limon" | "battambang" | "bokor" | "content" | "dangrek" | "angkor")
 }
 
 /// Hebrew document fonts.
