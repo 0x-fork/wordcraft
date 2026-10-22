@@ -993,8 +993,6 @@ mod tests {
         assert!(c.len() <= 2);
     }
 
-    /// A table style based on another inherits what it doesn't set itself; borders merge edge by
-    /// edge.
     /// #3415: a band size of zero (Word's reading of a style without one) turns those bands off.
     #[test]
     fn band_size_zero_turns_bands_off() {
@@ -1014,6 +1012,8 @@ mod tests {
         assert_eq!(t.map(|t| (t.band_size, t.col_band_size)), Some((Some(1), Some(1))));
     }
 
+    /// A table style based on another inherits what it doesn't set itself; borders merge edge by
+    /// edge.
     #[test]
     fn table_style_merges_based_on_chain() {
         let mut s = StyleSheet::builtin();
