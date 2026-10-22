@@ -77,12 +77,17 @@ pub enum WrapText {
 impl WrapText {
     /// From the OOXML value (`bothSides`, `left`, `right`, `largest`).
     pub fn from_ooxml(v: &str) -> Option<WrapText> {
-        match v {
-            "bothSides" => Some(WrapText::BothSides),
-            "left" => Some(WrapText::Left),
-            "right" => Some(WrapText::Right),
-            "largest" => Some(WrapText::Largest),
-            _ => None,
+        let v = v.trim();
+        if v.eq_ignore_ascii_case("bothSides") || v.eq_ignore_ascii_case("both") {
+            Some(WrapText::BothSides)
+        } else if v.eq_ignore_ascii_case("left") {
+            Some(WrapText::Left)
+        } else if v.eq_ignore_ascii_case("right") {
+            Some(WrapText::Right)
+        } else if v.eq_ignore_ascii_case("largest") {
+            Some(WrapText::Largest)
+        } else {
+            None
         }
     }
 
