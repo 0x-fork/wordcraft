@@ -93,6 +93,19 @@ pub struct StyleRun {
     pub shift: f32,
 }
 
+impl StyleRun {
+    /// How far the run reaches above and below the line's baseline. Word sizes a superscript
+    /// or subscript's line at the full font size and leaves out its raise or drop; only a
+    /// `w:position` raise or lowering counts (Word for Mac: an 11pt subscript beside 11pt text
+    /// keeps the 12.675pt line, and a line of 24pt subscript is as tall as plain 24pt text).
+    pub fn line_extent(&self) -> (f32, f32) {
+        let draw = self.rc.draw_size();
+        let k = if draw > 0.0 { self.rc.size / draw } else { 1.0 };
+        let raise = self.rc.position;
+        (self.ascent * k + raise.max(0.0), self.descent * k + (-raise).max(0.0))
+    }
+}
+
 /// A positioned glyph inside its cluster.
 #[derive(Clone, Copy, Debug)]
 pub struct Glyph {
@@ -2367,7 +2380,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     }
                 } else {
                     // `obj_h` is set on text clusters only under ruby text, which the line grows to fit.
-                    ((st.ascent + st.shift.max(0.0)).max(c.obj_h + st.shift), st.descent + (-st.shift).max(0.0))
+                    let (a, d) = st.line_extent();
+                    (a.max(c.obj_h + st.shift), d)
                 };
                 asc = asc.max(a);
                 desc = desc.max(d);

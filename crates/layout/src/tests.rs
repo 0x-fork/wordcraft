@@ -5853,6 +5853,42 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
 }
 
 #[test]
+fn superscript_and_subscript_lines_are_as_tall_as_full_size_text() {
+    use wordcraft_doc::props::VertAlign;
+    // Word sizes the line at the full font size and leaves out the raise or drop (Word for Mac:
+    // an 11pt subscript beside 11pt text keeps the 12.675pt line; 24pt subscript alone makes the
+    // 27.6pt line of plain 24pt text). A `w:position` lowering still counts.
+    let height = |runs: &[(&str, f32, VertAlign, f32)]| {
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.props.line_spacing = Some(wordcraft_doc::props::LineSpacing::Multiple(1.0));
+        for (text, size, vert_align, position) in runs {
+            let props = wordcraft_doc::CharProps {
+                font: Some("Source Sans 3".into()),
+                size: Some(*size),
+                vert_align: Some(*vert_align),
+                position: Some(*position),
+                ..Default::default()
+            };
+            p.runs.push(wordcraft_doc::para::Run { len: text.len(), props: props.clone() });
+            p.text.push_str(text);
+            p.mark = props;
+        }
+        let mut d = Document::new();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = lay(&d);
+        l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { para.lines.first().map(|x| x.height) } else { None }).unwrap()
+    };
+    let plain = height(&[("Hxg", 11.0, VertAlign::Baseline, 0.0)]);
+    for va in [VertAlign::Subscript, VertAlign::Superscript] {
+        assert_eq!(height(&[("Hxg ", 11.0, VertAlign::Baseline, 0.0), ("max", 11.0, va, 0.0)]), plain, "{va:?} beside text");
+        assert_eq!(height(&[("Hxg", 11.0, va, 0.0)]), plain, "{va:?} alone");
+        assert_eq!(height(&[("Hxg", 24.0, va, 0.0)]), height(&[("Hxg", 24.0, VertAlign::Baseline, 0.0)]), "24pt {va:?}");
+    }
+    let lowered = height(&[("Hxg ", 11.0, VertAlign::Baseline, 0.0), ("max", 11.0, VertAlign::Subscript, -6.0)]);
+    assert!((lowered - plain - 6.0).abs() < 0.01, "lowered {lowered} vs plain {plain}");
+}
+
+#[test]
 fn ruby_text_sits_over_its_base_and_the_line_grows_to_fit() {
     use wordcraft_doc::para::RubyAlign;
     let plain = Document::from_text("Plain words here");
