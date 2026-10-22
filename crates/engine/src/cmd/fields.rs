@@ -314,6 +314,23 @@ mod tests {
         assert_eq!(results, ["Atlas", "Report"]);
     }
 
+    /// `DOCPROPERTY LastSavedBy`, Word's name for the last author, reads the last-modified-by
+    /// property.
+    #[test]
+    fn update_fields_evaluates_docproperty_last_saved_by() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.doc.core.last_modified_by = "Ada".into();
+        s.run("insert.field", &json!({"instr": "DOCPROPERTY LastSavedBy", "result": "stale"})).unwrap();
+        s.run("references.updateFields", &json!({})).unwrap();
+        let result = s.doc.body.first().and_then(|b| b.as_para()).and_then(|p| {
+            p.objects.iter().find_map(|o| match o {
+                InlineObject::Field { result, .. } => Some(result.clone()),
+                _ => None,
+            })
+        });
+        assert_eq!(result.as_deref(), Some("Ada"));
+    }
+
     fn page_text(s: &mut Session) -> String {
         let l = s.layout();
         let mut out = String::new();

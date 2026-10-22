@@ -1113,7 +1113,7 @@ fn doc_property(doc: &wordcraft_doc::Document, name: &str) -> Option<String> {
         "keywords" => c.keywords.clone(),
         "comments" | "description" => c.description.clone(),
         "category" => c.category.clone(),
-        "lastmodifiedby" | "last modified by" => c.last_modified_by.clone(),
+        "lastmodifiedby" | "last modified by" | "lastsavedby" | "last saved by" => c.last_modified_by.clone(),
         "revisionnumber" | "revision number" | "revision" => c.revision.to_string(),
         _ => return None,
     })
