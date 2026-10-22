@@ -790,6 +790,7 @@ impl WordApp {
             self.ui.backstage = true;
             self.ui.backstage_page = "home".into();
             self.no_document = Some(self.session.document_id());
+            self.session.release_untitled_name();
         }
         self.ui.start_screen
     }
@@ -1415,6 +1416,7 @@ impl WordApp {
         self.sync_document();
         if last {
             self.no_document = Some(self.session.document_id());
+            self.session.release_untitled_name();
         }
         self.ui.backstage = false;
         Ok(json!({"closed": true}))

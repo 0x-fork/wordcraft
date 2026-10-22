@@ -504,6 +504,17 @@ impl Session {
         Ok(())
     }
 
+    /// The active document stands in for no document at all (a Start screen's, or what is left
+    /// after closing the last one): an untouched blank document gives back its untitled name
+    /// when it is the newest, so the first document a person sees is `Document1`, the next
+    /// `Document2`.
+    pub fn release_untitled_name(&mut self) {
+        if self.untitled != 0 && self.untitled == self.untitled_count && self.is_untouched_blank() {
+            self.untitled_count = self.untitled_count.saturating_sub(1);
+            self.untitled = 0;
+        }
+    }
+
     /// Whether the active document is a blank one nobody has used: no file and no name, never
     /// changed, nothing to undo or redo and no text. Opening a file replaces such a document
     /// rather than opening beside it.

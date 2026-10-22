@@ -286,4 +286,18 @@ mod tests {
         assert_eq!(super::untitled_title("Documents"), None);
         assert_eq!(super::untitled_title("Report"), None);
     }
+
+    /// From the Start screen, Blank document is `Document1` and New after it `Document2`: the
+    /// Start screen's stand-in document doesn't use up a name.
+    #[test]
+    fn start_screen_blank_document_is_document1() {
+        let mut a = app();
+        a.ui.start_screen = true;
+        assert!(a.start_screen());
+        a.run("file.new", json!({})).unwrap();
+        let titles = |a: &WordApp| a.session.documents().into_iter().map(|d| d.title).collect::<Vec<_>>();
+        assert_eq!(titles(&a), ["Document1"]);
+        a.run("file.new", json!({})).unwrap();
+        assert_eq!(titles(&a), ["Document1", "Document2"]);
+    }
 }

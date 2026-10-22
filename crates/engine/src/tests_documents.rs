@@ -253,3 +253,23 @@ fn document_ids_are_unique_across_sessions_and_replacements() {
     assert_ne!(one.document_id(), before);
     assert_eq!(ids(&one), vec![one.document_id()], "the replacement takes its place in the list");
 }
+
+/// A Start screen's stand-in document gives back its name: the first document a person makes is
+/// `Document1`, the next `Document2`, and after closing the last one, New makes `Document2`
+/// again only if no other document has taken it.
+#[test]
+fn a_stand_in_document_gives_back_its_untitled_name() {
+    let mut s = s();
+    let placeholder = s.document_id();
+    s.release_untitled_name();
+    run(&mut s, "file.new", json!({}));
+    s.close_document(placeholder).unwrap();
+    assert_eq!(s.documents()[0].title, "Document1");
+    run(&mut s, "file.new", json!({}));
+    assert_eq!(s.documents()[1].title, "Document2");
+    // A document with work keeps its name.
+    run(&mut s, "text.insert", json!({"text": "Work"}));
+    s.release_untitled_name();
+    run(&mut s, "file.new", json!({}));
+    assert_eq!(s.documents()[2].title, "Document3");
+}
