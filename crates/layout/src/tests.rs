@@ -5038,6 +5038,31 @@ fn a_rotated_floating_picture_grows_the_row_by_its_rotated_extent() {
     );
 }
 
+/// #3108 review: only floats that take part in the text flow grow the row. A behind-text (or
+/// in-front-of-text) picture taller than the cell's text leaves the row at the text's height, as
+/// in Word — a page-anchored logo or watermark behind a cell must not stretch its row.
+#[test]
+fn a_behind_or_in_front_of_text_picture_in_a_cell_leaves_the_row_alone() {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let row_gap = |wrap: Wrap| {
+        let mut t = Table::new(1, 1, 468.0);
+        let mut cp = wordcraft_doc::Paragraph::with_text("Caption", Default::default());
+        let picture = Float { wrap, h_rel: Anchor::Margin, v_rel: Anchor::Margin, x: 0.0, y: 0.0, ..Default::default() };
+        cp.insert_object(0, rect_shape(200.0, 300.0, picture), &Default::default()).unwrap();
+        t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(cp)];
+        let mut d = Document::from_text("Below the table");
+        d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let [(_, row_y, _)] = para_at(&l, &[0, 0, 0, 0])[..] else { panic!("cell text line missing") };
+        let [(_, below_y, _)] = para_at(&l, &[1])[..] else { panic!("line after the table missing") };
+        below_y - row_y
+    };
+    for wrap in [Wrap::BehindText, Wrap::InFrontOfText] {
+        let gap = row_gap(wrap);
+        assert!(gap < 60.0, "{wrap:?}: text after the table is {gap}pt below the cell's text; the 300pt picture grew the row");
+    }
+}
+
 #[test]
 fn autofit_sizes_columns_by_their_content() {
     let text = |s: &str| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(s, Default::default()));
