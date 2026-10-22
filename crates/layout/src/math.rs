@@ -2280,6 +2280,45 @@ mod tests {
     }
 
     #[test]
+    fn eqarr_rows_without_an_align_marker_are_centred() {
+        use wordcraft_doc::math::*;
+        // A row without `&` must not widen the alignment columns; it centres across the
+        // array instead of right-aligning at the first column's edge.
+        let rows: Vec<Vec<MNode>> = vec![vec![MNode::Run(MRun::new("mmm"))], vec![MNode::Run(MRun::new("x&yyyyyyyy"))]];
+        let math = Math { nodes: vec![MNode::EqArr { rows }], ..Default::default() };
+        let ls = lines(&lay_in(&math, "", true, 400.0, &MathProps::default()));
+        assert_eq!(ls.len(), 2, "{ls:?}");
+        let left: Vec<f32> = ls.iter().map(|(_, gs)| gs.iter().map(|(x, _)| *x).fold(f32::MAX, |a, b| if b < a { b } else { a })).collect();
+        assert!(left.iter().all(|x| *x >= -0.5), "nothing hangs left of the array: {left:?}");
+        // The short row starts right of the aligned row's first segment.
+        assert!(ls[0].1.first().is_some_and(|(x, _)| *x > left[1] + 1.0), "short row centred, not flush left: {ls:?}");
+    }
+
+    #[test]
+    fn eqarr_row_without_an_align_marker_wider_than_the_columns_widens_the_array() {
+        use wordcraft_doc::math::*;
+        // The `&`-less row is wider than the aligned columns: it must not hang left of the
+        // origin, the array is as wide as it, and the aligned rows centre under it.
+        let rows: Vec<Vec<MNode>> = vec![vec![MNode::Run(MRun::new("bbbbbbbbbb"))], vec![MNode::Run(MRun::new("a&c"))]];
+        let math = Math { nodes: vec![MNode::EqArr { rows }], ..Default::default() };
+        let m = lay_in(&math, "", true, 400.0, &MathProps::default());
+        let ls = lines(&m);
+        assert_eq!(ls.len(), 2, "{ls:?}");
+        let left: Vec<f32> = ls.iter().map(|(_, gs)| gs.iter().map(|(x, _)| *x).fold(f32::MAX, f32::min)).collect();
+        assert!(left.iter().all(|x| *x >= -0.5), "nothing hangs left of the array: {left:?}");
+        assert!(left[0].abs() < 0.5, "the wide row starts at the origin: {left:?}");
+        let narrow = lay_in(
+            &Math { nodes: vec![MNode::EqArr { rows: vec![vec![MNode::Run(MRun::new("a&c"))]] }], ..Default::default() },
+            "",
+            true,
+            400.0,
+            &MathProps::default(),
+        );
+        assert!(m.width > narrow.width + 1.0, "the array is as wide as its widest row: {} vs {}", m.width, narrow.width);
+        assert!(left[1] > 1.0, "the aligned row is centred under the wide one: {left:?}");
+    }
+
+    #[test]
     fn hostile_trees_never_panic() {
         use wordcraft_doc::math::*;
         // Deep nesting.
