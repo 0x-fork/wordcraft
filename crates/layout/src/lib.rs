@@ -3368,6 +3368,9 @@ fn place_objects(
     // first once all are placed, as Word stacks floating objects by `relativeHeight`, not by
     // their order in the paragraph. Inline objects and objects without one keep their order.
     let mut stack: Vec<(u32, Vec<Placed>, Vec<Placed>)> = Vec::new();
+    // The highest order so far: an object without one (inserted here) stacks above the objects
+    // before it, as the writer gives it the next order up on save.
+    let mut z_top = 0u32;
     let Some(fl) = pl.lines.get(l0) else { return (Vec::new(), Vec::new()) };
     // Objects left out of the layout (hidden, or deleted in the final text) aren't placed.
     let left_out = left_out_objects(ctx.doc, p, at.table_chr, ctx.opts.show_hidden, ctx.hide_deleted);
@@ -3458,7 +3461,13 @@ fn place_objects(
                 }
                 continue;
             }
-            stack.push((if floating { float.z } else { 0 }, behind, front));
+            let z = if floating && float.z > 0 {
+                z_top = z_top.max(float.z);
+                float.z
+            } else {
+                z_top
+            };
+            stack.push((z, behind, front));
         }
     }
     // Stable: equal orders (none given) keep the paragraph's order.
