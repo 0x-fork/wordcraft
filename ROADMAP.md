@@ -790,6 +790,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-09 | minor | Recently landed: RTL, Ukrainian and Brazilian Portuguese |
 | 2026-10-06 | major | First honest estimate: 88% catalog, ~62% real parity, alpha ~85% of the way |
 | 2026-10-12 | trivial | Progress log: recipient filter and sort, .xls and legacy-encoding recipient lists (#778) |
+| 2026-10-15 | trivial | Charts: radar charts (standard, marker, filled) are drawn instead of a placeholder (#1890) |
 | 2026-10-15 | trivial | Progress log: dialog close box (#1885) |
 | 2026-10-15 | trivial | Progress log: mixed Hebrew/Latin text keeps its order in Word (#1543) |
 | 2026-10-15 | trivial | Progress log: ruler numbers by zoom, rulers follow the caret's page (#1878) |
