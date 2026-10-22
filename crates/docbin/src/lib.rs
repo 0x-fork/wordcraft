@@ -51,6 +51,9 @@ const MAX_PARTS: usize = 50_000;
 const MAX_TOTAL_CHARS: u64 = 64 << 20;
 /// `sprmCPicLocation`: the fc of a picture in the Data stream.
 const C_PIC_LOCATION: u16 = 0x6A03;
+/// `sprmCSymbol`: the record font and character of a symbol character ([MS-DOC] §2.6.1); the
+/// text stream holds the placeholder U+0028 at its position.
+const C_SYMBOL: u16 = 0x6A09;
 /// `sprmPIlvl` / `sprmPIlfo`: the paragraph's list level and list.
 const P_ILVL: u16 = 0x260A;
 const P_ILFO: u16 = 0x460B;
@@ -620,6 +623,19 @@ fn pic_location(chpx: &[u8]) -> Option<u32> {
     None
 }
 
+/// `sprmCSymbol` from a CHPX grpprl: the font table index and the character code of a symbol
+/// character ([MS-DOC] §2.6.1, CSymbolOperand).
+fn symbol_operand(chpx: &[u8]) -> Option<(u16, u16)> {
+    for prl in sprm::iter(chpx) {
+        if prl.op == C_SYMBOL
+            && let [f0, f1, c0, c1, ..] = prl.operand
+        {
+            return Some((u16::from_le_bytes([*f0, *f1]), u16::from_le_bytes([*c0, *c1])));
+        }
+    }
+    None
+}
+
 /// `sprmPIlfo` operand (a signed 16-bit value, [MS-DOC] §2.6.2) → the num id, if the
 /// paragraph is in a list. 0x0001-0x07FE is a 1-based LFO index; 0xF802-0xFFFF (-2046..=-1)
 /// is the negation of one and keeps the paragraph's own indents, which we do by leaving the
@@ -649,6 +665,19 @@ fn push_formatted(pb: &mut ParaBuild, cp: u32, c: char, ctx: &WalkCtx, field: Op
     };
     let mut props = char_props(grpprl, ctx.fonts, base);
     apply_prm(&mut props, ctx.pieces.piece_prm(cp), ctx.fonts, base);
+    // A symbol character (Insert › Symbol) is stored as the placeholder U+0028 with
+    // sprmCSymbol carrying the font and the character code ([MS-DOC] §2.6.1).
+    let mut c = c;
+    if c == '('
+        && let Some((ftc, xchar)) = symbol_operand(grpprl)
+    {
+        if let Some(font) = ctx.fonts.get(usize::from(ftc)) {
+            props.font = Some(font.clone());
+        }
+        if let Some(sym) = char::from_u32(u32::from(xchar)) {
+            c = sym;
+        }
+    }
     match field {
         Some(f) => match f.sep.as_mut() {
             // Inside a field, characters are recorded for the field object instead of shown;
