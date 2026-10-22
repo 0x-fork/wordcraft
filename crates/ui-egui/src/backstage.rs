@@ -226,9 +226,14 @@ fn heading(ui: &mut Ui, s: &str) {
 fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
     let t = Tokens::get(ui.ctx());
     ui.vertical(|ui| {
-        // The label sits right under the thumbnail whatever row gap the gallery uses.
-        ui.spacing_mut().item_spacing.y = 0.0;
-        let (r, resp) = ui.allocate_exact_size(vec2(150.0, 194.0), Sense::click());
+        // The thumbnail and its caption are one button named by the caption, so a screen reader
+        // announces "Blank document, button" rather than unnamed text (#3176); the caption opens
+        // the template too, as in Word.
+        let caption = crate::i18n::tc("template", label);
+        let galley = ui.painter().layout_no_wrap(caption.to_string(), regular(12.5), ui.visuals().text_color());
+        let (tile, resp) = ui.allocate_exact_size(vec2(galley.size().x.max(150.0), 194.0 + galley.size().y), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), caption));
+        let r = Rect::from_min_size(tile.min, vec2(150.0, 194.0));
         ui.painter().rect(
             r,
             2.0,
@@ -259,9 +264,8 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         if let Some(h) = tex {
             ui.painter().image(h.id(), r.shrink(1.0), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
-        // The caption opens the template too, as in Word.
-        let caption = ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tc("template", label)).font(regular(12.5))).sense(Sense::click()));
-        if resp.clicked() || caption.clicked() {
+        ui.painter().galley(pos2(r.min.x, r.max.y), galley, ui.visuals().text_color());
+        if resp.clicked() {
             let _ = app.run("file.new", json!({"template": template}));
             app.ui.backstage = false;
             app.canvas.want_focus = true;
@@ -511,17 +515,22 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
     if app.ui.recent.is_empty() {
         ui.label(egui::RichText::new(tl!("Documents you open will show up here.")).color(t.text_dim));
     }
-    for p in app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>() {
-        let name = std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.clone());
+    let shown = app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>();
+    let file_name = |p: &str| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.to_string());
+    let names = shown.iter().map(|p| file_name(p)).collect::<Vec<_>>();
+    for (p, name) in shown.iter().zip(&names) {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 40.0), Sense::click());
+        // Two documents with the same file name are told apart by their path, as on screen.
+        let spoken = if names.iter().filter(|n| *n == name).count() > 1 { format!("{name}, {p}") } else { name.clone() };
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &spoken));
         if resp.hovered() {
             ui.painter().rect_filled(r, 4.0, t.hover);
         }
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
+        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, name, medium(13.0), t.text);
+        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, p, regular(11.0), t.text_dim);
         if resp.clicked() {
-            let failed = open_recent(app, &p).err();
+            let failed = open_recent(app, p).err();
             ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
         }
     }
@@ -678,7 +687,7 @@ mod tests {
     use egui_kittest::kittest::Queryable;
     use serde_json::json;
 
-    use super::matching_templates;
+    use super::{HOME_TEMPLATES, TEMPLATES, matching_templates};
     use crate::{Services, WordApp};
 
     /// #1714: every side-menu item has its own icon, a drawn one (an unknown name would fall back
@@ -1100,6 +1109,32 @@ mod tests {
         assert_eq!(h.state().ui.backstage_page, "new", "the link opens New");
         assert!(h.query_by_label("Report").is_some(), "New shows every template");
         assert!(h.query_by_label("Recent").is_none(), "New has no Recent list");
+    }
+
+    /// #3176: a screen reader finds each template and each recent document as a button named by
+    /// its caption or file name (they were unnamed text), and pressing one opens it.
+    #[test]
+    fn templates_and_recent_documents_are_named_buttons() {
+        use egui::accesskit::Role;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        let dir = std::env::temp_dir().join("wordcraft-3176-missing");
+        let path = |folder: &str, file: &str| dir.join(folder).join(file).to_string_lossy().into_owned();
+        let (spring, autumn) = (path("spring", "Report.docx"), path("autumn", "Report.docx"));
+        a.ui.recent = vec![path("notes", "Quarterly notes.docx"), spring.clone(), autumn.clone()];
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = a11y_harness(a);
+        for (label, _) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
+            assert!(h.query_by_role_and_label(Role::Button, label).is_some(), "{label} is a named button");
+        }
+        assert!(h.query_by_role_and_label(Role::Button, "Quarterly notes.docx").is_some(), "a recent document is a named button");
+        for p in [&spring, &autumn] {
+            let label = format!("Report.docx, {p}");
+            assert!(h.query_by_role_and_label(Role::Button, &label).is_some(), "a repeated file name is told apart by its path: {label}");
+        }
+        h.get_by_role_and_label(Role::Button, "Letter").click();
+        h.run_steps(4);
+        assert!(!h.state().ui.backstage, "the Letter button opens the template");
+        assert!(!h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).is_empty(), "with the template's text");
     }
 
     /// Clicking the back arrow closes the File page and gives the keyboard back to the page,
