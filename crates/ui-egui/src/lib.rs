@@ -277,6 +277,9 @@ pub struct UiState {
     /// View › Navigation Pane: open or closed as the person left it, kept between runs (#2526).
     /// The session owns it while running (see [`WordApp::prefs`]).
     pub nav_pane: bool,
+    /// Headings whose sub-headings the Navigation pane hides (#1997); per session, not saved.
+    #[serde(skip)]
+    pub nav_collapsed: std::collections::HashSet<wordcraft_doc::Path>,
     pub show_discord: bool,
     /// User name (File › Options) for comments and tracked changes; empty keeps the default.
     pub author: String,
@@ -381,6 +384,7 @@ impl Default for UiState {
             legacy_dark: None,
             nav_tab: "headings".into(),
             nav_pane: false,
+            nav_collapsed: Default::default(),
             show_discord: true,
             author: String::new(),
             window: None,

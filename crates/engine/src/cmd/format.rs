@@ -603,7 +603,10 @@ fn convert_chars(src: &str, mode: &str, para_start: bool) -> Vec<String> {
                 } else {
                     lower(i, c)
                 };
-                if matches!(c, '.' | '!' | '?') {
+                let is_decimal = c == '.'
+                    && i.checked_sub(1).and_then(|j| chars.get(j)).is_some_and(|p| p.is_ascii_digit())
+                    && chars.get(i + 1).is_some_and(|n| n.is_ascii_digit());
+                if matches!(c, '!' | '?') || (c == '.' && !is_decimal) {
                     up = true;
                 }
                 n
@@ -709,6 +712,13 @@ mod tests {
         assert_eq!(convert("straße", "upper", true), "STRASSE");
         assert_eq!(convert("hello world", "title", false), "Hello World");
         assert_eq!(convert("ΣΟΦΟΣ ΟΔΟΣ", "lower", true), "σοφος οδος");
+    }
+
+    #[test]
+    fn sentence_case_ignores_decimal_points() {
+        // #3485: A period between two digits is a decimal point, not a sentence boundary.
+        assert_eq!(convert("one 3.14 apples and two 2.5 pears.", "sentence", true), "One 3.14 apples and two 2.5 pears.");
+        assert_eq!(convert("pi is 3.14. next sentence.", "sentence", true), "Pi is 3.14. Next sentence.");
     }
 }
 

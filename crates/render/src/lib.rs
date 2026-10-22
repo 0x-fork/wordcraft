@@ -13,7 +13,7 @@ use wordcraft_doc::props::Rgb;
 use wordcraft_fonts::FontDb;
 use wordcraft_layout::Page;
 use wordcraft_layout::display::Paint;
-use wordcraft_layout::display::{DisplayOptions, Draw, Stroke, page_display};
+use wordcraft_layout::display::{DisplayOptions, Draw, Stroke, page_layers};
 use wordcraft_metafile::{Item, Picture, PlacedItem, Seg};
 
 mod color_glyph;
@@ -30,6 +30,8 @@ pub fn default_threads() -> u16 {
         std::thread::available_parallelism().map(|n| (n.get().saturating_sub(1)).clamp(1, 8) as u16).unwrap_or(2)
     }
 }
+
+mod context_pool;
 
 /// Largest raster side vello_cpu handles comfortably.
 pub const MAX_SIDE: u32 = 16_000;
@@ -563,18 +565,27 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     // Over the cap the whole picture is drawn smaller, not cropped.
     let view = if (cw, ch) == (w, h) { view } else { Affine::scale_non_uniform(cw as f64 / w as f64, ch as f64 / h as f64) * view };
     let (w16, h16) = (cw as u16, ch as u16);
-    let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: default_threads(), ..Default::default() });
+    let mut ctx = context_pool::CONTEXTS.take(w16, h16);
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
     ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64));
     draw_page_picture(&mut ctx, doc, page, view);
-    let items = page_display(doc, page, &opts.display);
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     if let Some(wm) = &doc.settings.watermark {
         draw_watermark(&mut ctx, view, page, wm, opts);
     }
-    for it in &items {
-        draw(&mut ctx, doc, it, view, &visible, opts);
+    // A dimmed layer is drawn whole, then faded once, so its overlaps don't darken.
+    for (alpha, items) in page_layers(doc, page, &opts.display) {
+        let faded = alpha < 1.0 && !items.is_empty();
+        if faded {
+            ctx.push_opacity_layer(alpha);
+        }
+        for it in &items {
+            draw(&mut ctx, doc, it, view, &visible, opts);
+        }
+        if faded {
+            ctx.pop_layer();
+        }
     }
     ctx.flush();
     let mut pixels = vec![0u8; w16 as usize * h16 as usize * 4];
@@ -582,6 +593,7 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     if let Some(pm) = vello_cpu::PixmapMut::new(w16, h16, &mut pixels) {
         ctx.render(pm, &mut res);
     }
+    context_pool::CONTEXTS.give_back(ctx);
     Rendered { width: w16 as u32, height: h16 as u32, pixels }
 }
 
@@ -595,8 +607,14 @@ pub fn background_at(doc: &Document, page: &Page, opts: &RenderOptions, x: f32, 
         return paper;
     }
     let mut bg = [paper.0 as f32, paper.1 as f32, paper.2 as f32];
-    let items = page_display(doc, page, &opts.display);
-    blend_backgrounds(&items, wordcraft_geom::Point::new(x, y), opts, &mut bg, 0);
+    for (alpha, items) in page_layers(doc, page, &opts.display) {
+        // A faded layer: its own colour there, blended in at its opacity.
+        let mut layer = bg;
+        blend_backgrounds(&items, wordcraft_geom::Point::new(x, y), opts, &mut layer, 0);
+        for (v, n) in bg.iter_mut().zip(layer) {
+            *v += (n - *v) * alpha;
+        }
+    }
     let c = |v: f32| v.round().clamp(0.0, 255.0) as u8;
     Rgb(c(bg[0]), c(bg[1]), c(bg[2]))
 }
@@ -692,15 +710,23 @@ fn draw_watermark(ctx: &mut RenderContext, view: Affine, page: &Page, wm: &wordc
     if raw_w <= 0.0 {
         return;
     }
-    // The document page, not a Print Markup area beside it.
+    // The document page, not a Print Markup area beside it. The text stretched over its box
+    // (Word's `v:textpath fitshape`): its advance across the box, its em down it with the em's foot
+    // on the box's bottom; the box centred on the margins and, when diagonal, turned 45°.
     let pw = (page.w - page.markup.max(0.0)).max(1.0) as f64;
-    let diag = if wm.diagonal { (pw.powi(2) + (page.h.min(2000.0) as f64).powi(2)).sqrt() } else { pw };
-    let size = (diag * 0.5 / raw_w).min(200.0);
+    let [bw, bh] = wm.frame(pw as f32, page.h).map(f64::from);
+    let size = bh.min(2000.0);
     let k = size / upem;
-    let angle = if wm.diagonal { -((page.h.min(2000.0) as f64) / pw).atan() } else { 0.0 };
-    let base = Affine::translate((pw / 2.0, page.h.min(2000.0) as f64 / 2.0))
+    let stretch = bw / (raw_w * size);
+    let descent = (wordcraft_fonts::word::line_metrics(&face).1 / upem).clamp(0.0, 1.0);
+    let angle = if wm.diagonal { -std::f64::consts::FRAC_PI_4 } else { 0.0 };
+    let b = page.body;
+    let (cx, cy) =
+        if b.w > 0.0 && b.h > 0.0 { (f64::from(b.x + b.w / 2.0), f64::from(b.y + b.h / 2.0)) } else { (pw / 2.0, page.h.min(2000.0) as f64 / 2.0) };
+    let base = Affine::translate((cx, cy))
         * Affine::rotate(angle)
-        * Affine::translate((-raw_w * size / 2.0, size * 0.35));
+        * Affine::translate((-bw / 2.0, bh / 2.0 - descent * bh))
+        * Affine::scale_non_uniform(stretch, 1.0);
     ctx.set_paint(color(opts.ink(wm.color), if wm.semitransparent { 0.35 } else { 0.8 }));
     let db = FontDb::global();
     let mut x = 0.0;
@@ -830,7 +856,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_stroke(st);
             line(ctx, 0.0, 0.0);
         }
-        Draw::Glyphs { face, size, glyphs, color: c, alpha, synth_bold, synth_italic, text_bg, .. } => {
+        Draw::Glyphs { face, size, glyphs, color: c, alpha, synth_bold, synth_italic, text_bg, x_scale, .. } => {
             // Invisible glyphs (WordArt letters are drawn from their outlines) carry text only.
             if *alpha <= 0.0 {
                 return;
@@ -839,6 +865,9 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             let k = *size as f64 / face.upem.max(1.0);
             ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
             let skew = if *synth_italic { Affine::new([1.0, 0.0, -0.21, 1.0, 0.0, 0.0]) } else { Affine::IDENTITY };
+            // Scaled letters (`w:w`): each glyph stretched across from its pen position.
+            let sx = if x_scale.is_finite() && *x_scale > 0.0 { f64::from(*x_scale) } else { 1.0 };
+            let skew = Affine::scale_non_uniform(sx, 1.0) * skew;
             // Outline strokes, in font units: synthetic bold, then on-screen stem darkening (a
             // stroke grows the outline by half its width on each side). Darkening is skipped for
             // translucent text, where the stroke overlapping the fill would show as a darker rim.
@@ -1232,6 +1261,7 @@ pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wordcraft_layout::display::page_display;
     use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
 
     /// The first and last pixel rows with ink in a black-on-white [`render_text_line`] raster.
@@ -1654,6 +1684,34 @@ mod tests {
         assert!(!ink(&img, 31, 3), "the upper strand ends at x=30");
     }
 
+    /// A dimmed header is its full-strength picture faded once, as Word dims it: where a header
+    /// table's borders meet they are the tone of the borders, not darker.
+    #[test]
+    fn dimmed_header_borders_dont_darken_where_they_meet() {
+        let mut d = Document::from_text("");
+        let t = wordcraft_doc::Table::new(2, 2, 200.0);
+        let blocks = vec![std::sync::Arc::new(wordcraft_doc::Block::Table(t)), wordcraft_doc::para_block(wordcraft_doc::Paragraph::new())];
+        let id = d.add_part(wordcraft_doc::PartKind::Header, blocks);
+        d.last_section.headers.default = Some(id);
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let render = |dim_header: bool| {
+            let mut opts = RenderOptions::default();
+            opts.display.dim_header = dim_header;
+            render_page(&d, &l.pages[0], 3.0, &opts)
+        };
+        let (full, dim) = (render(false), render(true));
+        let mut ink = 0;
+        for y in 0..full.height {
+            for x in 0..full.width {
+                let (f, g) = (full.pixel(x, y)[0] as f32, dim.pixel(x, y)[0] as f32);
+                ink += usize::from(f < 128.0);
+                let want = 255.0 - 0.45 * (255.0 - f);
+                assert!((g - want).abs() <= 2.0, "({x}, {y}): {g} dimmed, {want} wanted ({f} at full strength)");
+            }
+        }
+        assert!(ink > 100, "the borders are drawn: {ink}");
+    }
+
     #[test]
     fn dark_page_inverts_lightness() {
         assert_eq!(invert_lightness(Rgb::WHITE), Rgb::BLACK);
@@ -1677,41 +1735,61 @@ mod tests {
     #[test]
     fn legacy_font_effects_are_drawn() {
         use wordcraft_doc::CharProps;
-        // Dark and grey pixel counts, and the grey pixels' mean offset from the dark ones.
-        let shot = |c: CharProps| {
+        use wordcraft_doc::wordart::{TextEffects, TextFill};
+        const SIZE: f32 = 40.0;
+        const SCALE: f32 = 2.0;
+        const MIN_DIRECTION_PIXELS: usize = 100;
+        let shot = |c: CharProps, offset: f32| {
             let mut d = Document::from_text("x");
-            let cp = CharProps { size: Some(40.0), bold: Some(true), ..c };
+            let cp = CharProps { size: Some(SIZE), bold: Some(true), ..c };
             d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("HHHH", cp))];
             let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
-            let img = render_page(&d, &l.pages[0], 2.0, &RenderOptions::default());
-            let (mut dark, mut grey) = ((0.0, 0.0, 0.0f64), (0.0, 0.0, 0.0f64));
+            render_area(&d, &l.pages[0], -offset, -offset, 400.0, 150.0, SCALE, &RenderOptions::default())
+        };
+        let counts = |img: &Rendered| {
+            let (mut dark, mut grey) = (0usize, 0usize);
             for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
                 let v = img.pixel(x, y)[0];
-                // The copy is solid RGB 128; a wider range would count the glyph's own
-                // antialiasing, whose centroid hides the copy's offset on some fonts.
-                let acc = match v {
-                    0..60 => &mut dark,
-                    120..=136 => &mut grey,
-                    _ => continue,
-                };
-                *acc = (acc.0 + 1.0, acc.1 + f64::from(x), acc.2 + f64::from(y));
+                dark += usize::from(v < 60);
+                grey += usize::from((120..=136).contains(&v));
             }
-            let mean = |a: (f64, f64, f64)| (a.1 / a.0.max(1.0), a.2 / a.0.max(1.0));
-            let ((dx, dy), (gx, gy)) = (mean(dark), mean(grey));
-            (dark.0, grey.0, (gx - dx, gy - dy))
+            (dark, grey)
         };
-        let (plain_dark, plain_grey, _) = shot(CharProps::default());
-        assert!(plain_dark > 2000.0, "plain {plain_dark}");
-        let (dark, _, _) = shot(CharProps { outline: Some(true), ..Default::default() });
-        assert!(dark < plain_dark / 3.0, "outline is hollow: {dark} vs {plain_dark}");
+        let (plain_dark, plain_grey) = counts(&shot(CharProps::default(), 0.0));
+        assert!(plain_dark > 2000, "plain {plain_dark}");
+        let (dark, _) = counts(&shot(CharProps { outline: Some(true), ..Default::default() }, 0.0));
+        assert!(dark < plain_dark / 3, "outline is hollow: {dark} vs {plain_dark}");
+        // An explicit fill keeps the reference on the same Art path as legacy effects.
+        let reference = || CharProps {
+            text_effects: Some(Box::new(TextEffects { fill: Some(TextFill::Solid { color: Rgb::BLACK, transparency: 0.0 }), ..Default::default() })),
+            ..Default::default()
+        };
+        let base = shot(reference(), 0.0);
         for (c, sign) in [
             (CharProps { shadow: Some(true), ..Default::default() }, 1.0),
             (CharProps { emboss: Some(true), ..Default::default() }, 1.0),
             (CharProps { engrave: Some(true), ..Default::default() }, -1.0),
         ] {
-            let (_, grey, (ox, oy)) = shot(c);
-            assert!(grey > plain_grey * 2.0, "a grey copy: {grey} vs {plain_grey}");
-            assert!(ox * sign > 1.0 && oy * sign > 1.0, "grey copy offset {ox} {oy}");
+            let img = shot(c, 0.0);
+            let (_, grey) = counts(&img);
+            assert!(grey > plain_grey * 2, "a grey copy: {grey} vs {plain_grey}");
+            // A 2pt diagonal displacement at 40pt has sqrt(2)pt on each axis.
+            // Check the visible copy against its translated mask, accounting for occlusion.
+            let offset = sign * std::f32::consts::SQRT_2;
+            let expected = shot(reference(), offset);
+            let opposite = shot(reference(), -offset);
+            let (mut visible, mut directional) = (0usize, 0usize);
+            for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
+                let v = img.pixel(x, y)[0];
+                if !(120..=136).contains(&v) || base.pixel(x, y)[0] != 255 {
+                    continue;
+                }
+                visible += 1;
+                assert!(expected.pixel(x, y)[0] < 255, "grey outside translated Art mask: sign {sign}, pixel {x},{y}");
+                directional += usize::from(expected.pixel(x, y)[0] < 60 && opposite.pixel(x, y)[0] == 255);
+            }
+            assert!(directional > MIN_DIRECTION_PIXELS, "directional grey: sign {sign}, {directional} of {visible}");
+            eprintln!("spatial shadow sign={sign} grey={grey} visible={visible} directional={directional}");
         }
     }
 

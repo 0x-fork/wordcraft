@@ -5490,6 +5490,16 @@ fn change_case_keeps_each_runs_formatting_when_lengths_change() {
 }
 
 #[test]
+fn change_case_sentence_ignores_decimal_points() {
+    // #3485: Sentence case should not capitalize after decimal points.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "one 3.14 apples and two 2.5 pears."}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.changeCase", json!({"mode": "sentence"}));
+    assert_eq!(text(&s), "One 3.14 apples and two 2.5 pears.");
+}
+
+#[test]
 fn document_grid_sets_lines_and_characters_in_one_undo_step() {
     // #391: Layout › Page Setup › Document Grid.
     let mut s = s();

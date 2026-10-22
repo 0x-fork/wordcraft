@@ -4,6 +4,8 @@ use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, ParaProps, TextDirection};
 use wordcraft_doc::{Pos, Table};
 
+const WRAP_TEST_FONT: &str = "Source Sans 3";
+
 fn lay(doc: &Document) -> DocLayout {
     let mut c = LayoutCache::new();
     layout(doc, &mut c, &LayoutOptions::default())
@@ -455,6 +457,7 @@ fn deleted_text_adds_no_line_break_opportunity_without_markup() {
     // "xx ab\u{ad}cdef" in a column where "xx ab-" and "abcdef" fit but "xx abcdef" does not; only
     // the soft hyphen (5..7) is track-deleted.
     let mut d = Document::from_text("xx ab\u{ad}cdef");
+    d.styles.default_chr.font = Some(WRAP_TEST_FONT.into());
     d.format_range(&Pos::body(0, 5), &Pos::body(0, 7), &|c| c.del = Some(0)).unwrap();
     d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.indent_right = Some(468.0 - 40.0)).unwrap();
     let line_starts = |hide_deleted: bool| {
@@ -491,6 +494,7 @@ fn hidden_text_adds_no_line_break_opportunity_when_not_shown() {
     // but "xx abcdef" does not. Measured in Word (hidden text not printed): "xx" / "abcdef" both times.
     for hidden in ["\u{ad}", " "] {
         let mut d = Document::from_text(&format!("xx ab{hidden}cdef"));
+        d.styles.default_chr.font = Some(WRAP_TEST_FONT.into());
         let end = 5 + hidden.len();
         d.format_range(&Pos::body(0, 5), &Pos::body(0, end), &|c| c.hidden = Some(true)).unwrap();
         d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.indent_right = Some(468.0 - 40.0)).unwrap();
@@ -1051,6 +1055,88 @@ fn narrow_cells_keep_their_width() {
             .unwrap();
         assert_eq!(lines, expected_lines, "cell width {width}, text width {advance}");
     }
+}
+
+#[test]
+fn right_tab_whose_text_does_not_fit_moves_to_the_next_line_with_it() {
+    // A TOC-like entry: text, then a right tab with a dot leader and a page number. Whatever the
+    // text's length, the number is on the tab's line and ends at the stop (or past it, inside the
+    // margin). With the stop short of the margin, text can also end past the stop, where the next
+    // default stop is past the margin: then the tab wraps too.
+    use wordcraft_doc::props::{TabAlign, TabLeader, TabStop};
+    for pos in [468.0, 400.0] {
+        for m in 20..40 {
+            for r in 0..4 {
+                let text = format!("{}{}\t63", "abc ".repeat(m), "y".repeat(r));
+                let n = text.chars().count();
+                let mut d = Document::from_text(&text);
+                d.settings.default_tab = 100.0;
+                d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| {
+                    p.tabs = Some(vec![TabStop { pos, align: TabAlign::Right, leader: TabLeader::Dot }])
+                })
+                .unwrap();
+                let l = lay(&d);
+                let end = l.caret(&Pos::body(0, n)).unwrap().x;
+                // At the stop, or (when the text before the tab already reaches it) right after the text,
+                // inside the margin.
+                assert!(end > 72.0 + pos - 1.0 && end < 541.0, "stop {pos}, {m} words + {r}: number ends at {end}");
+                let Some(para) = l.pages[0].items.iter().find_map(|i| if let Placed::Lines { para, .. } = i { Some(para.clone()) } else { None })
+                else {
+                    panic!("no lines")
+                };
+                let tab = n - 3;
+                let line = para.lines.iter().find(|l| l.c0 <= tab && tab < l.c1).unwrap();
+                assert!(line.c1 >= n, "stop {pos}, {m} words + {r}: the tab and its number are on different lines");
+                assert!(line.leaders.iter().any(|(k, _)| *k == tab), "stop {pos}, {m} words + {r}: no leader");
+            }
+        }
+    }
+}
+
+/// A left tab whose only stop is past the right indent wraps; on the next line it still can't
+/// reach that stop, so it takes no room there and its text starts at the indent instead of
+/// going to a line of its own.
+#[test]
+fn left_tab_past_the_right_indent_does_not_add_a_line() {
+    use wordcraft_doc::props::{TabAlign, TabLeader, TabStop};
+    let text = "Name\tPage";
+    let mut d = Document::from_text(text);
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| {
+        p.tabs = Some(vec![TabStop { pos: 500.0, align: TabAlign::Left, leader: TabLeader::None }])
+    })
+    .unwrap();
+    let l = lay(&d);
+    let Some(para) = l.pages[0].items.iter().find_map(|i| if let Placed::Lines { para, .. } = i { Some(para.clone()) } else { None }) else {
+        panic!("no lines")
+    };
+    assert_eq!(para.lines.len(), 2, "{:?}", para.lines.iter().map(|l| (l.c0, l.c1)).collect::<Vec<_>>());
+    let page = l.caret(&Pos::body(0, 5)).unwrap();
+    assert!((page.x - 72.0).abs() < 0.5, "the text after the tab starts at the indent: {}", page.x);
+}
+
+/// A bookmark before such a tab is not text: the tab does not wrap away from it, and the
+/// paragraph breaks as it does without the bookmark (no line holding only the bookmark).
+#[test]
+fn a_bookmark_before_a_left_tab_past_the_right_indent_is_not_a_line() {
+    use wordcraft_doc::props::{TabAlign, TabLeader, TabStop};
+    let lines = |mark: bool| {
+        let mut d = Document::from_text("\tPage");
+        d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| {
+            p.tabs = Some(vec![TabStop { pos: 500.0, align: TabAlign::Left, leader: TabLeader::None }])
+        })
+        .unwrap();
+        if mark {
+            d.insert_object(&Pos::body(0, 0), InlineObject::BookmarkStart { name: "top".into() }, &Default::default()).unwrap();
+        }
+        let l = lay(&d);
+        let Some(para) = l.pages[0].items.iter().find_map(|i| if let Placed::Lines { para, .. } = i { Some(para.clone()) } else { None }) else {
+            panic!("no lines")
+        };
+        // The lines' clusters, not counting the bookmark's.
+        let m = usize::from(mark);
+        para.lines.iter().map(|l| (l.c0.saturating_sub(m), l.c1 - m)).collect::<Vec<_>>()
+    };
+    assert_eq!(lines(true), lines(false));
 }
 
 #[test]
@@ -4204,6 +4290,52 @@ fn justified_lines_shrink_spaces_in_word_2013_mode() {
     }
 }
 
+/// Measured in Word for Mac (compatibility mode 15, justified paragraphs of one repeated word,
+/// the right indent leaving room for N words plus one more that fits only if the spaces shrink):
+/// the spaces give up at most a quarter of their width, and a word with the space before it may
+/// overrun the line by at most 0.355 of its own width ("nn" fitted with its line's spaces 14.5%
+/// shrunk, "nnnn" with 25%). WordCraft allowed 20% whatever the word, so long words wrapped too
+/// early and short ones too late.
+#[test]
+fn justified_spaces_shrink_a_quarter_at_most_and_by_the_word() {
+    let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+    let para = |text: &str, align: Align, right: f32| {
+        let mut d = Document::new();
+        d.settings.compat_mode = 15;
+        let mut p = wordcraft_doc::Paragraph::with_text(text, chr.clone());
+        p.props = ParaProps { align: Some(align), indent_right: Some(right), ..Default::default() };
+        d.body = vec![wordcraft_doc::para_block(p)];
+        d
+    };
+    // Words on the first line.
+    let first = |d: &Document| {
+        let l = lay(d);
+        let para = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None }).unwrap();
+        let line = &para.lines[0];
+        d.para(StoryRef::Body, &Path::top(0)).unwrap().text[line.start..line.stop].split_whitespace().count()
+    };
+    let n = 12;
+    for word in ["nn", "nnnn", "nnnnnnnn"] {
+        // The word's and the space's widths, from a left-aligned line.
+        let probe = para(&format!("{word} {word}"), Align::Left, 0.0);
+        let l = lay(&probe);
+        let pl = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None }).unwrap();
+        let w = pl.x_of(0, word.len()).unwrap() - pl.x_of(0, 0).unwrap();
+        let sw = pl.x_of(0, word.len() + 1).unwrap() - pl.x_of(0, word.len()).unwrap();
+        let spaces = n as f32 * sw;
+        let room = (0.25 * spaces).min(0.355 * (w + sw));
+        let width = |overrun: f32| (n + 1) as f32 * w + spaces - overrun;
+        let text = vec![word; 3 * n].join(" ");
+        let full = probe.last_section.text_width();
+        for (overrun, words) in [(room - 0.1, n + 1), (room + 0.1, n)] {
+            let d = para(&text, Align::Justify, full - width(overrun));
+            assert_eq!(first(&d), words, "'{word}': overrun {overrun:.2} of {room:.2} allowed");
+        }
+        // Left-aligned text never shrinks.
+        assert_eq!(first(&para(&text, Align::Left, full - width(0.1))), n, "'{word}' left-aligned");
+    }
+}
+
 #[test]
 fn space_shrinking_is_only_for_justified_text() {
     let text = "We tie the spend to a pipe and to the books, so it is in an ad hoc view of all of it. ".repeat(40);
@@ -6087,7 +6219,11 @@ fn wrapped_shape_doc(kind: wordcraft_doc::para::ShapeKind, w: f32, h: f32, float
 #[test]
 fn tight_wrap_follows_an_ellipse() {
     use wordcraft_doc::para::{Float, ShapeKind, Wrap};
-    let spans = |wrap| line_spans(&lay(&wrapped_shape_doc(ShapeKind::Ellipse, 160.0, 160.0, Float { wrap, ..Default::default() })));
+    let spans = |wrap| {
+        let mut d = wrapped_shape_doc(ShapeKind::Ellipse, 160.0, 160.0, Float { wrap, ..Default::default() });
+        d.styles.default_chr.font = Some(WRAP_TEST_FONT.into());
+        line_spans(&lay(&d))
+    };
     let (square, tight, through) = (spans(Wrap::Square), spans(Wrap::Tight), spans(Wrap::Through));
     // Square: every line beside the shape starts past its frame and distance from text.
     assert!(square.iter().filter(|l| l.0 < 160.0).all(|l| l.2 >= 169.0 - 0.01), "{square:?}");
@@ -6110,7 +6246,7 @@ fn tight_wrap_follows_an_ellipse() {
     }
     // Lines near the ellipse's top and bottom start at the curve, well inside its frame; beside
     // the middle they don't. Measured against each line's own contour edge, so the check holds
-    // whatever line height the test machine's fonts give.
+    // with the explicit test font, independent of installed system fonts.
     let line = |pred: &dyn Fn(f32) -> bool| *tight.iter().find(|l| pred(l.0) && l.2 > 60.0).unwrap();
     for (what, l) in [("first line", line(&|top| top < 1.0)), ("near the bottom", line(&|top| top > 140.0 && top < 160.0))] {
         let edge = contour(l.0, l.1).1;
@@ -8048,6 +8184,27 @@ fn equation_numbers(l: &DocLayout) -> Vec<String> {
         }
     }
     out
+}
+
+/// The box around an equation spans the equation's width and its whole line, as Word frames
+/// the equation the caret is in.
+#[test]
+fn an_equations_box_spans_its_width_and_its_line() {
+    let mut d = Document::from_text("Inline  and text after it.");
+    let math = wordcraft_doc::math::Math { nodes: wordcraft_doc::math::parse_linear("x=(a+b)/c"), ..Default::default() };
+    let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    p.insert_object(7, InlineObject::Equation { linear: "x=(a+b)/c".into(), display: false, math }, &Default::default()).unwrap();
+    let l = lay(&d);
+    let b = l.equation_box(&Pos::body(0, 7), 0).unwrap();
+    let before = l.caret(&Pos::body(0, 6)).unwrap();
+    // The equation's U+FFFC takes three bytes.
+    let after = l.caret(&Pos::body(0, 10)).unwrap();
+    // It starts where the equation starts and ends where the text after it starts.
+    assert!((b.x - before.x).abs() > 0.1 && (b.x + b.math.width - after.x).abs() < 0.5, "{b:?} {before:?} {after:?}");
+    // It holds the fraction, from the line's top to its bottom.
+    assert!(b.top <= b.base - b.math.ascent && b.bottom >= b.base + b.math.descent, "{b:?}");
+    assert!((b.top - after.top).abs() < 0.5 && b.bottom >= after.top + after.height, "{b:?} {after:?}");
+    assert!(l.equation_box(&Pos::body(0, 6), 0).is_none());
 }
 
 /// Laying a paragraph out again (placed again after a page break before, or the rest of it again
@@ -10105,5 +10262,124 @@ fn anchored_objects_thinner_than_a_point_keep_their_size() {
     assert_eq!(got.len(), want.len(), "{rects:?}");
     for (g, w) in got.iter().zip(want) {
         assert!((g.0 - w.0).abs() < 1e-3 && (g.1 - w.1).abs() < 1e-3 && (g.2 - w.2).abs() < 1e-3 && (g.3 - w.3).abs() < 1e-3, "{g:?} != {w:?}");
+    }
+}
+
+#[test]
+fn keep_next_counts_list_indent() {
+    use wordcraft_doc::props::{LineSpacing, NumRef};
+    let mut doc = Document::new();
+    doc.last_section.page_w = 240.0;
+    doc.last_section.page_h = 200.0;
+    doc.last_section.margin_top = 20.0;
+    doc.last_section.margin_bottom = 20.0;
+    doc.last_section.margin_left = 20.0;
+    doc.last_section.margin_right = 20.0;
+    let id = doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    let level = &mut doc.numbering.abstracts[0].levels[0];
+    level.indent = 100.0;
+    level.hanging = 0.0;
+    let props = ParaProps {
+        space_before: Some(0.0),
+        space_after: Some(0.0),
+        line_spacing: Some(LineSpacing::Exactly(12.0)),
+        widow_control: Some(true),
+        ..Default::default()
+    };
+    let para = |text: &str, props: ParaProps| {
+        let mut p =
+            Paragraph::with_text(text, wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() });
+        p.props = props;
+        wordcraft_doc::para_block(p)
+    };
+    doc.body = vec![
+        para("Filler", ParaProps { line_spacing: Some(LineSpacing::Exactly(136.0)), ..props.clone() }),
+        para("Heading", ParaProps { keep_next: Some(true), keep_lines: Some(true), ..props.clone() }),
+        para("Alpha beta gamma delta", ParaProps { numbering: Some(NumRef { num: id, level: 0 }), ..props }),
+    ];
+    let layout = lay(&doc);
+    assert_eq!(layout.caret(&Pos::body(2, 0)).unwrap().page, 1, "the indented list cannot start below the heading");
+    assert_eq!(layout.caret(&Pos::body(1, 0)).unwrap().page, 1, "the kept heading must follow it");
+    let labels: Vec<_> = layout
+        .pages
+        .iter()
+        .flat_map(|p| &p.items)
+        .filter_map(|item| match item {
+            Placed::Lines { para, .. } => para.label.as_ref().map(|label| label.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, ["1."], "lookahead must not consume a list counter");
+}
+
+/// #2712: Word breaks a line right after a hyphen followed by a digit ("2016-" / "2022"), where
+/// UAX #14 keeps the hyphen and the number together. Sweeping the text width, the first width
+/// that wraps `Deed 2016-2022` must break after the hyphen -- not move the range whole (the
+/// break lands at the space) and not split it inside a number.
+#[test]
+fn a_hyphen_before_digits_is_a_break_opportunity_like_word() {
+    for m in 100..=540 {
+        let margin_right = m as f32;
+        let text = "Deed 2016-2022";
+        let mut d = Document::from_text(text);
+        d.last_section.margin_right = margin_right;
+        let l = lay(&d);
+        let line_texts = |l: &DocLayout| -> Vec<String> {
+            l.pages[0]
+                .items
+                .iter()
+                .filter_map(|it| {
+                    if let Placed::Lines { para, l0, l1, .. } = it {
+                        Some(para.lines[*l0..*l1].iter().map(|line| text[line.start..line.stop].to_string()).collect::<Vec<_>>())
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect()
+        };
+        let lines = line_texts(&l);
+        if lines.len() < 2 {
+            continue; // still fits on one line at this width
+        }
+        assert_eq!(lines[0], "Deed 2016-", "the first wrap breaks after the hyphen: {lines:?}");
+        assert_eq!(lines[1], "2022", "the range continues after it: {lines:?}");
+        return;
+    }
+    panic!("no width in the sweep wrapped the paragraph");
+}
+
+/// #2712 scopes the new break to U+002D: a non-breaking hyphen (U+2011) and a minus sign
+/// (U+2212) gain no break, so the first wrap moves the range whole, breaking at the space.
+#[test]
+fn a_non_breaking_hyphen_and_a_minus_sign_stay_unbreakable() {
+    for (token, hyphen) in [("2016\u{2011}2022", '\u{2011}'), ("2016\u{2212}2022", '\u{2212}')] {
+        let text = format!("Deed {token}");
+        for m in 100..=540 {
+            let mut d = Document::from_text(&text);
+            d.last_section.margin_right = m as f32;
+            let l = lay(&d);
+            let lines: Vec<String> = l.pages[0]
+                .items
+                .iter()
+                .filter_map(|it| {
+                    if let Placed::Lines { para, l0, l1, .. } = it {
+                        Some(para.lines[*l0..*l1].iter().map(|line| text[line.start..line.stop].to_string()).collect::<Vec<_>>())
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect();
+            if lines.len() < 2 {
+                continue; // still fits on one line at this width
+            }
+            // The first wrap breaks at the space: the protected hyphen is not a break. (Narrower
+            // widths fall into the break-anywhere fallback that splits too-long words between
+            // characters, which the sweep leaves out, as the issue does.)
+            assert_eq!(lines[0], "Deed ", "the only break is at the space, not after {hyphen}: {lines:?}");
+            assert_eq!(lines[1], token, "the range stays whole: {lines:?}");
+            break;
+        }
     }
 }

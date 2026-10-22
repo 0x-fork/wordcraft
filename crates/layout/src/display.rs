@@ -133,6 +133,9 @@ pub enum Draw {
         /// The text background (highlight or character shading) these glyphs are drawn on, if
         /// any: a dark page dims it, so it picks the text colour against the dimmed colour.
         text_bg: Option<Rgb>,
+        /// Horizontal scale of the letters (`w:w`, 1 = 100 %): each glyph is stretched across
+        /// from its pen position. The positions already have the scaled advances.
+        x_scale: f32,
     },
     Fill {
         rect: Rect,
@@ -505,10 +508,41 @@ fn stroke_of(u: Underline) -> Stroke {
 /// Draw items for a page.
 pub fn page_display(doc: &Document, page: &Page, opts: &DisplayOptions) -> Vec<Draw> {
     let mut out = Vec::new();
+    let (ha, ba) = dimming(opts);
+    stories_display(doc, &[&page.header, &page.footer], opts, ha, &mut out);
+    stories_display(doc, &[&page.items], opts, ba, &mut out);
+    body_change_bars(doc, page, opts, ba, &mut out);
+    out
+}
+
+/// A page's draw items as two layers, its headers and footers then its body, each at full
+/// strength with the opacity to draw it at. A dimmed layer is faded as one picture, as Word dims
+/// it: where its lines or fills overlap (a table's borders meeting) they don't darken each other.
+pub fn page_layers(doc: &Document, page: &Page, opts: &DisplayOptions) -> [(f32, Vec<Draw>); 2] {
+    let (ha, ba) = dimming(opts);
+    let (mut hf, mut body) = (Vec::new(), Vec::new());
+    stories_display(doc, &[&page.header, &page.footer], opts, 1.0, &mut hf);
+    stories_display(doc, &[&page.items], opts, 1.0, &mut body);
+    body_change_bars(doc, page, opts, 1.0, &mut body);
+    [(ha, hf), (ba, body)]
+}
+
+/// The opacity of the headers/footers and of the body.
+fn dimming(opts: &DisplayOptions) -> (f32, f32) {
+    let a = |dim: bool| if dim { 0.45 } else { 1.0 };
+    (a(opts.dim_header), a(opts.dim_body))
+}
+
+fn body_change_bars(doc: &Document, page: &Page, opts: &DisplayOptions, alpha: f32, out: &mut Vec<Draw>) {
+    if opts.markup && (opts.revisions.insertions_deletions || opts.revisions.formatting) && opts.revisions.changed_lines != ChangeBar::None {
+        change_bars(doc, page, &opts.revisions, alpha, out);
+    }
+}
+
+/// Draw items for the placed items of `stories`, faded by `a`.
+fn stories_display(doc: &Document, stories: &[&Vec<Placed>], opts: &DisplayOptions, a: f32, out: &mut Vec<Draw>) {
     let hidden = opts.hide_object.as_ref().map(|p| Hidden::new(doc, p));
-    let ha = if opts.dim_header { 0.45 } else { 1.0 };
-    let ba = if opts.dim_body { 0.45 } else { 1.0 };
-    for (items, a) in [(&page.header, ha), (&page.footer, ha), (&page.items, ba)] {
+    for items in stories {
         let warps = warped_boxes(doc, items);
         let clips = clipped_cells(items);
         let mut done: Vec<u32> = Vec::new();
@@ -535,17 +569,13 @@ pub fn page_display(doc: &Document, page: &Page, opts: &DisplayOptions) -> Vec<D
                     if let Some((_, rect, warp)) = warps.iter().find(|(w, ..)| w == id) {
                         let lines: Vec<&Placed> =
                             items.iter().filter(|i| matches!(i, Placed::Lines { story: StoryRef::Part(s), .. } if s == id)).collect();
-                        warped_text(doc, &lines, *rect, warp, opts, a, &mut out);
+                        warped_text(doc, &lines, *rect, warp, opts, a, out);
                     }
                 }
-                _ => item(doc, it, opts, a, &mut out),
+                _ => item(doc, it, opts, a, out),
             }
         }
     }
-    if opts.markup && (opts.revisions.insertions_deletions || opts.revisions.formatting) && opts.revisions.changed_lines != ChangeBar::None {
-        change_bars(doc, page, &opts.revisions, ba, &mut out);
-    }
-    out
 }
 
 /// One object drawn alone, as its page draws it: the picture, shape or group `o` in `rect` (its
@@ -898,6 +928,7 @@ fn lines(
                     link: None,
                     ranges: Vec::new(),
                     text_bg: None,
+                    x_scale: 1.0,
                 });
             }
         }
@@ -918,6 +949,7 @@ fn lines(
                 link: None,
                 ranges: Vec::new(),
                 text_bg: None,
+                x_scale: st.rc.scale / 100.0,
             });
         }
         // Glyph runs grouped by style.
@@ -1111,6 +1143,7 @@ fn lines(
                     link: rc.link.clone(),
                     ranges,
                     text_bg,
+                    x_scale: rc.scale / 100.0,
                 });
             }
             // Decorations across the run (underline skips trailing spaces of the line). Right-to-left
@@ -1211,6 +1244,7 @@ fn lines(
                 link: None,
                 ranges: Vec::new(),
                 text_bg: None,
+                x_scale: 1.0,
             });
         }
         // Inline objects.
@@ -1298,6 +1332,7 @@ fn lines(
                     link: None,
                     ranges,
                     text_bg: st.rc.highlight.or(st.rc.shading),
+                    x_scale: 1.0,
                 });
             }
         }
@@ -1449,6 +1484,7 @@ fn equation(items: &[MItem], x: f32, base: f32, alpha: f32, screen: bool, out: &
                 // Equation text maps back through the font (no per-glyph ranges from the math layout).
                 ranges: Vec::new(),
                 text_bg: None,
+                x_scale: 1.0,
             }),
             MItem::Rect { x: rx, y, w, h, color } => {
                 out.push(Draw::Fill { rect: Rect::new(x + rx, base - y - h, *w, *h), color: *color, alpha, text_bg: false })
@@ -1745,6 +1781,7 @@ fn text_glyphs(doc: &Document, r: Rect, it: &GraphicItem, alpha: f32, k: f32) ->
         link: None,
         ranges: Vec::new(),
         text_bg: None,
+        x_scale: 1.0,
     })
 }
 
@@ -1952,13 +1989,13 @@ pub fn upright_in_vertical(c: char) -> bool {
 fn upright_east_asian(items: Vec<Draw>) -> Vec<Draw> {
     let mut out = Vec::with_capacity(items.len());
     for d in items {
-        let Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg } = d else {
+        let Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg, x_scale } = d else {
             out.push(d);
             continue;
         };
         let up = |k: usize| ranges.get(k).and_then(|r| text.get(r.clone())).and_then(|t| t.chars().next()).is_some_and(upright_in_vertical);
         if ranges.len() != glyphs.len() || !(0..glyphs.len()).any(up) {
-            out.push(Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg });
+            out.push(Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, text_bg, x_scale });
             continue;
         }
         let piece = |k0: usize, k1: usize| -> Draw {
@@ -1967,7 +2004,7 @@ fn upright_east_asian(items: Vec<Draw>) -> Vec<Draw> {
             let (b0, b1) = (rs.iter().map(|r| r.start).min().unwrap_or(0), rs.iter().map(|r| r.end).max().unwrap_or(0));
             let t = text.get(b0..b1).unwrap_or("").to_string();
             let rs = rs.iter().map(|r| r.start.saturating_sub(b0)..r.end.saturating_sub(b0)).collect();
-            Draw::Glyphs { face, size, glyphs: gs, color, alpha, synth_bold, synth_italic, text: t, link: link.clone(), ranges: rs, text_bg }
+            Draw::Glyphs { face, size, glyphs: gs, color, alpha, synth_bold, synth_italic, text: t, link: link.clone(), ranges: rs, text_bg, x_scale }
         };
         let mut k0 = 0;
         while k0 < glyphs.len() {
