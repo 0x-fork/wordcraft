@@ -651,11 +651,12 @@ pub fn css_len_pt(v: &str) -> Option<f32> {
         match v.as_str() {
             "xx-small" => Some(7.0),
             "x-small" => Some(7.5),
-            "small" => Some(10.0),
+            "small" | "smaller" => Some(10.0),
             "medium" => Some(12.0),
-            "large" => Some(13.5),
+            "large" | "larger" => Some(13.5),
             "x-large" => Some(18.0),
             "xx-large" => Some(24.0),
+            "xxx-large" => Some(36.0),
             _ => num(&v).map(|p| p * 0.75),
         }
     }
@@ -1178,6 +1179,8 @@ impl<'r> Builder<'r> {
             "code" | "kbd" | "tt" | "samp" => fmt.code = true,
             "sup" => fmt.sup = true,
             "sub" => fmt.sub = true,
+            "small" => fmt.size = Some(fmt.size.map_or(10.0, |s| (s * 0.833).max(1.0))),
+            "big" => fmt.size = Some(fmt.size.map_or(14.0, |s| (s * 1.2).min(1638.0))),
             "mark" => fmt.background = Some(wordcraft_doc::Rgb(255, 255, 0)),
             "font" => {
                 if let Some(c) = attr(attrs, "color").and_then(parse_color) {
@@ -2045,5 +2048,19 @@ mod tests {
         assert!(!html.contains("<p> lead"), "{html}");
         let back = import(&html);
         assert_eq!(back.plain_text(Default::default()).replace('\u{a0}', " "), " lead");
+    }
+
+    #[test]
+    fn small_big_and_css_font_sizes() {
+        let f = parse("<p><small>small</small> <big>big</big> <span style=\"font-size: xxx-large\">huge</span> <span style=\"font-size: smaller\">tiny</span></p>");
+        let FBlock::Para(p) = &f.blocks[0] else { panic!() };
+        let sz = |i: usize| match &p.inlines[i] {
+            Inline::Text(_, f) => f.size,
+            _ => None,
+        };
+        assert_eq!(sz(0), Some(10.0));
+        assert_eq!(sz(2), Some(14.0));
+        assert_eq!(sz(4), Some(36.0));
+        assert_eq!(sz(6), Some(10.0));
     }
 }
