@@ -29,8 +29,8 @@ regex-automata = { workspace = true }
 image = { workspace = true }
 zeroize = { workspace = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# The browser clock for `now_iso` (`SystemTime::now()` panics on wasm32).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+# The browser clock for `now_iso` (`SystemTime::now()` panics on wasm32-unknown-unknown).
 js-sys = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

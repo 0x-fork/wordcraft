@@ -3533,6 +3533,24 @@ fn arrange_bounds_resizes_and_moves_objects() {
     assert_eq!(box_area(&mut s).rect, n);
 }
 
+/// An object dropped near the bottom of a page lands there, though at the top of the paragraph
+/// it anchors to it would push that paragraph onto the next page (#3169).
+#[test]
+fn an_object_dropped_near_the_bottom_of_a_page_lands_there() {
+    let para = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&vec![para; 20].join("\n")));
+    run(&mut s, "insert.textBox", json!({"text": "Box"}));
+    select_box(&mut s);
+    run(&mut s, "arrange.bounds", json!({"width": 450, "height": 300}));
+    for y in [400.0, 600.0, 760.0] {
+        select_box(&mut s);
+        run(&mut s, "arrange.bounds", json!({"page": 0, "x": 80, "y": y}));
+        let o = box_area(&mut s);
+        assert_eq!(o.page, 0);
+        assert!((o.rect.x - 80.0).abs() < 0.01 && (o.rect.y - y).abs() < 0.01, "dropped at {y}: {:?}", o.rect);
+    }
+}
+
 #[test]
 fn nudging_an_aligned_object_moves_it_from_where_it_is() {
     use wordcraft_doc::para::{Anchor, FloatAlign};
@@ -3774,6 +3792,41 @@ fn mailings_results_are_new_untitled_documents() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// #2376: a note.txt opened and saved stayed unsaved, so closing asked to save it forever. Saving
+/// the document's own file is a save in any format; Save As to plain text elsewhere is a copy.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn saving_a_text_file_over_itself_saves_the_document() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-own-txt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["note.txt", "note.md"] {
+        let path = dir.join(name);
+        std::fs::write(&path, b"").unwrap();
+        let mut s = s();
+        run(&mut s, "file.open", json!({"path": path.to_string_lossy()}));
+        run(&mut s, "text.insert", json!({"text": "Hello"}));
+        assert!(s.dirty);
+        assert_eq!(run(&mut s, "file.save", json!({}))["saved"], true);
+        assert!(!s.dirty, "{name}: saved over itself");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("Hello"), "{name}: written");
+
+        // Saving the same file by name is the same save.
+        run(&mut s, "text.insert", json!({"text": " again"}));
+        run(&mut s, "file.save", json!({"path": path.to_string_lossy()}));
+        assert!(!s.dirty, "{name}: saved by its own path");
+
+        // Plain text somewhere else is still a copy: the document keeps its file and its changes.
+        run(&mut s, "text.insert", json!({"text": "!"}));
+        let copy = dir.join(format!("copy-{name}"));
+        run(&mut s, "file.saveAs", json!({"path": copy.to_string_lossy()}));
+        assert!(copy.exists());
+        assert!(s.dirty, "{name}: a copy elsewhere leaves it unsaved");
+        assert_eq!(s.path.as_deref(), Some(path.as_path()));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn html_pictures_load_relative_to_the_file() {
@@ -3848,6 +3901,39 @@ fn html_pictures_through_a_symlink_out_of_the_folder_are_not_loaded() {
     assert!(doc.plain_text(StoryRef::Body).contains("Link"));
 }
 
+/// `file.open` on a path reads only a regular file: a named pipe blocked until a writer came, and
+/// `/dev/zero` read until memory ran out.
+#[cfg(unix)]
+#[test]
+fn opening_a_named_pipe_or_device_is_refused_without_blocking() {
+    let dir = scratch_dir("open-fifo");
+    let fifo = dir.join("pipe.docx");
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status();
+    if !made.is_ok_and(|s| s.success()) {
+        let _ = std::fs::remove_dir_all(&dir);
+        eprintln!("mkfifo unavailable; skipping");
+        return;
+    }
+    let zero = dir.join("zero.txt");
+    std::os::unix::fs::symlink("/dev/zero", &zero).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (pipe, device) = (fifo.clone(), zero.clone());
+    std::thread::spawn(move || {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let by_command = s.run("file.open", &json!({"path": pipe.to_string_lossy()})).map(|_| ());
+        let _ = tx.send([by_command.map_err(|e| e.to_string()), crate::io::read_document(&device).map(|_| ())]);
+    });
+    let got = rx.recv_timeout(std::time::Duration::from_secs(10));
+    if got.is_err() {
+        // Unblock the stuck reader so the thread ends, then fail.
+        let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let [pipe, device] = got.expect("opening a named pipe blocked");
+    assert!(pipe.unwrap_err().contains("not a file"));
+    assert!(device.unwrap_err().contains("not a file"));
+}
+
 #[cfg(unix)]
 #[test]
 fn html_picture_that_is_a_named_pipe_is_skipped_without_blocking() {
@@ -3875,6 +3961,37 @@ fn html_picture_that_is_a_named_pipe_is_skipped_without_blocking() {
     let doc = got.expect("opening the HTML file blocked on a named pipe").unwrap();
     assert!(doc.media.is_empty());
     assert!(doc.plain_text(StoryRef::Body).contains("Pipe"));
+}
+
+/// #98's rule for HTML pictures, for `insert.picture`'s own paths: opening a named pipe blocks
+/// until a writer appears, and a device like `/dev/zero` never reaches end of file, so a picture
+/// path that is not a regular file must be refused, not opened.
+#[cfg(unix)]
+#[test]
+fn insert_picture_from_a_named_pipe_is_refused_without_blocking() {
+    let dir = scratch_dir("insert-img-fifo");
+    let fifo = dir.join("pipe.png");
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status();
+    if !made.is_ok_and(|s| s.success()) {
+        let _ = std::fs::remove_dir_all(&dir);
+        eprintln!("mkfifo unavailable; skipping");
+        return;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let path = fifo.to_string_lossy().into_owned();
+    std::thread::spawn(move || {
+        let _ = tx.send(crate::io::read_file(&path));
+    });
+    let got = rx.recv_timeout(std::time::Duration::from_secs(10));
+    if got.is_err() {
+        // Unblock the stuck reader so the thread ends, then fail.
+        let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(got.expect("reading a picture path blocked on a named pipe").is_err(), "a pipe is not a file to read");
+    if std::path::Path::new("/dev/zero").exists() {
+        assert!(crate::io::read_file("/dev/zero").is_err(), "a device is not a file to read");
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -7595,6 +7712,14 @@ fn find_replace_and_go_to_open_like_word() {
     run(&mut s, "edit.replace", json!({"with": "cow"}));
     assert_eq!(text(&s), "cat cow cat");
 
+    // A replace with no `text` and no earlier search is a mistake, not "0 matches" (#3271).
+    let mut s = super::tests::s();
+    for (id, params) in [("edit.replaceAll", json!({"find": "cat", "replace": "dog"})), ("edit.replace", json!({})), ("edit.replaceAll", json!({}))] {
+        let e = s.run(id, &params).unwrap_err().to_string();
+        assert!(e.contains("`text` (string) is required"), "{id}: {e}");
+    }
+    run(&mut s, "edit.replaceAll", json!({"text": "", "with": "x"}));
+
     // Five pages; Go To +2 / -1 from where the caret is, clamped to the document.
     let mut s = super::tests::s();
     for i in 0..5 {
@@ -7900,6 +8025,28 @@ fn rename_document_preserves_saved_contents_and_rejects_collisions() {
     assert!(s.run("file.rename", &json!({"name": "existing"})).is_err());
     assert_eq!(s.path.as_ref(), Some(&lower));
     assert_eq!(std::fs::read(&existing).unwrap(), b"keep these bytes");
+
+    // A name given with the document's extension is the whole file name: an agent or a script
+    // passes one, and appending the extension again made "Report.docm.docm" (#2983).
+    s.run("file.rename", &json!({"name": "Report.docm"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("Report.docm")));
+    assert!(!dir.join("Report.docm.docm").exists());
+    // Another extension, or the extension alone, is a stem and still gets one.
+    s.run("file.rename", &json!({"name": "Report.2026"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("Report.2026.docm")));
+    s.run("file.rename", &json!({"name": ".docm"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join(".docm.docm")));
+    assert_eq!(std::fs::read(dir.join(".docm.docm")).unwrap(), b"original bytes");
+    // A name whose bytes do not line up with the extension's length: comparing by slicing at
+    // `len - ext.len()` could land inside a character and panic (#2983 review).
+    s.run("file.rename", &json!({"name": "abécde"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("abécde.docm")));
+    s.run("file.rename", &json!({"name": "résumé.docm"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("résumé.docm")));
+    // Whatever its case; the file is named as typed, so the extension follows the name.
+    s.run("file.rename", &json!({"name": "Report.DOCM"})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&dir.join("Report.DOCM")));
+    assert!(!dir.join("Report.DOCM.docm").exists());
     std::fs::remove_dir_all(dir).unwrap();
 }
 

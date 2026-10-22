@@ -4450,6 +4450,46 @@ fn a_float_anchored_after_a_page_break_stays_on_its_paragraph_s_first_page() {
     assert!(shapes(&l.pages[1].items).is_empty(), "and not again on page two");
 }
 
+/// Floating objects are drawn in their stacking order (`relativeHeight`), not in the order of
+/// their anchors: a panel anchored after the text box it frames, but lower in the stack, is
+/// drawn first so the box stays visible over it. Objects without an order keep theirs.
+#[test]
+fn floats_are_drawn_in_their_stacking_order() {
+    let at = |x: f32, z: u32| rect_shape(50.0, 50.0, wordcraft_doc::para::Float { z, ..page_float(x, 100.0) });
+    let mut d = Document::from_text("Text");
+    for (x, z) in [(100.0, 30), (200.0, 10), (300.0, 20)] {
+        d.insert_object(&Pos::body(0, 4), at(x, z), &Default::default()).unwrap();
+    }
+    let xs: Vec<f32> = shapes(&lay(&d).pages[0].items).iter().map(|r| r.x).collect();
+    assert_eq!(xs, [200.0, 300.0, 100.0], "lowest first");
+    let mut d = Document::from_text("Text");
+    for (i, x) in [100.0, 200.0].into_iter().enumerate() {
+        let off = 4 + i * wordcraft_doc::para::OBJ.len_utf8();
+        d.insert_object(&Pos::body(0, off), at(x, 0), &Default::default()).unwrap();
+    }
+    let xs: Vec<f32> = shapes(&lay(&d).pages[0].items).iter().map(|r| r.x).collect();
+    assert_eq!(xs, [100.0, 200.0], "no order: as anchored");
+    // Behind the text too: the higher one comes first in the XML and stays on top.
+    let behind = |x: f32, z: u32| {
+        rect_shape(50.0, 50.0, wordcraft_doc::para::Float { z, wrap: wordcraft_doc::para::Wrap::BehindText, ..page_float(x, 100.0) })
+    };
+    let mut d = Document::from_text("Text");
+    for (i, (x, z)) in [(100.0, 20), (200.0, 10)].into_iter().enumerate() {
+        let off = 4 + i * wordcraft_doc::para::OBJ.len_utf8();
+        d.insert_object(&Pos::body(0, off), behind(x, z), &Default::default()).unwrap();
+    }
+    let xs: Vec<f32> = shapes(&lay(&d).pages[0].items).iter().map(|r| r.x).collect();
+    assert_eq!(xs, [200.0, 100.0], "behind the text: lowest first");
+    // One without an order, anchored after ordered ones, is drawn above them.
+    let mut d = Document::from_text("Text");
+    for (i, (x, z)) in [(100.0, 30), (200.0, 10), (300.0, 0)].into_iter().enumerate() {
+        let off = 4 + i * wordcraft_doc::para::OBJ.len_utf8();
+        d.insert_object(&Pos::body(0, off), at(x, z), &Default::default()).unwrap();
+    }
+    let xs: Vec<f32> = shapes(&lay(&d).pages[0].items).iter().map(|r| r.x).collect();
+    assert_eq!(xs, [200.0, 100.0, 300.0], "no order after ordered ones: drawn last");
+}
+
 #[test]
 fn floats_in_headers_and_table_cells_are_drawn() {
     use wordcraft_doc::para::{Anchor, Float, Wrap};
@@ -6336,6 +6376,42 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
     let items = display::page_display(&d, &l.pages[0], &Default::default());
     assert!(!items.iter().any(|i| matches!(i, display::Draw::Shape { .. })));
     assert!(items.iter().any(|i| matches!(i, display::Draw::Glyphs { text, .. } if text.contains("=/"))), "{items:?}");
+}
+
+#[test]
+fn superscript_and_subscript_lines_are_as_tall_as_full_size_text() {
+    use wordcraft_doc::props::VertAlign;
+    // Word sizes the line at the full font size and leaves out the raise or drop (Word for Mac:
+    // an 11pt subscript beside 11pt text keeps the 12.675pt line; 24pt subscript alone makes the
+    // 27.6pt line of plain 24pt text). A `w:position` lowering still counts.
+    let height = |runs: &[(&str, f32, VertAlign, f32)]| {
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.props.line_spacing = Some(wordcraft_doc::props::LineSpacing::Multiple(1.0));
+        for (text, size, vert_align, position) in runs {
+            let props = wordcraft_doc::CharProps {
+                font: Some("Source Sans 3".into()),
+                size: Some(*size),
+                vert_align: Some(*vert_align),
+                position: Some(*position),
+                ..Default::default()
+            };
+            p.runs.push(wordcraft_doc::para::Run { len: text.len(), props: props.clone() });
+            p.text.push_str(text);
+            p.mark = props;
+        }
+        let mut d = Document::new();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = lay(&d);
+        l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { para.lines.first().map(|x| x.height) } else { None }).unwrap()
+    };
+    let plain = height(&[("Hxg", 11.0, VertAlign::Baseline, 0.0)]);
+    for va in [VertAlign::Subscript, VertAlign::Superscript] {
+        assert_eq!(height(&[("Hxg ", 11.0, VertAlign::Baseline, 0.0), ("max", 11.0, va, 0.0)]), plain, "{va:?} beside text");
+        assert_eq!(height(&[("Hxg", 11.0, va, 0.0)]), plain, "{va:?} alone");
+        assert_eq!(height(&[("Hxg", 24.0, va, 0.0)]), height(&[("Hxg", 24.0, VertAlign::Baseline, 0.0)]), "24pt {va:?}");
+    }
+    let lowered = height(&[("Hxg ", 11.0, VertAlign::Baseline, 0.0), ("max", 11.0, VertAlign::Subscript, -6.0)]);
+    assert!((lowered - plain - 6.0).abs() < 0.01, "lowered {lowered} vs plain {plain}");
 }
 
 #[test]

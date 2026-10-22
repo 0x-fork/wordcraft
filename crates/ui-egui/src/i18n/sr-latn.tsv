@@ -104,6 +104,7 @@
 	Color: {color}	Boja: {color}
 	Compress punctuation at the start of a line	Sažmi interpunkciju na početku reda
 	Confirm password:	Potvrdite lozinku:
+	Continue from previous section	Nastavi od prethodnog odeljka
 	Couldn't make WordCraft the default: {error}	WordCraft nije mogao da postane podrazumevana aplikacija: {error}
 	Custom dictionary	Prilagođeni rečnik
 	Dark page (white text on black)	Tamna stranica (beo tekst na crnom)
@@ -158,6 +159,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Otvara Podešavanja › Podrazumevane aplikacije, gde birate WordCraft za .docx i druge vrste dokumenata.
 	Overtype	Prepisivanje
 	Overtype (typing replaces the characters after the caret)	Prepisivanje (otkucano zamenjuje znakove posle kursora)
+	Page Number Format	Format broja stranice
+	Page numbering	Numeracija stranica
 	Show alignment guides when moving pictures and shapes	Prikazuj vodilje za poravnanje pri pomeranju slika i oblika
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Pomereni objekti se prianjaju uz ivice i sredinu stranice, margine i druge objekte. Držite Alt da biste pomerali slobodno.
 	Page display	Prikaz strane

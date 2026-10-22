@@ -85,6 +85,7 @@
 	Click level to modify:	Clique no nível a modificar:
 	Click to switch back to inserting	Clique para voltar a inserir
 	Color only	Somente cor
+	Continue from previous section	Continuar da seção anterior
 	Custom dictionary	Dicionário personalizado
 	Define New Multilevel List	Definir nova lista de vários níveis
 	Define New Multilevel List…	Definir nova lista de vários níveis…
@@ -129,6 +130,8 @@
 	Outside border	Borda externa
 	Overtype	Sobrescrever
 	Overtype (typing replaces the characters after the caret)	Sobrescrever (o que você digita substitui os caracteres após o cursor)
+	Page Number Format	Formato do número de página
+	Page numbering	Numeração de páginas
 	Show alignment guides when moving pictures and shapes	Mostrar guias de alinhamento ao mover imagens e formas
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Os objetos movidos se encaixam nas bordas e no centro da página, nas margens e em outros objetos. Segure Alt para mover livremente.
 	Page display	Exibição da página

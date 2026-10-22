@@ -78,6 +78,7 @@
 	Click to switch back to inserting	按一下以切換回插入模式
 	Color only	僅色彩
 	Compress punctuation at the start of a line	壓縮行首標點
+	Continue from previous section	接續前一節
 	Couldn't make WordCraft the default: {error}	無法將 WordCraft 設為預設應用程式：{error}
 	Custom dictionary	自訂字典
 	Dark page (white text on black)	深色頁面（黑底白字）
@@ -136,6 +137,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	開啟「設定 › 預設應用程式」，在其中為 .docx 及其他文件類型選擇 WordCraft。
 	Overtype	取代
 	Overtype (typing replaces the characters after the caret)	取代（輸入的內容會取代插入點後的字元）
+	Page Number Format	頁碼格式
+	Page numbering	頁碼編號
 	Show alignment guides when moving pictures and shapes	移動圖片和圖案時顯示對齊參考線
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	移動的物件會貼齊頁面的邊緣和中心、邊界以及其他物件。按住 Alt 可自由移動。
 	Page display	頁面顯示

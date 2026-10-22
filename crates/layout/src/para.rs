@@ -93,6 +93,19 @@ pub struct StyleRun {
     pub shift: f32,
 }
 
+impl StyleRun {
+    /// How far the run reaches above and below the line's baseline. Word sizes a superscript
+    /// or subscript's line at the full font size and leaves out its raise or drop; only a
+    /// `w:position` raise or lowering counts (Word for Mac: an 11pt subscript beside 11pt text
+    /// keeps the 12.675pt line, and a line of 24pt subscript is as tall as plain 24pt text).
+    pub fn line_extent(&self) -> (f32, f32) {
+        let draw = self.rc.draw_size();
+        let k = if draw > 0.0 { self.rc.size / draw } else { 1.0 };
+        let raise = self.rc.position;
+        (self.ascent * k + raise.max(0.0), self.descent * k + (-raise).max(0.0))
+    }
+}
+
 /// A positioned glyph inside its cluster.
 #[derive(Clone, Copy, Debug)]
 pub struct Glyph {
@@ -289,7 +302,7 @@ impl Line {
     }
 }
 
-/// The list label drawn on the first line.
+/// The list label drawn on the first text line (after an opening page break, if any).
 #[derive(Clone, Debug)]
 pub struct Label {
     pub text: String,
@@ -1962,6 +1975,8 @@ fn ptab_stop(align: PTabAlign, base: PTabBase, leader: TabLeader, width: f32, in
     TabStop { pos, align, leader }
 }
 
+/// Break a paragraph into lines, measure each line, apply the paragraph's alignment and place
+/// the list label. Fills `pl.lines`, `pl.height` and the label's position.
 fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Option<&Level>) {
     // Narrow cells and float spans must retain their usable width.
     const MIN_LINE_WIDTH: f32 = 1.0;
@@ -2012,6 +2027,9 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
     let mut first_x0: Option<f32> = None;
     let mut hcache: Vec<(u32, u32, f32)> = Vec::new();
     let mut lines: Vec<Line> = Vec::new();
+    // The label is drawn on line 0 or, after an opening page break, line 1. Apply that
+    // line's alignment once both lines are known, before mirroring right-to-left labels.
+    let mut label_shifts = [0.0; 2];
     let mut i = 0usize;
     let mut top = 0.0f32;
     let mut first = true;
@@ -2405,7 +2423,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     }
                 } else {
                     // `obj_h` is set on text clusters only under ruby text, which the line grows to fit.
-                    ((st.ascent + st.shift.max(0.0)).max(c.obj_h + st.shift), st.descent + (-st.shift).max(0.0))
+                    let (a, d) = st.line_extent();
+                    (a.max(c.obj_h + st.shift), d)
                 };
                 asc = asc.max(a);
                 desc = desc.max(d);
@@ -2486,14 +2505,11 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             for v in xs.iter_mut().skip(align_from - c0) {
                 *v += shift;
             }
-            // The list label belongs to the start of the line: it moves with the text (Word keeps
-            // the bullet attached when a list item is centred or aligned to the end). After a tab
-            // stop in the line the label stays, as the text before the tab does.
-            if first
-                && last_tab.is_none()
-                && let Some(lab) = pl.label.as_mut()
+            // After a tab the label stays, as the text before the tab does.
+            if last_tab.is_none()
+                && let Some(label_shift) = label_shifts.get_mut(lines.len())
             {
-                lab.x += shift;
+                *label_shift = shift;
             }
         }
         let justify = display.is_none() && ((rp.align == Align::Justify && end == LineEnd::Wrap) || rp.align == Align::Distribute);
@@ -2637,11 +2653,15 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             }
         }
     }
-    if rtl_para && let Some(lab) = pl.label.as_mut() {
-        lab.x = width - lab.x - lab.width;
-    }
     pl.height = top;
     pl.lines = lines;
+    let label_shift = label_shifts.get(pl.label_line()).copied().unwrap_or(0.0);
+    if let Some(lab) = pl.label.as_mut() {
+        lab.x += label_shift;
+        if rtl_para {
+            lab.x = width - lab.x - lab.width;
+        }
+    }
 }
 
 /// Make a row's lines as tall as its tallest, and return that height.
