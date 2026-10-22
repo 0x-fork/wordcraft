@@ -733,7 +733,12 @@ fn call(name: &str, args: &[Expr], here: &Here) -> Result<f64, CmdError> {
                 let x = scalar(eval(a, here)?)?;
                 let digits = scalar(eval(b, here)?)?.clamp(-15.0, 15.0).trunc();
                 let scale = 10f64.powi(digits as i32);
-                finite((x * scale).round() / scale)
+                let scaled = x * scale;
+                if !scaled.is_finite() {
+                    // Too large to have a fractional part at this precision.
+                    return finite(x);
+                }
+                finite(scaled.round() / scale)
             }
             _ => Err(CmdError::Failed("ROUND takes two arguments".into())),
         },
@@ -818,6 +823,14 @@ mod tests {
         let t = table(&[&["1"], &["4"], &["7"], &[""]]);
         let err = ev(&t, 3, 0, "=MEDIAN(ABOVE)").err().map(|e| e.to_string()).unwrap_or_default();
         assert!(err.contains("MEDIAN"), "{err}");
+    }
+
+    #[test]
+    fn round_large_values_return_input() {
+        let t = table(&[&["1", "2"], &["3", "4"], &["", ""]]);
+        let big = format!("1{}", "0".repeat(300));
+        assert_eq!(ev(&t, 2, 0, &format!("=ROUND({big},15)")), Ok(1e300));
+        assert_eq!(ev(&t, 2, 0, &format!("=ROUND({big},2)")), Ok(1e300));
     }
 
     #[test]
