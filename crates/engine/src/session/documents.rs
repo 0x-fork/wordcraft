@@ -507,21 +507,8 @@ impl Session {
     /// The open document saved at `path`, if any: the same file reached by another spelling
     /// (`./a.docx`, a symbolic link) counts on desktop.
     pub fn find_open(&self, path: &FsPath) -> Option<u64> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let wanted = std::fs::canonicalize(path).ok();
-        #[cfg(target_arch = "wasm32")]
-        let wanted: Option<PathBuf> = None;
-        let same = |p: &FsPath| {
-            if p == path {
-                return true;
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Some(w) = &wanted {
-                return std::fs::canonicalize(p).ok().as_ref() == Some(w);
-            }
-            let _ = &wanted;
-            false
-        };
+        let wanted = crate::io::canonical(path);
+        let same = |p: &FsPath| p == path || wanted.is_some() && crate::io::canonical(p) == wanted;
         self.order.iter().copied().find(|&id| {
             if id == self.document_id {
                 self.path.as_deref().is_some_and(same)
