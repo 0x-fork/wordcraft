@@ -118,7 +118,7 @@ fn substitutes_by_name(family: &str) -> (&'static [&'static str], bool) {
         return (HEBREW, true);
     }
     if is_khmer(&f) {
-        return KHMER;
+        return (KHMER, true);
     }
     if is_persian_naskh(&f) {
         return (NASKH, true);
