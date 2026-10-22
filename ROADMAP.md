@@ -137,6 +137,8 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target on interactive Save (#2445). Save before Close waits for that write; cancel or failure keeps the draft and original file. This does not add binary Word output. Late Save As answers are rejected before writing if automation has replaced the document.
 
 - 2026-10-21: File › Recover follows the app theme (#3243, part of #2348): no black page or forced white text on the light theme
+- 2026-10-21: Screen readers: the ribbon's font name and size boxes, and the dropdown arrows beside them, say what they are (#3172). The
+  boxes announced themselves only as "edit" and the arrows beside them only as "button".
 - 2026-10-19: Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in.
 - 2026-10-19: Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey.
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
