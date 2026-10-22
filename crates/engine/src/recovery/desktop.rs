@@ -589,6 +589,51 @@ impl Recovery {
         self.revision = None;
         Ok(())
     }
+    /// Waits out any job already in flight (an autosave queued just before shutdown, say), then,
+    /// if the document turns out to need no recovery copy kept (not dirty, or password-protected
+    /// — [`tick`](Self::tick)'s own condition), discards it and waits for that too. Desktop hosts
+    /// call this before the process exits, the same as the print spooler's own pending-job wait
+    /// (`finish_pending_jobs`): otherwise a save that lands right before close can race the
+    /// process exiting before the now-redundant recovery copy is actually removed, so the *next*
+    /// launch wrongly offers to recover a document that was in fact saved cleanly.
+    pub fn finish(&mut self, s: &Session) -> Result<(), String> {
+        let mut error = None;
+        if self.busy {
+            let e = self.rx.recv().map_err(|e| e.to_string())?;
+            self.documents = e.documents;
+            self.busy = false;
+            self.ready = true;
+            // An in-flight job failing (e.g. a stray autosave) doesn't mean the document itself
+            // wasn't saved cleanly by an explicit Save — still try the discard below, so one
+            // doesn't keep the other from doing its job; log it once there's nothing further to do.
+            if let Err(e) = e.outcome {
+                error = Some(e);
+            }
+        }
+        // Same guard `tick` uses: a document switch with no regular tick in between to notice and
+        // reset `self.id` must not let the *new* document's clean state discard the *previous*
+        // document's still-live recovery copy under a stale identity.
+        if self.document == Some(s.document_id())
+            && let Some(id) = self.id.clone()
+            && (!s.dirty || s.password.is_some())
+        {
+            self.queue(Job::Discard(id))?;
+            let e = self.rx.recv().map_err(|e| e.to_string())?;
+            self.busy = false;
+            self.documents = e.documents;
+            match e.outcome {
+                Ok(_) => {
+                    self.id = None;
+                    self.revision = None;
+                }
+                Err(e) => error = Some(e),
+            }
+        }
+        match error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -666,6 +711,49 @@ mod tests {
         s.recovery.as_mut().unwrap().due = Instant::now();
         s.recovery_tick();
         settle(s);
+    }
+
+    /// #3140: a save that lands right before the app closes can race the process exiting before
+    /// the now-redundant recovery copy is actually removed, so the next launch wrongly offers to
+    /// recover a document that was in fact saved cleanly. `finish_recovery` (desktop hosts call it
+    /// on exit, the same as they wait for pending print jobs) must discard it synchronously
+    /// instead, with no regular tick in between — simulating closing right after Save, not after
+    /// however long it'd take the next normal autosave tick to notice and clean up.
+    #[test]
+    fn finish_recovery_discards_its_own_copy_for_a_document_saved_right_before_exit() {
+        let profile = Temp::new();
+        let mut s = session(&profile.0);
+        s.run("document.setText", &json!({"text": "About to be saved"})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1, "a recovery copy exists for the dirty document");
+        // A real Save does this, then the app can close on the very next frame, with no regular
+        // recovery_tick() in between to notice `!s.dirty` and queue the discard itself.
+        s.dirty = false;
+        assert_eq!(
+            s.recovery_documents().len(),
+            1,
+            "confirms the race: setting dirty=false alone (what Save does) doesn't discard anything by itself"
+        );
+        s.finish_recovery();
+        assert!(s.recovery_documents().is_empty(), "finish_recovery should have discarded the now-redundant copy before returning");
+    }
+
+    /// `tick` resets `self.id` the moment the session's document no longer matches what it last
+    /// saw (so it never discards under a stale identity); `finish_recovery` must guard the same
+    /// way. Switching documents and exiting immediately, with no regular tick in between to reset
+    /// that identity, must not let the *new* (clean, blank) document's state discard the
+    /// *previous* document's still-live recovery copy.
+    #[test]
+    fn finish_recovery_does_not_discard_a_previous_document_s_copy_after_switching() {
+        let profile = Temp::new();
+        let mut s = session(&profile.0);
+        s.run("document.setText", &json!({"text": "The document the user is still working on"})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1, "a recovery copy exists for the dirty document");
+        s.set_document(Document::new()); // e.g. File > New, with no tick() in between
+        assert!(!s.dirty, "a freshly switched-to document starts clean");
+        s.finish_recovery();
+        assert_eq!(s.recovery_documents().len(), 1, "switching to a new, unrelated document must not discard the previous one's recovery copy");
     }
 
     #[test]
