@@ -25,7 +25,7 @@ Exact line spacing keeps the run font baseline around tall equations; automatic 
 | 2026-10-16 | trivial | Split-cell content retains its resolved top margin and border band on continuation pages, matching original Word Mac16.113.2 controls. Synthetic regressions cover margins, borders, line spacing and image frames. |
 | Hint-reliant CJK glyph outlines (DFKai-SB / 標楷體) | 🟡 | Required TrueType interpreter runs at units-per-em size; local Windows glyph-bounds regression and synthetic DOCX page/window comparison pass. Other platforms and hint-reliant families remain unmeasured; no native Word comparison. | — |
 | Subpoint table grid columns | 🟡 | Preserve positive grid widths rather than imposing a text-box minimum; ECMA-376 §17.4.16. Native Word for Mac 16.113.2 build26092012 confirms narrow trailing grid units. `layout::tests::subpoint_grid_keeps_widths`, `tiny_grid_scales_to_width`. Tiny totals normalize without overflowing the scale factor. Zero and invalid widths retain their fallback. Border painting remains separate. | n/a |
-| Line breaking (UAX #14 with Word's exceptions: no break after `/`) | ✅ | `layout::tests::no_line_break_right_after_a_slash` | — |
+| Line breaking (UAX #14 with Word's exceptions: no break after `/`, a break after `-` before a digit) | ✅ | `layout::tests::no_line_break_right_after_a_slash`, `layout::tests::a_hyphen_before_digits_is_a_break_opportunity_like_word` | — |
 | A break before a slash that starts a word (" /word" wraps whole; not after a no-break space) | 🟡 | `layout::tests::a_word_after_a_slash_wraps_whole`, `layout::tests::a_no_break_space_before_a_slash_still_holds`; behaviour from the #2963 report, not compared with Word yet | — |
 | Narrow table cells | ✅ | `layout::tests::narrow_cells_keep_their_width`: usable widths below 12 pt wrap without expansion; oversized glyphs still make progress | 0 |
 | Justification, Word 2013+ space shrinking (compat mode 15) | ✅ | #109 | — |
@@ -218,6 +218,7 @@ Page-relative footer tables keep their physical wrap bounds without adding to fo
 |---|---|---|
 | 2026-10-19 | trivial | A right, centre or decimal tab whose text doesn't fit, or a left tab past the right indent, starts the next line with its text instead of ending the line (a TOC entry's page number keeps its leader); a left tab still past the right indent there takes no room (#1840) |
 | 2026-10-17 | trivial | A float above its anchor whose wrap pushes the anchor onto the next page settles with no text under it on any page (#2048 review) |
+| 2026-10-17 | trivial | A line breaks after a hyphen before a digit, like Word (#2712) |
 | 2026-10-15 | trivial | A float placed above its anchor paragraph (fixed on the page, or moved up from it) has the text of the paragraphs above the anchor on its page wrap around it, as in Word, instead of running behind it (#2048) |
 | 2026-10-18 | trivial | A word after a slash (" /word") wraps whole instead of splitting between two letters (#2963) |
 | 2026-10-15 | trivial | An at-least table row with less room than its minimum on a page that holds something starts the next page whole, as checked in Word (#1742); the taller-than-a-page case (it then splits from the top of that page) and repeated header rows (they go with it) follow the issue and synthetic tests, not a Word check |

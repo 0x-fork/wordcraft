@@ -523,6 +523,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
 | 2026-10-17 | trivial | Progress log: #2048 entry covers anchors pushed onto the next page |
+| 2026-10-17 | trivial | A line breaks after a hyphen before a digit, like Word (#2712) |
 | 2026-10-15 | trivial | Progress log: text above a float's anchor wraps around it, #2048 |
 | 2026-10-18 | trivial | Progress log: long navigation headings wrap within the pane instead of ending in an ellipsis (#3015) |
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |
