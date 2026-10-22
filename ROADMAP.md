@@ -137,6 +137,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target on interactive Save (#2445). Save before Close waits for that write; cancel or failure keeps the draft and original file. This does not add binary Word output. Late Save As answers are rejected before writing if automation has replaced the document.
 
 - 2026-10-21: File › Recover follows the app theme (#3243, part of #2348): no black page or forced white text on the light theme
+- 2026-10-20: A picture cropped to a sliver of its source (under 5% of an axis) is drawn at the size the file gives, on screen and in PDF: a header bar cropped to 2.7% of a page-sized WMF is no longer half as tall, so the name in the text box over it shows (#1899).
 - 2026-10-19: Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in.
 - 2026-10-19: Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey.
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
@@ -524,6 +525,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 |---|---|---|
 | 2026-10-21 | trivial | Progress log: File › Recover follows the app theme (#3243) |
 | 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
+| 2026-10-20 | trivial | Progress log: a picture cropped to a sliver of its source is drawn at the size the file gives (#1899) |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
 | 2026-10-17 | trivial | Progress log: #2048 entry covers anchors pushed onto the next page |

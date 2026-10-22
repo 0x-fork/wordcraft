@@ -930,9 +930,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 return;
             };
             let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
-            let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { v.clamp(0.0, 0.95) as f64 } else { 0.0 });
-            let vis_w = (1.0 - cl - cr).max(0.05);
-            let vis_h = (1.0 - ct - cb).max(0.05);
+            let [cl, ct, vis_w, vis_h] = wordcraft_metafile::crop_window(*crop);
             let sx = r.width() / (pw * vis_w);
             let sy = r.height() / (ph * vis_h);
             ctx.set_transform(view);
@@ -1909,6 +1907,50 @@ mod tests {
         let left = img.pixel((rect.x + rect.w * 0.25) as u32, y);
         assert!(right[0] > 200 && right[1] < 60 && right[2] < 60, "right half should be red: {right:?}");
         assert!(left[..3].iter().all(|c| *c > 200), "left half should be paper, not the grey box: {left:?}");
+    }
+
+    /// #1899: a crop that keeps a sliver of the picture (3% here; a header's bar can be 2.7% of a
+    /// page-sized metafile) stretches that sliver over the frame, as the file says, for vector and
+    /// bitmap pictures alike. Both pictures are paper on the left half and red on the right.
+    #[test]
+    fn a_crop_keeping_a_sliver_fills_the_frame_with_it() {
+        let mut png = Vec::new();
+        image::RgbaImage::from_fn(100, 100, |x, _| image::Rgba(if x >= 50 { [255, 0, 0, 255] } else { [255; 4] }))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        for (bytes, ext) in [(red_right_half_emf(), "emf"), (png, "png")] {
+            // (crop, where in the frame, red?): 47–50% of the source is all paper; 50–53% all red.
+            for (crop, at, red) in [([0.47, 0.47, 0.5, 0.5], 0.7, false), ([0.5, 0.47, 0.47, 0.5], 0.3, true)] {
+                let mut d = Document::new();
+                let media = d.add_media(bytes.clone(), ext);
+                let mut p = wordcraft_doc::Paragraph::new();
+                let obj = wordcraft_doc::para::InlineObject::Image {
+                    media,
+                    w: 70.0,
+                    h: 70.0,
+                    alt: String::new(),
+                    float: Default::default(),
+                    crop,
+                    ole: None,
+                };
+                p.insert_object(0, obj, &Default::default()).unwrap();
+                d.body = vec![wordcraft_doc::para_block(p)];
+                let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+                let opts = RenderOptions::default();
+                let rect = page_display(&d, &l.pages[0], &opts.display)
+                    .iter()
+                    .find_map(|i| match i {
+                        Draw::Image { rect, .. } => Some(*rect),
+                        _ => None,
+                    })
+                    .expect("a picture on the page");
+                let img = render_page(&d, &l.pages[0], 1.0, &opts);
+                let px = img.pixel((rect.x + rect.w * at) as u32, (rect.y + rect.h * at) as u32);
+                let is_red = px[0] > 200 && px[1] < 60 && px[2] < 60;
+                let is_paper = px[..3].iter().all(|c| *c > 200);
+                assert!(if red { is_red } else { is_paper }, "{ext} crop {crop:?} at {at}: {px:?}");
+            }
+        }
     }
 
     #[test]

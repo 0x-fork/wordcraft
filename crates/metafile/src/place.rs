@@ -11,6 +11,25 @@ pub const MAX_BITMAP_SIDE: u32 = 30_000;
 const MAX_COORD: f64 = 1e6;
 /// Smallest placed bitmap side (target units), so the stretch onto it is never singular.
 const MIN_BITMAP_SIDE: f64 = 1e-6;
+/// The least of a source axis a crop keeps (0.5%). Files crop pictures to slivers (a header bar
+/// that is 2.7% of a page-sized metafile, #1899). Layout makes a picture's frame at most 4000 pt
+/// a side, so the whole source then spans at most 800,000 pt: what it covers stays inside
+/// `MAX_COORD` and is never left out as far off the page.
+const MIN_VISIBLE: f64 = 0.005;
+
+/// The part of a picture's source that `crop` (left, top, right, bottom fractions of the source)
+/// keeps, as fractions of the source: [left, top, width, height], bitmap or metafile alike. Each
+/// side is taken as 0–1 (junk as 0). When the two sides of an axis leave less than 0.5% of it,
+/// the left (top) side stands and 0.5% shows.
+pub fn crop_window(crop: [f32; 4]) -> [f64; 4] {
+    let [l, t, r, b] = crop.map(|v| if v.is_finite() { f64::from(v.clamp(0.0, 1.0)) } else { 0.0 });
+    let axis = |lo: f64, hi: f64| {
+        let lo = lo.min(1.0 - MIN_VISIBLE);
+        (lo, (1.0 - lo - hi).max(MIN_VISIBLE))
+    };
+    let ((x, w), (y, h)) = (axis(l, r), axis(t, b));
+    [x, y, w, h]
+}
 
 /// One item of a placed picture, in target units.
 pub enum PlacedItem {
@@ -96,10 +115,10 @@ impl Picture {
     /// The transform that fits the picture into `r` with the crop fractions `crop` (left, top, right,
     /// bottom) removed first: the visible part fills `r`. None for a degenerate size.
     pub fn fit(&self, r: Rect, crop: [f32; 4]) -> Option<Affine> {
-        let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { f64::from(v.clamp(0.0, 0.95)) } else { 0.0 });
+        let [cl, ct, vw, vh] = crop_window(crop);
         let (w, h) = (f64::from(self.width), f64::from(self.height));
-        let sx = r.width() / (w * (1.0 - cl - cr).max(0.05));
-        let sy = r.height() / (h * (1.0 - ct - cb).max(0.05));
+        let sx = r.width() / (w * vw);
+        let sy = r.height() / (h * vh);
         (sx.is_finite() && sy.is_finite() && sx > 0.0 && sy > 0.0)
             .then(|| Affine::translate((r.x0 - cl * w * sx, r.y0 - ct * h * sy)) * Affine::scale_non_uniform(sx, sy))
     }

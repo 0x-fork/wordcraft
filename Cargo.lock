@@ -5326,6 +5326,7 @@ dependencies = [
  "wordcraft-doc",
  "wordcraft-fonts",
  "wordcraft-geom",
+ "wordcraft-metafile",
  "wordcraft-proof",
 ]
 
