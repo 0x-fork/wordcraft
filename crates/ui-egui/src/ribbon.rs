@@ -676,7 +676,7 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 12] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 16] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("en-AU", "English (Australia)"),
@@ -689,6 +689,10 @@ pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 12] = [
     ("ru-RU", "Russian"),
     ("cs-CZ", "Czech"),
     ("id-ID", "Indonesian"),
+    ("es-ES", "Spanish (Spain)"),
+    ("es-MX", "Spanish (Mexico)"),
+    ("es-419", "Spanish (Latin America)"),
+    ("es-UY", "Spanish (Uruguay)"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -729,6 +733,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
             wordcraft_engine::proof::ProofLang::Ru => "Russian".into(),
             wordcraft_engine::proof::ProofLang::Cs => "Czech".into(),
             wordcraft_engine::proof::ProofLang::Id => "Indonesian".into(),
+            wordcraft_engine::proof::ProofLang::Es => "Spanish (Spain)".into(),
             wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
             _ => tag.to_string(),
         },
@@ -851,6 +856,7 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
             || (tag == "tr-TR" && current.eq_ignore_ascii_case("tr"))
             || (tag == "cs-CZ" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Cs)
             || (tag == "id-ID" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Id)
+            || (tag == "es-ES" && current.eq_ignore_ascii_case("es"))
             || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
     };
     let checks = language_checks(&current, listed);
@@ -3115,6 +3121,26 @@ mod tests {
         for tag in ["id", "id-ID", "ID-id", "ind", "in"] {
             assert_eq!(language_name(Some(tag)), "Indonesian", "{tag}");
         }
+    }
+
+    /// #3360, #3553: the Spanishes WordCraft proofs are in the menu, checked by their tags; other
+    /// Spanish regions show by name, and a bare `es` is Spain's.
+    #[test]
+    fn spanish_varieties_are_in_the_language_menu() {
+        for (tag, name) in
+            [("es-ES", "Spanish (Spain)"), ("es-MX", "Spanish (Mexico)"), ("es-419", "Spanish (Latin America)"), ("es-UY", "Spanish (Uruguay)")]
+        {
+            assert!(PROOFING_LANGUAGES.contains(&(tag, name)), "{tag}");
+            assert!(crate::dialogs_layout::LANGUAGES.contains(&(tag, name)), "{tag}");
+            assert_eq!(language_name(Some(tag)), name);
+            let c = language_checks(&tag.to_ascii_lowercase(), |t| t.eq_ignore_ascii_case(tag));
+            assert_eq!((c.extra, c.listed), (None, PROOFING_LANGUAGES.map(|(t, _)| t == tag)), "{tag}");
+        }
+        assert_eq!(language_name(Some("es")), "Spanish (Spain)");
+        assert_eq!(language_name(Some("es-AR")), "Spanish (Argentina)");
+        let c = language_checks("es-AR", |t| t.eq_ignore_ascii_case("es-AR"));
+        assert_eq!(c.extra.as_deref(), Some("Spanish (Argentina)"));
+        assert!(!c.listed.contains(&true));
     }
 
     #[test]
