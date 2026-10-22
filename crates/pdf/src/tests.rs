@@ -1077,6 +1077,44 @@ fn cosmetic_metafile_pens_are_thin_but_visible() {
     assert!(raw.contains("0.25 w"), "the hairline is a quarter point wide");
 }
 
+/// EMF text records: EXTCREATEFONTINDIRECTW (Arial, 20 units high) in slot 1, SELECTOBJECT,
+/// SETTEXTCOLOR (black), then EXTTEXTOUTW `text` at (5, 40) with no dx array.
+fn emf_text_records(text: &str) -> Vec<Vec<u8>> {
+    let mut font = [82i32.to_le_bytes(), 104u32.to_le_bytes(), 1i32.to_le_bytes(), (-20i32).to_le_bytes()].concat();
+    font.extend([0i32, 0, 0, 400, 0, 0].iter().flat_map(|v| v.to_le_bytes()));
+    let mut name: Vec<u8> = "Arial".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    name.resize(64, 0);
+    font.extend(name);
+    let units: Vec<u8> = text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let padded = units.len().div_ceil(4) * 4;
+    let mut out = [84u32.to_le_bytes(), ((76 + padded) as u32).to_le_bytes()].concat();
+    out.extend([0i32, 0, 100, 100, 1, 0, 0, 5, 40, text.encode_utf16().count() as i32, 76, 0, 0, 0, 0, 0, 0].iter().flat_map(|v| v.to_le_bytes()));
+    out.extend(units);
+    out.resize(76 + padded, 0);
+    vec![font, emf_rec(37, &[1]), emf_rec(24, &[0]), out]
+}
+
+/// #1764: the text of an EMF picture (EXTTEXTOUTW) is drawn, so it is in the PDF's text layer.
+#[test]
+fn metafile_text_records_are_drawn_as_text() {
+    let mut recs = emf_text_records("Cell42");
+    recs.push(emf_rec(14, &[0; 3]));
+    let mut d = Document::new();
+    let media = d.add_media(emf_file(&recs), "emf");
+    let mut p = Paragraph::with_text("Figure: ", CharProps::default());
+    let n = p.len();
+    p.insert_object(
+        n,
+        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        &CharProps::default(),
+    )
+    .unwrap();
+    d.body = vec![para_block(p)];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap();
+    let text = extract_text(&bytes).concat();
+    assert!(text.contains("Cell42"), "the metafile's text is drawn: {text:?}");
+}
+
 /// #455: a link to a bookmark after a page break inside its paragraph goes to the page the
 /// bookmark is on, not the paragraph's first page.
 #[test]
