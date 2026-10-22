@@ -70,6 +70,10 @@ fn link_definition(line: &str) -> Option<(String, String)> {
     }
     let close = close?;
     let label = ref_label(t.get(1..close)?);
+    // `[^label]: ...` is a footnote definition, which this importer leaves as text.
+    if label.starts_with('^') {
+        return None;
+    }
     if label.is_empty() || t.as_bytes().get(close + 1) != Some(&b':') {
         return None;
     }
@@ -1653,6 +1657,10 @@ mod tests {
         // after a heading, and after another definition.
         let starts = "[a]: /a\n[b]: /b\n\n# Head\n[c]: /c\n\nSee [a], [b], [c].\n";
         assert_eq!(body(starts), "Head\nSee a, b, c.", "{:?}", body(starts));
+
+        // A footnote definition is not a link definition: it stays in the body.
+        let footnote = "x[^1]\n\n[^1]: Note\n";
+        assert!(body(footnote).contains("[^1]: Note"), "{:?}", body(footnote));
     }
 
     #[test]
