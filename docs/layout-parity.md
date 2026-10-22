@@ -219,10 +219,13 @@ The deleted/hidden-text wrapping, ellipse wrapping and widow-control regressions
 
 The legacy text-shadow control compares visible grey pixels with a translated Art-path mask. Foreground occlusion makes visible pixel centroids unsuitable for measuring the shadow offset. A reversed-offset mutation must fail this spatial check. Renderer behavior is unchanged.
 
+Installed static fonts also resolve by their OpenType PostScript name (name ID 6), retaining the named face rather than substituting an unrelated family. Missing faces still use the existing fallback rules. A local Best for printing control from Word for Mac 16.113.2 (build 26092012) retained the directly requested Cambria-Bold face.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-16 | trivial | Exact PostScript names resolve installed static faces without changing family lookup |
 | 2026-10-21 | trivial | Pin the font input of four geometric layout controls; assertions and renderer font policy unchanged. |
 | 2026-10-20 | trivial | A click below a floating table, outside its cells, goes to the paragraph beside or after it instead of a cell of its last row, as checked in Word (#2038) |
 | 2026-10-19 | trivial | A right, centre or decimal tab whose text doesn't fit, or a left tab past the right indent, starts the next line with its text instead of ending the line (a TOC entry's page number keeps its leader); a left tab still past the right indent there takes no room (#1840) |
