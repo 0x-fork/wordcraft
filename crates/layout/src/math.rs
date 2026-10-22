@@ -113,6 +113,16 @@ impl MathLayout {
     pub fn hit(&self, x: f32, y: f32) -> Option<&Slot> {
         self.slots.iter().min_by(|a, b| slot_dist(a, x, y).total_cmp(&slot_dist(b, x, y)))
     }
+    /// The extent of the argument at `path` (a numerator, a radicand…): left and right x, and
+    /// how far it reaches above and below the equation's baseline. Spans its caret positions,
+    /// within the equation.
+    pub fn arg_extent(&self, path: &[(usize, usize)]) -> Option<(f32, f32, f32, f32)> {
+        let mut slots = self.slots.iter().filter(|s| s.path == path);
+        let first = slots.next()?;
+        let init = (first.x, first.x, first.y + first.a, first.d - first.y);
+        let (x0, x1, up, down) = slots.fold(init, |(x0, x1, up, down), s| (x0.min(s.x), x1.max(s.x), up.max(s.y + s.a), down.max(s.d - s.y)));
+        Some((x0, x1, up.min(self.ascent), down.min(self.descent)))
+    }
 }
 
 fn slot_dist(s: &Slot, x: f32, y: f32) -> f32 {
@@ -2238,6 +2248,23 @@ mod tests {
         let den = m.slots.iter().find(|s| s.path == vec![(1, 1)]).unwrap();
         let hit = m.hit(den.x + 1.0, den.y).unwrap();
         assert_eq!(hit.path, vec![(1, 1)]);
+    }
+
+    #[test]
+    fn an_arguments_extent_spans_its_caret_positions() {
+        let math = Math { nodes: wordcraft_doc::math::parse_linear("y=(a+b)/c"), ..Default::default() };
+        let m = layout_equation(&math, "", &rc(), true, 400.0, &MathProps::default(), &mut 0);
+        let (nx0, nx1, nup, ndown) = m.arg_extent(&[(1, 0)]).unwrap();
+        let (dx0, dx1, dup, ddown) = m.arg_extent(&[(1, 1)]).unwrap();
+        // The numerator sits above the baseline and the denominator below it, both inside the equation.
+        assert!(nx0 > 0.0 && nx1 > nx0 && nx1 <= m.width, "{nx0} {nx1} {}", m.width);
+        assert!(dx1 > dx0 && dx1 <= m.width);
+        assert!(-ndown > 0.0 && nup <= m.ascent + 0.01, "numerator {nup} {ndown}");
+        assert!(dup < -ndown && ddown > 0.0 && ddown <= m.descent + 0.01, "denominator {dup} {ddown}");
+        // The whole equation's argument is as wide as the equation.
+        let (x0, x1, ..) = m.arg_extent(&[]).unwrap();
+        assert!(x0.abs() < 0.01 && (x1 - m.width).abs() < 0.01, "{x0} {x1} {}", m.width);
+        assert!(m.arg_extent(&[(9, 0)]).is_none());
     }
 
     #[test]

@@ -105,6 +105,9 @@ pub struct CanvasState {
     pub context_menu_from_keys: bool,
     /// Where the context menu stands: the right-click point, or below the caret.
     pub context_menu_at: Option<Pos2>,
+    /// The frame drawn around the equation being edited, on screen (its options strip opens the
+    /// equation's menu).
+    pub eq_options: Option<EquationFrame>,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
     /// The selection the mini toolbar was put away for by a click outside the document (the
@@ -262,6 +265,7 @@ impl Default for CanvasState {
             context_menu_open: false,
             context_menu_from_keys: false,
             context_menu_at: None,
+            eq_options: None,
             mini_anchor: None,
             mini_dismissed: None,
             pasted: false,
@@ -1485,19 +1489,46 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // After an automatic change, the web's text agent starts afresh (`keys::note_automatic_change`).
         // Only there: on X11 an interrupt recreates the input context and fcitx drops later keys (#1169).
         let ime_reset = std::mem::take(&mut app.canvas.ime_reset) && cfg!(target_arch = "wasm32") && app.canvas.ime_preedit.is_empty();
-        // Editing an equation: shade it and draw the caret inside it.
+        // Editing an equation: frame it as Word does (a box as tall as its line, a grip at its
+        // top left, an options strip at its right) and draw the caret inside it.
         let mut math_caret = false;
+        app.canvas.eq_options = None;
         if let Some(m) = app.session.math.clone()
-            && let Some((pi, ex, base, ml)) = layout.equation_geom(&m.at, app.session.page_hint)
-            && let Some(pr) = rects.get(pi)
+            && let Some(bx) = layout.equation_box(&m.at, app.session.page_hint)
+            && let Some(pr) = rects.get(bx.page)
         {
             math_caret = true;
+            let (pi, ex, base, ml) = (bx.page, bx.x, bx.base, bx.math.clone());
             let s = geo.scale;
-            let zone = Rect::from_min_max(
-                pos2(pr.min.x + ex * s - 2.0, pr.min.y + (base - ml.ascent) * s - 2.0),
-                pos2(pr.min.x + (ex + ml.width) * s + 2.0, pr.min.y + (base + ml.descent) * s + 2.0),
-            );
-            painter.rect_filled(zone, 2.0, Color32::from_black_alpha(16));
+            let frame = equation_frame(*pr, &bx, s);
+            // The argument the caret is in (a numerator, a radicand…) is shaded.
+            if !m.pos.path.is_empty()
+                && let Some((x0, x1, up, down)) = ml.arg_extent(&m.pos.path)
+            {
+                let arg = Rect::from_min_max(
+                    pos2(pr.min.x + (ex + x0) * s, pr.min.y + (base - up) * s),
+                    pos2(pr.min.x + (ex + x1) * s, pr.min.y + (base + down) * s),
+                );
+                painter.rect_filled(arg.expand(1.0), 0.0, Color32::from_black_alpha(26));
+            }
+            painter.rect_filled(frame.strip, 0.0, t.equation_box.gamma_multiply(0.35));
+            let (c, w) = (frame.strip.center(), frame.strip.width() * 0.3);
+            painter.add(egui::Shape::convex_polygon(
+                vec![pos2(c.x - w, c.y - w * 0.6), pos2(c.x + w, c.y - w * 0.6), pos2(c.x, c.y + w * 0.6)],
+                t.equation_box,
+                Stroke::NONE,
+            ));
+            painter.rect_stroke(frame.outline, 2.0, Stroke::new(1.0, t.equation_box), egui::StrokeKind::Inside);
+            painter.rect_filled(frame.grip, 1.0, Color32::WHITE);
+            painter.rect_stroke(frame.grip, 1.0, Stroke::new(1.0, t.equation_box), egui::StrokeKind::Inside);
+            for k in 0..3 {
+                painter.circle_filled(
+                    pos2(frame.grip.center().x, frame.grip.min.y + frame.grip.height() * (k as f32 + 1.0) / 4.0),
+                    0.9,
+                    t.equation_box,
+                );
+            }
+            app.canvas.eq_options = Some(frame);
             if let Some(slot) = ml.slot(&m.pos.path, m.pos.off) {
                 let x = (pr.min.x + (ex + slot.x) * s).round() + 0.5;
                 let y0 = pr.min.y + (base - slot.y - slot.a) * s;
@@ -1715,13 +1746,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
     let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
+    // A click on the equation frame's options strip opens the equation's menu below the strip.
+    let eq_strip = app.canvas.eq_options.map(|f| f.strip).filter(|r| resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| r.contains(p)));
     if from_keys {
         context_suggestions(app);
         app.canvas.context_menu_at = caret_screen(app).map(|(p, h)| p + egui::vec2(0.0, h));
+    } else if let Some(r) = eq_strip {
+        app.canvas.context_menu_at = Some(r.left_bottom());
     } else if secondary_clicked {
         app.canvas.context_menu_at = resp.interact_pointer_pos();
     }
-    let open = if secondary_clicked || from_keys {
+    let open = if secondary_clicked || from_keys || eq_strip.is_some() {
         Some(egui::SetOpenCommand::Bool(true))
     } else if resp.clicked() {
         Some(egui::SetOpenCommand::Bool(false))
@@ -2364,8 +2399,10 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     let Some((page, x, y)) = page_at(rects, layout, scale, p) else { return };
     let mods = ui.input(|i| i.modifiers);
     let story = app.session.sel.focus.story;
-    // Inside an equation, clicks place the caret in it (and double-clicks don't select words).
-    if (resp.double_clicked() || resp.triple_clicked()) && layout.equation_hit(page, x, y, story).is_some() {
+    // Inside an equation, clicks place the caret in it (and double-clicks don't select words);
+    // so do clicks on the grip and options strip of its frame.
+    let on_frame = app.canvas.eq_options.is_some_and(|f| f.strip.contains(p) || f.grip.contains(p));
+    if (resp.double_clicked() || resp.triple_clicked()) && (on_frame || layout.equation_hit(page, x, y, story).is_some()) {
         return;
     }
     // Outline view: a paragraph's symbol selects it with what is under it; a double-click
@@ -2438,6 +2475,11 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         return;
     }
     let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);
+    // The equation frame's grip and options strip stay in the equation (the strip's click opens
+    // its menu, in `show`).
+    if pressed && on_frame {
+        return;
+    }
     if pressed {
         let now = ui.input(|i| i.time);
         let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
@@ -3346,6 +3388,29 @@ pub(crate) fn caret_contrast(bg: wordcraft_doc::props::Rgb) -> Color32 {
 /// The caret colour at page point (`x`, `y`) of page `page`: [`caret_contrast`] of the paper,
 /// shading or highlight there. Cached until the layout, the view or the point changes, so the
 /// blink doesn't rebuild the page's draw list every frame.
+/// The frame around the equation being edited, on screen: Word's outline, the grip at its top
+/// left and the options strip inside its right edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EquationFrame {
+    pub outline: Rect,
+    pub grip: Rect,
+    pub strip: Rect,
+}
+
+/// Lay the frame out around `bx` on the page drawn at `page` (`scale` screen pixels a point):
+/// the equation's width and its line's height, plus the strip; the frame's pieces keep their
+/// screen size at every zoom.
+fn equation_frame(page: Rect, bx: &wordcraft_layout::hit::EquationBox, scale: f32) -> EquationFrame {
+    let (pad, strip_w) = (2.0, 10.0);
+    let x0 = page.min.x + bx.x * scale - pad;
+    let x1 = page.min.x + (bx.x + bx.math.width) * scale + pad;
+    let (top, bottom) = (page.min.y + bx.top * scale - pad, page.min.y + bx.bottom * scale + pad);
+    let outline = Rect::from_min_max(pos2(x0, top), pos2(x1 + strip_w, bottom));
+    let strip = Rect::from_min_max(pos2(x1, top), pos2(x1 + strip_w, bottom));
+    let grip = Rect::from_min_size(pos2(x0 - 5.0, top - 3.0), vec2(7.0, 14.0));
+    EquationFrame { outline, grip, strip }
+}
+
 fn caret_color_at(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, page: usize, x: f32, y: f32, view: u64, dim_body: bool) -> Color32 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (std::sync::Arc::as_ptr(layout) as usize, page, x.to_bits(), y.to_bits(), view).hash(&mut h);
@@ -4861,6 +4926,25 @@ mod tests {
 
     /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
     /// mouse's way to it), so it opens the same menu and leaves the caret where the menu needs it.
+    /// Word's frame around the equation being edited: as wide as the equation plus the options
+    /// strip at its right, as tall as its line, with the grip over its top-left corner. The
+    /// strip and grip keep their screen size at every zoom.
+    #[test]
+    fn the_equation_frame_holds_the_equation_and_its_strip() {
+        let math = wordcraft_layout::math::MathLayout { width: 40.0, ascent: 10.0, descent: 5.0, ..Default::default() };
+        let bx = wordcraft_layout::hit::EquationBox { page: 0, x: 100.0, base: 90.0, top: 76.0, bottom: 98.0, math: std::sync::Arc::new(math) };
+        let page = Rect::from_min_size(pos2(10.0, 20.0), vec2(600.0, 800.0));
+        for scale in [1.0, 2.5] {
+            let f = equation_frame(page, &bx, scale);
+            let (left, right) = (10.0 + 100.0 * scale, 10.0 + 140.0 * scale);
+            assert!(f.outline.min.x < left && f.strip.min.x > right && f.strip.max.x == f.outline.max.x, "{f:?}");
+            assert!(f.outline.min.y < 20.0 + 76.0 * scale && f.outline.max.y > 20.0 + 98.0 * scale, "{f:?}");
+            assert_eq!((f.strip.min.y, f.strip.max.y), (f.outline.min.y, f.outline.max.y));
+            assert!(f.grip.contains(f.outline.left_top() + vec2(1.0, 1.0)), "{f:?}");
+            assert_eq!(f.strip.width(), 10.0);
+        }
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn control_click_on_macos_opens_the_context_menu() {

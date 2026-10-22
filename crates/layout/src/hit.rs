@@ -20,6 +20,18 @@ pub struct Caret {
     pub width: f32,
 }
 
+/// An equation as [`DocLayout::equation_box`] finds it, in page coordinates: its left edge
+/// `x` and baseline `base`, the top and bottom of its line, and its layout (`math.width` wide).
+#[derive(Clone, Debug)]
+pub struct EquationBox {
+    pub page: usize,
+    pub x: f32,
+    pub base: f32,
+    pub top: f32,
+    pub bottom: f32,
+    pub math: std::sync::Arc<crate::math::MathLayout>,
+}
+
 /// Result of [`DocLayout::visual_step`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum VisualStep {
@@ -699,6 +711,12 @@ impl DocLayout {
     /// Where the equation at `pos` (its U+FFFC) is drawn: page, x of its left edge and its
     /// baseline (page coordinates), and its layout.
     pub fn equation_geom(&self, pos: &Pos, page_hint: usize) -> Option<(usize, f32, f32, std::sync::Arc<crate::math::MathLayout>)> {
+        self.equation_box(pos, page_hint).map(|b| (b.page, b.x, b.base, b.math))
+    }
+
+    /// The box around the equation at `pos` (its U+FFFC): its own width, and the height of its
+    /// line (Word frames the equation the caret is in this way), in page coordinates.
+    pub fn equation_box(&self, pos: &Pos, page_hint: usize) -> Option<EquationBox> {
         for (pi, it) in self.pieces(pos.story, &pos.path, page_hint) {
             // Equations in turned text aren't edited in place.
             let Placed::Lines { para, l0, l1, x, y, turn: TextDirection::Horizontal, .. } = it else { continue };
@@ -714,10 +732,14 @@ impl DocLayout {
                 if c.start != pos.off {
                     continue;
                 }
-                let ml = para.maths.iter().find(|(o, _)| *o == oi)?.1.clone();
+                let math = para.maths.iter().find(|(o, _)| *o == oi)?.1.clone();
                 let cx = l.cl_left(k)?;
-                let base = y + (l.baseline - first.top);
-                return Some((pi, x + cx, base, ml));
+                let top = y + (l.top - first.top);
+                let base = top + (l.baseline - l.top);
+                // A line holds its tallest piece, so it holds the equation too; `max` keeps
+                // the box around it should the line's own box come out shorter.
+                let (top, bottom) = ((base - math.ascent).min(top), (base + math.descent).max(top + l.height));
+                return Some(EquationBox { page: pi, x: x + cx, base, top, bottom, math });
             }
         }
         None
