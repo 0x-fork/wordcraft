@@ -258,6 +258,7 @@ Page-relative footer tables keep their physical wrap bounds without adding to fo
 | 2026-10-17 | trivial | Non-overlapping body floating tables clear header tables; overlapping tables keep their requested position |
 | 2026-10-16 | trivial | Synthetic regression confirms a fitting exact-height row containing overflowing pictures moves to the next page whole. Existing runtime behavior is unchanged. |
 | 2026-10-17 | trivial | An equation-array row without `&` is centred among aligned rows (#2617) |
+| 2026-10-15 | trivial | Keep-with-next lookahead uses copied list counters so list indents and label metrics match placement. An original regression keeps a heading with an indented list that needs two lines. |
 | 2026-10-15 | trivial | The caret, clicks and selection edges fall between the letters of a ligature (#1974) |
 | 2026-10-15 | trivial | Triple borders draw three lines (screen and PDF), not two (#1740) |
 | 2026-10-14 | trivial | Row table border exceptions draw without leaking into other rows |

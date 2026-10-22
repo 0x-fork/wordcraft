@@ -9740,3 +9740,50 @@ fn early_float_survives_a_column_break_into_another_width() {
         assert_eq!(got, want, "second column first: {skip}: the text after the break wraps around nothing");
     }
 }
+
+#[test]
+fn keep_next_counts_list_indent() {
+    use wordcraft_doc::props::{LineSpacing, NumRef};
+    let mut doc = Document::new();
+    doc.last_section.page_w = 240.0;
+    doc.last_section.page_h = 200.0;
+    doc.last_section.margin_top = 20.0;
+    doc.last_section.margin_bottom = 20.0;
+    doc.last_section.margin_left = 20.0;
+    doc.last_section.margin_right = 20.0;
+    let id = doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    let level = &mut doc.numbering.abstracts[0].levels[0];
+    level.indent = 100.0;
+    level.hanging = 0.0;
+    let props = ParaProps {
+        space_before: Some(0.0),
+        space_after: Some(0.0),
+        line_spacing: Some(LineSpacing::Exactly(12.0)),
+        widow_control: Some(true),
+        ..Default::default()
+    };
+    let para = |text: &str, props: ParaProps| {
+        let mut p =
+            Paragraph::with_text(text, wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() });
+        p.props = props;
+        wordcraft_doc::para_block(p)
+    };
+    doc.body = vec![
+        para("Filler", ParaProps { line_spacing: Some(LineSpacing::Exactly(136.0)), ..props.clone() }),
+        para("Heading", ParaProps { keep_next: Some(true), keep_lines: Some(true), ..props.clone() }),
+        para("Alpha beta gamma delta", ParaProps { numbering: Some(NumRef { num: id, level: 0 }), ..props }),
+    ];
+    let layout = lay(&doc);
+    assert_eq!(layout.caret(&Pos::body(2, 0)).unwrap().page, 1, "the indented list cannot start below the heading");
+    assert_eq!(layout.caret(&Pos::body(1, 0)).unwrap().page, 1, "the kept heading must follow it");
+    let labels: Vec<_> = layout
+        .pages
+        .iter()
+        .flat_map(|p| &p.items)
+        .filter_map(|item| match item {
+            Placed::Lines { para, .. } => para.label.as_ref().map(|label| label.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, ["1."], "lookahead must not consume a list counter");
+}
