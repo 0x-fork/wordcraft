@@ -77,6 +77,7 @@
 	Click to switch back to inserting	クリックすると挿入モードに戻ります
 	Color only	色のみ
 	Compress punctuation at the start of a line	行頭の約物を詰める
+	Continue from previous section	前のセクションから続ける
 	Couldn't make WordCraft the default: {error}	WordCraft を既定のアプリにできませんでした: {error}
 	Custom dictionary	ユーザー辞書
 	Dark page (white text on black)	ダーク ページ (黒地に白い文字)
@@ -135,6 +136,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	設定 › 既定のアプリ を開きます。そこで .docx などの文書の種類ごとに WordCraft を選びます。
 	Overtype	上書き
 	Overtype (typing replaces the characters after the caret)	上書き (入力した文字がカーソルの後ろの文字を置き換えます)
+	Page Number Format	ページ番号の書式
+	Page numbering	ページ番号
 	Show alignment guides when moving pictures and shapes	画像や図形を移動するときに配置ガイドを表示する
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	移動したオブジェクトは、ページの端と中央、余白、ほかのオブジェクトに吸着します。Alt キーを押しながら移動すると自由に動かせます。
 	Page display	ページの表示

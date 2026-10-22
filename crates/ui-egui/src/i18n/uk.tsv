@@ -87,6 +87,7 @@
 	Click level to modify:	Виберіть рівень для змінення:
 	Click to switch back to inserting	Клацніть, щоб повернутися до вставлення
 	Color only	Лише колір
+	Continue from previous section	Продовжити з попереднього розділу
 	Custom dictionary	Власний словник
 	Define New Multilevel List	Визначити новий багаторівневий список
 	Define New Multilevel List…	Визначити новий багаторівневий список…
@@ -131,6 +132,8 @@
 	Outside border	Зовнішня межа
 	Overtype	Заміна
 	Overtype (typing replaces the characters after the caret)	Заміна (введений текст замінює символи після курсора)
+	Page Number Format	Формат номерів сторінок
+	Page numbering	Нумерація сторінок
 	Show alignment guides when moving pictures and shapes	Показувати напрямні вирівнювання під час переміщення зображень і фігур
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Переміщувані об'єкти прилипають до країв і центру сторінки, полів та інших об'єктів. Утримуйте Alt, щоб переміщувати вільно.
 	Page display	Відображення сторінки

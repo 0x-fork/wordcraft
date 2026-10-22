@@ -82,6 +82,7 @@
 	Click level to modify:	Zu ändernde Ebene anklicken:
 	Color only	Nur Farbe
 	Compress punctuation at the start of a line	Satzzeichen am Zeilenanfang komprimieren
+	Continue from previous section	Fortlaufend vom vorherigen Abschnitt
 	Dark page (white text on black)	Dunkle Seite (weißer Text auf Schwarz)
 	Drag a rectangle to draw a table, or a line across cells to split them. Esc stops.	Ziehen Sie ein Rechteck, um eine Tabelle zu zeichnen, oder eine Linie über Zellen, um sie zu teilen. Esc beendet.
 	Draw Table	Tabelle zeichnen
@@ -113,6 +114,8 @@
 	Number style for this level:	Nummernstil für diese Ebene:
 	Only for the selected text	Nur für den ausgewählten Text
 	Outside border	Äußere Rahmenlinie
+	Page Number Format	Format der Seitenzahlen
+	Page numbering	Seitenzahlen
 	Reopen	Erneut öffnen
 	Restart list after:	Liste neu starten nach:
 	Right border	Rechte Rahmenlinie
