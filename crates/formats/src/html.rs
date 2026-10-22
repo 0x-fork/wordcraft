@@ -2063,7 +2063,9 @@ mod tests {
 
     #[test]
     fn small_big_and_css_font_sizes() {
-        let f = parse("<p><small>small</small> <big>big</big> <span style=\"font-size: xxx-large\">huge</span> <span style=\"font-size: smaller\">tiny</span></p>");
+        let f = parse(
+            "<p><small>small</small> <big>big</big> <span style=\"font-size: xxx-large\">huge</span> <span style=\"font-size: smaller\">tiny</span></p>",
+        );
         let FBlock::Para(p) = &f.blocks[0] else { panic!() };
         let sz = |i: usize| match &p.inlines[i] {
             Inline::Text(_, f) => f.size,
@@ -2077,7 +2079,9 @@ mod tests {
 
     #[test]
     fn css_important_casing_and_spacing() {
-        let f = parse("<p style='color: #ff0000 !IMPORTANT; font-size: 16pt ! important; font-weight: 700 !Important; text-align: center !IMPORTANT'>Styled</p>");
+        let f = parse(
+            "<p style='color: #ff0000 !IMPORTANT; font-size: 16pt ! important; font-weight: 700 !Important; text-align: center !IMPORTANT'>Styled</p>",
+        );
         assert_eq!(f.blocks.len(), 1);
         let p = match &f.blocks[0] {
             FBlock::Para(p) => p,

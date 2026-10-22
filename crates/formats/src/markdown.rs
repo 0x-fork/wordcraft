@@ -1123,8 +1123,9 @@ fn escape_line_start(s: String) -> String {
         || {
             let d = t.chars().take_while(|c| c.is_ascii_digit()).count();
             d > 0
-                && t.get(d..)
-                    .is_some_and(|r| r.starts_with(". ") || r.starts_with(") ") || r.starts_with(".\t") || r.starts_with(")\t") || r == "." || r == ")")
+                && t.get(d..).is_some_and(|r| {
+                    r.starts_with(". ") || r.starts_with(") ") || r.starts_with(".\t") || r.starts_with(")\t") || r == "." || r == ")"
+                })
         };
     if !needs {
         return if cols > 3 || lead.contains('\t') { format!("{indent}{t}") } else { s };
@@ -1807,10 +1808,8 @@ mod tests {
         let flow = parse(md);
         let FBlock::Table(t) = &flow.blocks[0] else { panic!("expected table") };
         assert_eq!(t.rows.len(), 2);
-        let aligns: Vec<Option<Align>> = t.rows[0]
-            .iter()
-            .map(|c| c.blocks.iter().find_map(|b| if let FBlock::Para(p) = b { Some(p.align) } else { None }).flatten())
-            .collect();
+        let aligns: Vec<Option<Align>> =
+            t.rows[0].iter().map(|c| c.blocks.iter().find_map(|b| if let FBlock::Para(p) = b { Some(p.align) } else { None }).flatten()).collect();
         assert_eq!(aligns, vec![Some(Align::Left), Some(Align::Center), Some(Align::Right), None]);
 
         let mut out = Vec::new();

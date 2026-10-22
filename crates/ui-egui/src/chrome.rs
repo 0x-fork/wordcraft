@@ -860,14 +860,8 @@ mod tests {
         });
         out.textures_delta.clear();
         let update = out.platform_output.accesskit_update.take().unwrap();
-        let focus = update
-            .nodes
-            .iter()
-            .find(|(_, node)| node.label() == Some("Focus"))
-            .unwrap_or_else(|| panic!("Focus is drawn"))
-            .1
-            .bounds()
-            .unwrap();
+        let focus =
+            update.nodes.iter().find(|(_, node)| node.label() == Some("Focus")).unwrap_or_else(|| panic!("Focus is drawn")).1.bounds().unwrap();
         let msg = ctx.read_response(status_message_id()).expect("the message is drawn");
         assert!(msg.rect.width() < whole, "the message is shortened: {:?} of {whole}", msg.rect);
         assert!(f64::from(msg.rect.right()) <= focus.x0, "the message stops before the Focus button: {:?} vs {}", msg.rect, focus.x0);
