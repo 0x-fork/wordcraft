@@ -3652,3 +3652,49 @@ fn shape_gradients_and_transparency_are_read_and_survive_saving() {
     check(&d);
     check(&wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap());
 }
+
+/// #3415: a table style's row and column band sizes (`w:tblStyleRowBandSize`,
+/// `w:tblStyleColBandSize`, ECMA-376 §17.7.6.5 and §17.7.6.7) are read, zero included, and left
+/// unset when the file has none, which is how Word reads it: no bands. A style based on one with
+/// sizes inherits them.
+#[test]
+fn table_style_band_sizes_read_as_word_reads_them() {
+    let band = r#"<w:tblStylePr w:type="band1Horz"><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="C1E4F5"/></w:tcPr></w:tblStylePr>"#;
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+ <w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/></w:style>
+ <w:style w:type="table" w:styleId="Missing"><w:name w:val="Missing"/><w:basedOn w:val="TableNormal"/>{band}</w:style>
+ <w:style w:type="table" w:styleId="One"><w:name w:val="One"/><w:basedOn w:val="TableNormal"/><w:tblPr><w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/></w:tblPr>{band}</w:style>
+ <w:style w:type="table" w:styleId="Zero"><w:name w:val="Zero"/><w:basedOn w:val="One"/><w:tblPr><w:tblStyleRowBandSize w:val="0"/></w:tblPr></w:style>
+ <w:style w:type="table" w:styleId="Child"><w:name w:val="Child"/><w:basedOn w:val="One"/>{band}</w:style>
+</w:styles>"#
+    );
+    let d = wordcraft_docx::read(&docx("<w:p/>", &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+    let sizes = |id: &str| d.styles.table_style(id).map(|t| (t.parts.band_size, t.parts.col_band_size));
+    assert_eq!(sizes("Missing"), Some((None, None)), "no sizes: no bands, as in Word");
+    assert_eq!(sizes("One"), Some((Some(1), Some(1))));
+    assert_eq!(sizes("Zero"), Some((Some(0), Some(1))));
+    assert_eq!(sizes("Child"), Some((Some(1), Some(1))), "inherited");
+    // Written back as read: still no sizes where there were none.
+    let xml = text(&unzip(&wordcraft_docx::write(&d).unwrap()), "word/styles.xml");
+    let style = |id: &str| {
+        let start = xml.find(&format!(r#"w:styleId="{id}""#)).unwrap();
+        xml[start..start + xml[start..].find("</w:style>").unwrap()].to_string()
+    };
+    assert!(!style("Missing").contains("BandSize"), "{}", style("Missing"));
+    assert!(style("One").contains(r#"<w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/>"#), "{}", style("One"));
+    assert!(style("Zero").contains(r#"<w:tblStyleRowBandSize w:val="0"/>"#), "{}", style("Zero"));
+}
+
+/// #3415: a document saved with one of our banded table styles tells Word its band sizes, so Word
+/// shades the same rows we do (it reads a style without them as having no bands).
+#[test]
+fn our_banded_table_styles_write_their_band_sizes() {
+    let d = Document::new();
+    let xml = text(&unzip(&wordcraft_docx::write(&d).unwrap()), "word/styles.xml");
+    let start = xml.find(r#"w:styleId="GridTable4AccentBlue""#).expect("Grid Table 4 – Blue is written");
+    let style = &xml[start..start + xml[start..].find("</w:style>").unwrap()];
+    assert!(style.contains(r#"<w:tblPr><w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/>"#), "{style}");
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    assert_eq!(back.styles.table_style("GridTable4AccentBlue").map(|t| t.parts.band_size), Some(Some(1)));
+}
