@@ -35,7 +35,7 @@ fn model_box() -> Document {
         kind: ShapeKind::TextBox,
         w: 180.0,
         h: 80.0,
-        fill: Some(Rgb(240, 248, 240)),
+        fill: Some(wordcraft_doc::fill::Fill::solid(Rgb(240, 248, 240))),
         stroke: Some(Rgb(192, 0, 0)),
         stroke_width: 1.0,
         float: Float { wrap: Wrap::InFrontOfText, h_rel: Anchor::Page, v_rel: Anchor::Page, x: 72.0, y: 100.0, ..Default::default() },
