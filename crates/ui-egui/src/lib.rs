@@ -4770,7 +4770,10 @@ mod tests {
             frame(&mut a, Vec::new());
         }
         assert_eq!(a.session.sel, before.0, "Esc left the header for where the caret was");
-        assert_eq!(a.canvas.scroll_offset, before.1, "the view stays on that page");
+        // Entering an empty header scrolls to it (#3201) and Esc scrolls back to the caret, which
+        // can land half a pixel from where the view started.
+        let drift = a.canvas.scroll_offset - before.1;
+        assert!(drift.x.abs() <= 1.0 && drift.y.abs() <= 1.0, "the view stays on that page: {:?} vs {:?}", a.canvas.scroll_offset, before.1);
     }
 
     fn control_frame(a: &mut WordApp, ctx: &egui::Context, focused: bool) {
