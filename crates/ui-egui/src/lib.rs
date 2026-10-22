@@ -5409,6 +5409,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #3172: the font name box and the font size box say what they are, and the arrows beside
+    /// them say whose options they open: without a name a screen reader has only "edit" or
+    /// "button" to say.
+    #[test]
+    fn the_ribbon_boxes_name_themselves_for_a_screen_reader() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.run("file.new", json!({"template": "sample"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(6);
+        for (role, name) in [
+            (Role::TextInput, "Font"),
+            (Role::TextInput, "Font Size"),
+            (Role::Button, "Font options"),
+            (Role::Button, "Font Size options"),
+            (Role::Button, "Font Color options"),
+        ] {
+            assert!(h.query_by_role_and_label(role, name).is_some(), "nothing on the ribbon is called {name:?}");
+        }
+    }
+
     /// #1015: focusing Save is not enough: its dialog must expose the question and any failed
     /// save's explanation, so assistive technology has context for the three choices.
     #[test]

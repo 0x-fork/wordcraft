@@ -214,6 +214,20 @@ fn markdown_round_trip() {
     check_round_trip("md", true);
 }
 
+/// A code line of backticks must not be mistaken for the closing fence when the file comes
+/// back: the writer's fence has to be one backtick longer than any content line.
+#[test]
+fn markdown_code_fence_outgrows_its_content() {
+    let line = "`".repeat(100);
+    let doc = import("md", format!("    {line}\n").as_bytes()).unwrap().unwrap();
+    assert_eq!(doc.plain_text(Default::default()).trim(), line);
+    let out = export("md", &doc).unwrap().unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains(&"`".repeat(101)), "the fence is longer than the content: {text}");
+    let back = import("md", text.as_bytes()).unwrap().unwrap();
+    assert_eq!(back.plain_text(Default::default()).trim(), line, "the code line survives a round trip");
+}
+
 #[test]
 fn html_round_trip() {
     check_round_trip("html", true);
@@ -742,6 +756,29 @@ fn code_spans_and_links_around_backticks_read_as_before() {
     assert_eq!(linked("http://a.org"), "x ] y");
     assert_eq!(linked("http://b.org"), "p ` q");
     assert_eq!(p.text(), "`e a ` b then ``` and c x ] y p ` q ``f");
+}
+
+/// An unescaped `&` in a LaTeX link address is part of the address.
+#[test]
+fn latex_href_keeps_ampersand() {
+    let d = import("tex", br"\href{https://e.com/a?b=1&c=2}{link}").unwrap().unwrap();
+    let links: Vec<Option<String>> = flat(&d)
+        .iter()
+        .filter_map(|b| if let FBlock::Para(p) = b { Some(p) } else { None })
+        .flat_map(|p| p.inlines.iter())
+        .filter_map(|i| if let model::Inline::Text(_, f) = i { Some(f.link.clone()) } else { None })
+        .collect();
+    assert_eq!(links, [Some("https://e.com/a?b=1&c=2".to_string())]);
+
+    let d = import("tex", br"\url{https://e.com/a?b=1&c=2}").unwrap().unwrap();
+    let texts: Vec<(String, Option<String>)> = flat(&d)
+        .iter()
+        .filter_map(|b| if let FBlock::Para(p) = b { Some(p) } else { None })
+        .flat_map(|p| p.inlines.iter())
+        .filter_map(|i| if let model::Inline::Text(t, f) = i { Some((t.to_string(), f.link.clone())) } else { None })
+        .collect();
+    let url = "https://e.com/a?b=1&c=2".to_string();
+    assert_eq!(texts, [(url.clone(), Some(url))]);
 }
 
 /// A `[` nothing closes, bracketed text that is not a link and links themselves used up the bracket

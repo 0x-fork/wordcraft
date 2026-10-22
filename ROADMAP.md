@@ -140,6 +140,8 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 
 - 2026-10-21: File › Recover follows the app theme (#3243, part of #2348): no black page or forced white text on the light theme
 - 2026-10-21: Table styles shade the same banded rows in Word and WordCraft: our banded styles (Grid Table 4…) and new table styles write their band sizes (`w:tblStyleRowBandSize`, `w:tblStyleColBandSize`), which Word otherwise reads as zero and leaves unbanded, and a file's style without them is unbanded here too (#3415).
+- 2026-10-21: Screen readers: the ribbon's font name and size boxes, and the dropdown arrows beside them, say what they are (#3172). The
+  boxes announced themselves only as "edit" and the arrows beside them only as "button".
 - 2026-10-20: A click below a floating table (one dragged by its move handle, or from a .docx) goes to the paragraph beside or after it, as in Word, instead of a cell of its last row, so the text after a moved table can be reached with the mouse again (#2038).
 - 2026-10-19: Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in.
 - 2026-10-19: Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey.
@@ -160,6 +162,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-17 | Equation arrays centre a row that has no `&` among rows that do, as Word does, so case equations like Word's "First Property of Radicals" no longer push the aligned row right (#2617). |
 | 2026-10-16 | English dialects (#1281, #1045): English (UK), (Australia), (Canada) and the other Englishes are proofed in their own spelling — *colour* is flagged in a US document and *color* in a British one, with the right form suggested first — from our own list of American/British spellings, so nothing to install. Review › Language lists them, the .docx `w:lang` keeps them, and an English interface on a British (or Canadian, Australian…) system starts new documents in that English |
 | 2026-10-15 | Triple borders (tables, paragraphs, the `###` AutoFormat line) draw as three lines on screen and in PDF, across the line for vertical borders too; they used to draw as double lines (#1740) |
+| 2026-10-17 | The document's right-click menu offers the ribbon's Paste menu, item for item (#2583): Paste (the clipboard's formatting kept, Word's Keep Source Formatting), Keep Text Only, Merge Formatting and Paste Special…, where it had a single Paste. Same commands and shortcuts, with the system clipboard |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
 | 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
@@ -214,6 +217,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-17 | Non-overlapping body floating tables clear header tables. Original native controls distinguish never-overlap from allowed overlap. |
 | 2026-10-14 | Comment text being typed is no longer lost or misplaced (#1348): an edit or reply the document refuses (for example read-only protection) keeps the typed text in its field and says why on the status line; drafts belong to their document, so after New or Open a comment with the same number shows its own text; Save, Export, Print, Close, New and Open write pending comment text first; if the document refuses it, Save, Export and Print carry on with the stored comments and show why on the status line (a refused draft is dropped when Save is the only change), while Close, New and Open show the Save Changes prompt (Don't Save drops text the document refuses); Escape discards what was typed; in a document protected as read only or for forms the comment fields can't be typed in |
 |---|---|
+| 2026-10-15 | A floating picture or shape in a table cell set to align centre or bottom no longer lands half its height above its line (#1887); it starts at the anchor line |
 | 2026-10-18 | Picture Format › Size (#2573): width and height in the interface unit, and a size typed in any unit works, pixels too (`300 px` keeps the picture's proportions, #1901), applied once typed (Enter, Tab or a click elsewhere; Esc cancels) in one undo step. The group's launcher opens a Size dialog: height and width, scale of the original size (or of the size it opened with), Lock aspect ratio, the original size with its pixels, and Reset. `picture.size {"original": true, "scale"?}` sizes from the original; sizes past 4000 pt that keep the proportions shrink as a whole. |
 | 2026-10-16 | Save Changes gives assistive technology a named alert dialog with the loss warning and any save failure; visual layout and save policy unchanged (#1015). Native screen-reader verification remains pending. |
 | 2026-10-15 | The font family caches are bounded (4096 families for text, 1024 for math, names over 256 bytes aren't remembered), so a document naming thousands of missing fonts can't grow memory; equation fonts are looked up again after a font is added or removed instead of keeping the old choice (#1354) |
@@ -618,6 +622,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-17 | minor | Progress log: Scale to paper size on File › Print, #2108 |
 | 2026-10-17 | trivial | Non-overlapping body floating tables clear header tables; overlapping tables keep their requested position |
 | 2026-10-15 | trivial | Progress log: caret inside ligatures (#1974) |
+| 2026-10-17 | trivial | Progress log: the ribbon's paste choices in the context menu (#2583) |
 | 2026-10-15 | trivial | Progress log: recovery copies and .json files store pictures as base64 (#586 follow-up) |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
@@ -809,6 +814,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-09 | minor | Recently landed: RTL, Ukrainian and Brazilian Portuguese |
 | 2026-10-06 | major | First honest estimate: 88% catalog, ~62% real parity, alpha ~85% of the way |
 | 2026-10-12 | trivial | Progress log: recipient filter and sort, .xls and legacy-encoding recipient lists (#778) |
+| 2026-10-15 | trivial | Charts: radar charts (standard, marker, filled) are drawn instead of a placeholder (#1890) |
 | 2026-10-15 | trivial | Progress log: dialog close box (#1885) |
 | 2026-10-15 | trivial | Progress log: mixed Hebrew/Latin text keeps its order in Word (#1543) |
 | 2026-10-15 | trivial | Progress log: ruler numbers by zoom, rulers follow the caret's page (#1878) |

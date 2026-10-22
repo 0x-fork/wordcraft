@@ -660,14 +660,26 @@ pub fn css_len_pt(v: &str) -> Option<f32> {
         match v.as_str() {
             "xx-small" => Some(7.0),
             "x-small" => Some(7.5),
-            "small" => Some(10.0),
+            "small" | "smaller" => Some(10.0),
             "medium" => Some(12.0),
-            "large" => Some(13.5),
+            "large" | "larger" => Some(13.5),
             "x-large" => Some(18.0),
             "xx-large" => Some(24.0),
+            "xxx-large" => Some(36.0),
             _ => num(&v).map(|p| p * 0.75),
         }
     }
+}
+
+fn strip_important(v: &str) -> &str {
+    let s = v.trim();
+    if let Some(pos) = s.rfind('!') {
+        let after = s[pos + 1..].trim();
+        if after.eq_ignore_ascii_case("important") {
+            return s[..pos].trim();
+        }
+    }
+    s
 }
 
 /// Apply a `style` attribute to formatting / block properties.
@@ -675,7 +687,7 @@ fn apply_style(css: &str, f: &mut Fmt, align: &mut Option<Align>, preserve: &mut
     for decl in css.split(';').take(64) {
         let Some((k, v)) = decl.split_once(':') else { continue };
         let k = k.trim().to_ascii_lowercase();
-        let v = v.trim().trim_end_matches("!important").trim();
+        let v = strip_important(v);
         let lv = v.to_ascii_lowercase();
         match k.as_str() {
             "font-weight" => f.bold = lv.starts_with("bold") || lv.parse::<u32>().is_ok_and(|w| w >= 600),
@@ -1202,6 +1214,8 @@ impl<'r> Builder<'r> {
             "code" | "kbd" | "tt" | "samp" => fmt.code = true,
             "sup" => fmt.sup = true,
             "sub" => fmt.sub = true,
+            "small" => fmt.size = Some(fmt.size.map_or(10.0, |s| (s * 0.833).max(1.0))),
+            "big" => fmt.size = Some(fmt.size.map_or(14.0, |s| (s * 1.2).min(1638.0))),
             "mark" => fmt.background = Some(wordcraft_doc::Rgb(255, 255, 0)),
             "font" => {
                 if let Some(c) = attr(attrs, "color").and_then(parse_color) {
@@ -2328,5 +2342,42 @@ mod tests {
         }
         // Ruby in ruby: the inner element's text joins the outer guide's.
         assert_eq!(ruby_of(&parse("<p><ruby>漢字<ruby>字<rt>じ</rt></ruby><rt>かんじ</rt></ruby></p>")), Some(("漢字字".into(), "じかんじ".into())));
+    }
+
+    #[test]
+    fn small_big_and_css_font_sizes() {
+        let f = parse(
+            "<p><small>small</small> <big>big</big> <span style=\"font-size: xxx-large\">huge</span> <span style=\"font-size: smaller\">tiny</span></p>",
+        );
+        let FBlock::Para(p) = &f.blocks[0] else { panic!() };
+        let sz = |i: usize| match &p.inlines[i] {
+            Inline::Text(_, f) => f.size,
+            _ => None,
+        };
+        assert_eq!(sz(0), Some(10.0));
+        assert_eq!(sz(2), Some(14.0));
+        assert_eq!(sz(4), Some(36.0));
+        assert_eq!(sz(6), Some(10.0));
+    }
+
+    #[test]
+    fn css_important_casing_and_spacing() {
+        let f = parse(
+            "<p style='color: #ff0000 !IMPORTANT; font-size: 16pt ! important; font-weight: 700 !Important; text-align: center !IMPORTANT'>Styled</p>",
+        );
+        assert_eq!(f.blocks.len(), 1);
+        let p = match &f.blocks[0] {
+            FBlock::Para(p) => p,
+            b => panic!("expected para, got {b:?}"),
+        };
+        assert_eq!(p.align, Some(Align::Center));
+        match &p.inlines[0] {
+            Inline::Text(_, fmt) => {
+                assert_eq!(fmt.color, Some(wordcraft_doc::props::Rgb(0xFF, 0x00, 0x00)));
+                assert_eq!(fmt.size, Some(16.0));
+                assert!(fmt.bold);
+            }
+            i => panic!("expected text inline, got {i:?}"),
+        }
     }
 }
