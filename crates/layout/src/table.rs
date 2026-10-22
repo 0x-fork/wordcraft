@@ -391,7 +391,8 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
         }
         total = tw;
     }
-    if total > avail * 1.5 && !t.props.fixed {
+    // A table with its own width keeps it, however far it runs past the margins (as in Word).
+    if target.is_none() && total > avail * 1.5 && !t.props.fixed {
         let k = avail / total.max(1.0);
         grid.iter_mut().for_each(|w| *w *= k);
         total = avail;

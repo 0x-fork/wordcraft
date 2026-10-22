@@ -9780,4 +9780,25 @@ fn early_float_survives_a_column_break_into_another_width() {
         assert!(!want.is_empty(), "second column first: {skip}: text after the break");
         assert_eq!(got, want, "second column first: {skip}: the text after the break wraps around nothing");
     }
+/// A table with its own width keeps it when it is over 1.5 times the text width (#1721); one
+/// without is still squeezed to the margins.
+#[test]
+fn table_with_its_own_width_is_not_squeezed_to_the_margins() {
+    let text = |s: &str| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(s, Default::default()));
+    let second_column_x = |own: Option<f32>| {
+        let mut t = Table::new(1, 3, 936.0);
+        t.props.width = own;
+        t.rows[0].cells[1].blocks = vec![text("Address")];
+        let mut d = Document::from_text("After");
+        d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let [(x, _, _)] = para_at(&l, &[0, 0, 1, 0])[..] else { panic!("second cell missing") };
+        x
+    };
+    // 936pt (twice the 468pt of text) of its own: the columns stay 312pt wide, past the margin.
+    let x = second_column_x(Some(936.0));
+    assert!(x > 72.0 + 300.0, "the second column starts at {x}, squeezed");
+    // The same columns with an automatic table width are squeezed to 156pt each.
+    let x = second_column_x(None);
+    assert!(x < 72.0 + 200.0, "the second column starts at {x}, not squeezed");
 }
