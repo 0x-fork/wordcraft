@@ -214,6 +214,20 @@ fn markdown_round_trip() {
     check_round_trip("md", true);
 }
 
+/// A code line of backticks must not be mistaken for the closing fence when the file comes
+/// back: the writer's fence has to be one backtick longer than any content line.
+#[test]
+fn markdown_code_fence_outgrows_its_content() {
+    let line = "`".repeat(100);
+    let doc = import("md", format!("    {line}\n").as_bytes()).unwrap().unwrap();
+    assert_eq!(doc.plain_text(Default::default()).trim(), line);
+    let out = export("md", &doc).unwrap().unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains(&"`".repeat(101)), "the fence is longer than the content: {text}");
+    let back = import("md", text.as_bytes()).unwrap().unwrap();
+    assert_eq!(back.plain_text(Default::default()).trim(), line, "the code line survives a round trip");
+}
+
 #[test]
 fn html_round_trip() {
     check_round_trip("html", true);

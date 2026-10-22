@@ -1335,7 +1335,9 @@ fn write_blocks(blocks: &[FBlock], out: &mut Vec<String>) {
                     i += 1;
                 }
                 let longest = lines.iter().map(|l| l.chars().filter(|c| *c == '`').count()).max().unwrap_or(0);
-                let fence = "`".repeat(3.max(longest + 1).min(64));
+                // The fence must be longer than the longest run in the content, or a content
+                // line is read back as the closing fence (the `.min(64)` cap did exactly that).
+                let fence = "`".repeat(3.max(longest + 1));
                 out.push(fence.clone());
                 out.extend(lines);
                 out.push(fence);
