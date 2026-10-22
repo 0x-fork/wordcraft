@@ -462,6 +462,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 medium(12.5),
                                 if holds_active { t.accent_text } else { t.text },
                             );
+                            // "»" means nothing read aloud: the button says what it holds.
+                            let more = tl!("More tabs");
+                            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, more));
+                            let resp = resp.on_hover_text(more);
                             egui::Popup::menu(&resp).show(|ui| {
                                 for (tab, shown) in left_out {
                                     if ui.selectable_label(app.ui.tab == tab, shown).clicked() {
@@ -3361,6 +3365,29 @@ mod tests {
         }
         let _ = plan_strip(&[], buttons, 100.0, 26.0);
         let _ = plan_strip(&[spec(f32::NAN, false, true, false)], [f32::NAN; 3], 100.0, f32::NAN);
+    }
+
+    /// #1110: the strip's drawn buttons have names for screen readers: Share, and the "»" that
+    /// holds the tabs that don't fit ("More tabs", not a glyph).
+    #[test]
+    fn the_tab_strip_buttons_have_names() {
+        use egui_kittest::kittest::Queryable;
+        let app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 700.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, tl!("Share"));
+        let more = h.get_by_role_and_label(egui::accesskit::Role::Button, tl!("More tabs"));
+        more.click();
+        h.run_steps(2);
+        // The menu lists a tab that didn't fit (View is among the last on a narrow strip).
+        assert!(h.query_by_label(tl!("View")).is_some(), "the » menu lists the tabs left out");
     }
 
     #[test]
