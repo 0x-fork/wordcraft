@@ -379,6 +379,15 @@ fn graphic_alt(alt: &str, kind: GraphicKind) -> &str {
     if alt.trim().is_empty() { kind.noun() } else { alt }
 }
 
+/// A picture, or a rotation holding one at any depth (a rotated group's turned members).
+fn holds_picture(d: &Draw) -> bool {
+    match d {
+        Draw::Image { .. } => true,
+        Draw::Rotated { items, .. } => items.iter().any(holds_picture),
+        _ => false,
+    }
+}
+
 /// Add the segments of a kurbo path to a krilla path.
 fn append_path(pb: &mut PathBuilder, path: &kurbo::BezPath) {
     let f = |v: f64| v as f32;
@@ -837,6 +846,33 @@ impl Exporter<'_> {
         }
     }
 
+    /// A rotated inline picture or group: turned as a whole, with each picture in it tagged on its
+    /// own, so a decorative picture is an artifact while the others stay figures with their alt
+    /// text. A described shape's figure keeps its description; anything else is an artifact.
+    fn rotated_pictures(&mut self, s: &mut Surface, d: &Draw) {
+        match d {
+            Draw::Rotated { cx, cy, spin, items } => {
+                if !ok(*cx) || !ok(*cy) {
+                    return;
+                }
+                let [a, b, c, d, e, f] = spin.matrix(*cx, *cy);
+                s.push_transform(&Transform::from_row(a, b, c, d, e, f));
+                for it in items {
+                    self.rotated_pictures(s, it);
+                }
+                s.pop();
+            }
+            Draw::Image { decorative: true, .. } => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
+            Draw::Image { alt, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| me.draw(s, d)),
+            Draw::Figure { alt, draws, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| {
+                for d in draws {
+                    me.draw(s, d);
+                }
+            }),
+            _ => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
+        }
+    }
+
     fn page(&mut self, s: &mut Surface, page: &Page, w: f32, h: f32) {
         if let Some(c) = self.doc.settings.page_color
             && let Some(p) = rect_path(&Rect::new(0.0, 0.0, w, h))
@@ -880,12 +916,12 @@ impl Exporter<'_> {
                     for d in &draws {
                         match d {
                             Draw::Glyphs { .. } | Draw::Turned { .. } => self.tagged(s, Role::Para(idx), None, |me, s| me.draw(s, d)),
+                            // A picture marked decorative: an artifact screen readers skip.
+                            Draw::Image { decorative: true, .. } => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
                             Draw::Image { alt, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| me.draw(s, d)),
-                            // A rotated inline picture.
-                            Draw::Rotated { items, .. } if items.iter().any(|i| matches!(i, Draw::Image { .. })) => {
-                                let alt = items.iter().find_map(|i| if let Draw::Image { alt, .. } = i { Some(alt.as_str()) } else { None });
-                                self.tagged(s, Role::Figure, alt, |me, s| me.draw(s, d))
-                            }
+                            // A rotated inline picture, or a rotated group holding pictures: turned as a
+                            // whole, each picture tagged on its own (see `rotated_pictures`).
+                            Draw::Rotated { items, .. } if items.iter().any(holds_picture) => self.rotated_pictures(s, d),
                             // An inline chart or diagram: its text is part of the figure, not the paragraph.
                             Draw::Figure { alt, kind, draws: inner } => self.tagged(s, Role::Figure, Some(graphic_alt(alt, *kind)), |me, s| {
                                 for d in inner {
@@ -897,11 +933,13 @@ impl Exporter<'_> {
                     }
                 }
                 Placed::Image { story, path, off, .. } => {
-                    let alt = match self.doc.para(*story, path).and_then(|p| p.object_at(*off)) {
+                    let obj = self.doc.para(*story, path).and_then(|p| p.object_at(*off));
+                    let role = if obj.is_some_and(InlineObject::is_decorative) { Role::Artifact(ArtifactType::Other) } else { Role::Figure };
+                    let alt = match obj {
                         Some(InlineObject::Image { alt, .. }) => alt.clone(),
                         _ => String::new(),
                     };
-                    self.tagged(s, Role::Figure, Some(&alt), |me, s| {
+                    self.tagged(s, role, Some(&alt), |me, s| {
                         for d in &draws {
                             me.draw(s, d);
                         }
