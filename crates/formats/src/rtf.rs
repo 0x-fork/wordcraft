@@ -469,7 +469,8 @@ impl Writer {
         match p.align {
             Some(Align::Center) => out.push_str("\\qc"),
             Some(Align::Right) => out.push_str("\\qr"),
-            Some(Align::Justify) | Some(Align::Distribute) => out.push_str("\\qj"),
+            Some(Align::Justify) => out.push_str("\\qj"),
+            Some(Align::Distribute) => out.push_str("\\qd"),
             _ => out.push_str("\\ql"),
         }
         if p.page_break {
@@ -2087,7 +2088,8 @@ impl Reader {
             "ql" => self.st.align = Some(Align::Left),
             "qc" => self.st.align = Some(Align::Center),
             "qr" => self.st.align = Some(Align::Right),
-            "qj" | "qd" => self.st.align = Some(Align::Justify),
+            "qj" => self.st.align = Some(Align::Justify),
+            "qd" => self.st.align = Some(Align::Distribute),
             "s" => self.st.style = pv,
             "outlinelevel" => self.st.outline = Some(pv.clamp(0, 9) as u8),
             "pagebb" => self.st.pagebb = on,
@@ -4081,5 +4083,26 @@ mod tests {
         assert_eq!(hyperlink(r#"Hyperlink "http://example.com""#), Some("http://example.com".into()));
         assert_eq!(hyperlink(r#"HYPERLINK "http://example.com/path\latest""#), Some("http://example.com/path\\latest".into()));
         assert_eq!(hyperlink(r#"HYPERLINK "http://example.com" \o "Help text""#), Some("http://example.com".into()));
+    }
+
+    #[test]
+    fn distributed_alignment_round_trips() {
+        let rtf = br"{\rtf1\ansi\pard\qd Distributed\par\pard\qj Justified\par}";
+        let flow = parse(rtf).unwrap();
+        let p0 = match &flow.blocks[0] {
+            FBlock::Para(p) => p.align,
+            _ => panic!("expected para"),
+        };
+        let p1 = match &flow.blocks[1] {
+            FBlock::Para(p) => p.align,
+            _ => panic!("expected para"),
+        };
+        assert_eq!(p0, Some(Align::Distribute));
+        assert_eq!(p1, Some(Align::Justify));
+
+        let doc = import(rtf).unwrap();
+        let exported = export(&doc);
+        assert!(exported.contains("\\qd"), "expected \\qd in: {exported}");
+        assert!(exported.contains("\\qj"), "expected \\qj in: {exported}");
     }
 }
