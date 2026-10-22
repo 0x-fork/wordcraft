@@ -153,8 +153,8 @@ fn new_comment(s: &mut Session, v: &Value) -> CmdResult {
 /// An omitted ID permits caret targeting; an explicit malformed value must not.
 /// Unlike the general numeric parameter helper, comment IDs never coerce floats.
 fn validate_comment_id(v: &Value) -> Result<(), CmdError> {
-    if v.get("id").is_some_and(|id| id.as_u64().is_none()) {
-        return Err(CmdError::Params("`id` must be a non-negative JSON integer".into()));
+    if v.get("id").is_some_and(|id| id.as_u64().is_none_or(|n| u32::try_from(n).is_err())) {
+        return Err(CmdError::Params("`id` must be a non-negative 32-bit JSON integer".into()));
     }
     Ok(())
 }

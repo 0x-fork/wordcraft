@@ -14,7 +14,7 @@ fn commented() -> Session {
 }
 
 fn invalid_ids_leave_state_untouched(command: &str) {
-    for id in [json!(-1), json!(0.5), json!(0.0), json!("0"), Value::Null, json!(false)] {
+    for id in [json!(-1), json!(0.5), json!(0.0), json!("0"), Value::Null, json!(false), json!(4294967296u64)] {
         for at_comment in [true, false] {
             let mut s = commented();
             if !at_comment {
