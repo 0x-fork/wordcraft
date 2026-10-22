@@ -74,7 +74,7 @@ pub struct DocState {
     pub(super) math: Option<MathEdit>,
     pub(super) password: Option<crate::io::Password>,
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) recovery: Option<crate::recovery::Recovery>,
+    pub(super) recovery_slot: crate::recovery::Slot,
     pub(super) also_selected: Vec<Pos>,
     pub(super) column: Option<ColumnBlock>,
     pub(super) column_mode: bool,
@@ -124,7 +124,7 @@ impl DocState {
             math: None,
             password: None,
             #[cfg(not(target_arch = "wasm32"))]
-            recovery: None,
+            recovery_slot: Default::default(),
             also_selected: Vec::new(),
             column: None,
             column_mode: false,
@@ -220,7 +220,7 @@ impl Session {
             math: _,
             password: _,
             #[cfg(not(target_arch = "wasm32"))]
-                recovery: _,
+                recovery_slot: _,
             also_selected: _,
             column: _,
             column_mode: _,
@@ -254,6 +254,8 @@ impl Session {
             others: _,
             order: _,
             untitled_count: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                recovery: _,
         } = self;
         let DocState {
             doc,
@@ -291,7 +293,7 @@ impl Session {
             math,
             password,
             #[cfg(not(target_arch = "wasm32"))]
-            recovery,
+            recovery_slot,
             also_selected,
             column,
             column_mode,
@@ -334,7 +336,7 @@ impl Session {
         swap(&mut self.math, math);
         swap(&mut self.password, password);
         #[cfg(not(target_arch = "wasm32"))]
-        swap(&mut self.recovery, recovery);
+        swap(&mut self.recovery_slot, recovery_slot);
         swap(&mut self.also_selected, also_selected);
         swap(&mut self.column, column);
         swap(&mut self.column_mode, column_mode);
@@ -358,8 +360,9 @@ impl Session {
     /// Take parked document `id` out of the session; false when it isn't parked here.
     fn remove_parked(&mut self, id: u64) -> bool {
         let Some(at) = self.others.iter().position(|d| d.document_id == id) else { return false };
-        self.others.swap_remove(at);
+        let d = self.others.swap_remove(at);
         self.order.retain(|d| *d != id);
+        self.forget_recovery_copy(&d);
         true
     }
 
@@ -417,10 +420,6 @@ impl Session {
         let mut view = self.view.clone();
         view.outline.collapsed.clear();
         let mut d = DocState::new(doc, untitled, view);
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            d.recovery = self.recovery.as_ref().and_then(crate::recovery::Recovery::sibling);
-        }
         let id = d.document_id;
         self.order.push(id);
         self.swap_doc(&mut d);
@@ -429,7 +428,48 @@ impl Session {
         id
     }
 
-    /// Close document `id` without asking: its unsaved changes are lost (callers ask first).
+    /// A closed document's recovery copy goes with it, as its unsaved changes do.
+    fn forget_recovery_copy(&mut self, d: &DocState) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let (Some(r), Some(id)) = (&mut self.recovery, &d.recovery_slot.id) {
+            r.close(id.clone());
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = d;
+    }
+
+    /// What recovery reads from every open document, the active one first, with each
+    /// document's slot to update. Nothing is cloned or laid out.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn recovery_docs(&mut self) -> impl Iterator<Item = crate::recovery::DocRecovery<'_>> {
+        let active = crate::recovery::DocRecovery {
+            id: self.document_id,
+            wants_copy: self.dirty && self.password.is_none(),
+            rev: self.rev,
+            doc: &self.doc,
+            path: self.path.as_deref(),
+            slot: &mut self.recovery_slot,
+        };
+        std::iter::once(active).chain(self.others.iter_mut().map(|d| crate::recovery::DocRecovery {
+            id: d.document_id,
+            wants_copy: d.dirty && d.password.is_none(),
+            rev: d.rev,
+            doc: &d.doc,
+            path: d.path.as_deref(),
+            slot: &mut d.recovery_slot,
+        }))
+    }
+
+    /// Every open document's recovery slot, with whether it should have a current copy and
+    /// its revision.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn recovery_slots(&self) -> impl Iterator<Item = (bool, u64, &crate::recovery::Slot)> {
+        std::iter::once((self.dirty && self.password.is_none(), self.rev, &self.recovery_slot))
+            .chain(self.others.iter().map(|d| (d.dirty && d.password.is_none(), d.rev, &d.recovery_slot)))
+    }
+
+    /// Close document `id` without asking: its unsaved changes are lost (callers ask first),
+    /// and so is its recovery copy.
     /// Closing the active document makes the one opened before it active (else the one after).
     /// Closing the last open document leaves a new blank one, so a session always has an
     /// active document; what a window does then is the front end's choice. An id that isn't
@@ -455,12 +495,9 @@ impl Session {
                 let mut view = self.view.clone();
                 view.outline.collapsed.clear();
                 let mut fresh = DocState::new(doc, self.untitled_count, view);
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    fresh.recovery = self.recovery.as_ref().and_then(crate::recovery::Recovery::sibling);
-                }
                 self.order = vec![fresh.document_id];
                 self.swap_doc(&mut fresh);
+                self.forget_recovery_copy(&fresh);
             }
         }
         self.stop_reading_elsewhere();

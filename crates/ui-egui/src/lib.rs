@@ -1395,6 +1395,11 @@ impl WordApp {
         let last = self.session.documents().len() <= 1;
         if params.get("quit").and_then(Value::as_bool) == Some(true) {
             if last {
+                // Don't Save: the document stays open until the app exits, but its changes,
+                // and so its recovery copy, are discarded.
+                if params.get("force").and_then(Value::as_bool) == Some(true) {
+                    self.session.discard_recovery_copy();
+                }
                 self.quit_requested = true;
                 return Ok(json!({"quit": true}));
             }
@@ -2888,15 +2893,11 @@ fn flushes_comment_drafts(id: &str, params: &Value) -> bool {
     ) || discards_document(id, params)
 }
 
-/// User commands that close or replace the shown document: Close, and restoring a recovered
-/// copy in its place. New, Open, Envelopes, Labels and Finish & Merge open their document beside
-/// it (Open replaces only an untouched blank document, which has nothing to lose).
-pub(crate) fn discards_document(id: &str, params: &Value) -> bool {
-    match id {
-        "file.close" => true,
-        "file.recover" => params.get("restore").is_some(),
-        _ => false,
-    }
+/// User commands that close the shown document: Close. New, Open, restoring a recovered copy,
+/// Envelopes, Labels and Finish & Merge open their document beside it (Open and restoring
+/// replace only an untouched blank document, which has nothing to lose).
+pub(crate) fn discards_document(id: &str, _params: &Value) -> bool {
+    id == "file.close"
 }
 
 /// Wall-clock milliseconds since the Unix epoch: the system clock, or the browser's on the web.

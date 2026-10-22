@@ -991,29 +991,27 @@ mod tests {
 
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
-    fn recovery_restore_uses_save_changes_and_resets_autosave_permission() {
+    fn recovery_restore_opens_beside_unsaved_work_without_autosave_permission() {
         let (app, root) = recovery_app();
         let mut h = recovery_harness(app);
         settle_recovery(&mut h);
         h.state_mut().execute("text.insert", json!({"text": "Current unsaved work"})).unwrap();
+        let work = h.state().session.document_id();
         h.state_mut().autosave_path = Some(root.join("must-not-write.docx"));
         h.state_mut().run("file.recover", json!({})).unwrap();
         h.run_steps(4);
         assert_eq!(h.state().session.recovery_documents().len(), 1);
         h.get_by_label("Restore").click();
-        h.run_steps(4);
-        assert!(matches!(h.state().dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })));
-        h.get_by_label("Cancel").click();
-        h.run_steps(4);
-        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Current unsaved work");
-        h.get_by_label("Restore").click();
-        h.run_steps(4);
-        h.get_by_label("Don't Save").click();
         settle_recovery(&mut h);
+        assert!(h.state().dialog.is_none(), "nothing is replaced, so nothing to ask");
+        assert_ne!(h.state().session.document_id(), work);
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Recovered synthetic work");
         assert!(h.state().session.dirty && h.state().session.path.is_none());
         assert!(h.state().autosave_path.is_none());
         assert!(!h.state().ui.backstage);
+        let kept = h.state_mut().session.with_document(work, |s| s.doc.plain_text(wordcraft_doc::StoryRef::Body)).unwrap();
+        assert_eq!(kept, "Current unsaved work");
+        assert!(h.state().session.recovery_documents().is_empty(), "the restored document keeps the copy");
         assert!(!root.join("must-not-write.docx").exists());
         drop(h);
         let _ = std::fs::remove_dir_all(root);

@@ -508,8 +508,12 @@ pub struct Session {
     /// Password, `file.encrypt`); `None` saves them unencrypted. Kept from a password-protected
     /// file that was opened, cleared when the document is replaced.
     pub password: Option<crate::io::Password>,
+    /// The recovery worker every open document's copy is kept through (desktop hosts only).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) recovery: Option<crate::recovery::Recovery>,
+    /// The active document's recovery copy.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) recovery_slot: crate::recovery::Slot,
     /// More pictures and shapes selected along with the one the selection holds (Shift+click),
     /// for Group. Cleared by any edit or selection change other than adding to it.
     pub also_selected: Vec<Pos>,
@@ -719,7 +723,7 @@ impl Session {
             math,
             password,
             #[cfg(not(target_arch = "wasm32"))]
-            recovery,
+            recovery_slot,
             also_selected,
             column,
             column_mode,
@@ -787,7 +791,9 @@ impl Session {
             read_aloud: Default::default(),
             password,
             #[cfg(not(target_arch = "wasm32"))]
-            recovery,
+            recovery: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            recovery_slot,
             column,
             column_mode,
             widened,
@@ -1296,6 +1302,11 @@ impl Session {
         self.hf_return = None;
         self.go_back_step = 0;
         self.view.outline.collapsed.clear();
+        // A copy the replaced document kept stays in the recovery list.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.recovery_slot = Default::default();
+        }
         self.reset_history();
         self.touch();
         self.dirty = false;
@@ -1392,6 +1403,8 @@ impl Session {
             password: _,
             #[cfg(not(target_arch = "wasm32"))]
                 recovery: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                recovery_slot: _,
             also_selected: _,
             // Column selection and a widened selection's ends, like `sel`'s shape: valid only while
             // `sel` matches them.
