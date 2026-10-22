@@ -967,6 +967,28 @@ mod tests {
         assert_eq!(text(&a), "B", "a commit in the other window doesn't land here");
     }
 
+    /// Control-channel typing goes to the active window when it has a viewport of its own (the
+    /// root's raw-input hook doesn't see that window's input), once.
+    #[test]
+    fn control_typing_reaches_the_active_window() {
+        let ctx = backend();
+        let mut a = app("First");
+        frames(&ctx, &mut a, 2);
+        a.run("file.new", json!({})).unwrap();
+        let child = a.active_viewport();
+        focus(child);
+        frames(&ctx, &mut a, 8);
+        assert!(a.canvas.focused, "the new window's page has the keyboard");
+        let (req, _reply) = crate::ControlRequest::new("ui.text", json!({"text": "Typed"}));
+        assert!(matches!(crate::control::handle(&mut a, &ctx, &req), crate::control::Outcome::Done(_)));
+        frames(&ctx, &mut a, 4);
+        assert_eq!(text(&a), "Typed");
+        assert!(a.synthetic.is_empty());
+        focus(ViewportId::ROOT);
+        frames(&ctx, &mut a, 2);
+        assert_eq!(text(&a), "First", "the other window got none of it");
+    }
+
     /// Quitting with two documents of unsaved changes asks about each in its window, the window
     /// coming to the front; Cancel keeps both.
     #[test]
