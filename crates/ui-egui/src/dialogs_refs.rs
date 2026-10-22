@@ -251,8 +251,10 @@ impl CaptionForm {
                 .body
                 .get(app.session.sel.focus.path.0.first().copied().unwrap_or(0) as usize)
                 .is_some_and(|b| matches!(&**b, Block::Table(_)));
+        let last = &app.ui.last_caption_label;
+        let label = if labels.contains(last) { last.as_str() } else { "Figure" };
         CaptionForm {
-            label: if in_table { "Table" } else { "Figure" }.into(),
+            label: if in_table { "Table" } else { label }.into(),
             labels,
             text: String::new(),
             position: "below".into(),
@@ -293,6 +295,13 @@ impl CaptionForm {
             v["separator"] = json!(self.separator);
         }
         v
+    }
+
+    /// Insert the caption and remember its label for next time.
+    pub fn insert(&self, app: &mut WordApp) -> Result<(), String> {
+        app.run("references.caption", self.params())?;
+        app.ui.last_caption_label = self.label.clone();
+        Ok(())
     }
 }
 
@@ -339,7 +348,7 @@ fn caption_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) -> Next {
         return go(g);
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
-    if ok && let Err(e) = app.run("references.caption", f.params()) {
+    if ok && let Err(e) = f.insert(app) {
         app.status(e);
     }
     if ok || cancel { Next::Close } else { Next::Stay }
@@ -1219,6 +1228,46 @@ mod tests {
         // The label is offered next time and saved with the preferences.
         assert!(CaptionForm::read(&a).labels.contains(&"Plate".to_string()));
         assert_eq!(a.prefs().caption_labels, vec!["Plate".to_string()]);
+    }
+
+    /// #3120: Insert Caption picks the label used last, and saves it with the preferences.
+    #[test]
+    fn caption_dialog_remembers_the_last_label() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut a = app("A chart\nA photo");
+        a.ui.caption_labels.push("Diagram".into());
+        a.run("select.text", json!({"text": "A chart"})).unwrap();
+        a.run("references.caption", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_value("Figure").click();
+        h.run_steps(3);
+        h.get_by_label("Diagram").click();
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "OK").click();
+        h.run_steps(3);
+        assert!(h.state().dialog.is_none(), "OK closes the dialog");
+        assert!(h.state().session.doc.plain_text(StoryRef::Body).contains("Diagram 1"));
+        h.state_mut().run("select.text", json!({"text": "A photo"})).unwrap();
+        h.state_mut().run("references.caption", json!({})).unwrap();
+        h.run_steps(4);
+        h.get_by_value("Diagram");
+        assert_eq!(h.state().prefs().last_caption_label, "Diagram");
+        // In a table it is still Table; a deleted label falls back to Figure.
+        let a = h.state_mut();
+        a.run("insert.table", json!({"rows": 1, "cols": 2})).unwrap();
+        assert_eq!(CaptionForm::read(a).label, "Table");
+        a.run("select.text", json!({"text": "A chart"})).unwrap();
+        a.ui.caption_labels.clear();
+        assert_eq!(CaptionForm::read(a).label, "Figure");
     }
 
     /// #916: Cross-reference from the ribbon opens a dialog listing the targets of each type

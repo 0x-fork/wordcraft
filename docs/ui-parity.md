@@ -74,6 +74,7 @@ Footnote and endnote editing keeps body and note text at normal opacity, on ligh
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | trivial | Insert Caption picks the label used last, as Word does, and keeps it between runs (#3120) |
 | 2026-10-21 | trivial | File › Recover uses the same fills and text colours as the other Backstage pages; it no longer draws black with forced white text in the light theme (#3243, part of #2348) |
 | 2026-10-18 | trivial | Long navigation headings wrap onto further lines inside the pane instead of ending in an ellipsis; the row grows with the text and the pane still resizes (#759, #3015) |
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |

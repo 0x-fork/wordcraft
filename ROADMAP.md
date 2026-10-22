@@ -144,6 +144,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | Date | What landed |
 | 2026-10-19 | Personal templates (#2852): File › New lists the `.dotx` and `.dotm` files in your templates folder under Personal (a subfolder per category; the search box covers them), and one opens as a new untitled document attached to it, as in Word. Save As › Save as Word Template starts in that folder, made on first use in the settings folder; File › Options › Advanced › File locations › User templates points it elsewhere. Agents list them with `file.listTemplates`. |
 | 2026-10-15 | A picture anchored further down a page but placed higher up it (fixed on the page, or moved up from its paragraph) has the paragraphs above its anchor wrap around it too, instead of running behind it, also when that wrap pushes the anchor onto the next page (#2048) |
+| 2026-10-19 | Insert Caption picks the label used last, as Word does, and keeps it between runs (#3120). |
 | 2026-10-19 | Save As, Export and Open no longer do nothing on Linux desktops whose file chooser portal fails to show its dialog (#2999): a "cancel" quicker than anyone could make one asks again without the parent window, then opens the built-in file browser. |
 | 2026-10-18 | Long navigation headings wrap onto further lines inside the resizable pane instead of ending in an ellipsis: the row grows with the text and the pane keeps its width (#759, #3015). |
 | 2026-10-18 | Clearing a font query with no matches keeps Recently Used Fonts visible at the top of a scrollable list. The initial scroll position no longer skips its heading; measured keyboard scrolling is unchanged (#2068). |
@@ -519,6 +520,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | trivial | Progress log: Insert Caption picks the label used last (#3120) |
 | 2026-10-16 | trivial | Progress log: `HYPERLINK` fields read as links (#2174) |
 | 2026-10-18 | trivial | Progress log: German text hyphenates by the German patterns |
 | 2026-10-21 | trivial | Progress log: File › Recover follows the app theme (#3243) |
