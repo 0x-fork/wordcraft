@@ -288,8 +288,12 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 // cover the document (#196, #176); clicking it then offers Save As where that helps.
                 let block = app.autosave_block();
                 let on = app.autosaves();
-                let label = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
-                ui.label(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(label));
+                let color = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
+                // The text is part of the switch (#3370): clicking it toggles AutoSave, and chrome
+                // text is not document text to select (double-clicking it copied "AutoSave").
+                let text = ui.add(
+                    egui::Label::new(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(color)).selectable(false).sense(Sense::click()),
+                );
                 let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
                 let (fill, stroke, knob_fill) = match (&block, on) {
                     (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
@@ -302,7 +306,9 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 let tip = block
                     .as_ref()
                     .map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
-                if resp.on_hover_text(tip).clicked() {
+                let text = text.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+                let resp = resp.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+                if text.clicked() || resp.clicked() {
                     match block {
                         None => {
                             let _ = app.run("file.autosave", json!({}));
@@ -981,5 +987,48 @@ mod tests {
         click(&ctx, &mut n, row.rect.center(), &mut a);
         assert!(a.canvas.want_focus, "the row click returns focus to the document");
         assert!(a.session.undo_history().is_empty(), "the step was undone");
+    }
+
+    /// A saved .docx (so AutoSave can cover it) with the title bar drawn over it.
+    fn autosave_harness() -> (egui_kittest::Harness<'static, WordApp>, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("wordcraft-ui-autosave-label-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("draft.docx");
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
+        assert!(a.autosaves(), "a saved .docx is covered by AutoSave");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                // The fonts `logic` installs take effect on the next frame, as `WordApp::ui` waits.
+                if app.fonts_frames < 2 {
+                    app.fonts_frames += 1;
+                    return;
+                }
+                title_bar(app, ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        (h, dir)
+    }
+
+    /// #3370: the AutoSave text is part of the switch, not a caption beside it: clicking the text
+    /// toggles AutoSave, as clicking the switch does.
+    #[test]
+    fn clicking_the_autosave_label_toggles_autosave() {
+        use egui_kittest::kittest::Queryable;
+        let (mut h, dir) = autosave_harness();
+        assert!(h.state().autosaves());
+        h.get_by_label("AutoSave").click();
+        h.run_steps(2);
+        assert!(!h.state().autosaves(), "clicking the text turns AutoSave off");
+        h.get_by_label("AutoSave").click();
+        h.run_steps(2);
+        assert!(h.state().autosaves(), "and clicking it again turns it back on");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
