@@ -2552,6 +2552,7 @@ fn raw_text(toks: &[Tok]) -> String {
                 }
             },
             Tok::Verb(v) | Tok::Math(v, _) => s.push_str(v),
+            Tok::Amp => s.push('&'),
             _ => {}
         }
     }

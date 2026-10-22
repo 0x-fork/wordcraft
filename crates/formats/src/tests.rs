@@ -669,6 +669,29 @@ fn code_spans_and_links_around_backticks_read_as_before() {
     assert_eq!(p.text(), "`e a ` b then ``` and c x ] y p ` q ``f");
 }
 
+/// An unescaped `&` in a LaTeX link address is part of the address.
+#[test]
+fn latex_href_keeps_ampersand() {
+    let d = import("tex", br"\href{https://e.com/a?b=1&c=2}{link}").unwrap().unwrap();
+    let links: Vec<Option<String>> = flat(&d)
+        .iter()
+        .filter_map(|b| if let FBlock::Para(p) = b { Some(p) } else { None })
+        .flat_map(|p| p.inlines.iter())
+        .filter_map(|i| if let model::Inline::Text(_, f) = i { Some(f.link.clone()) } else { None })
+        .collect();
+    assert_eq!(links, [Some("https://e.com/a?b=1&c=2".to_string())]);
+
+    let d = import("tex", br"\url{https://e.com/a?b=1&c=2}").unwrap().unwrap();
+    let texts: Vec<(String, Option<String>)> = flat(&d)
+        .iter()
+        .filter_map(|b| if let FBlock::Para(p) = b { Some(p) } else { None })
+        .flat_map(|p| p.inlines.iter())
+        .filter_map(|i| if let model::Inline::Text(t, f) = i { Some((t.to_string(), f.link.clone())) } else { None })
+        .collect();
+    let url = "https://e.com/a?b=1&c=2".to_string();
+    assert_eq!(texts, [(url.clone(), Some(url))]);
+}
+
 /// A `[` nothing closes, bracketed text that is not a link and links themselves used up the bracket
 /// scans' budget as if each had read the rest of the text: later links in the paragraph were plain
 /// text.
