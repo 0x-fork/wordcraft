@@ -260,9 +260,10 @@ impl WordApp {
     }
 
     /// The egui viewport of the active window, the one focused last: control input,
-    /// `ui.screenshot`, `ui.resize` and the saved window geometry are its.
+    /// `ui.screenshot`, `ui.resize` and the saved window geometry are its. The root viewport
+    /// when the windows don't have viewports of their own (the web app, embedded viewports).
     pub fn active_viewport(&self) -> ViewportId {
-        if !self.windows.native {
+        if !self.windows.native || !self.windows.driven {
             return ViewportId::ROOT;
         }
         let key = self.windows.recent_keys().first().copied().unwrap_or(self.windows.shown);
@@ -275,9 +276,9 @@ impl WordApp {
         self.windows.builder = builder;
     }
 
-    /// The root viewport was asked to close while other windows are open: only its window closes
-    /// (through [`WindowEvent::CloseRequested`] in [`WordApp::ui`]), so the host keeps the app
-    /// running.
+    /// Whether a close request for the root viewport closes only the window drawn there: true
+    /// while other windows are open. [`WordApp::ui`] closes it (a [`WindowEvent::CloseRequested`]),
+    /// and the host keeps the app running.
     pub fn closes_a_window(&self) -> bool {
         self.window_count() > 1 && !self.quit_requested
     }
@@ -342,7 +343,22 @@ impl WordApp {
     /// active one.
     pub(crate) fn focus_window(&mut self, key: u64) {
         self.windows.focus = Some(key);
+        self.settle_windows();
+    }
+
+    /// [`Windows::settle`]; a window that moved into the root viewport keeps its place on the
+    /// page (the page's scroll state is the viewport's).
+    fn settle_windows(&mut self) {
+        let root = |w: &Windows| w.viewports.as_ref().and_then(Viewports::root);
+        let before = root(&self.windows);
         self.windows.settle(self.ctx.as_ref());
+        let Some(adopted) = root(&self.windows).filter(|r| before.is_some_and(|b| b != *r)) else { return };
+        let Some(key) = self.windows.list.get(adopted).copied() else { return };
+        if key == self.windows.shown {
+            self.canvas.scroll_request = Some(self.canvas.scroll_offset);
+        } else if let Some(w) = self.windows.get_mut(key).and_then(|w| w.ui.as_mut()) {
+            w.canvas.scroll_request = Some(w.canvas.scroll_offset);
+        }
     }
 
     /// Keep one window per open document: windows whose document closed (an agent closed it)
@@ -367,7 +383,7 @@ impl WordApp {
             changed = true;
         }
         if changed {
-            self.windows.settle(self.ctx.as_ref());
+            self.settle_windows();
         }
     }
 
@@ -479,7 +495,7 @@ impl WordApp {
     pub(crate) fn windows_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.prune_windows();
-        self.windows.settle(Some(&ctx));
+        self.settle_windows();
         self.windows.menu = self.window_menu(&self.windows.list);
         // A backend that can't open native windows (egui embeds them in the root: tests,
         // `ui_shot`) shows the active window alone. Embedded, every window would draw the same
@@ -488,7 +504,7 @@ impl WordApp {
         if !self.windows.driven {
             let active = self.windows.recent_keys().first().copied().unwrap_or(self.windows.shown);
             self.draw_window(ui, active);
-            self.after_windows(&ctx);
+            self.after_windows();
             return;
         }
         let Some(mut viewports) = self.windows.viewports.take() else { return };
@@ -510,14 +526,14 @@ impl WordApp {
         self.windows.list = list;
         self.windows.viewports = Some(viewports);
         self.window_events(&ctx, &events);
-        self.after_windows(&ctx);
+        self.after_windows();
     }
 
     /// After the frame's drawing: windows opened, closed or focused meanwhile settle, and the
     /// active window's state comes back.
-    fn after_windows(&mut self, ctx: &egui::Context) {
+    fn after_windows(&mut self) {
         self.prune_windows();
-        self.windows.settle(Some(ctx));
+        self.settle_windows();
         if let Some(&active) = self.windows.recent_keys().first() {
             self.enter_window(active);
         }
@@ -885,6 +901,7 @@ mod tests {
         assert!(!a.quit_requested);
         assert_eq!((a.window_count(), a.windows.shown()), (1, other));
         assert_eq!(a.active_viewport(), ViewportId::ROOT, "the remaining window moved into the root viewport");
+        assert_eq!(a.canvas.scroll_request, Some(a.canvas.scroll_offset), "its page stays where it was");
         frames(&ctx, &mut a, 2);
         assert_eq!(DRAWN.with(|d| d.borrow().clone()), [ViewportId::ROOT]);
         assert!(a.has_document() && a.session.documents().len() == 1);
