@@ -5,6 +5,7 @@
 //! A [`Contour`] is built once per placed object; each line then asks it which stretches of
 //! the line's band it takes ([`Contour::occupied`]), a walk over its edges.
 
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -187,12 +188,19 @@ impl Alpha {
     }
 }
 
+/// A picture whose transparency would take its layout past [`MAX_DECODED_PIXELS`]: it wraps
+/// as its rectangle in this layout only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OverBudget;
+
 /// Pictures' transparency decoded during one layout. A picture shown with many crops (each an
 /// outline of its own) is decoded once, and decoding stops at [`MAX_DECODED_PIXELS`].
 #[derive(Default)]
 pub(crate) struct Alphas {
     /// The picture decoded last: its bytes (address and length) and transparency (`None`: none).
     last: Option<((usize, usize), Option<Arc<Alpha>>)>,
+    /// Pictures refused for the budget (bytes' address and length), not looked at again.
+    refused: HashSet<(usize, usize)>,
     /// Pixels decoded so far.
     pub(crate) decoded: u64,
 }
@@ -200,40 +208,50 @@ pub(crate) struct Alphas {
 impl Alphas {
     /// The outline of picture `bytes`'s opaque pixels within `crop` (left, top, right, bottom
     /// fractions), in unit coordinates of the cropped picture. `None` for pictures without
-    /// transparency (or that don't decode, or past the budget): their rectangle is their outline.
-    pub(crate) fn outline(&mut self, bytes: &[u8], crop: [f32; 4]) -> Option<Vec<(f32, f32)>> {
+    /// transparency (or that don't decode), and [`OverBudget`] past the budget: their rectangle
+    /// is their outline.
+    pub(crate) fn outline(&mut self, bytes: &[u8], crop: [f32; 4]) -> Result<Option<Vec<(f32, f32)>>, OverBudget> {
         let key = (bytes.as_ptr() as usize, bytes.len());
         let alpha = match &self.last {
             Some((k, alpha)) if *k == key => alpha.clone(),
+            _ if self.refused.contains(&key) => return Err(OverBudget),
             _ => {
-                let alpha = decode_alpha(bytes, &mut self.decoded).map(Arc::new);
+                let alpha = decode_alpha(bytes, &mut self.decoded).inspect_err(|_| {
+                    self.refused.insert(key);
+                })?;
+                let alpha = alpha.map(Arc::new);
                 self.last = Some((key, alpha.clone()));
                 alpha
             }
         };
-        alpha_in_crop(&*alpha?, crop)
+        Ok(alpha.and_then(|a| alpha_in_crop(&a, crop)))
     }
 }
 
 /// The transparency of picture `bytes`, charging its pixels to `decoded`. `None` for pictures
-/// without transparency, that don't decode, or that would take `decoded` past
-/// [`MAX_DECODED_PIXELS`].
-fn decode_alpha(bytes: &[u8], decoded: &mut u64) -> Option<Alpha> {
-    let pic = wordcraft_geom::picture::probe(bytes).ok()?;
+/// without transparency or that don't decode; [`OverBudget`] for one that would take `decoded`
+/// past [`MAX_DECODED_PIXELS`]. Pictures whose header says they're opaque cost nothing.
+fn decode_alpha(bytes: &[u8], decoded: &mut u64) -> Result<Option<Alpha>, OverBudget> {
+    use image::ImageDecoder;
+    let Ok(pic) = wordcraft_geom::picture::probe(bytes) else { return Ok(None) };
     // Formats that can't be transparent aren't decoded.
     if pic.format == image::ImageFormat::Jpeg || pic.width > MAX_PICTURE_SIDE || pic.height > MAX_PICTURE_SIDE {
-        return None;
+        return Ok(None);
+    }
+    // Only the header is read here (a PNG's `tRNS` counts as transparency).
+    let has_alpha = image::ImageReader::with_format(std::io::Cursor::new(bytes), pic.format)
+        .into_decoder()
+        .ok()
+        .is_some_and(|d| d.color_type().has_alpha());
+    if !has_alpha {
+        return Ok(None);
     }
     let pixels = u64::from(pic.width) * u64::from(pic.height);
-    let total = decoded.checked_add(pixels).filter(|t| *t <= MAX_DECODED_PIXELS)?;
-    *decoded = total;
-    let img = pic.decode(wordcraft_geom::MAX_DECODED_BYTES).ok()?;
-    if !img.color().has_alpha() {
-        return None;
-    }
+    *decoded = decoded.checked_add(pixels).filter(|t| *t <= MAX_DECODED_PIXELS).ok_or(OverBudget)?;
+    let Ok(img) = pic.decode(wordcraft_geom::MAX_DECODED_BYTES) else { return Ok(None) };
     let img = img.into_rgba8();
     let (w, h) = img.dimensions();
-    Some(Alpha { w, h, a: img.pixels().map(|p| p.0[3]).collect() })
+    Ok(Some(Alpha { w, h, a: img.pixels().map(|p| p.0[3]).collect() }))
 }
 
 /// The outline of `img`'s opaque pixels within `crop`: see [`Alphas::outline`].
@@ -273,7 +291,7 @@ mod tests {
     use super::*;
 
     fn picture_outline(bytes: &[u8], crop: [f32; 4]) -> Option<Vec<(f32, f32)>> {
-        Alphas::default().outline(bytes, crop)
+        Alphas::default().outline(bytes, crop).ok().flatten()
     }
 
     fn diamond(through: bool) -> Contour {
