@@ -36,8 +36,7 @@ impl Writer<'_> {
             return;
         }
         let plan = super::sdt::plan(bl);
-        // A TOC inside a content control already has one (read from a file).
-        let toc = if top { toc_span(bl).filter(|(start, _)| !plan.covers(*start)) } else { None };
+        let toc = if top { written_toc_span(bl) } else { None };
         // Whether the heading's TOC field was written and still needs its end.
         let mut toc_field_open = false;
         for (i, b) in bl.iter().enumerate() {
@@ -1184,7 +1183,9 @@ impl Writer<'_> {
         } else {
             let d = emu(float.dist.clamp(0.0, 1584.0));
             let (dt, db) = (emu(float.dist_top.clamp(0.0, 1584.0)), emu(float.dist_bottom.clamp(0.0, 1584.0)));
-            self.z += 1;
+            // The stacking order read from the file is kept; objects without one stack in
+            // document order above it.
+            self.z = if float.z > 0 { float.z } else { self.z.saturating_add(1) };
             let behind = if float.wrap == Wrap::BehindText { "1" } else { "0" };
             w.open(
                 "wp:anchor",
@@ -1686,6 +1687,12 @@ const TOC_SDT_OPEN: &str =
 
 fn is_toc(instr: &str) -> bool {
     instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("TOC"))
+}
+
+/// The body TOC the writer wraps in Word's Table of Contents control (`toc_span`): not one whose
+/// heading is inside a content control already (read from a file).
+pub(crate) fn written_toc_span(bl: &Blocks) -> Option<(usize, usize)> {
+    toc_span(bl).filter(|(start, _)| !super::sdt::plan(bl).covers(*start))
 }
 
 /// The engine's TOC: a paragraph holding an empty `TOC` field, then its TOC-styled entries.

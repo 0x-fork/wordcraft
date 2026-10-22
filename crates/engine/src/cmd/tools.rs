@@ -632,14 +632,19 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"header"?: pt, "footer"?: pt}"#),
         CommandSpec::new("table.cellMargins", "Cell Margins", "Table Layout › Alignment", |s, v| {
             let Some((tp, _, _)) = s.sel.focus.path.cell() else { return Err(CmdError::Disabled("not in a table".into())) };
+            let story = s.sel.focus.story;
+            let current = {
+                let table = s.doc.table(story, &tp).ok_or_else(|| CmdError::Failed("no table".into()))?;
+                let style = table.props.style.as_deref().and_then(|id| s.doc.styles.table_style(id));
+                table.props.cell_margins.or(style.and_then(|st| st.parts.cell_margins)).unwrap_or([0.0, 5.4, 0.0, 5.4])
+            };
             let m = [
-                p::f32(v, "top").unwrap_or(0.0),
-                p::f32(v, "left").unwrap_or(5.4),
-                p::f32(v, "bottom").unwrap_or(0.0),
-                p::f32(v, "right").unwrap_or(5.4),
+                p::f32(v, "top").unwrap_or(current[0]),
+                p::f32(v, "left").unwrap_or(current[1]),
+                p::f32(v, "bottom").unwrap_or(current[2]),
+                p::f32(v, "right").unwrap_or(current[3]),
             ]
             .map(|x| x.clamp(0.0, 144.0));
-            let story = s.sel.focus.story;
             s.doc.table_mut(story, &tp)?.props.cell_margins = Some(m);
             for path in s.doc.para_paths(story).into_iter().filter(|p| p.0.starts_with(&tp.0) && p.0.len() > tp.0.len()) {
                 s.doc.para_mut(story, &path)?.touch();
@@ -702,7 +707,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"format": "decimal|upperRoman|lowerLetter…", "text"?: "%1.", "start"?: n}"#),
         CommandSpec::new("review.language", "Language", "Review › Language", language).params(
-            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default language)}"#,
+            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default and the saved language for future blank documents)}"#,
         ),
         CommandSpec::new("review.showMarkup", "Show Markup", "Review › Tracking", |s, v| {
             s.view.show_markup = p::bool(v, "value").unwrap_or(!s.view.show_markup);
@@ -755,7 +760,8 @@ pub fn specs() -> Vec<CommandSpec> {
 }
 
 /// Set Proofing Language: the selection's language and "do not check spelling or grammar",
-/// or (`default`) the document's default language; `detect` is the per-user preference.
+/// or (`default`) the document's default and the saved language for future blank documents;
+/// `detect` is the per-user detection preference.
 /// Nothing at all sets US English, as before.
 fn language(s: &mut Session, v: &Value) -> CmdResult {
     let lang = match p::str(v, "lang") {
@@ -787,14 +793,18 @@ fn language(s: &mut Session, v: &Value) -> CmdResult {
     if lang.is_none() && no_proof.is_none() {
         return Ok(json!({"detect": s.prefs.detect_language}));
     }
-    super::format::apply(s, &|c| {
+    let result = super::format::apply(s, &|c| {
         if let Some(l) = &lang {
             c.lang = Some(l.clone());
         }
         if let Some(np) = no_proof {
             c.no_proof = Some(np);
         }
-    })
+    })?;
+    if p::bool(v, "default") == Some(true) {
+        s.prefs.default_language = lang;
+    }
+    Ok(result)
 }
 
 fn macros(s: &mut Session, v: &Value) -> CmdResult {

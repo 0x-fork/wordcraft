@@ -23,6 +23,21 @@ fn paras(doc: &Document) -> Vec<&Paragraph> {
     doc.body.iter().filter_map(|b| b.as_para()).collect()
 }
 
+/// `doc` with the stacking order of its body's floating objects cleared: saving gives objects
+/// without one an order (`relativeHeight`), so tests about other properties compare without it.
+fn unstacked(mut doc: Document) -> Document {
+    for b in &mut doc.body {
+        if let Block::Para(p) = std::sync::Arc::make_mut(b) {
+            for o in &mut p.objects {
+                if let Some(f) = o.float_mut() {
+                    f.z = 0;
+                }
+            }
+        }
+    }
+    doc
+}
+
 fn part_text(doc: &Document, id: Option<u32>) -> String {
     id.and_then(|i| doc.parts.get(&i))
         .map(|p| p.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect::<Vec<_>>().join("\n"))
@@ -114,6 +129,7 @@ fn every_char_prop_round_trips() {
         bold_cs: Some(false),
         italic_cs: Some(true),
         lang_bidi: Some("fa-IR".into()),
+        lang_ea: Some("ja-JP".into()),
         east_asian_layout: Some(wordcraft_doc::props::EastAsianLayout {
             id: Some(3),
             combine: Some(true),
@@ -458,7 +474,7 @@ fn images_round_trip() {
         p.insert_object(end, f.clone(), &CharProps::default()).unwrap();
     }
     d.body = vec![para_block(p)];
-    let r = rt(&d);
+    let r = unstacked(rt(&d));
     let got = paras(&r)[0];
     let mut expect = vec![inline];
     expect.extend(floats);
@@ -1227,7 +1243,7 @@ fn groups_round_trip() {
     let end = p.len();
     p.insert_object(end, group, &CharProps::default()).unwrap();
     d.body = vec![para_block(p)];
-    let r = rt(&d);
+    let r = unstacked(rt(&d));
     let got = paras(&r);
     let InlineObject::Group { w, h, float: f, ch_w, ch_h, children, .. } = &got[0].objects[0] else { panic!("{:?}", got[0].objects) };
     assert_eq!((*w, *h, *ch_w, *ch_h), (240.0, 120.0, 200.0, 100.0));
@@ -1516,7 +1532,10 @@ fn watermark_roundtrips() {
             color: Rgb(0x80, 0x10, 0x20),
             diagonal: false,
             semitransparent: false,
+            size: None,
         },
+        // A box of its own (not Word's default for the page) is kept.
+        Watermark { text: "COPY".into(), size: Some([300.0, 80.0]), ..Default::default() },
     ] {
         let mut d = doc_with(vec![Paragraph::with_text("Body", CharProps::default())]);
         d.settings.watermark = Some(wm.clone());
@@ -1956,7 +1975,7 @@ fn ink_and_freeforms_round_trip_as_custom_geometry() {
     assert_eq!(xml.matches("<a:custGeom>").count(), 3, "{xml}");
     assert!(xml.contains(r#"<a:path w="762000" h="254000" fill="none"><a:moveTo><a:pt x="12700" y="12700"/></a:moveTo><a:lnTo>"#), "{xml}");
     assert!(xml.contains(r#"<a:alpha val="50000"/>"#) && xml.contains(r#"cap="rnd""#), "{xml}");
-    let r = rt(&d);
+    let r = unstacked(rt(&d));
     let objs = &paras(&r)[0].objects;
     assert_eq!(objs.len(), 3);
     // Written in reverse (each inserted at the start): the triangle, the highlighter, the pen.
@@ -2337,7 +2356,7 @@ fn wrap_polygons_round_trip() {
     std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
     assert!(xml.contains(r#"<wp:wrapPolygon edited="1"><wp:start x="-300" y="0"/><wp:lineTo x="21600" y="1200"/>"#), "{xml}");
     assert!(xml.contains(r#"<wp:lineTo x="-300" y="0"/></wp:wrapPolygon>"#), "closed: {xml}");
-    let r = wordcraft_docx::read(&bytes).expect("read");
+    let r = unstacked(wordcraft_docx::read(&bytes).expect("read"));
     let got = paras(&r)[0];
     let floats: Vec<Float> = got.objects.iter().filter_map(|o| o.frame().map(|(_, _, f)| f.clone())).collect();
     assert_eq!(floats[0], edited);

@@ -13,7 +13,7 @@ use wordcraft_doc::props::Rgb;
 use wordcraft_fonts::FontDb;
 use wordcraft_layout::Page;
 use wordcraft_layout::display::Paint;
-use wordcraft_layout::display::{DisplayOptions, Draw, Stroke, page_display};
+use wordcraft_layout::display::{DisplayOptions, Draw, Stroke, page_layers};
 use wordcraft_metafile::{Item, Picture, PlacedItem, Seg};
 
 mod color_glyph;
@@ -30,6 +30,8 @@ pub fn default_threads() -> u16 {
         std::thread::available_parallelism().map(|n| (n.get().saturating_sub(1)).clamp(1, 8) as u16).unwrap_or(2)
     }
 }
+
+mod context_pool;
 
 /// Largest raster side vello_cpu handles comfortably.
 pub const MAX_SIDE: u32 = 16_000;
@@ -283,6 +285,7 @@ impl Vector {
             .map(|it| match it {
                 Item::Path { segs, .. } => segs.len() * std::mem::size_of::<Seg>(),
                 Item::Bitmap { .. } => 0,
+                Item::Text(t) => t.text.len() + t.dx.len() * 4,
             })
             .sum();
         px + segs
@@ -361,12 +364,34 @@ fn draw_vector(ctx: &mut RenderContext, v: &Vector, r: &kurbo::Rect, crop: &[f32
                 ctx.fill_rect(&rect);
                 ctx.reset_paint_transform();
             }
+            PlacedItem::Text { index, tf } => {
+                if let Some(Item::Text(t)) = v.pic.items.get(index) {
+                    draw_vector_text(ctx, t, view * tf);
+                }
+                ctx.set_transform(view);
+            }
         }
     }
     ctx.set_fill_rule(peniko::Fill::NonZero);
     ctx.pop_layer();
     if faded {
         ctx.pop_layer();
+    }
+}
+
+/// Draws a metafile text run: `tf` maps the run's own space (see [`PlacedItem::Text`]) to the device.
+fn draw_vector_text(ctx: &mut RenderContext, t: &wordcraft_metafile::Text, tf: Affine) {
+    let face = wordcraft_fonts::word::resolve(&t.font, t.bold, t.italic).face;
+    let shaped = wordcraft_fonts::shape(&face, &t.text, &[], |c| c);
+    let glyphs: Vec<_> = shaped.iter().map(|g| (g.cluster, f64::from(g.x_advance), f64::from(g.x_offset), f64::from(g.y_offset))).collect();
+    let Some(lay) = t.layout(face.upem, face.ascent, face.descent, &glyphs) else { return };
+    let k = lay.em / face.upem.max(1.0);
+    ctx.set_paint(rgba_color(t.color));
+    let db = FontDb::global();
+    for (g, (x, y)) in shaped.iter().zip(&lay.glyphs) {
+        let o = db.outline(&face, g.gid);
+        ctx.set_transform(tf * Affine::translate((*x, *y)) * Affine::scale(k));
+        ctx.fill_path(&o);
     }
 }
 
@@ -540,18 +565,27 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     // Over the cap the whole picture is drawn smaller, not cropped.
     let view = if (cw, ch) == (w, h) { view } else { Affine::scale_non_uniform(cw as f64 / w as f64, ch as f64 / h as f64) * view };
     let (w16, h16) = (cw as u16, ch as u16);
-    let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: default_threads(), ..Default::default() });
+    let mut ctx = context_pool::CONTEXTS.take(w16, h16);
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
     ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64));
     draw_page_picture(&mut ctx, doc, page, view);
-    let items = page_display(doc, page, &opts.display);
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     if let Some(wm) = &doc.settings.watermark {
         draw_watermark(&mut ctx, view, page, wm, opts);
     }
-    for it in &items {
-        draw(&mut ctx, doc, it, view, &visible, opts);
+    // A dimmed layer is drawn whole, then faded once, so its overlaps don't darken.
+    for (alpha, items) in page_layers(doc, page, &opts.display) {
+        let faded = alpha < 1.0 && !items.is_empty();
+        if faded {
+            ctx.push_opacity_layer(alpha);
+        }
+        for it in &items {
+            draw(&mut ctx, doc, it, view, &visible, opts);
+        }
+        if faded {
+            ctx.pop_layer();
+        }
     }
     ctx.flush();
     let mut pixels = vec![0u8; w16 as usize * h16 as usize * 4];
@@ -559,6 +593,7 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     if let Some(pm) = vello_cpu::PixmapMut::new(w16, h16, &mut pixels) {
         ctx.render(pm, &mut res);
     }
+    context_pool::CONTEXTS.give_back(ctx);
     Rendered { width: w16 as u32, height: h16 as u32, pixels }
 }
 
@@ -572,8 +607,14 @@ pub fn background_at(doc: &Document, page: &Page, opts: &RenderOptions, x: f32, 
         return paper;
     }
     let mut bg = [paper.0 as f32, paper.1 as f32, paper.2 as f32];
-    let items = page_display(doc, page, &opts.display);
-    blend_backgrounds(&items, wordcraft_geom::Point::new(x, y), opts, &mut bg, 0);
+    for (alpha, items) in page_layers(doc, page, &opts.display) {
+        // A faded layer: its own colour there, blended in at its opacity.
+        let mut layer = bg;
+        blend_backgrounds(&items, wordcraft_geom::Point::new(x, y), opts, &mut layer, 0);
+        for (v, n) in bg.iter_mut().zip(layer) {
+            *v += (n - *v) * alpha;
+        }
+    }
     let c = |v: f32| v.round().clamp(0.0, 255.0) as u8;
     Rgb(c(bg[0]), c(bg[1]), c(bg[2]))
 }
@@ -669,15 +710,23 @@ fn draw_watermark(ctx: &mut RenderContext, view: Affine, page: &Page, wm: &wordc
     if raw_w <= 0.0 {
         return;
     }
-    // The document page, not a Print Markup area beside it.
+    // The document page, not a Print Markup area beside it. The text stretched over its box
+    // (Word's `v:textpath fitshape`): its advance across the box, its em down it with the em's foot
+    // on the box's bottom; the box centred on the margins and, when diagonal, turned 45°.
     let pw = (page.w - page.markup.max(0.0)).max(1.0) as f64;
-    let diag = if wm.diagonal { (pw.powi(2) + (page.h.min(2000.0) as f64).powi(2)).sqrt() } else { pw };
-    let size = (diag * 0.5 / raw_w).min(200.0);
+    let [bw, bh] = wm.frame(pw as f32, page.h).map(f64::from);
+    let size = bh.min(2000.0);
     let k = size / upem;
-    let angle = if wm.diagonal { -((page.h.min(2000.0) as f64) / pw).atan() } else { 0.0 };
-    let base = Affine::translate((pw / 2.0, page.h.min(2000.0) as f64 / 2.0))
+    let stretch = bw / (raw_w * size);
+    let descent = (wordcraft_fonts::word::line_metrics(&face).1 / upem).clamp(0.0, 1.0);
+    let angle = if wm.diagonal { -std::f64::consts::FRAC_PI_4 } else { 0.0 };
+    let b = page.body;
+    let (cx, cy) =
+        if b.w > 0.0 && b.h > 0.0 { (f64::from(b.x + b.w / 2.0), f64::from(b.y + b.h / 2.0)) } else { (pw / 2.0, page.h.min(2000.0) as f64 / 2.0) };
+    let base = Affine::translate((cx, cy))
         * Affine::rotate(angle)
-        * Affine::translate((-raw_w * size / 2.0, size * 0.35));
+        * Affine::translate((-bw / 2.0, bh / 2.0 - descent * bh))
+        * Affine::scale_non_uniform(stretch, 1.0);
     ctx.set_paint(color(opts.ink(wm.color), if wm.semitransparent { 0.35 } else { 0.8 }));
     let db = FontDb::global();
     let mut x = 0.0;
@@ -764,10 +813,8 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             // every end, blobbing over the neighbouring border at a table's corners (#2892). Wavy
             // underlines keep round ends, as the PDF draws them.
             let mut st = kurbo::Stroke::new(w).with_caps(kurbo::Cap::Butt);
-            match stroke {
-                Stroke::Dotted => st = st.with_dashes(0.0, [w, w * 2.0]),
-                Stroke::Dashed => st = st.with_dashes(0.0, [w * 4.0, w * 2.0]),
-                _ => {}
+            if let Some(d) = stroke.dashes() {
+                st = st.with_dashes(0.0, d.iter().map(|k| f64::from(*k) * w));
             }
             let (x0, y0, x1, y1) = (*x0 as f64, *y0 as f64, *x1 as f64, *y1 as f64);
             let line = |ctx: &mut RenderContext, ox: f64, oy: f64| {
@@ -807,7 +854,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_stroke(st);
             line(ctx, 0.0, 0.0);
         }
-        Draw::Glyphs { face, size, glyphs, color: c, alpha, synth_bold, synth_italic, text_bg, .. } => {
+        Draw::Glyphs { face, size, glyphs, color: c, alpha, synth_bold, synth_italic, text_bg, x_scale, .. } => {
             // Invisible glyphs (WordArt letters are drawn from their outlines) carry text only.
             if *alpha <= 0.0 {
                 return;
@@ -816,6 +863,9 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             let k = *size as f64 / face.upem.max(1.0);
             ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
             let skew = if *synth_italic { Affine::new([1.0, 0.0, -0.21, 1.0, 0.0, 0.0]) } else { Affine::IDENTITY };
+            // Scaled letters (`w:w`): each glyph stretched across from its pen position.
+            let sx = if x_scale.is_finite() && *x_scale > 0.0 { f64::from(*x_scale) } else { 1.0 };
+            let skew = Affine::scale_non_uniform(sx, 1.0) * skew;
             // Outline strokes, in font units: synthetic bold, then on-screen stem darkening (a
             // stroke grows the outline by half its width on each side). Darkening is skipped for
             // translucent text, where the stroke overlapping the fill would show as a darker rim.
@@ -907,9 +957,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 return;
             };
             let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
-            let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { v.clamp(0.0, 0.95) as f64 } else { 0.0 });
-            let vis_w = (1.0 - cl - cr).max(0.05);
-            let vis_h = (1.0 - ct - cb).max(0.05);
+            let [cl, ct, vis_w, vis_h] = wordcraft_metafile::crop_window(*crop);
             let sx = r.width() / (pw * vis_w);
             let sy = r.height() / (ph * vis_h);
             ctx.set_transform(view);
@@ -1211,6 +1259,7 @@ pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wordcraft_layout::display::page_display;
     use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
 
     /// The first and last pixel rows with ink in a black-on-white [`render_text_line`] raster.
@@ -1633,6 +1682,34 @@ mod tests {
         assert!(!ink(&img, 31, 3), "the upper strand ends at x=30");
     }
 
+    /// A dimmed header is its full-strength picture faded once, as Word dims it: where a header
+    /// table's borders meet they are the tone of the borders, not darker.
+    #[test]
+    fn dimmed_header_borders_dont_darken_where_they_meet() {
+        let mut d = Document::from_text("");
+        let t = wordcraft_doc::Table::new(2, 2, 200.0);
+        let blocks = vec![std::sync::Arc::new(wordcraft_doc::Block::Table(t)), wordcraft_doc::para_block(wordcraft_doc::Paragraph::new())];
+        let id = d.add_part(wordcraft_doc::PartKind::Header, blocks);
+        d.last_section.headers.default = Some(id);
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let render = |dim_header: bool| {
+            let mut opts = RenderOptions::default();
+            opts.display.dim_header = dim_header;
+            render_page(&d, &l.pages[0], 3.0, &opts)
+        };
+        let (full, dim) = (render(false), render(true));
+        let mut ink = 0;
+        for y in 0..full.height {
+            for x in 0..full.width {
+                let (f, g) = (full.pixel(x, y)[0] as f32, dim.pixel(x, y)[0] as f32);
+                ink += usize::from(f < 128.0);
+                let want = 255.0 - 0.45 * (255.0 - f);
+                assert!((g - want).abs() <= 2.0, "({x}, {y}): {g} dimmed, {want} wanted ({f} at full strength)");
+            }
+        }
+        assert!(ink > 100, "the borders are drawn: {ink}");
+    }
+
     #[test]
     fn dark_page_inverts_lightness() {
         assert_eq!(invert_lightness(Rgb::WHITE), Rgb::BLACK);
@@ -1656,41 +1733,61 @@ mod tests {
     #[test]
     fn legacy_font_effects_are_drawn() {
         use wordcraft_doc::CharProps;
-        // Dark and grey pixel counts, and the grey pixels' mean offset from the dark ones.
-        let shot = |c: CharProps| {
+        use wordcraft_doc::wordart::{TextEffects, TextFill};
+        const SIZE: f32 = 40.0;
+        const SCALE: f32 = 2.0;
+        const MIN_DIRECTION_PIXELS: usize = 100;
+        let shot = |c: CharProps, offset: f32| {
             let mut d = Document::from_text("x");
-            let cp = CharProps { size: Some(40.0), bold: Some(true), ..c };
+            let cp = CharProps { size: Some(SIZE), bold: Some(true), ..c };
             d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("HHHH", cp))];
             let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
-            let img = render_page(&d, &l.pages[0], 2.0, &RenderOptions::default());
-            let (mut dark, mut grey) = ((0.0, 0.0, 0.0f64), (0.0, 0.0, 0.0f64));
+            render_area(&d, &l.pages[0], -offset, -offset, 400.0, 150.0, SCALE, &RenderOptions::default())
+        };
+        let counts = |img: &Rendered| {
+            let (mut dark, mut grey) = (0usize, 0usize);
             for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
                 let v = img.pixel(x, y)[0];
-                // The copy is solid RGB 128; a wider range would count the glyph's own
-                // antialiasing, whose centroid hides the copy's offset on some fonts.
-                let acc = match v {
-                    0..60 => &mut dark,
-                    120..=136 => &mut grey,
-                    _ => continue,
-                };
-                *acc = (acc.0 + 1.0, acc.1 + f64::from(x), acc.2 + f64::from(y));
+                dark += usize::from(v < 60);
+                grey += usize::from((120..=136).contains(&v));
             }
-            let mean = |a: (f64, f64, f64)| (a.1 / a.0.max(1.0), a.2 / a.0.max(1.0));
-            let ((dx, dy), (gx, gy)) = (mean(dark), mean(grey));
-            (dark.0, grey.0, (gx - dx, gy - dy))
+            (dark, grey)
         };
-        let (plain_dark, plain_grey, _) = shot(CharProps::default());
-        assert!(plain_dark > 2000.0, "plain {plain_dark}");
-        let (dark, _, _) = shot(CharProps { outline: Some(true), ..Default::default() });
-        assert!(dark < plain_dark / 3.0, "outline is hollow: {dark} vs {plain_dark}");
+        let (plain_dark, plain_grey) = counts(&shot(CharProps::default(), 0.0));
+        assert!(plain_dark > 2000, "plain {plain_dark}");
+        let (dark, _) = counts(&shot(CharProps { outline: Some(true), ..Default::default() }, 0.0));
+        assert!(dark < plain_dark / 3, "outline is hollow: {dark} vs {plain_dark}");
+        // An explicit fill keeps the reference on the same Art path as legacy effects.
+        let reference = || CharProps {
+            text_effects: Some(Box::new(TextEffects { fill: Some(TextFill::Solid { color: Rgb::BLACK, transparency: 0.0 }), ..Default::default() })),
+            ..Default::default()
+        };
+        let base = shot(reference(), 0.0);
         for (c, sign) in [
             (CharProps { shadow: Some(true), ..Default::default() }, 1.0),
             (CharProps { emboss: Some(true), ..Default::default() }, 1.0),
             (CharProps { engrave: Some(true), ..Default::default() }, -1.0),
         ] {
-            let (_, grey, (ox, oy)) = shot(c);
-            assert!(grey > plain_grey * 2.0, "a grey copy: {grey} vs {plain_grey}");
-            assert!(ox * sign > 1.0 && oy * sign > 1.0, "grey copy offset {ox} {oy}");
+            let img = shot(c, 0.0);
+            let (_, grey) = counts(&img);
+            assert!(grey > plain_grey * 2, "a grey copy: {grey} vs {plain_grey}");
+            // A 2pt diagonal displacement at 40pt has sqrt(2)pt on each axis.
+            // Check the visible copy against its translated mask, accounting for occlusion.
+            let offset = sign * std::f32::consts::SQRT_2;
+            let expected = shot(reference(), offset);
+            let opposite = shot(reference(), -offset);
+            let (mut visible, mut directional) = (0usize, 0usize);
+            for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
+                let v = img.pixel(x, y)[0];
+                if !(120..=136).contains(&v) || base.pixel(x, y)[0] != 255 {
+                    continue;
+                }
+                visible += 1;
+                assert!(expected.pixel(x, y)[0] < 255, "grey outside translated Art mask: sign {sign}, pixel {x},{y}");
+                directional += usize::from(expected.pixel(x, y)[0] < 60 && opposite.pixel(x, y)[0] == 255);
+            }
+            assert!(directional > MIN_DIRECTION_PIXELS, "directional grey: sign {sign}, {directional} of {visible}");
+            eprintln!("spatial shadow sign={sign} grey={grey} visible={visible} directional={directional}");
         }
     }
 
@@ -1888,6 +1985,50 @@ mod tests {
         assert!(left[..3].iter().all(|c| *c > 200), "left half should be paper, not the grey box: {left:?}");
     }
 
+    /// #1899: a crop that keeps a sliver of the picture (3% here; a header's bar can be 2.7% of a
+    /// page-sized metafile) stretches that sliver over the frame, as the file says, for vector and
+    /// bitmap pictures alike. Both pictures are paper on the left half and red on the right.
+    #[test]
+    fn a_crop_keeping_a_sliver_fills_the_frame_with_it() {
+        let mut png = Vec::new();
+        image::RgbaImage::from_fn(100, 100, |x, _| image::Rgba(if x >= 50 { [255, 0, 0, 255] } else { [255; 4] }))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        for (bytes, ext) in [(red_right_half_emf(), "emf"), (png, "png")] {
+            // (crop, where in the frame, red?): 47–50% of the source is all paper; 50–53% all red.
+            for (crop, at, red) in [([0.47, 0.47, 0.5, 0.5], 0.7, false), ([0.5, 0.47, 0.47, 0.5], 0.3, true)] {
+                let mut d = Document::new();
+                let media = d.add_media(bytes.clone(), ext);
+                let mut p = wordcraft_doc::Paragraph::new();
+                let obj = wordcraft_doc::para::InlineObject::Image {
+                    media,
+                    w: 70.0,
+                    h: 70.0,
+                    alt: String::new(),
+                    float: Default::default(),
+                    crop,
+                    ole: None,
+                };
+                p.insert_object(0, obj, &Default::default()).unwrap();
+                d.body = vec![wordcraft_doc::para_block(p)];
+                let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+                let opts = RenderOptions::default();
+                let rect = page_display(&d, &l.pages[0], &opts.display)
+                    .iter()
+                    .find_map(|i| match i {
+                        Draw::Image { rect, .. } => Some(*rect),
+                        _ => None,
+                    })
+                    .expect("a picture on the page");
+                let img = render_page(&d, &l.pages[0], 1.0, &opts);
+                let px = img.pixel((rect.x + rect.w * at) as u32, (rect.y + rect.h * at) as u32);
+                let is_red = px[0] > 200 && px[1] < 60 && px[2] < 60;
+                let is_paper = px[..3].iter().all(|c| *c > 200);
+                assert!(if red { is_red } else { is_paper }, "{ext} crop {crop:?} at {at}: {px:?}");
+            }
+        }
+    }
+
     #[test]
     fn cosmetic_metafile_pen_is_one_device_pixel_wide() {
         // MOVETO (0, 50), LINETO (100, 50) with the default cosmetic black pen: a hairline across the middle.
@@ -1922,6 +2063,52 @@ mod tests {
         let darkest = (y - 3..=y + 3).map(|y| img.pixel(x, y)[0]).min().unwrap_or(255);
         // A 0.1 pt line would cover a fifth of a pixel (about 204); one device pixel covers at least half of one.
         assert!(darkest < 140, "the hairline should be clearly visible: {darkest}");
+    }
+
+    /// #1764: an EMF picture's text (EXTCREATEFONTINDIRECTW, SELECTOBJECT, SETTEXTCOLOR, EXTTEXTOUTW)
+    /// is painted, not dropped.
+    #[test]
+    fn metafile_text_records_are_painted() {
+        let mut font = emf_rec(82, &le32(&[1, -20, 0, 0, 0, 700, 0, 0]));
+        let mut name: Vec<u8> = "Arial".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        name.resize(64, 0);
+        font.extend(name);
+        font[4..8].copy_from_slice(&104u32.to_le_bytes());
+        // "WWWW" at (5, 40), top-aligned, no dx array.
+        let mut text = emf_rec(84, &le32(&[0, 0, 100, 100, 1, 0, 0, 5, 40, 4, 76, 0, 0, 0, 0, 0, 0]));
+        text.extend("WWWW".encode_utf16().flat_map(|u| u.to_le_bytes()));
+        text[4..8].copy_from_slice(&84u32.to_le_bytes());
+        let mut emf = red_right_half_emf()[..88].to_vec();
+        emf.extend([font, emf_rec(37, &le32(&[1])), emf_rec(24, &le32(&[0])), text, emf_rec(14, &[0; 12])].concat());
+        let mut d = Document::new();
+        let media = d.add_media(emf, "emf");
+        let mut p = wordcraft_doc::Paragraph::new();
+        let obj = wordcraft_doc::para::InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            ole: None,
+        };
+        p.insert_object(0, obj, &Default::default()).unwrap();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let opts = RenderOptions::default();
+        let rect = page_display(&d, &l.pages[0], &opts.display)
+            .iter()
+            .find_map(|i| match i {
+                Draw::Image { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("a picture on the page");
+        let scale = 2.0;
+        let img = render_page(&d, &l.pages[0], scale, &opts);
+        let (x0, y0) = ((rect.x * scale) as u32, (rect.y * scale) as u32);
+        let (x1, y1) = (((rect.x + rect.w) * scale) as u32, ((rect.y + rect.h) * scale) as u32);
+        let dark = (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).filter(|&(x, y)| img.pixel(x, y)[0] < 100).count();
+        assert!(dark > 50, "the text is painted inside the picture: {dark} dark pixels");
     }
 
     #[test]

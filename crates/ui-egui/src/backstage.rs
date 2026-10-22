@@ -3,7 +3,7 @@
 use egui::{Align2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
 
-use crate::theme::{APP_COLOR, Tokens, medium, regular, semibold};
+use crate::theme::{Tokens, medium, regular, semibold};
 use crate::{WordApp, icons};
 
 /// The side menu: page id, label and icon (#1714).
@@ -41,7 +41,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         .exact_size(200.0)
         // Fixed width, as in Word: without this egui shows a resize handle that does nothing (#502).
         .resizable(false)
-        .frame(egui::Frame::NONE.fill(APP_COLOR).inner_margin(egui::Margin { left: 0, right: 0, top: if mac { 0 } else { 12 }, bottom: 12 }))
+        .frame(egui::Frame::NONE.fill(t.nav).inner_margin(egui::Margin { left: 0, right: 0, top: if mac { 0 } else { 12 }, bottom: 12 }))
         .show(ui, |ui| {
             let back = if mac {
                 // macOS (#222): the Backstage covers the title bar, so its top band is the title
@@ -57,14 +57,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
                 resp
             } else {
-                let (r, resp) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::click());
-                icons::paint(
-                    ui.painter(),
-                    Rect::from_center_size(pos2(r.min.x + 26.0, r.center().y), vec2(18.0, 18.0)),
-                    "chevronLeft",
-                    egui::Color32::WHITE,
-                    egui::Color32::WHITE,
-                );
+                // The hit area is scoped to the chevron, not the whole 200px-wide row (#3041):
+                // the row reads as plain sidebar background next to it, so clicking there must
+                // not also close the File page, same as the macOS chevron fix (#2972) below.
+                let (r, _) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::hover());
+                let c = pos2(r.min.x + 26.0, r.center().y);
+                let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, r.height())), ui.id().with("backstage_back"), Sense::click());
+                icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
                 resp
             };
             // Escape in the built-in file browser closes only the browser.
@@ -226,9 +225,14 @@ fn heading(ui: &mut Ui, s: &str) {
 fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
     let t = Tokens::get(ui.ctx());
     ui.vertical(|ui| {
-        // The label sits right under the thumbnail whatever row gap the gallery uses.
-        ui.spacing_mut().item_spacing.y = 0.0;
-        let (r, resp) = ui.allocate_exact_size(vec2(150.0, 194.0), Sense::click());
+        // The thumbnail and its caption are one button named by the caption, so a screen reader
+        // announces "Blank document, button" rather than unnamed text (#3176); the caption opens
+        // the template too, as in Word.
+        let caption = crate::i18n::tc("template", label);
+        let galley = ui.painter().layout_no_wrap(caption.to_string(), regular(12.5), ui.visuals().text_color());
+        let (tile, resp) = ui.allocate_exact_size(vec2(galley.size().x.max(150.0), 194.0 + galley.size().y), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), caption));
+        let r = Rect::from_min_size(tile.min, vec2(150.0, 194.0));
         ui.painter().rect(
             r,
             2.0,
@@ -259,9 +263,8 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         if let Some(h) = tex {
             ui.painter().image(h.id(), r.shrink(1.0), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
-        // The caption opens the template too, as in Word.
-        let caption = ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tc("template", label)).font(regular(12.5))).sense(Sense::click()));
-        if resp.clicked() || caption.clicked() {
+        ui.painter().galley(pos2(r.min.x, r.max.y), galley, ui.visuals().text_color());
+        if resp.clicked() {
             let _ = app.run("file.new", json!({"template": template}));
             app.ui.backstage = false;
             app.canvas.want_focus = true;
@@ -511,17 +514,24 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
     if app.ui.recent.is_empty() {
         ui.label(egui::RichText::new(tl!("Documents you open will show up here.")).color(t.text_dim));
     }
-    for p in app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>() {
-        let name = std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.clone());
+    let shown = app.ui.recent.iter().take(app.ui.recent_shown()).cloned().collect::<Vec<_>>();
+    let file_name = |p: &str| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(p.to_string());
+    let names = shown.iter().map(|p| file_name(p)).collect::<Vec<_>>();
+    for (p, name) in shown.iter().zip(&names) {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().min(700.0), 40.0), Sense::click());
+        // Two documents with the same file name are told apart by their path, as on screen.
+        let spoken = if names.iter().filter(|n| *n == name).count() > 1 { format!("{name}, {p}") } else { name.clone() };
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &spoken));
         if resp.hovered() {
             ui.painter().rect_filled(r, 4.0, t.hover);
         }
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
+        let display_name = crate::canvas::bidi_display(name);
+        let display_p = crate::canvas::bidi_display(p);
+        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, display_name.as_ref(), medium(13.0), t.text);
+        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, display_p.as_ref(), regular(11.0), t.text_dim);
         if resp.clicked() {
-            let failed = open_recent(app, &p).err();
+            let failed = open_recent(app, p).err();
             ui.ctx().data_mut(|d| d.insert_temp(open_error_id(), failed.unwrap_or_default()));
         }
     }
@@ -537,6 +547,19 @@ pub(crate) fn forget_open_error(ctx: &egui::Context) {
         d.remove::<String>(open_error_id());
         d.remove::<String>(personal_error_id());
     });
+}
+
+/// The Save As page's write-failure message ([`WordApp::fail_save_as`]): this page's own
+/// render loop skips the status bar, so a failed write (no permission, disk full, a bad path)
+/// needs its own place to say why, or the page just sits there with a Browse… button and no clue.
+pub(crate) fn save_as_error_id() -> egui::Id {
+    egui::Id::new("backstage_save_as_error")
+}
+
+/// Drop the Save As page's error once File is closed or a later save succeeds, so it doesn't
+/// come back next time.
+pub(crate) fn forget_save_as_error(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<String>(save_as_error_id()));
 }
 
 /// Open a file from the Recent list. A file that can't be opened (deleted, moved, unreadable)
@@ -571,6 +594,11 @@ fn open_page(app: &mut WordApp, ui: &mut Ui) {
 /// opens it, which is not what Save As is for.
 fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Save As");
+    let error = ui.ctx().data(|d| d.get_temp::<String>(save_as_error_id())).unwrap_or_default();
+    if !error.is_empty() {
+        ui.label(egui::RichText::new(&error).color(ui.visuals().error_fg_color));
+        ui.add_space(6.0);
+    }
     if ui.button(egui::RichText::new(tl!("Browse…")).font(medium(14.0))).clicked() {
         app.save_as_dialog();
     }
@@ -678,7 +706,7 @@ mod tests {
     use egui_kittest::kittest::Queryable;
     use serde_json::json;
 
-    use super::matching_templates;
+    use super::{HOME_TEMPLATES, TEMPLATES, matching_templates};
     use crate::{Services, WordApp};
 
     /// #1714: every side-menu item has its own icon, a drawn one (an unknown name would fall back
@@ -733,7 +761,7 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn recovery_app() -> (WordApp, std::path::PathBuf) {
+    fn recovery_fixture() -> (WordApp, std::path::PathBuf) {
         let root = std::env::temp_dir().join(format!(
             "wordcraft-recovery-ui-{}-{}",
             std::process::id(),
@@ -752,8 +780,40 @@ mod tests {
         )
         .unwrap();
         let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        app.ui.language = "en".into();
+        (app, root)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_app() -> (WordApp, std::path::PathBuf) {
+        let (mut app, root) = recovery_fixture();
         app.session.enable_recovery(root.clone(), std::sync::Arc::new(|| {})).unwrap();
         (app, root)
+    }
+
+    /// Hold discovery polling until the accessible control has dispatched its command.
+    /// Warming up first keeps font installation independent of worker timing.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn pending_recovery_harness(
+        app: WordApp,
+        root: &std::path::Path,
+    ) -> (egui_kittest::Harness<'static, WordApp>, std::rc::Rc<std::cell::Cell<bool>>) {
+        let poll = std::rc::Rc::new(std::cell::Cell::new(true));
+        let gate = poll.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                if gate.get() {
+                    app.logic(&ui.ctx().clone());
+                }
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        poll.set(false);
+        h.state_mut().session.enable_recovery(root.to_path_buf(), std::sync::Arc::new(|| {})).unwrap();
+        assert!(!h.state().session.recovery_ready());
+        (h, poll)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -832,6 +892,72 @@ mod tests {
             drop(app);
             let _ = std::fs::remove_dir_all(root);
         }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_does_not_replace_an_explicit_new_document() {
+        for template in ["Blank document", "Report"] {
+            let (mut app, root) = recovery_fixture();
+            app.ui.backstage = true;
+            app.ui.backstage_page = "home".into();
+            let (mut h, poll) = pending_recovery_harness(app, &root);
+            let previous = h.state().session.document_id();
+            h.get_by_label("New").click();
+            h.run_steps(4);
+            h.get_by_label(template).click();
+            h.run_steps(4);
+            assert!(!h.state().session.recovery_ready());
+            let document = h.state().session.document_id();
+            let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+            assert_ne!(document, previous);
+            poll.set(true);
+            settle_recovery(&mut h);
+            assert!(!h.state().ui.backstage, "the requested template must stay visible");
+            assert_eq!(h.state().session.document_id(), document);
+            assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), text);
+            assert_eq!(h.state().session.recovery_documents().len(), 1, "older copies remain available");
+            h.state_mut().ui.backstage = true;
+            h.run_steps(4);
+            h.get_by_label("Recover").click();
+            h.run_steps(4);
+            assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover");
+            drop(h);
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_does_not_replace_an_explicitly_opened_file() {
+        let (mut app, root) = recovery_fixture();
+        let path = root.join("Requested.txt");
+        std::fs::write(&path, "Requested synthetic document").unwrap();
+        app.services.pick_open = Some(Box::new(move |_| Some(path.to_string_lossy().into_owned())));
+        app.ui.backstage = true;
+        app.ui.backstage_page = "home".into();
+        let (mut h, poll) = pending_recovery_harness(app, &root);
+        let previous = h.state().session.document_id();
+        h.get_by_label("Open").click();
+        h.run_steps(4);
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        assert!(!h.state().session.recovery_ready());
+        let document = h.state().session.document_id();
+        assert_ne!(document, previous);
+        poll.set(true);
+        settle_recovery(&mut h);
+        assert!(!h.state().ui.backstage);
+        assert_eq!(h.state().session.document_id(), document);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Requested synthetic document");
+        assert_eq!(h.state().session.recovery_documents().len(), 1);
+        h.state_mut().ui.backstage = true;
+        h.run_steps(4);
+        h.get_by_label("Recover").click();
+        h.run_steps(4);
+        assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover");
+        drop(h);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1102,6 +1228,32 @@ mod tests {
         assert!(h.query_by_label("Recent").is_none(), "New has no Recent list");
     }
 
+    /// #3176: a screen reader finds each template and each recent document as a button named by
+    /// its caption or file name (they were unnamed text), and pressing one opens it.
+    #[test]
+    fn templates_and_recent_documents_are_named_buttons() {
+        use egui::accesskit::Role;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        let dir = std::env::temp_dir().join("wordcraft-3176-missing");
+        let path = |folder: &str, file: &str| dir.join(folder).join(file).to_string_lossy().into_owned();
+        let (spring, autumn) = (path("spring", "Report.docx"), path("autumn", "Report.docx"));
+        a.ui.recent = vec![path("notes", "Quarterly notes.docx"), spring.clone(), autumn.clone()];
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = a11y_harness(a);
+        for (label, _) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
+            assert!(h.query_by_role_and_label(Role::Button, label).is_some(), "{label} is a named button");
+        }
+        assert!(h.query_by_role_and_label(Role::Button, "Quarterly notes.docx").is_some(), "a recent document is a named button");
+        for p in [&spring, &autumn] {
+            let label = format!("Report.docx, {p}");
+            assert!(h.query_by_role_and_label(Role::Button, &label).is_some(), "a repeated file name is told apart by its path: {label}");
+        }
+        h.get_by_role_and_label(Role::Button, "Letter").click();
+        h.run_steps(4);
+        assert!(!h.state().ui.backstage, "the Letter button opens the template");
+        assert!(!h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).is_empty(), "with the template's text");
+    }
+
     /// Clicking the back arrow closes the File page and gives the keyboard back to the page,
     /// without naming as focused a widget the frame didn't draw: with accessibility on (a screen
     /// reader, or any UI Automation client on Windows) AccessKit ends the program over that, and
@@ -1123,7 +1275,7 @@ mod tests {
         h.state_mut().run("ui.backstage", json!({"value": true})).unwrap();
         h.run_steps(4);
         // The arrow heads the File page's side bar; it has no label to find it by.
-        let arrow = egui::pos2(100.0, 32.0);
+        let arrow = egui::pos2(26.0, 32.0);
         h.event(egui::Event::PointerMoved(arrow));
         for pressed in [true, false] {
             h.event(egui::Event::PointerButton { pos: arrow, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
@@ -1131,6 +1283,19 @@ mod tests {
         h.run_steps(4);
         assert!(!h.state().ui.backstage, "the arrow closes the File page");
         assert!(h.state().canvas.focused, "and the page has the keyboard");
+    }
+
+    /// #3041: clicking the plain sidebar background next to the back arrow must not also close
+    /// the File page — only the chevron itself does, same scoping as the macOS chevron (#2972).
+    #[test]
+    fn clicking_beside_the_back_arrow_does_not_close_the_file_page() {
+        let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        let mut h = a11y_harness(a);
+        h.state_mut().run("ui.backstage", json!({"value": true})).unwrap();
+        h.run_steps(4);
+        // Well clear of the chevron (centred at x=26) but still inside the old 200px-wide row.
+        click_at(&mut h, egui::pos2(100.0, 32.0));
+        assert!(h.state().ui.backstage, "clicking beside the arrow leaves the File page open");
     }
 
     /// A harness over the whole app; kittest always runs AccessKit, so a frame that names as
@@ -1229,7 +1394,7 @@ mod tests {
                 a.ui.start_screen = true;
                 assert!(a.start_screen());
             }
-            let back = if mac { mac_chevron(&a) } else { egui::pos2(100.0, 32.0) };
+            let back = if mac { mac_chevron(&a) } else { egui::pos2(26.0, 32.0) };
             let mut h = a11y_harness(a);
             if !start {
                 h.state_mut().run("ui.backstage", json!({"value": true})).unwrap();
@@ -1377,6 +1542,104 @@ mod tests {
         assert_eq!(h.state().ui.backstage_page, "saveAs");
         assert_eq!(shown.get(), 0, "no native Save As dialog");
         assert!(!h.state().file_dialog_open());
+    }
+
+    /// Repro: a brand-new document, typed text, File > Save (unnamed) > Save As page > Browse…,
+    /// answered asynchronously by a native dialog (as the desktop host does), should land back on
+    /// the document, not the "no document" screen.
+    #[test]
+    fn backstage_save_browse_native_dialog_lands_on_the_document() {
+        use std::sync::mpsc::channel;
+        let shown: std::rc::Rc<std::cell::RefCell<Vec<(crate::FileDialogRequest, std::sync::mpsc::Sender<crate::FileDialogAnswer>)>>> =
+            Default::default();
+        let log = shown.clone();
+        let services = Services {
+            file_dialog: Some(Box::new(move |req| {
+                let (tx, rx) = channel();
+                log.borrow_mut().push((req, tx));
+                rx
+            })),
+            ..Default::default()
+        };
+        let dir = std::env::temp_dir().join(format!("wordcraft-backstage-save-repro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Document1.docx");
+
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("text.insert", json!({"text": "Hello from the repro"})).unwrap();
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_label("Save").click();
+        h.run_steps(4);
+        assert_eq!(h.state().ui.backstage_page, "saveAs", "unnamed Save opens Save As page");
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        assert!(h.state().file_dialog_open(), "Browse opened the native dialog");
+        let (_, tx) = shown.borrow_mut().pop().unwrap();
+        tx.send(Ok(vec![path.to_string_lossy().to_string()])).unwrap();
+        h.run_steps(6);
+        assert!(h.state().session.path.as_deref() == Some(path.as_path()), "the document was saved to the picked path");
+        assert!(!h.state().ui.backstage, "backstage closes once saved");
+        assert!(h.state().has_document(), "the document stays open after Save");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The Save As page's own render loop skips the status bar while Backstage is open, so a
+    /// write failure (no permission, disk full, a bad path) needs its own place to say why, or
+    /// the page just sits there with a Browse… button and no clue.
+    #[test]
+    fn backstage_save_browse_write_failure_shows_on_the_save_as_page() {
+        use std::sync::mpsc::channel;
+        let shown: std::rc::Rc<std::cell::RefCell<Vec<(crate::FileDialogRequest, std::sync::mpsc::Sender<crate::FileDialogAnswer>)>>> =
+            Default::default();
+        let log = shown.clone();
+        let services = Services {
+            file_dialog: Some(Box::new(move |req| {
+                let (tx, rx) = channel();
+                log.borrow_mut().push((req, tx));
+                rx
+            })),
+            ..Default::default()
+        };
+        let dir = std::env::temp_dir().join(format!("wordcraft-backstage-save-error-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // `dir` is deliberately never created, so the write fails: its parent doesn't exist.
+        let bogus = dir.join("missing").join("out.docx");
+
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("text.insert", json!({"text": "unsaved text"})).unwrap();
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_label("Save").click();
+        h.run_steps(4);
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        let (_, tx) = shown.borrow_mut().pop().unwrap();
+        tx.send(Ok(vec![bogus.to_string_lossy().to_string()])).unwrap();
+        h.run_steps(6);
+        assert!(h.state().ui.backstage && h.state().ui.backstage_page == "saveAs", "nothing was actually saved");
+        let msg = h.state().status_msg.as_ref().map(|(m, _)| m.clone()).expect("the failure set a status message");
+        assert!(!msg.is_empty());
+        // The same text is rendered on the Save As page itself, not just the (invisible, while
+        // Backstage is open) status bar.
+        h.get_by_label(msg.as_str());
     }
 
     #[test]
