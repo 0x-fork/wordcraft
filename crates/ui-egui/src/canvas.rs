@@ -2281,7 +2281,8 @@ fn scrollbar_page_tip(app: &mut WordApp, ui: &Ui, scroll: egui::Id, rects: &[Rec
         .fixed_pos(at - vec2(16.0, 0.0))
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.label(text);
+                // Unwrapped: the area keeps last frame's width, too narrow once the number grows (#3341).
+                ui.add(egui::Label::new(text).extend());
             });
         });
 }
@@ -3875,7 +3876,8 @@ mod tests {
     }
 
     /// #2551: dragging the vertical scrollbar shows the page at the top of the window beside the
-    /// pointer ("Page 7 of 10"), and the tip goes when the button is let go.
+    /// pointer ("Page 7 of 12"), on one line as the number grows (#3341), and the tip goes when the
+    /// button is let go.
     #[test]
     fn dragging_the_scrollbar_names_the_page_at_the_top() {
         use egui::accesskit::Role;
@@ -3883,7 +3885,7 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         for hide_white_space in [false, true] {
             let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
-            for _ in 0..9 {
+            for _ in 0..11 {
                 a.run("text.insert", json!({"text": "Page text"})).unwrap();
                 a.run("layout.break", json!({"kind": "page"})).unwrap();
             }
@@ -3901,7 +3903,7 @@ mod tests {
             for _ in 0..6 {
                 h.step();
             }
-            assert_eq!(h.state_mut().session.layout().pages.len(), 10);
+            assert_eq!(h.state_mut().session.layout().pages.len(), 12);
             let bar = h
                 .query_all_by_role(Role::ScrollBar)
                 .map(|n| n.rect())
@@ -3922,13 +3924,24 @@ mod tests {
                 h.step();
             }
             let page = h.state().canvas.scrollbar_page.expect("a tip while the scrollbar is dragged");
-            assert!((4..10).contains(&page), "a page well down the document: {page}");
-            assert!(h.query_by_label(&format!("Page {} of 10", page + 1)).is_some(), "the tip names page {}", page + 1);
-            h.event(button(to, false));
+            assert!((4..9).contains(&page), "a page well down the document: {page}");
+            assert!(h.query_by_label(&format!("Page {} of 12", page + 1)).is_some(), "the tip names page {}", page + 1);
+            let end = pos2(from.x, bar.bottom() - 4.0);
+            for k in 1..=6 {
+                h.event(Event::PointerMoved(to + (end - to) * (k as f32 / 6.0)));
+                h.step();
+            }
+            let last = h.state().canvas.scrollbar_page.expect("still dragging");
+            assert!(last >= 9, "a two-digit page: {last}");
+            let label = format!("Page {} of 12", last + 1);
+            let tip = h.query_by_label(&label).expect("the tip names the last page").rect();
+            let body = egui::TextStyle::Body.resolve(&h.ctx.global_style());
+            assert!(tip.height() < 1.5 * h.ctx.fonts_mut(|f| f.row_height(&body)), "one line as the number grows: {tip:?}");
+            h.event(button(end, false));
             h.step();
             h.step();
             assert_eq!(h.state().canvas.scrollbar_page, None, "the tip goes with the button");
-            assert!(h.query_by_label(&format!("Page {} of 10", page + 1)).is_none(), "and its text");
+            assert!(h.query_by_label(&label).is_none(), "and its text");
             assert_eq!((h.state().session.rev(), &h.state().session.sel), (rev, &sel), "scrolling changes neither the document nor the selection");
         }
     }
