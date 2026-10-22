@@ -1021,6 +1021,11 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                         updates.push((k, v));
                     }
                 }
+                "FILENAME" => {
+                    let (fn_name, fn_path) = s.resolved_filenames();
+                    let text = if has_switch(instr, 'p') { fn_path } else { fn_name };
+                    updates.push((k, text));
+                }
                 _ => {}
             }
         }
@@ -1363,6 +1368,48 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn update_fields_filename() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.path = Some(std::path::PathBuf::from("/docs/my_thesis.docx"));
+        s.run("insert.field", &serde_json::json!({"instr": "FILENAME"})).unwrap();
+        let fields = story_fields(&s, StoryRef::Body);
+        assert_eq!(fields[0], ("FILENAME".into(), "my_thesis.docx".into()));
+
+        s.run("insert.field", &serde_json::json!({"instr": r"FILENAME \p"})).unwrap();
+        let fields = story_fields(&s, StoryRef::Body);
+        assert_eq!(fields[1], (r"FILENAME \p".into(), "/docs/my_thesis.docx".into()));
+    }
+
+    #[test]
+    fn update_fields_filename_titled_unsaved() {
+        let mut doc = wordcraft_doc::Document::new();
+        doc.core.title = "Important Document".into();
+        let mut s = Session::new(doc);
+        s.run("insert.field", &serde_json::json!({"instr": "FILENAME"})).unwrap();
+        let fields = story_fields(&s, StoryRef::Body);
+        assert_eq!(fields[0], ("FILENAME".into(), "Document1".into()));
+
+        let l = s.layout();
+        let text: String = l.pages[0]
+            .items
+            .iter()
+            .filter_map(|it| {
+                if let wordcraft_layout::Placed::Lines { para, .. } = it {
+                    Some(para.shown.iter().map(|x| x.1.clone()).collect::<String>())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(text.contains("Document1"), "live layout renders Document1: {text}");
+        assert!(!text.contains("Important Document"), "live layout must not render title: {text}");
+
+        s.run("references.updateFields", &serde_json::json!({})).unwrap();
+        let fields_after = story_fields(&s, StoryRef::Body);
+        assert_eq!(fields_after[0], ("FILENAME".into(), "Document1".into()));
     }
 
     /// #1706 (Word check): Update Field with the caret in the body leaves a header's fields alone.

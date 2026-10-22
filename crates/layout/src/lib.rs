@@ -175,6 +175,10 @@ pub struct LayoutOptions {
     pub proof: ProofOptions,
     /// The word being typed, which gets no spelling squiggle until the caret leaves it (#1552).
     pub typing_word: Option<TypingWord>,
+    /// Document file name for FILENAME fields ([`FieldCtx::filename`]).
+    pub filename: Option<Arc<str>>,
+    /// Document full path for FILENAME \p fields ([`FieldCtx::filepath`]).
+    pub filepath: Option<Arc<str>>,
 }
 
 /// The word being typed ([`LayoutOptions::typing_word`]): the paragraph by its revision
@@ -583,20 +587,22 @@ fn env_hash(doc: &Document, opts: &LayoutOptions) -> u64 {
     let s = serde_json::to_string(&(&doc.styles, &doc.numbering, doc.settings.default_tab, &doc.settings.footnote_format)).unwrap_or_default();
     // Outline view lays paragraphs out changed (no indents; plain without text formatting).
     let outline = (opts.view == ViewMode::Outline).then(|| opts.outline.as_ref().is_some_and(|o| o.plain));
-    hash_of(&(
-        s,
-        opts.show_hidden,
-        opts.hide_deleted,
-        opts.hide_marked,
-        opts.deletions_in_balloons,
-        opts.proofing,
-        opts.numeral,
-        opts.field_codes,
-        opts.proof,
-        wordcraft_proof::dictionary_generation(),
-        hyphenation_key(doc),
-        outline,
-    ))
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    opts.show_hidden.hash(&mut h);
+    opts.hide_deleted.hash(&mut h);
+    opts.hide_marked.hash(&mut h);
+    opts.deletions_in_balloons.hash(&mut h);
+    opts.proofing.hash(&mut h);
+    opts.numeral.hash(&mut h);
+    opts.field_codes.hash(&mut h);
+    opts.proof.hash(&mut h);
+    wordcraft_proof::dictionary_generation().hash(&mut h);
+    hyphenation_key(doc).hash(&mut h);
+    outline.hash(&mut h);
+    opts.filename.hash(&mut h);
+    opts.filepath.hash(&mut h);
+    h.finish()
 }
 
 /// The hyphenation settings, hashable (the zone as its bits).
@@ -2218,6 +2224,8 @@ fn layout_pass(
             notes: Arc::new(notes),
             title: doc.core.title.as_str().into(),
             author: doc.core.creator.as_str().into(),
+            filename: opts.filename.clone().unwrap_or_else(|| "".into()),
+            filepath: opts.filepath.clone().unwrap_or_else(|| "".into()),
             ..Default::default()
         },
         notes_hash,

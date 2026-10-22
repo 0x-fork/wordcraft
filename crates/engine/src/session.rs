@@ -833,6 +833,22 @@ impl Session {
         if set.is_empty() { self.author.split_whitespace().filter_map(|w| w.chars().next()).collect() } else { set.to_string() }
     }
 
+    /// The document's file name and full path for fields (`FILENAME`) and layout context.
+    /// Returns `(filename, filepath)`. Unsaved documents with no explicit file name default
+    /// consistently to `("Document1", "Document1")`. Document metadata title is never used
+    /// as a filename fallback (#3449).
+    pub fn resolved_filenames(&self) -> (String, String) {
+        if let Some(path) = &self.path {
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string_lossy().to_string());
+            let full = path.to_string_lossy().to_string();
+            (name, full)
+        } else if let Some(name) = &self.file_name {
+            (name.clone(), name.clone())
+        } else {
+            ("Document1".to_string(), "Document1".to_string())
+        }
+    }
+
     /// The current layout (recomputed when the document or view changed).
     pub fn layout(&mut self) -> Arc<DocLayout> {
         let mode = if self.view.read_mode { ViewMode::Read } else { self.view.mode };
@@ -863,6 +879,8 @@ impl Session {
         {
             return l.clone();
         }
+        let (fn_name, fn_path) = self.resolved_filenames();
+        let (filename, filepath): (Option<Arc<str>>, Option<Arc<str>>) = (Some(Arc::from(fn_name.as_str())), Some(Arc::from(fn_path.as_str())));
         let opts = LayoutOptions {
             view: mode,
             web_width: width,
@@ -879,6 +897,8 @@ impl Session {
             outline: outline.clone(),
             proof: wordcraft_layout::ProofOptions { grammar: self.prefs.mark_grammar, spelling: self.prefs.spelling() },
             typing_word: typing,
+            filename: filename.clone(),
+            filepath: filepath.clone(),
         };
         let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
         self.layout = Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing));
@@ -929,7 +949,14 @@ impl Session {
     /// [`Session::export_layout`]; with `markup` (Print Markup) each page also has the markup
     /// area with the comments in balloons.
     pub fn export_layout_with(&self, markup: bool) -> Arc<DocLayout> {
-        let opts = LayoutOptions { view: ViewMode::Print, comment_balloons: markup && self.prefs.markup.comments, ..Default::default() };
+        let (fn_name, fn_path) = self.resolved_filenames();
+        let opts = LayoutOptions {
+            view: ViewMode::Print,
+            comment_balloons: markup && self.prefs.markup.comments,
+            filename: Some(Arc::from(fn_name.as_str())),
+            filepath: Some(Arc::from(fn_path.as_str())),
+            ..Default::default()
+        };
         Arc::new(wordcraft_layout::layout(&self.doc, &mut LayoutCache::new(), &opts))
     }
 
