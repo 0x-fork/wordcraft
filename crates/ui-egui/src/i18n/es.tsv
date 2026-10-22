@@ -2594,6 +2594,7 @@ preview	Title	Título
 	Submitting print job…	Enviando trabajo de impresión…
 	Print job submitted.	Trabajo de impresión enviado.
 	Print job submitted: {receipt}	Trabajo de impresión enviado: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Trabajo de impresión enviado: {count} hoja(s) en cola de impresión
 	Print failed: the printing worker stopped.	La impresión falló: el proceso de impresión se detuvo.
 	Print settings	Configuración de impresión
 	Submit print job	Enviar trabajo de impresión

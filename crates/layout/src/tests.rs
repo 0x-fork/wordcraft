@@ -1474,6 +1474,147 @@ fn table_border_corners_close() {
     assert!((h_left - (v_left - 1.5)).abs() < 0.01, "horizontal starts at {h_left}, vertical centre line at {v_left}");
 }
 
+/// A row with `w:gridBefore` starts at the grid column after the skipped ones, not at the first.
+#[test]
+fn grid_before_row_starts_after_skipped_columns() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(2, 3, 468.0);
+    t.rows[1].cells.remove(0);
+    t.rows[1].props.grid_before = 1;
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let x_of = |r: usize, c: usize| {
+        l.pages[0].items.iter().find_map(|i| match i {
+            Placed::Cell { rect, row, cell, .. } if *row == r && *cell == c => Some(rect.x),
+            _ => None,
+        })
+    };
+    let (shifted, second) = (x_of(1, 0).unwrap(), x_of(0, 1).unwrap());
+    assert!((shifted - second).abs() < 0.01, "row 1 starts at {shifted}, grid column 1 at {second}");
+}
+
+/// The area of cell `c` of row `r` of the table on page `page`.
+fn cell_rect(l: &DocLayout, page: usize, r: usize, c: usize) -> Option<wordcraft_geom::Rect> {
+    l.pages.get(page)?.items.iter().find_map(|i| match i {
+        Placed::Cell { rect, row, cell, .. } if *row == r && *cell == c => Some(*rect),
+        _ => None,
+    })
+}
+
+/// Rows that skip grid columns at the start and at the end (`w:gridBefore`, `w:gridAfter`, as in
+/// #1174): the cells sit on their own grid columns, the middle one keeps its width, and a merge
+/// down the last column matches by the shifted column.
+#[test]
+fn grid_before_and_after_rows_keep_their_columns_and_merges() {
+    let mut d = Document::from_text("before\nafter");
+    let grid = [239.0f32, 679.0, 101.0, 3790.0, 2312.0, 1189.0].map(|w| w / 20.0);
+    let mut t = Table::new(3, 4, 468.0);
+    t.props.fixed = true;
+    t.grid = grid.to_vec();
+    for (ri, row) in t.rows.iter_mut().enumerate() {
+        row.cells.truncate(3);
+        row.props.grid_before = 1;
+        row.props.w_before = Some(grid[0]);
+        for (c, span) in row.cells.iter_mut().zip([2, 1, 2]) {
+            c.props.span = span;
+            c.props.width = None;
+        }
+        row.cells[1] = wordcraft_doc::Cell::with_text("Middle cell, wide enough for a few words on a line.");
+        row.cells[2].props.span = 2;
+        row.cells[2].props.vmerge = if ri == 0 { wordcraft_doc::props::VMerge::Restart } else { wordcraft_doc::props::VMerge::Continue };
+    }
+    // A row without the gap, and one skipping the last column instead.
+    t.rows[1].props = Default::default();
+    t.rows[1].cells.insert(0, wordcraft_doc::Cell::empty());
+    t.rows[2].props.grid_before = 0;
+    t.rows[2].props.grid_after = 1;
+    t.rows[2].cells[0].props.span = 3;
+    t.rows[2].cells[2].props.span = 1;
+    let colx = |g: usize| grid[..g].iter().sum::<f32>();
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let rect = |r, c| cell_rect(&l, 0, r, c).unwrap();
+    let x0 = rect(1, 0).x;
+    let middle = rect(0, 1);
+    assert!((rect(0, 0).x - x0 - colx(1)).abs() < 0.01, "row 0 starts at {}", rect(0, 0).x - x0);
+    assert!((middle.x - x0 - colx(3)).abs() < 0.01 && (middle.w - grid[3]).abs() < 0.01, "middle cell {middle:?}");
+    assert!((rect(2, 2).x - x0 - colx(4)).abs() < 0.01 && (rect(2, 2).w - grid[4]).abs() < 0.01, "row 2's last cell {:?}", rect(2, 2));
+    // The merge runs down all three rows.
+    let merged = rect(0, 2);
+    let rows_h = rect(0, 0).h + rect(1, 0).h + rect(2, 0).h;
+    assert!((merged.h - rows_h).abs() < 0.01, "merged cell {} tall, rows {rows_h}", merged.h);
+}
+
+/// A row's own first and last cell carry the table's outer side borders when it skips the grid
+/// columns beyond them.
+#[test]
+fn skipped_columns_put_the_side_borders_on_the_rows_cells() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(3, 3, 468.0);
+    t.props.style = None;
+    let thick = Some(Border::single(3.0));
+    t.props.borders = Some(Borders { left: thick, right: thick, ..Borders::default() });
+    t.rows[1].cells.remove(0);
+    t.rows[1].props.grid_before = 1;
+    t.rows[2].cells.pop();
+    t.rows[2].props.grid_after = 1;
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let rect = |r, c| cell_rect(&l, 0, r, c).unwrap();
+    let vertical_at = |x: f32, y: f32| {
+        l.pages[0].items.iter().any(|i| matches!(i, Placed::Rule { x0, y0, x1, y1, .. } if x0 == x1 && (x0 - x).abs() < 0.01 && *y0 <= y && *y1 >= y))
+    };
+    let (r1, r2) = (rect(1, 0), rect(2, 1));
+    assert!(vertical_at(r1.x, r1.y + r1.h / 2.0), "no left border at row 1's first cell {r1:?}");
+    assert!(vertical_at(r2.x + r2.w, r2.y + r2.h / 2.0), "no right border at row 2's last cell {r2:?}");
+}
+
+/// AutoFit makes the skipped columns as wide as the row says (`w:wBefore`).
+#[test]
+fn autofit_gives_skipped_columns_their_width() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(2, 2, 468.0);
+    t.props.style = None;
+    for row in &mut t.rows {
+        for c in &mut row.cells {
+            *c = wordcraft_doc::Cell::with_text("A");
+        }
+    }
+    t.rows[1].cells.remove(0);
+    t.rows[1].props.grid_before = 1;
+    t.rows[1].props.w_before = Some(150.0);
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let gap = cell_rect(&l, 0, 1, 0).unwrap().x - cell_rect(&l, 0, 0, 0).unwrap().x;
+    assert!((gap - 150.0).abs() < 0.01, "skipped column {gap} wide");
+}
+
+/// Rows skipping a grid column keep it skipped on every page, under the repeated header row.
+#[test]
+fn grid_before_rows_stay_shifted_across_pages() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(80, 3, 468.0);
+    t.rows[0].props.header = true;
+    for row in t.rows.iter_mut().skip(1) {
+        row.cells.remove(0);
+        row.props.grid_before = 1;
+    }
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    assert!(l.pages.len() >= 2, "pages {}", l.pages.len());
+    let column1 = cell_rect(&l, 0, 0, 1).unwrap().x;
+    for (pi, p) in l.pages.iter().enumerate() {
+        assert!(cell_rect(&l, pi, 0, 1).is_some_and(|r| (r.x - column1).abs() < 0.01), "no header on page {pi}");
+        for i in &p.items {
+            if let Placed::Cell { rect, row, cell: 0, .. } = i
+                && *row > 0
+            {
+                assert!((rect.x - column1).abs() < 0.01, "row {row} on page {pi} starts at {}", rect.x);
+            }
+        }
+    }
+}
+
 #[test]
 fn table_own_border_overrides_only_that_side() {
     let mut d = Document::from_text("before\nafter");
@@ -3123,6 +3264,37 @@ fn table_style_paragraph_props_beat_document_defaults() {
     let (g, n) = (row_height(&lg, 1), row_height(&lp, 1));
     assert!(g + 8.0 < n, "Table Grid row {g}, unstyled row {n}");
     assert!(g < 18.0, "one 12 pt line, single spaced: {g}");
+}
+
+/// #3415: row bands shade only where the table style has a band size. Word reads a style without
+/// `w:tblStyleRowBandSize` as having no bands; our Grid Table 4 sets one, so with a header row its
+/// first and third body rows shade.
+#[test]
+fn row_bands_shade_only_with_a_band_size() {
+    let band = wordcraft_doc::props::Rgb(0xC1, 0xE4, 0xF5);
+    let shaded_rows = |d: &Document| {
+        let l = lay(d);
+        let cells: Vec<(usize, wordcraft_geom::Rect)> =
+            l.pages[0].items.iter().filter_map(|i| if let Placed::Cell { rect, row, .. } = i { Some((*row, *rect)) } else { None }).collect();
+        let mut rows: Vec<usize> = l.pages[0]
+            .items
+            .iter()
+            .filter_map(|i| if let Placed::Fill { rect, color } = i { (*color == band).then_some(*rect) } else { None })
+            .filter_map(|f| cells.iter().find(|(_, c)| c.y <= f.y + f.h / 2.0 && f.y + f.h / 2.0 <= c.bottom()).map(|(r, _)| *r))
+            .collect();
+        rows.dedup();
+        rows
+    };
+    let mut d = styled_table_doc(Some("GridTable4AccentBlue"), 5);
+    assert_eq!(shaded_rows(&d), vec![1, 3], "Grid Table 4 bands one row at a time");
+    if let Some(t) = d.styles.get_mut("GridTable4AccentBlue").and_then(|s| s.table.as_mut()) {
+        t.band_size = None;
+    }
+    assert_eq!(shaded_rows(&d), Vec::<usize>::new(), "no band size, no bands");
+    if let Some(t) = d.styles.get_mut("GridTable4AccentBlue").and_then(|s| s.table.as_mut()) {
+        t.band_size = Some(2);
+    }
+    assert_eq!(shaded_rows(&d), vec![1, 2], "bands of two rows");
 }
 
 /// The paragraph's own style (Normal included) and direct formatting beat the table style; the
@@ -4994,6 +5166,74 @@ fn a_floating_table_in_a_cell_takes_no_room_and_the_cell_holds_it() {
     assert!(bx > ix + 200.0, "beside text at {bx}, inner table text at {ix}");
     // The cell grows to hold the whole floating table.
     assert!(below_y > last_y + 10.0, "text below the outer table at {below_y}, the inner table's last row at {last_y}");
+}
+
+/// A floating (anchored, non-inline) picture in a cell grows the row to hold it too, the same
+/// way a floating table does: it must not hang past the row's own bottom edge and overlap
+/// whatever follows the table (#3108).
+#[test]
+fn a_floating_picture_in_a_cell_grows_the_row_to_hold_it() {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let mut t = Table::new(1, 1, 468.0);
+    let mut cp = wordcraft_doc::Paragraph::with_text("Caption", Default::default());
+    // Short text alone would need one line (well under 100pt); the floated picture is much
+    // taller than that, so only its own height should set the row's height.
+    let picture = Float { wrap: Wrap::Square, h_rel: Anchor::Margin, v_rel: Anchor::Margin, x: 0.0, y: 0.0, ..Default::default() };
+    cp.insert_object(0, rect_shape(200.0, 300.0, picture), &Default::default()).unwrap();
+    t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(cp)];
+    let mut d = Document::from_text("Below the table");
+    d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let [(_, row_y, _)] = para_at(&l, &[0, 0, 0, 0])[..] else { panic!("cell text line missing") };
+    let [(_, below_y, _)] = para_at(&l, &[1])[..] else { panic!("line after the table missing") };
+    assert!(below_y - row_y > 290.0, "text after the table at {below_y}, the row's text at {row_y}: the row didn't grow for the 300pt picture");
+}
+
+#[test]
+fn a_rotated_floating_picture_grows_the_row_by_its_rotated_extent() {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let mut t = Table::new(1, 1, 468.0);
+    let mut cp = wordcraft_doc::Paragraph::with_text("Caption", Default::default());
+    // Unrotated this shape's own `rect.bottom()` is only 40pt down. Rotated 90° about its centre
+    // (`Spin::bounds`: width and height swap), its drawn bottom moves to (w+h)/2 = 220pt down —
+    // using the unrotated rect here would undergrow the row to a fraction of that.
+    let picture = Float { wrap: Wrap::Square, h_rel: Anchor::Margin, v_rel: Anchor::Margin, x: 0.0, y: 0.0, rot: 90.0, ..Default::default() };
+    cp.insert_object(0, rect_shape(400.0, 40.0, picture), &Default::default()).unwrap();
+    t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(cp)];
+    let mut d = Document::from_text("Below the table");
+    d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let [(_, row_y, _)] = para_at(&l, &[0, 0, 0, 0])[..] else { panic!("cell text line missing") };
+    let [(_, below_y, _)] = para_at(&l, &[1])[..] else { panic!("line after the table missing") };
+    assert!(
+        below_y - row_y > 150.0,
+        "text after the table at {below_y}, the row's text at {row_y}: the row didn't grow for the picture's rotated extent (unrotated bottom is only 40pt, rotated should reach ~220pt)"
+    );
+}
+
+/// #3108 review: only floats that take part in the text flow grow the row. A behind-text (or
+/// in-front-of-text) picture taller than the cell's text leaves the row at the text's height, as
+/// in Word — a page-anchored logo or watermark behind a cell must not stretch its row.
+#[test]
+fn a_behind_or_in_front_of_text_picture_in_a_cell_leaves_the_row_alone() {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let row_gap = |wrap: Wrap| {
+        let mut t = Table::new(1, 1, 468.0);
+        let mut cp = wordcraft_doc::Paragraph::with_text("Caption", Default::default());
+        let picture = Float { wrap, h_rel: Anchor::Margin, v_rel: Anchor::Margin, x: 0.0, y: 0.0, ..Default::default() };
+        cp.insert_object(0, rect_shape(200.0, 300.0, picture), &Default::default()).unwrap();
+        t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(cp)];
+        let mut d = Document::from_text("Below the table");
+        d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let [(_, row_y, _)] = para_at(&l, &[0, 0, 0, 0])[..] else { panic!("cell text line missing") };
+        let [(_, below_y, _)] = para_at(&l, &[1])[..] else { panic!("line after the table missing") };
+        below_y - row_y
+    };
+    for wrap in [Wrap::BehindText, Wrap::InFrontOfText] {
+        let gap = row_gap(wrap);
+        assert!(gap < 60.0, "{wrap:?}: text after the table is {gap}pt below the cell's text; the 300pt picture grew the row");
+    }
 }
 
 #[test]

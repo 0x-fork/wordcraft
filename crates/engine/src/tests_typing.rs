@@ -1833,6 +1833,74 @@ fn backspace_deletes_selected_columns_and_delete_clears_them() {
     assert_eq!(table_cells(&s), [["a1", "", "c1"], ["a2", "", "c2"], ["a3", "", "c3"]]);
 }
 
+/// The first top-level table's cells, row by row, one entry per block: a paragraph's text, or
+/// `<table>` for a nested table.
+fn cell_blocks(s: &Session) -> Vec<Vec<Vec<String>>> {
+    let block = |b: &std::sync::Arc<wordcraft_doc::Block>| b.as_para().map_or_else(|| "<table>".to_string(), |p| p.plain_text());
+    s.doc
+        .body
+        .iter()
+        .find_map(|b| b.as_table())
+        .map(|t| t.rows.iter().map(|r| r.cells.iter().map(|c| c.blocks.iter().map(block).collect()).collect()).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn delete_on_whole_cells_leaves_one_empty_paragraph_in_each() {
+    // a1 starts with a nested table and holds three paragraphs (centred, centred, right-aligned),
+    // b2 holds a nested table after its text (#2802).
+    let setup = || {
+        let mut s = table_between(0, 0);
+        run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 0, 0, 0], "off": 2}}));
+        run(&mut s, "para.alignCenter", json!({}));
+        typ(&mut s, "\nX\nY");
+        run(&mut s, "para.alignRight", json!({}));
+        run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 1, 1, 0], "off": 2}}));
+        run(&mut s, "text.newParagraph", json!({}));
+        run(&mut s, "insert.table", json!({"rows": 1, "cols": 2}));
+        typ(&mut s, "n");
+        let b2 = |s: &Session| s.doc.body.get(1).and_then(|b| b.as_table()).map(|t| t.rows[1].cells[1].blocks.clone()).unwrap_or_default();
+        let nested = b2(&s).iter().find(|b| b.as_table().is_some()).map(|b| (**b).clone()).expect("setup: a table nested in b2");
+        s.doc.insert_block(StoryRef::Body, &wordcraft_doc::Path(vec![1, 0, 0, 0]), nested).unwrap();
+        s
+    };
+    let all: Vec<(usize, usize)> = (0..3).flat_map(|r| (0..3).map(move |c| (r, c))).collect();
+    let cases: [(&str, (usize, usize), &str, Vec<(usize, usize)>); 5] = [
+        ("table.selectRow", (0, 0), "text.delete", vec![(0, 0), (0, 1), (0, 2)]),
+        ("table.selectColumn", (0, 0), "text.delete", vec![(0, 0), (1, 0), (2, 0)]),
+        ("table.selectRow", (1, 1), "text.delete", vec![(1, 0), (1, 1), (1, 2)]),
+        ("table.selectTable", (0, 0), "text.delete", all),
+        // One cell of several: Backspace clears it too.
+        ("table.selectCell", (0, 0), "text.backspace", vec![(0, 0)]),
+    ];
+    for (select, (r, c), key, cleared) in cases {
+        let mut s = setup();
+        let before = cell_blocks(&s);
+        assert_eq!(before[0][0], ["<table>", "a1", "X", "Y"], "setup");
+        assert!(before[1][1].len() > 2 && before[1][1].contains(&"<table>".to_string()), "setup: {:?}", before[1][1]);
+        // a1's first paragraph is after the nested table.
+        let first = usize::from((r, c) == (0, 0));
+        run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, r, c, first], "off": 0}}));
+        run(&mut s, select, json!({}));
+        run(&mut s, key, json!({}));
+        let mut want = before.clone();
+        for &(r, c) in &cleared {
+            want[r][c] = vec![String::new()];
+        }
+        assert_eq!(cell_blocks(&s), want, "{select} {key}");
+        // The paragraph left keeps the cell's last paragraph's formatting (its mark ends the cell).
+        if cleared.contains(&(0, 0)) {
+            let p = s.doc.para(StoryRef::Body, &wordcraft_doc::Path(vec![1, 0, 0, 0])).map(|p| p.props.align);
+            assert_eq!(p, Some(Some(wordcraft_doc::props::Align::Right)), "{select} {key}");
+        }
+        assert!(s.sel.is_collapsed(), "{select} {key}");
+        assert_eq!(s.sel.focus.path.cell().map(|(_, r, c)| (r, c)), cleared.first().copied(), "{select} {key}");
+        // One undo brings everything back.
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(cell_blocks(&s), before, "{select} {key}: undo");
+    }
+}
+
 #[test]
 fn backspace_on_a_selected_nested_table_removes_only_it() {
     let mut s = table_between(1, 1);

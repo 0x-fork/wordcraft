@@ -350,8 +350,15 @@ fn visual_order(text: &str, glyphs: &[(u32, f32, f32)], clusters: &[std::ops::Ra
             _ => groups.push((*x, vec![i])),
         }
     }
-    // Stable: clusters at the same x keep their order, as do glyphs sharing their text.
-    groups.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // Clusters at the same x go in text order, reversed when right to left: some fonts draw
+    // lam-alef as a lam and a zero-width alef at one x, and a right-to-left run whose ranges
+    // don't decrease loses its reading order (#2310). Stable for glyphs sharing their text.
+    let tie = |idx: &[usize]| -> i64 {
+        let Some(r) = idx.first().and_then(|&g| clusters.get(g)) else { return 0 };
+        let start = i64::try_from(r.start).unwrap_or(i64::MAX);
+        if text.get(r.clone()).is_some_and(|t| t.chars().any(wordcraft_fonts::is_rtl)) { -start } else { start }
+    };
+    groups.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| tie(&a.1).cmp(&tie(&b.1))));
     groups
         .into_iter()
         .flat_map(|(_, mut idx)| {
@@ -377,6 +384,23 @@ fn baseline(glyphs: &[(u32, f32, f32)]) -> Option<f32> {
 /// A chart's or diagram's alt text: its own, else what it is ("chart", "diagram").
 fn graphic_alt(alt: &str, kind: GraphicKind) -> &str {
     if alt.trim().is_empty() { kind.noun() } else { alt }
+}
+
+/// A picture, or a rotation holding one at any depth (a rotated group's turned members).
+fn holds_picture(d: &Draw) -> bool {
+    match d {
+        Draw::Image { .. } => true,
+        Draw::Rotated { items, .. } => items.iter().any(holds_picture),
+        _ => false,
+    }
+}
+
+/// The alt text of an inline figure: a graphic's (see [`graphic_alt`]) or a described shape's.
+fn figure_alt(alt: &str, kind: Option<GraphicKind>) -> &str {
+    match kind {
+        Some(k) => graphic_alt(alt, k),
+        None => alt,
+    }
 }
 
 /// Add the segments of a kurbo path to a krilla path.
@@ -837,6 +861,33 @@ impl Exporter<'_> {
         }
     }
 
+    /// A rotated inline picture or group: turned as a whole, with each picture in it tagged on its
+    /// own, so a decorative picture is an artifact while the others stay figures with their alt
+    /// text. A described shape's figure keeps its description; anything else is an artifact.
+    fn rotated_pictures(&mut self, s: &mut Surface, d: &Draw) {
+        match d {
+            Draw::Rotated { cx, cy, spin, items } => {
+                if !ok(*cx) || !ok(*cy) {
+                    return;
+                }
+                let [a, b, c, d, e, f] = spin.matrix(*cx, *cy);
+                s.push_transform(&Transform::from_row(a, b, c, d, e, f));
+                for it in items {
+                    self.rotated_pictures(s, it);
+                }
+                s.pop();
+            }
+            Draw::Image { decorative: true, .. } => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
+            Draw::Image { alt, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| me.draw(s, d)),
+            Draw::Figure { alt, draws, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| {
+                for d in draws {
+                    me.draw(s, d);
+                }
+            }),
+            _ => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
+        }
+    }
+
     fn page(&mut self, s: &mut Surface, page: &Page, w: f32, h: f32) {
         if let Some(c) = self.doc.settings.page_color
             && let Some(p) = rect_path(&Rect::new(0.0, 0.0, w, h))
@@ -880,14 +931,14 @@ impl Exporter<'_> {
                     for d in &draws {
                         match d {
                             Draw::Glyphs { .. } | Draw::Turned { .. } => self.tagged(s, Role::Para(idx), None, |me, s| me.draw(s, d)),
+                            // A picture marked decorative: an artifact screen readers skip.
+                            Draw::Image { decorative: true, .. } => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
                             Draw::Image { alt, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| me.draw(s, d)),
-                            // A rotated inline picture.
-                            Draw::Rotated { items, .. } if items.iter().any(|i| matches!(i, Draw::Image { .. })) => {
-                                let alt = items.iter().find_map(|i| if let Draw::Image { alt, .. } = i { Some(alt.as_str()) } else { None });
-                                self.tagged(s, Role::Figure, alt, |me, s| me.draw(s, d))
-                            }
-                            // An inline chart or diagram: its text is part of the figure, not the paragraph.
-                            Draw::Figure { alt, kind, draws: inner } => self.tagged(s, Role::Figure, Some(graphic_alt(alt, *kind)), |me, s| {
+                            // A rotated inline picture, or a rotated group holding pictures: turned as a
+                            // whole, each picture tagged on its own (see `rotated_pictures`).
+                            Draw::Rotated { items, .. } if items.iter().any(holds_picture) => self.rotated_pictures(s, d),
+                            // An inline chart, diagram or described shape: its text is part of the figure, not the paragraph.
+                            Draw::Figure { alt, kind, draws: inner } => self.tagged(s, Role::Figure, Some(figure_alt(alt, *kind)), |me, s| {
                                 for d in inner {
                                     me.draw(s, d);
                                 }
@@ -897,16 +948,24 @@ impl Exporter<'_> {
                     }
                 }
                 Placed::Image { story, path, off, .. } => {
-                    let alt = match self.doc.para(*story, path).and_then(|p| p.object_at(*off)) {
+                    let obj = self.doc.para(*story, path).and_then(|p| p.object_at(*off));
+                    let role = if obj.is_some_and(InlineObject::is_decorative) { Role::Artifact(ArtifactType::Other) } else { Role::Figure };
+                    let alt = match obj {
                         Some(InlineObject::Image { alt, .. }) => alt.clone(),
                         _ => String::new(),
                     };
-                    self.tagged(s, Role::Figure, Some(&alt), |me, s| {
+                    self.tagged(s, role, Some(&alt), |me, s| {
                         for d in &draws {
                             me.draw(s, d);
                         }
                     });
                 }
+                // A floating shape with a description: a figure (see `shape_figure_alt`).
+                Placed::Shape { alt, .. } if !alt.is_empty() => self.tagged(s, Role::Figure, Some(alt), |me, s| {
+                    for d in &draws {
+                        me.draw(s, d);
+                    }
+                }),
                 Placed::Graphic { story, path, off, graphic, .. } => {
                     let alt = match self.doc.para(*story, path).and_then(|p| p.object_at(*off)) {
                         Some(InlineObject::Graphic { alt, .. }) => graphic_alt(alt, graphic.kind).to_string(),

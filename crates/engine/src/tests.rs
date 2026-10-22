@@ -1972,6 +1972,67 @@ fn table_text_direction_cycles_and_turns_the_text() {
     }
 }
 
+/// While the caret is in a table, Word shows its move handle past the top-left corner and its
+/// resize handle past the bottom-right one (#2428); the app paints the ones this gives.
+#[test]
+fn the_caret_table_has_its_handles() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let (tp, _, _) = s.sel.focus.path.cell().unwrap();
+    let l = s.layout();
+    let (m, z) = crate::cmd::table_mouse::caret_handles(&l, &s.doc, s.sel.focus.story, &tp, 0);
+    let (m, z) = (m.expect("the move handle"), z.expect("the resize handle"));
+    let (_, x, y) = crate::cmd::table_mouse::corner(&l, s.sel.focus.story, &tp).unwrap();
+    assert!(m.right() <= x && m.bottom() <= y, "past the top-left corner");
+    assert!(z.x > m.right() && z.y > m.bottom(), "past the bottom-right one");
+    // Exactly where the pointer handles are, so a click on them grabs them.
+    let mid = |r: wordcraft_geom::Rect| (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    let (hx, hy) = mid(m);
+    let g = crate::cmd::table_mouse::handle_table(&l, &s.doc, s.sel.focus.story, 0, hx, hy, 4.0).expect("the move handle grabs");
+    assert_eq!(crate::cmd::table_mouse::handle(&g), m);
+    let (hx, hy) = mid(z);
+    let g = crate::cmd::table_resize::table_under(&l, &s.doc, 0, hx, hy, 4.0).expect("the resize handle grabs");
+    assert_eq!(g.handle(), z);
+    let (m, z) = crate::cmd::table_mouse::caret_handles(&l, &s.doc, s.sel.focus.story, &tp, 1);
+    assert!(m.is_none() && z.is_none(), "not on a page without the table");
+}
+
+/// A table over more than one page shows its move handle only where it starts and its resize
+/// handle only where it ends, also when its header row repeats or its one row runs on (#2428).
+#[test]
+fn the_caret_table_shows_its_handles_where_it_starts_and_ends() {
+    for header in [true, false] {
+        let mut s = s();
+        if header {
+            // 60 rows under a header row that repeats on the next page.
+            run(&mut s, "insert.table", json!({"rows": 60, "cols": 2}));
+            run(&mut s, "table.properties", json!({"headerRow": true}));
+        } else {
+            // One row whose cell runs on to the next page.
+            run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+            for i in 0..80 {
+                run(&mut s, "text.insert", json!({"text": format!("Line {i}")}));
+                run(&mut s, "text.newParagraph", json!({}));
+            }
+        }
+        let (tp, _, _) = s.sel.focus.path.cell().unwrap();
+        let story = s.sel.focus.story;
+        let l = s.layout();
+        let holds = |p: usize, r: Option<usize>| {
+            l.pages[p]
+                .items
+                .iter()
+                .any(|it| matches!(it, wordcraft_layout::Placed::Cell { table, row, .. } if *table == tp && r.is_none_or(|r| *row == r)))
+        };
+        assert!(l.pages.len() >= 2 && holds(1, Some(0)), "row 0 is drawn on page 2 too (header {header})");
+        let end = (0..l.pages.len()).rev().find(|p| holds(*p, None)).unwrap();
+        for p in 0..l.pages.len() {
+            let (m, z) = crate::cmd::table_mouse::caret_handles(&l, &s.doc, story, &tp, p);
+            assert_eq!((m.is_some(), z.is_some()), (p == 0, p == end), "page {p} (header {header})");
+        }
+    }
+}
+
 /// Right-to-left tables and sections (#362): `table.rtl` and `layout.sectionRtl` set or toggle
 /// the direction, one Undo step each, and the layout mirrors the table.
 #[test]
@@ -4346,6 +4407,7 @@ fn custom_table_style_applies_modifies_and_saves() {
     assert_eq!((st.kind, st.name.as_str(), st.based_on.as_deref()), (StyleKind::Table, "Thesis Table", Some("TableGrid")));
     let parts = st.table.as_ref().unwrap();
     assert_eq!((parts.header_fill, parts.band_fill, parts.band_size), (Some(Rgb(0xC0, 0, 0)), Some(Rgb(0xEE, 0xEE, 0xEE)), Some(2)));
+    assert_eq!(parts.col_band_size, Some(1), "a new style bands one column at a time and writes it, so Word bands it too (#3415)");
     assert_eq!((parts.header_chr.bold, parts.band_chr.italic), (Some(false), Some(true)));
     assert!(parts.header_borders.is_some_and(|b| b.any_visible()));
     let t = back.body.iter().find_map(|b| b.as_table()).unwrap();

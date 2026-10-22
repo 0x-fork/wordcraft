@@ -2227,6 +2227,7 @@
 	Submitting print job…	Druckauftrag wird gesendet…
 	Print job submitted.	Druckauftrag gesendet.
 	Print job submitted: {receipt}	Druckauftrag gesendet: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Druckauftrag gesendet: {count} Blatt an den Spooler übergeben
 	Print failed: the printing worker stopped.	Drucken fehlgeschlagen: Der Druckvorgang wurde angehalten.
 	Print settings	Druckeinstellungen
 	Submit print job	Druckauftrag senden
@@ -2350,3 +2351,7 @@
 	Deep	Tief
 	Lit from Bottom	Von unten beleuchtet
 	Center Glow	Leuchten aus der Mitte
+# File › Home greeting
+	Good morning	Guten Morgen
+	Good afternoon	Guten Tag
+	Good evening	Guten Abend

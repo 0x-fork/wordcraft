@@ -2242,6 +2242,7 @@
 	Submitting print job…	Слање задатка за штампање…
 	Print job submitted.	Задатак за штампање је послат.
 	Print job submitted: {receipt}	Задатак за штампање је послат: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Задатак за штампу је послат: у ред за штампу послато листова: {count}
 	Print failed: the printing worker stopped.	Штампање није успело: процес штампања је заустављен.
 	Print settings	Подешавања штампања
 	Submit print job	Пошаљи задатак за штампање
@@ -2365,3 +2366,7 @@
 	Deep	Дубок
 	Lit from Bottom	Осветљен одоздо
 	Center Glow	Сјај из средине
+# File › Home greeting
+	Good morning	Добро јутро
+	Good afternoon	Добар дан
+	Good evening	Добро вече

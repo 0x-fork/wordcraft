@@ -152,6 +152,22 @@ fn every_tab_and_command_is_translated() {
     assert!(missing.is_empty(), "untranslated: {missing:#?}");
 }
 
+/// File › Home opens with a greeting for the time of day (`backstage::home_page`); every
+/// language has all three, so the page doesn't start in English.
+#[test]
+fn the_file_home_greeting_is_translated_in_every_language() {
+    let mut missing = Vec::new();
+    for l in Lang::all().filter(|l| *l != Lang::EN) {
+        for s in ["Good morning", "Good afternoon", "Good evening"] {
+            if !has(l, s) {
+                missing.push(format!("{}: {s:?}", l.code()));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "untranslated: {missing:#?}");
+    assert_eq!(tr(lang("pt-br"), "Good afternoon"), "Boa tarde");
+}
+
 #[test]
 fn korean_print_settings_and_printer_feedback_are_translated() {
     let korean = lang("ko");
@@ -1559,4 +1575,12 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
         }
     }
     assert!(!lang("vi").uses_cjk());
+}
+
+/// #3317: the spooler's English receipt is not spliced into a translated sentence.
+#[test]
+fn spooled_print_receipt_is_translated() {
+    let german = lang("de");
+    let msg = crate::printing::feedback(&crate::printing::Feedback::Submitted("spooled 2 sheet(s)".into()), |s| tr(german, s).to_owned());
+    assert_eq!(msg, "Druckauftrag gesendet: 2 Blatt an den Spooler übergeben");
 }

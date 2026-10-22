@@ -2240,6 +2240,7 @@
 	Submitting print job…	Enviando trabalho de impressão…
 	Print job submitted.	Trabalho de impressão enviado.
 	Print job submitted: {receipt}	Trabalho de impressão enviado: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Trabalho de impressão enviado: {count} folha(s) na fila de impressão
 	Print failed: the printing worker stopped.	A impressão falhou: o processo de impressão parou.
 	Print settings	Configurações de impressão
 	Submit print job	Enviar trabalho de impressão
@@ -2363,3 +2364,7 @@
 	Deep	Profundo
 	Lit from Bottom	Iluminado de baixo
 	Center Glow	Brilho central
+# File › Home greeting
+	Good morning	Bom dia
+	Good afternoon	Boa tarde
+	Good evening	Boa noite

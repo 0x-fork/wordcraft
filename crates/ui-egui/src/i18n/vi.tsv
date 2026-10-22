@@ -2564,6 +2564,7 @@
 	Submitting print job…	Đang gửi lệnh in…
 	Print job submitted.	Đã gửi lệnh in.
 	Print job submitted: {receipt}	Đã gửi lệnh in: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Đã gửi lệnh in: đã đưa {count} tờ vào hàng đợi
 	Print failed: the printing worker stopped.	In thất bại: tiến trình in đã dừng.
 	Print settings	Cài đặt in
 	Submit print job	Gửi lệnh in

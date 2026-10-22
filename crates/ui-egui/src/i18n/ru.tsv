@@ -2619,6 +2619,7 @@ preview	Title	Пример
 	Submitting print job…	Отправка задания на печать…
 	Print job submitted.	Задание на печать отправлено.
 	Print job submitted: {receipt}	Задание на печать отправлено: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Задание печати отправлено: в очередь передано листов: {count}
 	Print failed: the printing worker stopped.	Печать не удалась: процесс печати остановлен.
 	Print settings	Параметры печати
 	Submit print job	Отправить задание на печать

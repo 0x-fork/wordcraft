@@ -978,6 +978,72 @@ fn inline_picture_figure_keeps_its_alt_text() {
     assert!(raw("").contains("/Alt(picture)"), "no alt text keeps the fallback");
 }
 
+/// A tagged PDF of one picture in a paragraph, placed by `float`, with alt text "A red square".
+fn tagged_picture_pdf(float: wordcraft_doc::para::Float) -> String {
+    let mut d = Document::new();
+    let media = d.add_media(red_right_half_emf(), "emf");
+    let mut p = Paragraph::with_text("Figure: ", CharProps::default());
+    let n = p.len();
+    let obj = InlineObject::Image { media, w: 70.0, h: 70.0, alt: "A red square".into(), float, crop: [0.0; 4], ole: None };
+    p.insert_object(n, obj, &CharProps::default()).unwrap();
+    d.body = vec![para_block(p)];
+    String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned()
+}
+
+/// A picture marked decorative is an artifact in tagged PDF, inline, rotated or floating, so
+/// screen readers skip it; the same picture not marked decorative stays a Figure with its alt text.
+#[test]
+fn decorative_pictures_are_artifacts_not_figures() {
+    use wordcraft_doc::para::{AltText, Anchor, Float, Wrap};
+    let decorative = AltText { decorative: true, ..Default::default() };
+    let floating = Float { wrap: Wrap::InFrontOfText, h_rel: Anchor::Page, v_rel: Anchor::Page, x: 72.0, y: 200.0, ..Default::default() };
+    let cases = [
+        ("inline", Float::default()),
+        ("rotated inline", Float { rot: 30.0, ..Default::default() }),
+        ("floating", floating.clone()),
+        ("rotated floating", Float { rot: 30.0, ..floating }),
+    ];
+    for (name, float) in cases {
+        let plain = tagged_picture_pdf(float.clone());
+        assert!(plain.contains("/Alt(A red square)"), "{name}: a described picture is a Figure with its alt text");
+        let raw = tagged_picture_pdf(Float { alt: decorative.clone(), ..float });
+        assert!(!raw.contains("/Alt("), "{name}: a decorative picture has no Figure and no alt text");
+        assert!(raw.contains("1 0 0 rg"), "{name}: the decorative picture is still drawn");
+    }
+}
+
+/// In a rotated group, each picture is tagged on its own: the decorative one is an artifact, the
+/// other stays a Figure with its alt text.
+#[test]
+fn rotated_group_tags_each_picture_on_its_own() {
+    use wordcraft_doc::para::{AltText, Float, GroupChild};
+    let mut d = Document::new();
+    let media = d.add_media(red_right_half_emf(), "emf");
+    let picture =
+        |alt: &str, float: Float| InlineObject::Image { media: media.clone(), w: 70.0, h: 70.0, alt: alt.into(), float, crop: [0.0; 4], ole: None };
+    let decorative = Float { alt: AltText { decorative: true, ..Default::default() }, ..Default::default() };
+    let group = InlineObject::Group {
+        w: 160.0,
+        h: 70.0,
+        float: Float { rot: 30.0, ..Default::default() },
+        ch_w: 160.0,
+        ch_h: 70.0,
+        children: vec![
+            GroupChild { x: 0.0, y: 0.0, obj: picture("A decorative border", decorative) },
+            GroupChild { x: 90.0, y: 0.0, obj: picture("A red square", Float::default()) },
+        ],
+        canvas: None,
+    };
+    let mut p = Paragraph::with_text("Group: ", CharProps::default());
+    let n = p.len();
+    p.insert_object(n, group, &CharProps::default()).unwrap();
+    d.body = vec![para_block(p)];
+    let raw = String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned();
+    assert!(raw.contains("/Alt(A red square)"), "the picture not marked decorative is a Figure with its alt text");
+    assert!(!raw.contains("A decorative border"), "the decorative picture has no Figure and no alt text");
+    assert_eq!(raw.matches("/Alt(").count(), 1, "one Figure, for the picture not marked decorative");
+}
+
 /// An EMF file of the given records, with a 25 mm frame and 1000 device pixels across (0.04 per 0.01 mm).
 fn emf_file(records: &[Vec<u8>]) -> Vec<u8> {
     let le32 = |vals: &[i32]| -> Vec<u8> { vals.iter().flat_map(|v| v.to_le_bytes()).collect() };
@@ -1673,6 +1739,21 @@ fn left_to_right_glyphs_keep_their_order() {
     assert!(left_to_right(&glyphs));
 }
 
+/// A lam-alef some fonts draw as a lam and a zero-width alef at the same x goes in reverse
+/// text order, so the run's ranges still decrease and viewers read لا, not ال (#2310).
+/// Left-to-right clusters at one x keep their text order.
+#[test]
+fn clusters_at_the_same_x_go_in_reading_order() {
+    let text = "سلا";
+    let glyphs = [(3, 20.0, 10.0), (1, 10.0, 10.0), (2, 10.0, 0.0)];
+    let ranges = [0..2, 2..4, 4..6];
+    assert_eq!(visual_order(text, &glyphs, &ranges, &ranges), [2, 1, 0]);
+    let text = "ab";
+    let glyphs = [(1, 10.0, 0.0), (2, 10.0, 5.0)];
+    let ranges = [0..1, 1..2];
+    assert_eq!(visual_order(text, &glyphs, &ranges, &ranges), [0, 1]);
+}
+
 /// Right-to-left glyphs (reading order, drawn right to left) are written left to right a
 /// cluster at a time. A letter's vowel mark takes its own character and goes before the letter,
 /// so a viewer reversing the word reads letter then mark; a lam-alef drawn as two glyphs keeps
@@ -1980,4 +2061,60 @@ fn shape_gradients_export_as_shadings() {
     assert!(raw.contains("/ShadingType 2"), "axial shading");
     assert!(raw.contains("/ShadingType 3"), "radial shading");
     assert!(raw.contains("/ca 0.3"), "30% opaque fill");
+}
+
+/// A tagged PDF of a paragraph with one blue rectangle placed by `float`: a text box showing
+/// "Inside the box" when `text_box`.
+fn tagged_shape_pdf(float: wordcraft_doc::para::Float, text_box: bool) -> String {
+    use wordcraft_doc::para::ShapeKind;
+    let mut d = Document::from_text("Body");
+    let story = text_box
+        .then(|| d.add_part(wordcraft_doc::PartKind::TextBox, vec![para_block(Paragraph::with_text("Inside the box", CharProps::default()))]));
+    let kind = if text_box { ShapeKind::TextBox } else { ShapeKind::Rectangle };
+    let shape = InlineObject::Shape {
+        kind,
+        w: 120.0,
+        h: 60.0,
+        fill: Some(wordcraft_doc::fill::Fill::solid(wordcraft_doc::props::Rgb(0, 0, 0xFF))),
+        stroke: None,
+        stroke_width: 0.0,
+        float,
+        story,
+        freeform: None,
+        effects: Default::default(),
+        extra: Default::default(),
+    };
+    d.insert_object(&wordcraft_doc::Pos::body(0, 4), shape, &Default::default()).unwrap();
+    String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned()
+}
+
+/// A shape with a description is a Figure with it in tagged PDF, inline, rotated or floating; one
+/// without, or marked decorative, stays an artifact screen readers skip, and so does a text box's
+/// frame: its text is read as text, not replaced by its description.
+#[test]
+fn described_shapes_are_figures_with_their_description() {
+    use wordcraft_doc::para::{AltText, Anchor, Float, Wrap};
+    let described = AltText { text: "Arrow pointing to the exit".into(), ..Default::default() };
+    let floating = Float { wrap: Wrap::InFrontOfText, h_rel: Anchor::Page, v_rel: Anchor::Page, x: 72.0, y: 200.0, ..Default::default() };
+    let cases = [
+        ("inline", Float::default()),
+        ("rotated inline", Float { rot: 30.0, ..Default::default() }),
+        ("floating", floating.clone()),
+        ("rotated floating", Float { rot: 30.0, ..floating }),
+    ];
+    for (name, float) in cases {
+        let raw = tagged_shape_pdf(Float { alt: described.clone(), ..float.clone() }, false);
+        assert!(raw.contains("/Alt(Arrow pointing to the exit)"), "{name}: a described shape is a Figure with its description");
+        assert_eq!(raw.matches("/Alt(").count(), 1, "{name}: the described shape is one Figure");
+        assert!(raw.contains("0 0 1 rg"), "{name}: the shape is drawn");
+        assert!(!tagged_shape_pdf(float.clone(), false).contains("/Alt("), "{name}: an undescribed shape stays an artifact");
+        let decorative = AltText { decorative: true, ..described.clone() };
+        assert!(
+            !tagged_shape_pdf(Float { alt: decorative, ..float.clone() }, false).contains("/Alt("),
+            "{name}: a decorative shape stays an artifact"
+        );
+        let text_box = tagged_shape_pdf(Float { alt: described.clone(), ..float }, true);
+        assert!(!text_box.contains("/Alt("), "{name}: a text box is not a Figure");
+        assert_eq!(text_box.matches("/S/P").count(), 2, "{name}: the text box's text is read as a paragraph");
+    }
 }

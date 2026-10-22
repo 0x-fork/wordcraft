@@ -266,6 +266,11 @@ impl Writer {
                 }
                 Inline::Anchor(name) => o.push_str(&format!("\\hypertarget{{{}}}{{}}", escape_url(name))),
                 Inline::Figure(_) => {}
+                // LaTeX keeps no ruby (no package): its base text, in the run's formatting.
+                Inline::Ruby { base, fmt, .. } => {
+                    let s = self.span(base, fmt);
+                    o.push_str(&s);
+                }
                 Inline::Equation { linear, display } => {
                     self.uses.math = true;
                     let src = linear_to_latex(linear);
@@ -1669,11 +1674,14 @@ fn parse_color(model: Option<&str>, spec: &str) -> Option<Rgb> {
 
 /// A TeX length in points (`3cm`, `0.4\linewidth`), if it is one.
 fn length_pt(s: &str) -> Option<f32> {
-    let s = s.trim();
+    let s = s.trim().strip_prefix('+').unwrap_or(s.trim());
     let split = s.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-')).unwrap_or(s.len());
     let (n, unit) = s.split_at(split);
     let n: f32 = if n.is_empty() { 1.0 } else { n.parse().ok()? };
-    let k = match unit.trim() {
+    let unit = unit.trim();
+    // Macro names are case-sensitive (`\TEXTWIDTH` is not `\textwidth`); unit keywords are not.
+    let unit = if unit.starts_with('\\') { unit.to_owned() } else { unit.to_ascii_lowercase() };
+    let k = match unit.as_str() {
         "pt" => 1.0,
         "bp" => 72.27 / 72.0,
         "in" => 72.27,
@@ -2802,6 +2810,15 @@ mod tests {
         let (cols, widths) = spec_widths(&wide);
         assert_eq!(cols, wordcraft_doc::table::MAX_COLS);
         assert!(widths.len() <= wordcraft_doc::table::MAX_COLS);
+    }
+
+    #[test]
+    fn latex_length_pt_case_and_plus() {
+        assert_eq!(length_pt("12pt"), Some(12.0));
+        assert_eq!(length_pt("12PT"), Some(12.0));
+        assert_eq!(length_pt("+12pt"), Some(12.0));
+        assert_eq!(length_pt("1IN"), Some(72.27));
+        assert_eq!(length_pt("+2cm"), Some(56.9));
     }
 
     const ARTICLE: &str = r#"\documentclass[11pt]{article}

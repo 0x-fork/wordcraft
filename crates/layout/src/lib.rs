@@ -279,6 +279,9 @@ pub enum Placed {
         /// The floating object it draws (a Drawing Canvas's members: the canvas's), for leaving
         /// exactly one object out of a page (see [`crate::display::DisplayOptions::hide_object`]).
         object: Option<wordcraft_doc::Pos>,
+        /// The description it is tagged with as a figure in tagged PDF (see
+        /// [`shape_figure_alt`]); empty for a shape that is an artifact.
+        alt: String,
     },
     /// A floating chart or diagram, drawn from its items inside `rect`. The object is the U+FFFC at
     /// byte `off` of paragraph `path` (its alt text).
@@ -484,6 +487,9 @@ pub struct Page {
     /// Width of the markup area on the right of `w` that holds comment balloons (Print Markup,
     /// [`LayoutOptions::comment_balloons`]); 0 without one. The document page is `w - markup` wide.
     pub markup: f32,
+    /// The top-level body tables placed on this page as floating tables (`w:tblpPr`): a click
+    /// outside one doesn't land in its cells ([`DocLayout::hit`]).
+    pub float_tables: Vec<Path>,
 }
 
 /// The whole layout.
@@ -1183,6 +1189,11 @@ fn layout_box(
     let mut excl: Vec<WrapArea> = Vec::new();
     // Areas of the box's floating tables, which other floating tables may have to avoid.
     let mut float_tables: Vec<Rect> = Vec::new();
+    // Deepest a floating picture or shape that takes part in the text flow reaches, so the box
+    // (a table cell especially) grows to hold it instead of letting it hang past the box's own
+    // bottom edge (#3108). Behind-text and in-front-of-text objects don't: a page-anchored logo or
+    // watermark behind a cell's text must not stretch its row (see `align_h` in table.rs).
+    let mut float_objects_bottom = 0.0f32;
     let mut table_areas = Vec::new();
     let mut page_table_wraps = Vec::new();
     let mut y = 0.0f32;
@@ -1287,6 +1298,13 @@ fn layout_box(
                 if !p.objects.is_empty() {
                     let at = ObjFrame { page: frame, col: (0.0, width), para_y: y, table_chr: table.map(|t| &t.chr), pinned: Some(&pinned) };
                     let (back, front) = place_objects(ctx, story, &path, p, &pl, (0, pl.lines.len()), (0.0, y + lead), &at, &floats, depth);
+                    for placed in back.iter().chain(front.iter()) {
+                        if let Placed::Object { rect, spin, wrap, .. } = placed
+                            && !matches!(wrap, Wrap::Inline | Wrap::BehindText | Wrap::InFrontOfText)
+                        {
+                            float_objects_bottom = float_objects_bottom.max(spin.bounds(*rect).bottom());
+                        }
+                    }
                     let at = behind.min(items.len());
                     behind += back.len();
                     items.splice(at..at, back);
@@ -1347,7 +1365,7 @@ fn layout_box(
             }
         }
     }
-    let floats_bottom = float_tables.iter().map(|r| r.bottom()).fold(0.0, f32::max);
+    let floats_bottom = float_tables.iter().map(|r| r.bottom()).fold(float_objects_bottom, f32::max);
     ctx.hide_deleted = outer_hide;
     BoxLayout { items, height: y.max(0.0), floats_bottom, last_top: last_top.max(0.0), table_areas, page_table_wraps }
 }
@@ -3136,6 +3154,7 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
                 spin,
                 extra: extra.clone(),
                 object: Some(object),
+                alt: shape_figure_alt(o).unwrap_or_default().to_string(),
             }]
         }
         InlineObject::Graphic { graphic, .. } => {
@@ -3164,6 +3183,7 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
                             spin,
                             extra: Default::default(),
                             object: Some(wordcraft_doc::Pos { story, path: Path(path.to_vec()), off }),
+                            alt: String::new(),
                         },
                         Placed::Clip { rect, spin, items: members },
                     ]
@@ -3172,6 +3192,16 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
             }
         }
         _ => Vec::new(),
+    }
+}
+
+/// The description a shape is tagged with as a figure in tagged PDF: its own, when it has one,
+/// isn't marked decorative and shows no text. A shape without one is an artifact screen readers
+/// skip, and a text box's text is read as text, so its description isn't used.
+pub fn shape_figure_alt(o: &InlineObject) -> Option<&str> {
+    match o {
+        InlineObject::Shape { story: None, float, .. } if !float.alt.decorative && !float.alt.text.trim().is_empty() => Some(&float.alt.text),
+        _ => None,
     }
 }
 
@@ -4434,6 +4464,7 @@ fn place_floating_table(ctx: &mut Ctx, pb: &mut PageBuilder, tl: &table::TableLa
                 }
                 y += row.height;
             }
+            pg.float_tables.push(Path::top(block));
         }
         let area = r.inset(-dl, -dt, -dr, -db);
         pb.excl.push((area, false, None, WrapText::BothSides));

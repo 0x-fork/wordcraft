@@ -349,7 +349,9 @@ impl Writer {
 
     fn plain_inlines(&mut self, inl: &[Inline], out: &mut String) {
         let mut prev_space = true;
-        let inl = model::equations_as_text(inl);
+        let eq = model::equations_as_text(inl);
+        // ODF has no ruby: its base text goes through the text path below.
+        let inl = model::ruby_as_text(&eq);
         let last = inl.len().saturating_sub(1);
         for (idx, i) in inl.iter().enumerate() {
             match i {
@@ -426,6 +428,8 @@ impl Writer {
                     prev_space = false;
                 }
                 Inline::Anchor(a) => out.push_str(&format!("<text:bookmark text:name=\"{}\"/>", x(a))),
+                // Read as its base text by `ruby_as_text` above.
+                Inline::Ruby { .. } => {}
                 Inline::Figure(_) | Inline::Equation { .. } => {}
             }
         }
@@ -450,7 +454,8 @@ impl Writer {
                 "</text:p>"
             }
         };
-        let tracked = paras.len() > 1 || p.inlines.iter().any(|i| matches!(i, Inline::Text(_, f) if f.ins.is_some() || f.del.is_some()));
+        let tracked = paras.len() > 1
+            || p.inlines.iter().any(|i| matches!(i, Inline::Text(_, f) | Inline::Ruby { fmt: f, .. } if f.ins.is_some() || f.del.is_some()));
         if tracked {
             let mut items = Vec::new();
             for (k, q) in paras.iter().enumerate() {
@@ -729,7 +734,7 @@ impl Item<'_> {
     /// Its tracked insertion and deletion.
     fn marks(&self) -> (Option<&RevMark>, Option<&RevMark>) {
         match self {
-            Item::Inl(Inline::Text(_, f)) => (f.ins.as_ref(), f.del.as_ref()),
+            Item::Inl(Inline::Text(_, f) | Inline::Ruby { fmt: f, .. }) => (f.ins.as_ref(), f.del.as_ref()),
             Item::Inl(_) => (None, None),
             Item::Mark(p) => (p.mark_ins.as_deref(), p.mark_del.as_deref()),
         }
@@ -1089,7 +1094,7 @@ fn column_sep(a: &Attrs) -> bool {
 
 /// Length → points.
 fn length(v: &str) -> Option<f32> {
-    let v = v.trim();
+    let v = v.trim().to_ascii_lowercase();
     let num = |s: &str| s.trim().parse::<f32>().ok().filter(|x| x.is_finite());
     if let Some(n) = v.strip_suffix("pt") {
         num(n)
@@ -1104,7 +1109,7 @@ fn length(v: &str) -> Option<f32> {
     } else if let Some(n) = v.strip_suffix("px") {
         num(n).map(|x| x * 0.75)
     } else {
-        num(v)
+        num(&v)
     }
 }
 
@@ -2651,6 +2656,12 @@ mod tests {
         assert_eq!(length("1in"), Some(72.0));
         assert_eq!(length("12pt"), Some(12.0));
         assert!((length("2.54cm").unwrap() - 72.0).abs() < 0.01);
+        assert_eq!(length("1IN"), Some(72.0));
+        assert_eq!(length("12PT"), Some(12.0));
+        assert!((length("2.54CM").unwrap() - 72.0).abs() < 0.01);
+        assert!((length("25.4MM").unwrap() - 72.0).abs() < 0.01);
+        assert_eq!(length("1pc"), Some(12.0));
+        assert_eq!(length("10PX"), Some(7.5));
         assert_eq!(length("x"), None);
     }
 
@@ -3413,6 +3424,25 @@ mod tests {
         assert_eq!(back.settings.track_changes, doc.settings.track_changes);
         // The inserted paragraph mark survives: "added¶" is part of the insertion.
         assert_eq!(rev_runs(&doc)[2].1, Some(wordcraft_doc::RevisionKind::Insert));
+    }
+
+    #[test]
+    fn an_inserted_ruby_keeps_its_tracked_insertion() {
+        // ODF has no ruby: its base text is written as text, and the insertion on the ruby must
+        // still be a change range around that text, not plain untracked text.
+        use wordcraft_doc::RevisionKind::Insert;
+        let props = wordcraft_doc::props::CharProps::default();
+        let mut p = wordcraft_doc::Paragraph::with_text("before ", props.clone());
+        let n = p.len();
+        let mut ins = props.clone();
+        ins.ins = Some(0);
+        p.insert_object(n, crate::model::ruby_object("漢字".into(), "かんじ".into(), 20.0), &ins).unwrap();
+        let mut d = Document::new();
+        d.settings.track_changes = true;
+        d.revisions.push(wordcraft_doc::Revision::new(Insert, "Alice", "2024-03-01T10:00:00"));
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let back = import(&export(&d).unwrap()).unwrap();
+        assert_eq!(rev_runs(&back), vec![(vec![("before ".to_string(), None), ("漢字".to_string(), Some(Insert))], None)]);
     }
 
     #[test]
