@@ -338,7 +338,8 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             match &e {
                 egui::Event::Text(t) => {
                     let m = ctx.input(|i| i.modifiers);
-                    if !(m.command || t.is_empty() || (m.ctrl && !cfg!(target_os = "macos"))) && t.chars().all(|c| !c.is_control()) {
+                    let is_cmd = if cfg!(target_os = "macos") { m.command } else { (m.command || m.ctrl) && !m.alt };
+                    if !is_cmd && !t.is_empty() && t.chars().all(|c| !c.is_control()) {
                         let _ = app.run("equation.type", json!({"text": t}));
                     }
                     continue;
@@ -361,7 +362,8 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         match e {
             egui::Event::Text(t) => {
                 let m = ctx.input(|i| i.modifiers);
-                if m.command || (m.ctrl && !cfg!(target_os = "macos")) {
+                let is_cmd = if cfg!(target_os = "macos") { m.command } else { (m.command || m.ctrl) && !m.alt };
+                if is_cmd {
                     continue;
                 }
                 if t.chars().all(|c| !c.is_control()) && !t.is_empty() {

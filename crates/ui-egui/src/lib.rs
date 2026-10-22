@@ -1999,6 +1999,10 @@ impl WordApp {
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
         self.install_ui_fonts(ctx, lang);
+        ctx.options_mut(|o| {
+            o.zoom_with_keyboard = false;
+            o.quit_shortcuts = vec![egui::KeyboardShortcut::new(egui::Modifiers::MAC_CMD, egui::Key::Q)];
+        });
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
         }
@@ -6121,6 +6125,36 @@ mod tests {
         h.event(key(egui::Key::Q, egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND));
         h.step();
         assert!(closes(&h), "⌘Q still quits on the Mac");
+    }
+
+    /// #3424: Pressing Ctrl+Alt+Q (German shortcut for @, or AltGr+Q) types '@' and does not
+    /// close the window.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ctrl_alt_q_types_at_symbol_without_closing() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let closes = |h: &egui_kittest::Harness<WordApp>| {
+            h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Close))
+        };
+        let german_mods = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: true };
+        h.event(egui::Event::Key { key: egui::Key::Q, physical_key: None, pressed: true, repeat: false, modifiers: german_mods });
+        h.step();
+        assert!(!closes(&h), "Ctrl+Alt+Q does not close the window");
+
+        h.event(egui::Event::ModifiersChanged(german_mods));
+        h.event(egui::Event::Text("@".into()));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "@", "Ctrl+Alt+Q types the @ character");
     }
 
     /// #819: Alt+Q opens Search with its box focused, as in Word: the Q isn't typed into the
