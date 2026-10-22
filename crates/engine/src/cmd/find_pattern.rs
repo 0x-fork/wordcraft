@@ -125,8 +125,8 @@ fn numeric_code(chars: &[char], i: usize) -> Option<(char, usize)> {
         return None;
     }
     let n: u32 = digits.parse().ok()?;
-    // `^nnn` and `^0nnn` are Windows-1252 (ANSI) codes; `^unnnn` is Unicode.
-    let n = if start == i { ansi(n) } else { n };
+    // `^0nnn` is a Windows-1252 (ANSI) code; `^nnn` and `^unnnn` are Unicode.
+    let n = if start == i && digits.starts_with('0') { ansi(n) } else { n };
     Some((code_char(n)?, start - i + digits.chars().count()))
 }
 
@@ -459,5 +459,8 @@ mod tests {
         for undefined in ["^0129", "^0141", "^0143", "^0144", "^0157"] {
             assert_eq!(replaced(undefined), undefined);
         }
+        // Without the leading zero the code is not read as Windows-1252.
+        assert!(!finds("^151", "\u{2014}"));
+        assert!(!finds("^150", "\u{2013}"));
     }
 }
