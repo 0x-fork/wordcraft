@@ -401,14 +401,24 @@ pub(crate) struct Recovery {
     revision: Option<u64>,
     due: Instant,
     alive: bool,
+    /// The profile folder and wakeup, for [`Recovery::sibling`].
+    root: PathBuf,
+    wake: Arc<dyn Fn() + Send + Sync>,
 }
 impl Recovery {
+    /// Recovery for another open document: its own worker on the same profile folder, keeping
+    /// that document's copy as this one keeps its document's.
+    pub fn sibling(&self) -> Option<Self> {
+        Self::start(self.root.clone(), self.wake.clone()).map_err(|e| log::warn!("recovery: {e}")).ok()
+    }
     pub fn start(root: PathBuf, wake: Arc<dyn Fn() + Send + Sync>) -> Result<Self, String> {
+        let (worker_root, worker_wake) = (root.clone(), wake.clone());
         let (tx, jobs) = mpsc::sync_channel(1);
         let (events, rx) = mpsc::channel();
         std::thread::Builder::new()
             .name("wordcraft-recovery".into())
             .spawn(move || {
+                let (root, wake) = (worker_root, worker_wake);
                 let mut store = match Store::new(root) {
                     Ok(s) => s,
                     Err(e) => {
@@ -452,6 +462,8 @@ impl Recovery {
             revision: None,
             due: Instant::now() + INTERVAL,
             alive: true,
+            root,
+            wake,
         })
     }
     fn queue(&mut self, job: Job) -> Result<(), String> {
@@ -1043,6 +1055,31 @@ mod tests {
         assert!(s.recovery_error().unwrap().contains("document changed"));
     }
 
+    /// A restore asked for in one document lands in that document, even when another document
+    /// is active while the copy loads.
+    #[test]
+    fn delayed_restore_lands_in_the_document_that_asked_for_it() {
+        let t = Temp::new();
+        let mut s = session(&t.0);
+        s.run("text.insert", &json!({"text": "Saved draft"})).unwrap();
+        save_now(&mut s);
+        drop(s);
+        let mut s = session(&t.0);
+        let first = s.document_id();
+        let id = s.recovery_documents()[0].id.clone();
+        s.run("file.recover", &json!({"restore": id})).unwrap();
+        s.run("file.new", &json!({})).unwrap();
+        let second = s.document_id();
+        s.run("text.insert", &json!({"text": "Other work"})).unwrap();
+        settle(&mut s);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Other work", "the active document is left alone");
+        s.activate(first).unwrap();
+        settle(&mut s);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Saved draft");
+        assert_eq!(s.with_document(second, |s| s.doc.plain_text(StoryRef::Body)).unwrap(), "Other work");
+        assert_eq!(s.documents().len(), 2);
+    }
+
     #[test]
     fn opening_protected_file_and_password_save_never_leave_plaintext_copies() {
         let t = Temp::new();
@@ -1073,16 +1110,39 @@ mod tests {
         assert_eq!(fs::read(original).unwrap(), bytes);
     }
 
+    /// Each open document keeps its own recovery copy: switching between documents doesn't start
+    /// a new copy of either.
+    #[test]
+    fn each_open_document_keeps_its_own_copy() {
+        let t = Temp::new();
+        let mut s = session(&t.0);
+        let first = s.document_id();
+        s.run("text.insert", &json!({"text": "First synthetic draft"})).unwrap();
+        save_now(&mut s);
+        s.run("file.new", &json!({})).unwrap();
+        settle(&mut s);
+        s.run("text.insert", &json!({"text": "Second synthetic draft"})).unwrap();
+        save_now(&mut s);
+        s.activate(first).unwrap();
+        s.run("text.insert", &json!({"text": ", edited"})).unwrap();
+        save_now(&mut s);
+        let records = fs::read_dir(&t.0).unwrap().filter(|e| e.as_ref().is_ok_and(|e| e.path().is_dir())).count();
+        assert_eq!(records, 2, "one copy per document");
+        assert_eq!(s.recovery_documents().len(), 1, "the first document's own copy");
+    }
+
     #[test]
     fn protection_after_document_switch_does_not_discard_another_draft() {
         let t = Temp::new();
         let mut s = session(&t.0);
         s.run("text.insert", &json!({"text": "First synthetic draft"})).unwrap();
         save_now(&mut s);
+        let first = s.document_id();
         s.run("file.new", &json!({})).unwrap();
         // Protection can be commanded before the host's next recovery tick.
         s.run("file.encrypt", &json!({"password": "synthetic-password"})).unwrap();
         settle(&mut s);
-        assert_eq!(s.recovery_documents().len(), 1);
+        assert_eq!(s.with_document(first, |s| s.recovery_documents().len()).unwrap(), 1);
+        assert_eq!(fs::read_dir(&t.0).unwrap().filter(|e| e.as_ref().is_ok_and(|e| e.path().is_dir())).count(), 1, "the first draft is kept");
     }
 }

@@ -25,6 +25,10 @@ use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewM
 
 use crate::{CmdError, Registry};
 
+mod documents;
+pub use documents::{DocInfo, DocState};
+use documents::{document_id_mark, next_document_id, untitled_name};
+
 /// A selection: anchor (where it started) and focus (where the caret is).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Selection {
@@ -359,7 +363,32 @@ impl EditSnapshot {
     }
 }
 
-/// An editing session.
+/// The layout last made and what it was made for: (revision, width, read height, view, read line
+/// spacing, layout, proofing, outline, (deletions left out, deletions marked Hidden, body
+/// deletions in balloons), numeral display, the word being typed).
+/// What `run` keeps to take a failed mutating command back: the document, the selection, the
+/// undo and redo stacks, the open typing group, the undo steps dropped so far and the column
+/// block.
+type RunSnapshot = (Document, Selection, Vec<Arc<Undo>>, Vec<Arc<Undo>>, bool, u64, Option<ColumnBlock>);
+
+type LayoutEntry = (
+    u64,
+    f32,
+    f32,
+    ViewMode,
+    Option<u32>,
+    Arc<DocLayout>,
+    bool,
+    Option<wordcraft_layout::outline::OutlineView>,
+    (bool, wordcraft_layout::HideDeleted, bool),
+    NumeralMode,
+    Option<wordcraft_layout::TypingWord>,
+);
+
+/// An editing session: the app-wide state (clipboard, preferences, macros, the command registry…)
+/// and the open documents. The active document's state is in the session's own fields, which
+/// every command works on; the other open documents wait in [`DocState`] values and are swapped
+/// in when they become active (see [`Session::documents`]).
 pub struct Session {
     pub doc: Document,
     pub sel: Selection,
@@ -419,26 +448,16 @@ pub struct Session {
     /// The newest automatic capitalisation, for Word's "Automatically add words to list" (#1857).
     pub(crate) autocap: Option<crate::cmd::tools::AutoCap>,
     rev: u64,
-    /// Which document this is: changes when [`Session::set_document`] replaces it (open, new,
-    /// mail merge, recover), never on an edit.
+    /// Which document this is, unique in the process: changes when [`Session::set_document`]
+    /// replaces it (an open into an untouched blank document, recover), never on an edit or when
+    /// another document becomes active and this one comes back.
     document_id: u64,
+    /// The number in an untitled document's name (`Document2`); 0 for one opened from a file.
+    untitled: u32,
+    /// `rev` when the document was made, for [`Session::is_untouched_blank`].
+    made_rev: u64,
     cache: LayoutCache,
-    /// (revision, width, read height, view, read line spacing, layout, proofing, outline,
-    /// (deletions left out, deletions marked Hidden, body deletions in balloons), numeral display, the word being typed).
-    #[allow(clippy::type_complexity)]
-    layout: Option<(
-        u64,
-        f32,
-        f32,
-        ViewMode,
-        Option<u32>,
-        Arc<DocLayout>,
-        bool,
-        Option<wordcraft_layout::outline::OutlineView>,
-        (bool, wordcraft_layout::HideDeleted, bool),
-        NumeralMode,
-        Option<wordcraft_layout::TypingWord>,
-    )>,
+    layout: Option<LayoutEntry>,
     /// The word being typed, left without a spelling squiggle ([`TypedWord`]).
     typing: Option<TypedWord>,
     /// Picture edits: edited media key → original media key (Reset Picture).
@@ -506,6 +525,12 @@ pub struct Session {
     edit_marks: Vec<Pos>,
     /// How many Go Back presses since the last edit (which place comes next).
     go_back_step: usize,
+    /// The open documents other than the active one, in no particular order.
+    others: Vec<DocState>,
+    /// Every open document's id, the active one's too, in the order they were opened.
+    order: Vec<u64>,
+    /// Untitled documents made so far, for the next one's name (`Document3`).
+    untitled_count: u32,
 }
 
 /// The number of edit locations Go Back cycles through (Word: four).
@@ -658,72 +683,119 @@ impl Session {
     }
 
     pub fn new(doc: Document) -> Self {
-        let start = doc.start_of(StoryRef::Body);
-        let bib_style = doc_bib_style(&doc);
+        let DocState {
+            doc,
+            sel,
+            view,
+            pending,
+            path,
+            file_name,
+            dirty,
+            pending_move,
+            find,
+            goal_x,
+            page_hint,
+            new_header_parts,
+            hf_return,
+            history,
+            undo_evicted,
+            redo,
+            typing_open,
+            join_next,
+            autocap,
+            rev,
+            document_id,
+            untitled,
+            made_rev,
+            cache,
+            layout,
+            typing,
+            originals,
+            picture_looks,
+            versions,
+            autosave,
+            bib_style,
+            merge,
+            math,
+            password,
+            #[cfg(not(target_arch = "wasm32"))]
+            recovery,
+            also_selected,
+            column,
+            column_mode,
+            widened,
+            edit_marks,
+            go_back_step,
+        } = DocState::new(doc, 1, ViewState::default());
         Session {
             doc,
-            sel: Selection::caret(start),
-            view: ViewState::default(),
-            pending: None,
-            path: None,
-            file_name: None,
+            sel,
+            view,
+            pending,
+            path,
+            file_name,
             user_dict_path: None,
-            dirty: false,
+            dirty,
             clipboard: None,
-            pending_move: None,
+            pending_move,
             clipboard_text: String::new(),
             clipboard_html: String::new(),
             clip_history: Default::default(),
-            find: FindState::default(),
-            goal_x: None,
-            page_hint: 0,
+            find,
+            goal_x,
+            page_hint,
             registry: Arc::new(crate::cmd::registry()),
             author: "WordCraft User".into(),
             initials: String::new(),
             painter: None,
             status: String::new(),
-            new_header_parts: Vec::new(),
-            hf_return: None,
-            history: Vec::new(),
-            undo_evicted: 0,
-            redo: Vec::new(),
-            typing_open: false,
-            join_next: false,
-            autocap: None,
-            rev: 1,
-            document_id: 1,
-            cache: LayoutCache::new(),
-            layout: None,
-            typing: None,
-            originals: Default::default(),
-            picture_looks: Default::default(),
+            new_header_parts,
+            hf_return,
+            history,
+            undo_evicted,
+            redo,
+            typing_open,
+            join_next,
+            autocap,
+            rev,
+            document_id,
+            untitled,
+            made_rev,
+            cache,
+            layout,
+            typing,
+            originals,
+            picture_looks,
             last_command: None,
             recording: None,
             macros: Default::default(),
-            versions: Vec::new(),
+            versions,
             building_blocks: Default::default(),
-            autosave: true,
+            autosave,
             bib_style,
-            merge: Default::default(),
+            merge,
             ui_requests: Vec::new(),
-            math: None,
+            math,
             math_latex: false,
             math_normal_text: false,
-            also_selected: Vec::new(),
+            also_selected,
             prefs: Prefs::default(),
             system_region: Default::default(),
             keymap: crate::KeyMap::default(),
             ribbon: crate::RibbonLayout::default(),
             editing_lang: None,
             read_aloud: Default::default(),
-            password: None,
+            password,
             #[cfg(not(target_arch = "wasm32"))]
-            recovery: None,
-            column: None,
-            column_mode: false,
-            widened: None,
-            edit_marks: Vec::new(),
-            go_back_step: 0,
+            recovery,
+            column,
+            column_mode,
+            widened,
+            edit_marks,
+            go_back_step,
+            others: Vec::new(),
+            order: vec![document_id],
+            untitled_count: 1,
         }
     }
 
@@ -844,7 +916,7 @@ impl Session {
 
     /// The document's file name and full path for fields (`FILENAME`) and layout context.
     /// Returns `(filename, filepath)`. Unsaved documents with no explicit file name default
-    /// consistently to `("Document1", "Document1")`. Document metadata title is never used
+    /// consistently to their name, `("Document1", "Document1")` for the first. Document metadata title is never used
     /// as a filename fallback (#3449).
     pub fn resolved_filenames(&self) -> (String, String) {
         if let Some(path) = &self.path {
@@ -854,7 +926,8 @@ impl Session {
         } else if let Some(name) = &self.file_name {
             (name.clone(), name.clone())
         } else {
-            ("Document1".to_string(), "Document1".to_string())
+            let name = untitled_name(self.untitled);
+            (name.clone(), name)
         }
     }
 
@@ -995,6 +1068,10 @@ impl Session {
         if untouched && self.doc.plain_text(StoryRef::Body).trim().is_empty() && self.doc.paragraph_count() <= 1 {
             self.doc.styles.default_chr.lang = Some(self.editing_lang.clone().unwrap_or_else(|| "en-US".into()));
             self.rev = self.rev.wrapping_add(1);
+            // Not an edit: the document is as untouched as it was.
+            if self.made_rev == self.rev.wrapping_sub(1) {
+                self.made_rev = self.rev;
+            }
             self.relayout();
         }
     }
@@ -1197,7 +1274,11 @@ impl Session {
     /// Replace the document (open/new).
     pub fn set_document(&mut self, doc: Document) {
         self.autocap = None;
-        self.document_id = self.document_id.wrapping_add(1);
+        let replaced = self.document_id;
+        self.document_id = next_document_id();
+        if let Some(at) = self.order.iter_mut().find(|d| **d == replaced) {
+            *at = self.document_id;
+        }
         self.bib_style = doc_bib_style(&doc);
         self.doc = doc;
         self.doc.ensure_nonempty();
@@ -1218,6 +1299,7 @@ impl Session {
         self.reset_history();
         self.touch();
         self.dirty = false;
+        self.made_rev = self.rev;
         self.relayout();
     }
 
@@ -1232,8 +1314,8 @@ impl Session {
     ///
     /// `restore` is exact when the commands in between only add undo steps (every mutating
     /// command adds at most one; up to [`SNAPSHOT_HEAD`] may push old steps out of a full
-    /// stack). Taking steps off the stack (`edit.undo`) or clearing it (`file.new`,
-    /// `file.open`) in between is not covered.
+    /// stack). Taking steps off the stack (`edit.undo`), clearing it (`file.open` into
+    /// a blank document) or switching documents in between is not covered.
     ///
     /// The destructuring lists every field, so a new field does not build until someone decides
     /// whether a snapshot must cover it.
@@ -1288,6 +1370,13 @@ impl Session {
             merge: _,
             ui_requests: _,
             document_id: _,
+            // The untitled name and when the document was made: not edits.
+            untitled: _,
+            made_rev: _,
+            // The other open documents: a snapshot covers the active one.
+            others: _,
+            order: _,
+            untitled_count: _,
             read_aloud: _,
             prefs: _,
             system_region: _,
@@ -1382,6 +1471,9 @@ impl Session {
     /// control channel). Mutating commands are undoable; a failed command leaves the document as
     /// it was; a panic inside a command becomes an error.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        // The document the command starts in, and the first id a document it opens can have.
+        let home = self.document_id;
+        let mark = document_id_mark();
         let join = std::mem::take(&mut self.join_next);
         let reg = self.registry.clone();
         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };
@@ -1422,7 +1514,7 @@ impl Session {
         }
         // The undo stacks are snapshotted whole, not as a length: commands run nested commands,
         // whose checkpoints, undos and redos (and evictions at the limit) must be put back too.
-        let before_doc = if spec.mutates {
+        let before_doc: Option<RunSnapshot> = if spec.mutates {
             Some((
                 self.doc.clone(),
                 self.sel.clone(),
@@ -1468,6 +1560,9 @@ impl Session {
                 Err(CmdError::Failed(format!("{id} panicked: {msg}")))
             }
         };
+        if self.document_id != home || (result.is_err() && self.order.iter().any(|d| *d >= mark)) {
+            return self.finish_elsewhere(home, mark, result, before_doc, blocks_before, default_language_before);
+        }
         // Restrict Editing: outside the exceptions nothing may change.
         if result.is_ok()
             && guard
@@ -1525,6 +1620,54 @@ impl Session {
                     // The steps the command pushed out are back, so they no longer count as gone.
                     self.undo_evicted = ev;
                     self.column = c;
+                }
+                if let Some(b) = blocks_before {
+                    self.building_blocks = b;
+                }
+                self.status = e.to_string();
+            }
+        }
+        result
+    }
+
+    /// The end of [`Session::run`] for a command that ended up in another document than it
+    /// started in (it opened, made, switched to or closed one) or that failed after opening one.
+    /// The checks that compare the document before and after the command don't apply.
+    /// Succeeded: the first document loses the undo step made for the command when its text is
+    /// as it was (opening a document is no edit to undo there). Failed: the documents the command opened close again and the first document is
+    /// active and as it was.
+    fn finish_elsewhere(
+        &mut self,
+        home: u64,
+        mark: u64,
+        result: Result<Value, CmdError>,
+        before_doc: Option<RunSnapshot>,
+        blocks_before: Option<std::collections::BTreeMap<String, Fragment>>,
+        default_language_before: Option<String>,
+    ) -> Result<Value, CmdError> {
+        match &result {
+            Ok(_) => {
+                self.put_back_parked(home, before_doc);
+                self.clamp_selection();
+            }
+            Err(e) => {
+                self.autocap = None;
+                self.prefs.default_language = default_language_before;
+                if self.is_open(home) {
+                    let _ = self.switch_to(home);
+                    let opened: Vec<u64> = self.order.iter().copied().filter(|d| *d >= mark && *d != home).collect();
+                    for d in opened {
+                        let _ = self.close_document(d);
+                    }
+                    if let Some((d, s, h, r, t, ev, c)) = before_doc {
+                        self.doc = d;
+                        self.sel = s;
+                        self.history = h;
+                        self.redo = r;
+                        self.typing_open = t;
+                        self.undo_evicted = ev;
+                        self.column = c;
+                    }
                 }
                 if let Some(b) = blocks_before {
                     self.building_blocks = b;
