@@ -1829,11 +1829,10 @@ mod tests {
         }
         let FBlock::Para(p0) = &f.blocks[0] else { panic!() };
         assert_eq!(p0.text(), "bullet item");
-        assert_eq!(p0.list.unwrap().ordered, false);
+        assert!(!p0.list.unwrap().ordered);
 
         let FBlock::Para(p3) = &f.blocks[3] else { panic!() };
         assert_eq!(p3.text(), "one item");
-        assert_eq!(p3.list.unwrap().ordered, true);
+        assert!(p3.list.unwrap().ordered);
     }
 }
-
