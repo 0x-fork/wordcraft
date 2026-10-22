@@ -2631,3 +2631,135 @@
 	➕ New comment	➕ Nov komentar
 	📂  Browse…	📂  Prebrskaj …
 preview	Title	Naslov
+
+# English text until translated (keys the other catalogs have)
+	Add gradient stop	Add gradient stop
+	Added 1 font	Added 1 font
+	Added {n} fonts	Added {n} fonts
+	All Fonts	All Fonts
+	Angle	Angle
+	Any field	Any field
+	Article I.	Article I.
+	AutoFit behavior	AutoFit behavior
+	AutoFit to contents	AutoFit to contents
+	AutoFit to window	AutoFit to window
+	Center Glow	Center Glow
+	Chapter 1	Chapter 1
+	Commas	Commas
+	Continue from previous section	Continue from previous section
+	Dark Variations	Dark Variations
+	Deep	Deep
+	Direction	Direction
+	Distance from text	Distance from text
+	Distance from text:	Distance from text:
+	Dot-dot-dash	Dot-dot-dash
+	Drop Cap Options…	Drop Cap Options…
+	Dropped	Dropped
+	Editing endnote	Editing endnote
+	Editing footnote	Editing footnote
+	English (Australia)	English (Australia)
+	English (Canada)	English (Canada)
+	English (India)	English (India)
+	English (Ireland)	English (Ireland)
+	English (New Zealand)	English (New Zealand)
+	English (South Africa)	English (South Africa)
+	File locations	File locations
+	File › New lists the .dotx and .dotm templates here under Personal; Save as Word Template starts here.	File › New lists the .dotx and .dotm templates here under Personal; Save as Word Template starts here.
+	Find in list:	Find in list:
+	Format Shape	Format Shape
+	Format Shape Pane	Format Shape Pane
+	Format Shape…	Format Shape…
+	From Bottom Left Corner	From Bottom Left Corner
+	From Bottom Right Corner	From Bottom Right Corner
+	From Center	From Center
+	From Top Left Corner	From Top Left Corner
+	From Top Right Corner	From Top Right Corner
+	Full Screen View	Full Screen View
+	Gradient	Gradient
+	Gradient fill	Gradient fill
+	Gradient stops	Gradient stops
+	Hide Quick Access Toolbar	Hide Quick Access Toolbar
+	Import…	Import…
+	In margin	In margin
+	Include label and number	Include label and number
+	Indonesian	Indonesian
+	Initial column width:	Initial column width:
+	Insert Spike	Insert Spike
+	Kerning for fonts:	Kerning for fonts:
+	Light Variations	Light Variations
+	Linear Diagonal - Bottom Left to Top Right	Linear Diagonal - Bottom Left to Top Right
+	Linear Diagonal - Bottom Right to Top Left	Linear Diagonal - Bottom Right to Top Left
+	Linear Diagonal - Top Left to Bottom Right	Linear Diagonal - Top Left to Bottom Right
+	Linear Diagonal - Top Right to Bottom Left	Linear Diagonal - Top Right to Bottom Left
+	Linear Down	Linear Down
+	Linear Left	Linear Left
+	Linear Right	Linear Right
+	Linear Up	Linear Up
+	Lines to drop:	Lines to drop:
+	Lit from Bottom	Lit from Bottom
+	Lit from Top	Lit from Top
+	Lock aspect ratio	Lock aspect ratio
+	Matches: {count}	Matches: {count}
+	Merge cells before split	Merge cells before split
+	More Gradients…	More Gradients…
+	More Underlines…	More Underlines…
+	More tabs	More tabs
+	Moved from:	Moved from:
+	Moved to:	Moved to:
+	Multilevel List Library	Multilevel List Library
+	No Gradient	No Gradient
+	No fill	No fill
+	No items to show.	No items to show.
+	Not set	Not set
+	Old menu keys: Alt, {keys}. Keep typing, or press Esc to cancel.	Old menu keys: Alt, {keys}. Keep typing, or press Esc to cancel.
+	Original size	Original size
+	Other:	Other:
+	Page Number Format	Page Number Format
+	Page numbering	Page numbering
+	Path	Path
+	Personal	Personal
+	Personal Templates	Personal Templates
+	Points and above	Points and above
+	Preset gradients	Preset gradients
+	Print job submitted: spooled {count} sheet(s)	Print job submitted: spooled {count} sheet(s)
+	Radial	Radial
+	Recently Used Fonts	Recently Used Fonts
+	Rectangular	Rectangular
+	Relative to original picture size	Relative to original picture size
+	Remove gradient stop	Remove gradient stop
+	Rotate with shape	Rotate with shape
+	Save as Word Template…	Save as Word Template…
+	Saves a .dotx template in your templates folder. It shows up in File › New under Personal.	Saves a .dotx template in your templates folder. It shows up in File › New under Personal.
+	Section 1.01	Section 1.01
+	Select a shape, text box or drawing canvas to format its fill.	Select a shape, text box or drawing canvas to format its fill.
+	Selected text	Selected text
+	Separate text at	Separate text at
+	Show Quick Access Toolbar	Show Quick Access Toolbar
+	Show only records that will be merged	Show only records that will be merged
+	Show the ribbon	Show the ribbon
+	Soft	Soft
+	Solid fill	Solid fill
+	Spike	Spike
+	Table size	Table size
+	Templates you save in your templates folder show up here.	Templates you save in your templates folder show up here.
+	The measurement must be between {min} and {max}.	The measurement must be between {min} and {max}.
+	The number must be between 1 and {max}.	The number must be between 1 and {max}.
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.
+	Underline Color	Underline Color
+	User templates:	User templates:
+	cm	cm
+	mm	mm
+	nothing is selected	nothing is selected
+	pi	pi
+	select a picture or shape first	select a picture or shape first
+	select recipients first	select recipients first
+	select two or more pictures or shapes first (Shift+click)	select two or more pictures or shapes first (Shift+click)
+	text boxes can't go inside a text box	text boxes can't go inside a text box
+	the cursor isn't in a table	the cursor isn't in a table
+	the paragraph is empty	the paragraph is empty
+	the paragraph starts with a space	the paragraph starts with a space
+	{added}; {count} couldn't be read: {names}	{added}; {count} couldn't be read: {names}
+	{added}; {n} skipped (limit {max})	{added}; {n} skipped (limit {max})
+	{names} and {n} more	{names} and {n} more
+	{name} options	{name} options
+	{width} × {height} pixels	{width} × {height} pixels
