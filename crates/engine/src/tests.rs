@@ -3723,7 +3723,7 @@ fn mailings_results_are_new_untitled_documents() {
 /// A save that fails to write (no permission, disk full, a bad path) leaves the document's own
 /// save stamps untouched: `stamp_save` runs before the fallible write, so a prior version of this
 /// left `modified`/`created`/`last_modified_by`/`revision`/`zoom` changed for a save that never
-/// actually happened, which a later successful save would then persist (CodeRabbit catch on #3434).
+/// actually happened, which a later successful save would then persist.
 #[test]
 fn a_failed_save_leaves_the_save_stamps_untouched() {
     // pid + nanos (not pid alone): a name no other test or run could already own, so there's

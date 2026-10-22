@@ -1483,7 +1483,7 @@ mod tests {
 
     /// The Save As page's own render loop skips the status bar while Backstage is open, so a
     /// write failure (no permission, disk full, a bad path) needs its own place to say why, or
-    /// the page just sits there with a Browse… button and no clue (CodeRabbit catch on #3434).
+    /// the page just sits there with a Browse… button and no clue.
     #[test]
     fn backstage_save_browse_write_failure_shows_on_the_save_as_page() {
         use std::sync::mpsc::channel;
