@@ -1982,6 +1982,25 @@ fn shape_gradients_export_as_shadings() {
     assert!(raw.contains("/ca 0.3"), "30% opaque fill");
 }
 
+#[test]
+fn a_watermark_fills_its_box() {
+    // Word stretches the watermark's text over its shape (`fitshape`): one em down the box's
+    // height, the advance across its width, the box centred on the margins. WordCraft made the
+    // text 70 % of the page diagonal, whatever the box.
+    let mut d = Document::new();
+    d.body = vec![para_block(Paragraph::with_text("Body", CharProps::default()))];
+    d.settings.watermark = Some(Watermark { text: "COPY".into(), diagonal: false, size: Some([300.0, 80.0]), ..Default::default() });
+    let frames = glyph_frames(&export(&d, &PdfOptions::default()).unwrap());
+    // (Glyph space is a thousandth of the size.)
+    let wm: Vec<&(f64, f64, f64)> = frames.iter().filter(|f| (f.2 * 1000.0 - 80.0).abs() < 0.01).collect();
+    assert_eq!(wm.len(), 4, "four letters one box high: {frames:?}");
+    let s = &d.last_section;
+    let centre = f64::from(s.margin_left + (s.page_w - s.margin_left - s.margin_right) / 2.0);
+    assert!((wm[0].0 - (centre - 150.0)).abs() < 0.05, "the text starts at the box's left edge: {wm:?}");
+    // Stretched across (the box is wider than the text at 80 pt), the same for every letter.
+    assert!(wm.iter().all(|f| f.1 > f.2 * 1.01 && (f.1 - wm[0].1).abs() < 1e-6), "{wm:?}");
+}
+
 /// Each glyph drawn as text: its origin and its horizontal and vertical scale, in page space.
 fn glyph_frames(bytes: &[u8]) -> Vec<(f64, f64, f64)> {
     use hayro_interpret::font::Glyph;

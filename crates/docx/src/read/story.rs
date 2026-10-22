@@ -2219,7 +2219,10 @@ fn vml_watermark(shape: &El) -> Option<wordcraft_doc::Watermark> {
         .unwrap_or(default.font);
     let color = shape.attr("fillcolor").and_then(vml_color).unwrap_or(default.color);
     let opacity = shape.child("v:fill").and_then(|f| f.attr("opacity")).and_then(vml_opacity).unwrap_or(1.0);
-    Some(wordcraft_doc::Watermark { text, font, color, diagonal: vml_spin(style).deg != 0.0, semitransparent: opacity < 1.0 })
+    // The box the text is stretched to (`fitshape`).
+    let len = |k: &str| vml_style(style, k).and_then(|v| measure(v, 1.0)).filter(|v| v.is_finite() && *v > 0.0).map(|v| v.min(4000.0));
+    let size = len("width").zip(len("height")).map(|(w, h)| [w, h]);
+    Some(wordcraft_doc::Watermark { text, font, color, diagonal: vml_spin(style).deg != 0.0, semitransparent: opacity < 1.0, size })
 }
 
 /// A VML `opacity`, 0..=1.
