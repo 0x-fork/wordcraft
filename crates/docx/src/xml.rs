@@ -263,6 +263,16 @@ pub fn parse(bytes: &[u8]) -> Result<El, DocxError> {
 /// [`parse`] with `extra` namespaces (prefix, URI) mapped to canonical prefixes first, so a
 /// related vocabulary (WordprocessingML 2003) reads with the prefixes the reader knows.
 pub fn parse_ns(bytes: &[u8], extra: &[(&'static str, &str)]) -> Result<El, DocxError> {
+    parse_with(bytes, extra, false)
+}
+
+/// [`parse`] for a part whose loss would be silent data loss (the main document): a mismatched end
+/// tag or an element left open at the end of the data is an error, not a cue to stop reading.
+pub fn parse_strict(bytes: &[u8]) -> Result<El, DocxError> {
+    parse_with(bytes, &[], true)
+}
+
+fn parse_with(bytes: &[u8], extra: &[(&'static str, &str)], strict: bool) -> Result<El, DocxError> {
     // UTF-16 (with a BOM) is transcoded to UTF-8; a UTF-8 BOM is stripped.
     let transcoded = utf16_to_utf8(bytes);
     let bytes = match &transcoded {
@@ -275,7 +285,7 @@ pub fn parse_ns(bytes: &[u8], extra: &[(&'static str, &str)]) -> Result<El, Docx
         c.trim_text_start = false;
         c.trim_text_end = false;
         c.expand_empty_elements = false;
-        c.check_end_names = false;
+        c.check_end_names = strict;
     }
     let mut stack: Vec<El> = Vec::new();
     let mut root: Option<El> = None;
@@ -388,6 +398,9 @@ pub fn parse_ns(bytes: &[u8], extra: &[(&'static str, &str)]) -> Result<El, Docx
         if root.is_some() && stack.is_empty() {
             break;
         }
+    }
+    if strict && !stack.is_empty() {
+        return Err(DocxError::Xml("an element is not closed".into()));
     }
     // Unclosed elements at EOF: close them (lenient).
     while let Some(el) = stack.pop() {
