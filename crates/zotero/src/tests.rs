@@ -574,7 +574,7 @@ fn citation_at_document_end_stays_closed() {
     let id = z.cite(0, r"{\rtf  (Doe, {\i{}2020})}");
     z.ok("Document_complete", json!([1]));
     // Type right after the citation, at the very end of the document.
-    z.s.run("text.insert", &json!({"text": "!"}).into()).unwrap();
+    z.s.run("text.insert", &json!({"text": "!"})).unwrap();
     assert_eq!(z.text(), "Hello (Doe, 2020)!");
     let ranges = z.s.doc.field_ranges(StoryRef::Body);
     assert_eq!(ranges.len(), 1);
