@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use wordcraft_doc::props::VAlign;
 use wordcraft_doc::{Align, Document, Rgb};
 
 use crate::model::{self, Cell, FBlock, FTable, Flow, Fmt, Inline, Kind, ListInfo, Meta, Para, RevMark, make_img};
@@ -598,6 +599,12 @@ impl Writer {
                 } else if c.rowspan > 1 {
                     out.push_str("\\clvmgf");
                 }
+                match c.valign {
+                    Some(VAlign::Top) => out.push_str("\\clvertalt"),
+                    Some(VAlign::Center) => out.push_str("\\clvertalc"),
+                    Some(VAlign::Bottom) => out.push_str("\\clvertalb"),
+                    None => {}
+                }
                 self.cell_borders(c.borders.as_ref(), t.borderless, out);
                 if let Some(s) = c.shading {
                     let i = self.t.color(s);
@@ -974,6 +981,7 @@ struct CellDef {
     /// The borders the cell names (`\clbrdrt` … `\clbrdrr`, each with its line style, `\brdrw`
     /// width and `\brdrcf` colour).
     borders: wordcraft_doc::props::Borders,
+    valign: Option<VAlign>,
 }
 
 /// Page size and margins in twips (`\paperw`, `\margl`… and their `…sxn` section forms).
@@ -1690,6 +1698,7 @@ impl Reader {
             c.shading = d.shading;
             c.borders = d.borders.any_visible().then_some(d.borders);
             c.header = self.row_header;
+            c.valign = d.valign;
             match d.vmerge {
                 1 => c.rowspan = 2,
                 2 => c.covered = true,
@@ -2108,6 +2117,9 @@ impl Reader {
             "clvmrg" => self.def_cur.vmerge = 2,
             "clmgf" => self.def_cur.hmerge = 1,
             "clmrg" => self.def_cur.hmerge = 2,
+            "clvertalt" => self.def_cur.valign = Some(VAlign::Top),
+            "clvertalc" => self.def_cur.valign = Some(VAlign::Center),
+            "clvertalb" => self.def_cur.valign = Some(VAlign::Bottom),
             "clcbpat" => self.def_cur.shading = self.colors.get(pv.max(0) as usize).copied().flatten(),
             "sb" => self.st.sb = Some(pv),
             "sa" => self.st.sa = Some(pv),
@@ -4072,5 +4084,19 @@ mod tests {
         assert_eq!(hyperlink(r#"Hyperlink "http://example.com""#), Some("http://example.com".into()));
         assert_eq!(hyperlink(r#"HYPERLINK "http://example.com/path\latest""#), Some("http://example.com/path\\latest".into()));
         assert_eq!(hyperlink(r#"HYPERLINK "http://example.com" \o "Help text""#), Some("http://example.com".into()));
+    }
+
+    #[test]
+    fn table_cell_vertical_alignment() {
+        let rtf = br"{\rtf1\ansi\trowd\clvertalt\cellx1000\clvertalc\cellx2000\clvertalb\cellx3000\intbl top\cell center\cell bottom\cell\row}";
+        let doc = import(rtf).unwrap();
+        let wordcraft_doc::Block::Table(t) = &*doc.body[0] else { panic!() };
+        assert_eq!(t.rows[0].cells[0].props.valign, Some(VAlign::Top));
+        assert_eq!(t.rows[0].cells[1].props.valign, Some(VAlign::Center));
+        assert_eq!(t.rows[0].cells[2].props.valign, Some(VAlign::Bottom));
+        let exported = export(&doc);
+        assert!(exported.contains("\\clvertalt"));
+        assert!(exported.contains("\\clvertalc"));
+        assert!(exported.contains("\\clvertalb"));
     }
 }
