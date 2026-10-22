@@ -68,6 +68,15 @@ fn substitutes(family: &str) -> &'static [&'static str] {
     const THAI_SERIF: &[&str] = &["Sathu", "Noto Serif Thai", "Thonburi", "Ayuthaya", "Krungthep", "Noto Sans Thai", "Tahoma"];
     #[cfg(not(any(windows, target_os = "macos")))]
     const THAI_SERIF: &[&str] = &["Noto Serif Thai", "Norasi", "Kinnari", "Noto Sans Thai", "Laksaman", "Garuda", "Waree"];
+    // Khmer document fonts (Khmer OS …, Khmer Mool1…): a missing one is drawn in the system's
+    // Khmer font, as Word does, not in whatever Khmer font the document happens to load: the Khmer
+    // OS fonts are wider, so lines wrap and boxes overflow where Word's don't.
+    #[cfg(windows)]
+    const KHMER: &[&str] = &["Leelawadee UI", "Khmer UI", "DaunPenh", "MoolBoran", "Noto Sans Khmer"];
+    #[cfg(target_os = "macos")]
+    const KHMER: &[&str] = &["Khmer Sangam MN", "Khmer MN", "Noto Sans Khmer"];
+    #[cfg(not(any(windows, target_os = "macos")))]
+    const KHMER: &[&str] = &["Noto Sans Khmer", "Noto Serif Khmer"];
     // Palatino Linotype / Book Antiqua: macOS ships the same design as "Palatino"; open
     // look-alikes with matching metrics (TeX Gyre Pagella, URW P052 / Palladio) on Linux.
     const PALATINO: &[&str] = &[
@@ -95,6 +104,9 @@ fn substitutes(family: &str) -> &'static [&'static str] {
     }
     if is_hebrew(&f) {
         return HEBREW;
+    }
+    if is_khmer(&f) {
+        return KHMER;
     }
     if is_persian_naskh(&f) {
         return NASKH;
@@ -272,6 +284,12 @@ fn is_thai_serif(f: &str) -> bool {
 pub fn is_thai_family(family: &str) -> bool {
     let f = family.to_ascii_lowercase();
     is_thai(&f) || is_thai_serif(&f)
+}
+
+/// Khmer document fonts: the Khmer OS family, Khmer Mool1 and the like, Windows' and the Mac's
+/// own and Noto's. Matched by name only.
+fn is_khmer(f: &str) -> bool {
+    f.starts_with("khmer") || f.contains("khmer") || matches!(f, "daunpenh" | "moolboran" | "limon" | "battambang" | "bokor" | "content" | "dangrek" | "angkor")
 }
 
 /// Hebrew document fonts.
@@ -511,6 +529,13 @@ mod tests {
         }
         // Generic names with "Hebrew" in them also get Hebrew substitutions
         assert!(substitutes("SomeFont Hebrew").contains(&"Noto Sans Hebrew"));
+    }
+
+    #[test]
+    fn khmer_fonts_substitute_khmer_faces() {
+        for f in ["Khmer OS Bokor", "Khmer OS Battambang", "Khmer Mool1", "Khmer OS Muol Light"] {
+            assert!(substitutes(f).iter().any(|s| s.contains("Khmer")), "{f}: {:?}", substitutes(f));
+        }
     }
 
     #[test]
