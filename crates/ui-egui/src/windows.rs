@@ -295,14 +295,17 @@ impl WordApp {
     }
 
     /// Put the drawn window's state away and draw window `key`, with its document active. False
-    /// when there is no such window.
+    /// when there is no such window, or its document has closed ([`WordApp::prune_windows`]
+    /// closes it then); the drawn window stays.
     pub(crate) fn enter_window(&mut self, key: u64) -> bool {
         if key == self.windows.shown {
             return true;
         }
-        let Some(mut state) = self.windows.get_mut(key).and_then(|w| w.ui.take()) else {
+        let session = &self.session;
+        let Some(w) = self.windows.get_mut(key).filter(|w| w.ui.as_ref().is_some_and(|ui| session.is_open(ui.shown_document))) else {
             return false;
         };
+        let Some(mut state) = w.ui.take() else { return false };
         let from = self.shown_document;
         self.swap_window(&mut state);
         let left = std::mem::replace(&mut self.windows.shown, key);
@@ -390,24 +393,22 @@ impl WordApp {
     /// [`WordApp::sync_document`] with native windows: the session's active document `id` isn't
     /// the drawn window's. Another open document shows in its window, which comes to the front,
     /// or in a new window; when the drawn window's document has closed, its window closes and the
-    /// one showing `id` comes forward. False when the window itself is to show `id` instead: its
-    /// document was replaced, or it is the Start screen's empty window.
+    /// one showing `id` comes forward. The Start screen's empty window stays beside the window
+    /// that shows `id`. False when the window itself is to show `id` instead: its document was
+    /// replaced, or it is the Start screen's empty window and no other window shows `id`.
     pub(crate) fn follow_in_windows(&mut self, id: u64) -> bool {
         let left = self.shown_document;
         let stand_in = self.no_document == Some(left);
-        if self.session.is_open(left) && !stand_in {
-            match self.windows.of_doc(id).filter(|&k| k != self.windows.shown) {
-                Some(key) => {
-                    self.enter_window(key);
-                    self.focus_window(key);
-                }
-                None => self.open_window(id),
+        let other = self.windows.of_doc(id).filter(|&k| k != self.windows.shown);
+        if self.session.is_open(left) {
+            match other {
+                Some(key) if self.enter_window(key) => self.focus_window(key),
+                _ if stand_in => return false,
+                _ => self.open_window(id),
             }
             return true;
         }
-        if !self.session.is_open(left)
-            && let Some(key) = self.windows.of_doc(id).filter(|&k| k != self.windows.shown)
-        {
+        if let Some(key) = other {
             self.close_shown_window(key);
             return true;
         }
@@ -440,27 +441,16 @@ impl WordApp {
     }
 
     /// A request made for open document `document`, which another window shows: that window
-    /// handles it when it draws next, and comes to the front when the request opens something
-    /// (a dialog, the Print page). False when no other window shows the document (or windows
-    /// aren't native).
+    /// handles it when it draws next (a dialog opens there). The active window and document stay
+    /// as they are, so the control channel and agents go on working where they were. False when
+    /// no other window shows the document (or windows aren't native).
     pub(crate) fn queue_for_window(&mut self, document: u64, req: &Value) -> bool {
         if !self.windows.native {
             return false;
         }
         let Some(key) = self.windows.of_doc(document).filter(|&k| k != self.windows.shown) else { return false };
-        let opens = req.get("open").is_some();
-        if opens && !self.windows.showing {
-            // Between frames: the window comes forward and opens it now.
-            self.enter_window(key);
-            self.focus_window(key);
-            self.handle_request(req);
-            return true;
-        }
         if let Some(w) = self.windows.get_mut(key) {
             w.requests.push(req.clone());
-        }
-        if opens {
-            self.focus_window(key);
         }
         if let Some(ctx) = &self.ctx {
             ctx.request_repaint();
@@ -569,6 +559,11 @@ impl WordApp {
             return;
         }
         self.window_ui(ui);
+        // Drawing can close the window or bring another forward: the fields then hold another
+        // window's state.
+        if self.windows.shown != key {
+            return;
+        }
         let title = self.sent_title.clone();
         if let Some(w) = self.windows.get_mut(key) {
             w.title = title;
@@ -618,7 +613,17 @@ impl WordApp {
             ctx.add_plugin(ViewportInput::default());
             self.windows.input_plugin = true;
         }
+        self.settle_windows();
         let target = self.active_viewport();
+        // Input queued for a window that has closed since (or moved into the root viewport)
+        // would wait forever.
+        let live: Vec<ViewportId> = self.windows.open.iter().map(|w| self.windows.viewport(w.key)).filter(|&v| v != ViewportId::ROOT).collect();
+        ctx.with_plugin(|p: &mut ViewportInput| {
+            if p.target.is_some_and(|t| !live.contains(&t)) {
+                p.target = None;
+                p.events.clear();
+            }
+        });
         let waiting = ctx.with_plugin(|p: &mut ViewportInput| !p.events.is_empty()).unwrap_or(true);
         if waiting {
             return;
@@ -908,29 +913,100 @@ mod tests {
     }
 
     /// A request an agent's command makes for the document of another window is that window's:
-    /// Print opens the Print page there and brings it forward, and the window that was active
-    /// keeps its own page.
+    /// Print opens the Print page there when it draws, and the active window and document stay
+    /// as they are, so the agent's next command works where it did.
     #[test]
     fn a_request_for_another_windows_document_is_handled_there() {
         let ctx = backend();
         let mut a = app("First");
         let first = a.session.document_id();
+        let first_window = a.windows.shown();
         frames(&ctx, &mut a, 2);
         a.run("file.new", json!({})).unwrap();
-        let second = a.windows.shown();
+        let second = a.session.document_id();
         frames(&ctx, &mut a, 2);
+        let child = a.active_viewport();
         a.session.with_document(first, |s| s.run("file.print", &json!({}))).unwrap().unwrap();
         for req in std::mem::take(&mut a.session.ui_requests) {
             assert_eq!(req["document"], first);
             a.handle_request(&req);
         }
-        assert_eq!(a.session.document_id(), first, "the first window comes forward");
-        assert!(a.ui.backstage && a.ui.backstage_page == "print");
+        assert_eq!((a.session.document_id(), a.active_viewport()), (second, child), "the active document stays");
+        assert!(!a.ui.backstage);
         frames(&ctx, &mut a, 2);
-        assert_eq!(a.active_viewport(), ViewportId::ROOT);
-        assert!(a.ui.backstage, "the Print page stays in its window");
-        let other = a.windows.get(second).and_then(|w| w.ui.as_ref()).map(|w| w.backstage);
-        assert_eq!(other, Some(false), "the other window keeps its page");
+        assert_eq!((a.session.document_id(), a.active_viewport()), (second, child));
+        assert!(!a.ui.backstage, "the active window keeps its page");
+        let other = a.windows.get(first_window).and_then(|w| w.ui.as_ref()).map(|w| (w.backstage, w.backstage_page.as_str()));
+        assert_eq!(other, Some((true, "print")), "the Print page opened in the document's window");
+    }
+
+    /// Quitting from the Start screen's empty window asks about the documents other windows
+    /// show (one an agent made and typed in).
+    #[test]
+    fn quitting_from_the_empty_window_asks_about_the_other_windows() {
+        let ctx = backend();
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        frames(&ctx, &mut a, 2);
+        a.run("file.close", json!({})).unwrap();
+        assert!(!a.has_document());
+        let empty = a.windows.shown();
+        let placeholder = a.session.document_id();
+        let other = a.session.with_document(placeholder, |s| s.add_document(wordcraft_doc::Document::new())).unwrap();
+        a.session.with_document(other, |s| s.run("text.insert", &json!({"text": "Agent"}))).unwrap().unwrap();
+        frames(&ctx, &mut a, 2);
+        assert_eq!((a.window_count(), a.windows.shown()), (2, empty), "the agent's document has a window behind");
+        assert!(!a.has_document());
+
+        assert!(!a.quit());
+        assert_eq!((a.session.document_id(), prompt(&a), text(&a).as_str()), (other, Some("saveChanges"), "Agent"));
+        assert_ne!(a.windows.shown(), empty, "the document's own window asks");
+        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert!(a.quit_requested);
+    }
+
+    /// Mod+W in a window with no changes closes it; the keys typed after it in the same frame
+    /// don't reach the window that comes forward.
+    #[test]
+    fn keys_after_closing_a_window_go_nowhere() {
+        let ctx = backend();
+        let mut a = app("First");
+        frames(&ctx, &mut a, 2);
+        a.run("file.new", json!({})).unwrap();
+        let child = a.active_viewport();
+        focus(child);
+        frames(&ctx, &mut a, 8);
+        assert!(a.canvas.focused);
+        let mac = cfg!(target_os = "macos");
+        let modifiers = egui::Modifiers { ctrl: !mac, mac_cmd: mac, command: true, ..Default::default() };
+        EVENTS.with(|e| {
+            e.borrow_mut().entry(child).or_default().extend([
+                egui::Event::Key { key: egui::Key::W, physical_key: None, pressed: true, repeat: false, modifiers },
+                egui::Event::Text("x".into()),
+            ])
+        });
+        frame(&ctx, &mut a);
+        assert_eq!(a.window_count(), 1, "Mod+W closed the window");
+        frames(&ctx, &mut a, 2);
+        assert_eq!(text(&a), "First");
+    }
+
+    /// A window whose document closed without the windows following (an agent closed it) isn't
+    /// drawn or made active; the next frame closes it.
+    #[test]
+    fn a_window_whose_document_closed_is_not_entered() {
+        let ctx = backend();
+        let mut a = app("First");
+        let first = a.session.document_id();
+        let first_window = a.windows.shown();
+        frames(&ctx, &mut a, 2);
+        a.run("file.new", json!({})).unwrap();
+        let (second, second_window) = (a.session.document_id(), a.windows.shown());
+        frames(&ctx, &mut a, 2);
+        a.session.close_document(first).unwrap();
+        assert!(!a.enter_window(first_window));
+        assert_eq!((a.windows.shown(), a.session.document_id()), (second_window, second));
+        frames(&ctx, &mut a, 2);
+        assert_eq!((a.window_count(), a.session.document_id()), (1, second));
     }
 
     /// A composition in one window shows and commits only there: the other window draws no

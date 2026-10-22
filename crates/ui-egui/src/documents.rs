@@ -111,20 +111,18 @@ impl WordApp {
 
     /// The open documents with work that would be lost on quitting: the shown one first, then
     /// the others in the order they were opened. Unsaved changes, a save the browser hasn't
-    /// confirmed, or comment text not yet written to the document.
+    /// confirmed, or comment text not yet written to the document. The Start screen's
+    /// placeholder is never one, though other windows' documents are.
     fn unsaved_documents(&self) -> Vec<u64> {
-        if !self.has_document() {
-            return Vec::new();
-        }
         let active = self.session.document_id();
         let mut out = Vec::new();
-        if self.session.dirty || self.save_unconfirmed() || panes::has_comment_drafts(self) {
+        if self.has_document() && (self.session.dirty || self.save_unconfirmed() || panes::has_comment_drafts(self)) {
             out.push(active);
         }
         for d in self.session.documents() {
             let unconfirmed = || self.saves_in_flight.iter().any(|s| s.marked_saved && s.document == d.id);
             let drafts = || self.parked.get(&d.id).is_some_and(|p| !p.comment_drafts.is_empty());
-            if d.id != active && (d.dirty || unconfirmed() || drafts()) {
+            if d.id != active && Some(d.id) != self.no_document && (d.dirty || unconfirmed() || drafts()) {
                 out.push(d.id);
             }
         }

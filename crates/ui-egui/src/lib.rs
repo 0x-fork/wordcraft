@@ -1438,12 +1438,14 @@ impl WordApp {
         if self.quit_requested {
             return true;
         }
-        // No document open (#1129): nothing to save.
-        if !self.has_document() {
+        // Nothing to save, also with no document open in this window (#1129) and none elsewhere.
+        if !self.has_unsaved_documents() {
             return true;
         }
         // A comment draft the document refuses is an unsaved change: the prompt can drop it.
-        let _ = panes::flush_comment_drafts(self);
+        if self.has_document() {
+            let _ = panes::flush_comment_drafts(self);
+        }
         if !self.has_unsaved_documents() {
             return true;
         }
