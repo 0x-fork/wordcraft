@@ -1999,10 +1999,6 @@ impl WordApp {
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
         self.install_ui_fonts(ctx, lang);
-        ctx.options_mut(|o| {
-            o.zoom_with_keyboard = false;
-            o.quit_shortcuts = vec![egui::KeyboardShortcut::new(egui::Modifiers::MAC_CMD, egui::Key::Q)];
-        });
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
         }
