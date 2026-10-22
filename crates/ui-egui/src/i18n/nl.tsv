@@ -2663,3 +2663,9 @@ preview	Title	Titel
 	{names} and {n} more	{names} en nog {n}
 	{name} options	Opties voor {name}
 	{width} × {height} pixels	{width} × {height} pixels
+
+# English text until translated (ribbon and command labels added since this catalog)
+	Format Shape Pane	Format Shape Pane
+	Full Screen View	Full Screen View
+	Personal Templates	Personal Templates
+	Underline Color	Underline Color
