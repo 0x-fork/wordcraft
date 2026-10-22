@@ -1004,11 +1004,12 @@ fn polish_covers_every_key_of_every_other_catalog() {
     let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
     let polish = keys(lang("pl").0.source);
     // Italian and Hungarian still carry "Style: APA", which the interface no longer shows;
+    // Slovenian carries the union of every catalog's keys.
     // Hungarian and Bulgarian also name the citation styles, and Bulgarian has a few one-line
     // pieces of gallery labels. Polish matches every other catalog, including the built-in style
     // names, citation styles and equation gallery. French carries newer strings (paper sizes,
     // bookmarks, printing) the Polish catalog hasn't caught up with yet.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "ro")) {
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "ro" | "sl")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1644,4 +1645,95 @@ fn bundled_interface_fonts_cover_romanian_without_system_fallbacks() {
             assert_ne!(face.glyph_for(*ch), 0, "{family} {style} lacks {ch}");
         }
     }
+}
+
+#[test]
+fn slovenian_locales_and_saved_preference_work_without_changing_the_document() {
+    let sl = lang("sl");
+    for tag in ["sl", "sl-SI", "sl_SI.UTF-8", "SL-si", "sl-Latn-SI"] {
+        assert_eq!(lang_from_tag(tag), Some(sl), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "sl-SI", "en-US"]), Some(sl));
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "SL"})).unwrap();
+    assert_eq!(result["effective"], "sl");
+    assert_eq!(app.ui.language, "sl");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "sl" && l["name"] == "Slovenščina"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), sl);
+}
+
+#[test]
+fn slovenian_covers_every_key_of_every_other_catalog() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let slovenian = keys(lang("sl").0.source);
+    assert!(parse_entries(lang("sl").0.source).1.is_empty());
+    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "sl") {
+        let mut missing: Vec<String> = keys(other.0.source).difference(&slovenian).cloned().collect();
+        missing.sort();
+        // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
+        missing.retain(|k| k != "Style: APA" || !matches!(other.code(), "it" | "hu"));
+        assert!(missing.is_empty(), "sl lacks {}'s {missing:?}", other.code());
+    }
+    let sl = lang("sl");
+    for (source, expected) in [
+        ("File", "Datoteka"),
+        ("Home", "Osnovno"),
+        ("Insert", "Vstavljanje"),
+        ("Layout", "Postavitev"),
+        ("References", "Sklici"),
+        ("Review", "Pregled"),
+        ("View", "Pogled"),
+        ("Save", "Shrani"),
+        ("Bold", "Krepko"),
+        ("Italic", "Ležeče"),
+        ("Underline", "Podčrtano"),
+        ("Track Changes", "Sledenje spremembam"),
+        ("Insert Citation", "Vstavi citat"),
+        ("Citations", "Citati"),
+        ("unknown future label", "unknown future label"),
+    ] {
+        assert_eq!(tr(sl, source), expected, "{source}");
+    }
+    // The search hint's example must find the command it names.
+    assert_eq!(tr(sl, "Insert Table"), "Vstavi tabelo");
+    assert!(tr(sl, "Type a command, e.g. \"insert table\"").contains("vstavi tabelo"));
+    assert_eq!(fmt(tr(sl, "Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "Stran 3 od 9");
+    // Count-neutral wording is grammatical for every count (Slovenian has singular, dual and plural).
+    for count in [0, 1, 2, 3, 5, 101, 102] {
+        let words = count.to_string();
+        assert_eq!(fmt(tr(sl, "{words} words"), &[("words", &words)]), format!("Besede: {count}"));
+        assert_eq!(fmt(tr(sl, "{selected} of {words} words"), &[("selected", "1"), ("words", &words)]), format!("Besede: 1 od {count}"));
+    }
+}
+
+#[test]
+fn bundled_interface_fonts_cover_slovenian_letters() {
+    let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
+        let face = db.face(family, style);
+        assert_eq!(face.family, family, "must use the bundled interface face");
+        for ch in "ČčŠšŽž»«–…".chars() {
+            assert_ne!(face.glyph_for(ch), 0, "{family} {style} lacks {ch}");
+        }
+    }
+    assert!(!lang("sl").uses_cjk());
+}
+
+#[test]
+fn slovenian_has_no_keys_outside_the_other_catalogs() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let slovenian = keys(lang("sl").0.source);
+    let mut union = HashSet::new();
+    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "sl") {
+        union.extend(keys(other.0.source));
+    }
+    let mut extra: Vec<String> = slovenian.difference(&union).cloned().collect();
+    extra.sort();
+    assert!(extra.is_empty(), "sl has {} keys no other catalog has: {extra:?}", extra.len());
 }
