@@ -6495,6 +6495,11 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
         ("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC),
         ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC),
         ("id_ID", INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC),
+        // #3252: set_dictionaries_folder() now reloads Czech too (it used to leave its cache
+        // alone), so a run of this test overlapping czech_proofing_through_the_review_commands
+        // would otherwise force a reload that finds no cs_CZ here and empties it mid-test. Same
+        // fixture content either way keeps such a race harmless, as it already does for Polish.
+        ("cs_CZ", czech_test_dict::AFF, czech_test_dict::DIC),
     ] {
         std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
         std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
