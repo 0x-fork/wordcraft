@@ -741,6 +741,8 @@ struct Ctx<'a> {
     floats_above: HashMap<(usize, usize), Option<(usize, WrapArea)>>,
     /// The document's sections with their headers and footers linked ([`HfLinks`]).
     hf: Arc<HfLinks<'a>>,
+    /// Pictures' transparency, decoded for Tight and Through wrapping ([`Ctx::wrap_outline`]).
+    alphas: contour::Alphas,
 }
 
 /// A header or footer (`story`) laid out for page `number` of a section (`sect`, `mirror`): its
@@ -795,7 +797,7 @@ impl Ctx<'_> {
     /// The outline Tight and Through wrapping follow around `o` (see [`contour::wrap_outline`]);
     /// pictures' are worked out once per picture and crop.
     fn wrap_outline(&mut self, o: &InlineObject) -> Option<Arc<Vec<(f32, f32)>>> {
-        let (doc, cache) = (self.doc, &mut *self.cache);
+        let (doc, cache, alphas) = (self.doc, &mut *self.cache, &mut self.alphas);
         contour::wrap_outline(o, |media, crop| {
             let bytes = doc.media.get(media)?;
             let key = (media.to_string(), Arc::as_ptr(bytes) as usize, bytes.len(), crop.map(f32::to_bits));
@@ -805,7 +807,7 @@ impl Ctx<'_> {
             if cache.outlines.len() >= 256 {
                 cache.outlines.clear();
             }
-            let outline = contour::picture_outline(bytes, crop).map(Arc::new);
+            let outline = alphas.outline(bytes, crop).map(Arc::new);
             cache.outlines.insert(key, outline.clone());
             outline
         })
@@ -2338,6 +2340,7 @@ fn layout_pass(
         pin: None,
         floats_above: HashMap::new(),
         hf: Arc::new(HfLinks::new(doc.sections())),
+        alphas: Default::default(),
     };
     let hf = Arc::clone(&ctx.hf);
     let sections = &hf.sections;
