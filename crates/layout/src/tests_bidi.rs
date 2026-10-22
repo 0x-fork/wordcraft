@@ -335,6 +335,13 @@ fn persian_letters_join_and_brackets_mirror() {
     // ZWNJ (نیم‌فاصله) breaks the join: "می‌خواهم" keeps می separate.
     let with_zwnj = cluster_glyphs(&wordcraft_fonts::shape_run(&face, "ب\u{200C}ب", &[], |c| c, true));
     assert_eq!(with_zwnj.first(), isolated.first(), "a letter before ZWNJ takes its isolated form");
+    // Farsi Yeh (ی, U+06CC) joins like any letter (#824).
+    let mi = wordcraft_fonts::shape_run(&face, "می", &[], |c| c, true);
+    let mi_cl = cluster_glyphs(&mi);
+    assert_eq!(mi_cl.len(), 2, "meem + Farsi Yeh: {mi_cl:?}");
+    assert!(mi.iter().all(|g| g.gid != 0), "the font has Farsi Yeh");
+    let meem_alone = cluster_glyphs(&wordcraft_fonts::shape_run(&face, "م", &[], |c| c, true));
+    assert_ne!(mi_cl[0], meem_alone[0], "meem takes its initial form before Yeh: {mi_cl:?} vs {meem_alone:?}");
     // In right-to-left text, "(" is drawn with the mirrored glyph.
     let open = wordcraft_fonts::shape_run(&face, "(", &[], |c| c, true);
     let close = wordcraft_fonts::shape_run(&face, ")", &[], |c| c, false);

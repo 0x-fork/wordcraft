@@ -124,6 +124,7 @@ fn plain_chars(c: &CharProps) -> CharProps {
         rtl: c.rtl,
         cs: c.cs,
         lang_bidi: c.lang_bidi.clone(),
+        lang_ea: c.lang_ea.clone(),
         link: c.link.clone(),
         ins: c.ins,
         del: c.del,

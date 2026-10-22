@@ -184,7 +184,8 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
             log::warn!("docx: ignoring unreadable {what}: {e}");
         }
     };
-    // Styles come before settings, but their theme colours already follow its colour mapping.
+    // Styles come before settings, but their theme colours already follow its colour mapping, and
+    // their `…Bidi` theme fonts its theme font language.
     if let Some(p) = part(rt::SETTINGS) {
         r.read_color_mapping(&p);
     }
@@ -433,12 +434,21 @@ fn keep_glued_ids(doc: &mut Document, glued: &HashSet<u32>) {
 /// no underline) though the entries carry it (measured in Word for Windows: a Hyperlink-styled run
 /// in a hyperlink inside a TOC field's result is plain; one outside a hyperlink, another style,
 /// direct formatting, or a hyperlink in another field keep their look). The style is dropped from
-/// those runs so they look the same here; the links stay.
+/// those runs so they look the same here; the links stay. The style is found by its built-in
+/// name: localized Word and older files give it another id (`Hipervnculo`, `Hyperlnk`).
 fn unstyle_toc_links(doc: &mut Document) {
+    let ids: HashSet<String> = doc
+        .styles
+        .styles
+        .iter()
+        .filter(|s| s.kind == StyleKind::Character && s.name.eq_ignore_ascii_case("Hyperlink"))
+        .map(|s| s.id.clone())
+        .chain(["Hyperlink".to_string()])
+        .collect();
     for f in doc.field_ranges(wordcraft_doc::StoryRef::Body) {
         if is_toc(&f.instr) {
             let _ = doc.format_range(&f.start, &f.end, &|c| {
-                if c.link.is_some() && c.style.as_deref() == Some("Hyperlink") {
+                if c.link.is_some() && c.style.as_deref().is_some_and(|s| ids.contains(s)) {
                     c.style = None;
                 }
             });
@@ -747,15 +757,30 @@ impl Reader<'_> {
             let cs = |n: &str| fs.child(n).and_then(|f| f.child("a:cs")).and_then(|c| c.attr("typeface")).unwrap_or_default().to_string();
             self.pc.major_cs = cs("a:majorFont");
             self.pc.minor_cs = cs("a:minorFont");
+            // Per-script fonts (`a:font script="Arab"`); Office's themes list about 30.
+            let scripts = |n: &str| -> Vec<(String, String)> {
+                let Some(f) = fs.child(n) else { return Vec::new() };
+                f.els()
+                    .filter(|e| e.name == "a:font")
+                    .filter_map(|e| Some((e.attr("script")?, e.attr("typeface")?)))
+                    .filter(|(s, t)| s.len() <= 8 && !t.is_empty() && t.len() < 256)
+                    .take(256)
+                    .map(|(s, t)| (s.to_string(), t.to_string()))
+                    .collect()
+            };
+            self.pc.major_scripts = scripts("a:majorFont");
+            self.pc.minor_scripts = scripts("a:minorFont");
         }
         self.pc.major_font = self.doc.settings.major_font.clone();
         self.pc.minor_font = self.doc.settings.minor_font.clone();
         self.pc.theme = self.doc.settings.theme_colors.clone();
     }
 
-    /// `w:settings/w:clrSchemeMapping`: which scheme colour text1, background1… stand for.
+    /// `w:settings/w:clrSchemeMapping`: which scheme colour text1, background1… stand for. Also
+    /// `w:themeFontLang/@w:bidi`, the language whose script picks the `…Bidi` theme fonts.
     fn read_color_mapping(&mut self, path: &str) {
         let Ok(Some(root)) = self.xml(path) else { return };
+        self.pc.bidi_script = root.child("w:themeFontLang").and_then(|l| l.attr("w:bidi")).filter(|v| !v.trim().is_empty()).map(props::lang_script);
         let Some(m) = root.child("w:clrSchemeMapping") else { return };
         let names = [
             "dark1",

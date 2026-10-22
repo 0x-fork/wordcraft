@@ -793,12 +793,15 @@ const MISSING_ROMAN_FONT: &str = "Cambria";
 
 /// The family to look `font` up as: [`MISSING_ROMAN_FONT`] for a missing roman font, else `font`.
 /// A missing Thai font keeps its name: it is drawn in a Thai face, not in Cambria (#1549).
+/// A font with substitutes of its own keeps them: Times New Roman is roman in every font table,
+/// and where it isn't installed Liberation Serif has its metrics; Word never meets it missing.
 fn lookup_family<'f>(doc: &Document, font: &'f str) -> &'f str {
     let db = wordcraft_fonts::FontDb::global();
     let roman = doc.settings.roman_fonts.iter().any(|f| f.eq_ignore_ascii_case(font));
     if roman
         && !wordcraft_fonts::word::is_thai_family(font)
         && !wordcraft_doc::symbol_fonts::is_symbol_font(font)
+        && !wordcraft_fonts::word::has_named_substitutes(font)
         && !db.has_family(font)
         && !db.has_family(wordcraft_fonts::word::charset_base_family(font))
     {
@@ -868,7 +871,12 @@ impl<'a> Builder<'a> {
             }
         }
         let size = rc.draw_size() * if small { 0.8 } else { 1.0 };
-        let (a, d) = wordcraft_fonts::word::line_metrics(&face);
+        // A symbol font that isn't installed, or is installed one em tall (Apple's Symbol), takes
+        // the height Word gives it.
+        let (a, d) = match wordcraft_fonts::word::symbol_line(&rc.font, &r) {
+            Some((a, d)) => (a * face.upem, d * face.upem),
+            None => wordcraft_fonts::word::line_metrics(&face),
+        };
         let k = size as f64 / face.upem.max(1.0);
         // A fallback face (letters the requested font lacks) is emboldened or slanted when it has
         // no bold or italic of its own.
@@ -1856,8 +1864,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         for c in &cl {
             style = c.style;
             if let Some(st) = b.styles.get(style as usize) {
-                let a = wordcraft_fonts::word::line_metrics(&st.face).0 * st.size as f64 / st.face.upem.max(1.0);
-                ascent = ascent.max(a as f32 + st.shift.max(0.0));
+                ascent = ascent.max(st.ascent + st.shift.max(0.0));
             }
             let g0 = glyphs.len();
             for g in b.glyphs.get(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
