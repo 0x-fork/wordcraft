@@ -1807,13 +1807,15 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         // A Symbol/Wingdings bullet (U+F0B7…) is drawn as its Unicode equivalent when the font
         // isn't installed (shaping maps it); the label's text reads as that character too.
         let shown = |t: &str| -> String { wordcraft_doc::symbol_fonts::map_text(&rc.font, t) };
+        // A right-to-left paragraph's label reads right to left too ("1." shows as ".1"), and its
+        // brackets are mirrored (UAX #9 L4), which the shaper does for the runs the levels report
+        // as right to left ("(" drawn as ")"), so "(1)" reads "(1)" and not ")1(".
+        let lv = if rp.bidi { bidi_levels(text, true) } else { Vec::new() };
         let before_c = b.clusters.len();
         let before_g = b.glyphs.len();
-        b.shape_with(text, 0, &rc, None, Dir::Guess);
+        b.shape_with(text, 0, &rc, None, if lv.is_empty() { Dir::Guess } else { Dir::Own(&lv) });
         let mut cl: Vec<Cluster> = b.clusters.drain(before_c..).collect();
-        // A right-to-left paragraph's label reads right to left too ("1." shows as ".1").
-        if rp.bidi {
-            let lv = bidi_levels(text, true);
+        if !lv.is_empty() {
             let cl_lv: Vec<u8> = cl.iter().map(|c| lv.get(c.start).copied().unwrap_or(1)).collect();
             let order = visual_order(&cl_lv);
             cl = order.iter().filter_map(|&i| cl.get(i).cloned()).collect();
