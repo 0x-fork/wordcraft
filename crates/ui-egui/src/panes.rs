@@ -122,7 +122,7 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
         let _ = app.run("view.navigationPane", json!({"value": false}));
         return;
     }
-    let qid = egui::Id::new("nav_query");
+    let qid = app.window_id("nav_query");
     let mut q = ui.data(|d| d.get_temp::<String>(qid)).unwrap_or_default();
     // Ctrl+F with text selected searches for it, as Word does (a selection within one line).
     let focus = std::mem::take(&mut app.nav_search_focus);

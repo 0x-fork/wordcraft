@@ -49,7 +49,7 @@ fn err(e: impl std::fmt::Display) -> Outcome {
 }
 
 pub fn inspect(app: &mut WordApp, ctx: &egui::Context) -> Value {
-    let r = ctx.content_rect();
+    let r = ctx.input_for(app.active_viewport(), |i| i.content_rect());
     let caret = crate::canvas::caret_screen(app).map(|(p, h)| json!({"x": p.x, "y": p.y, "h": h}));
     json!({
         "ui": app.prefs(),
@@ -358,11 +358,11 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
         }
         "ui.resize" => {
             let (Some(w), Some(h)) = (f("width"), f("height")) else { return err("missing width/height") };
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+            ctx.send_viewport_cmd_to(app.active_viewport(), egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
             ok(json!({}))
         }
         "ui.focus" => {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            ctx.send_viewport_cmd_to(app.active_viewport(), egui::ViewportCommand::Focus);
             app.canvas.want_focus = true;
             ok(json!({}))
         }

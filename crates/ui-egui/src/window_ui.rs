@@ -151,7 +151,6 @@ impl WordApp {
     /// session's active document is not changed: the caller activates `w`'s document
     /// (`shown_document`) with it, or [`WordApp::sync_document`] treats the change as a switch
     /// within the window.
-    #[cfg_attr(not(test), expect(dead_code, reason = "drawing one native window per document swaps windows in"))]
     pub(crate) fn swap_window(&mut self, w: &mut WindowUi) {
         let WordApp {
             // App-wide.
@@ -191,6 +190,8 @@ impl WordApp {
             saves_in_flight: _,
             recovery_seen: _,
             no_document: _,
+            windows: _,
+            print_document: _,
             // Per document: the shown document's, swapped with `parked` on a document switch.
             autosave_path: _,
             comment_drafts: _,

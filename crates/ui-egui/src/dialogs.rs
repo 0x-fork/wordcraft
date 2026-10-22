@@ -3763,7 +3763,8 @@ const SEARCH_SUGGESTIONS: [&str; 3] = ["review.spelling", "review.wordCount", "f
 
 /// Search's "Find … in the document": the Navigation pane opens on its results for `text`.
 fn find_in_navigation_pane(app: &mut WordApp, ctx: &egui::Context, text: &str) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("nav_query"), text.to_string()));
+    let qid = app.window_id("nav_query");
+    ctx.data_mut(|d| d.insert_temp(qid, text.to_string()));
     app.ui.nav_tab = "results".into();
     let _ = app.run("view.navigationPane", json!({"value": true}));
     let _ = app.run("edit.find", json!({"text": text}));

@@ -10,6 +10,8 @@ workspace = true
 
 [dependencies]
 craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "d27646a5f7c8b4fc85d9dd3213b8c88b58e0088d" }
+# One native window per open document: the window list, the Window menu and the egui viewports.
+craft-window = { git = "https://github.com/aiongg/craft-libs", rev = "4fbdea5fcf86ba893d9bc03685d4531cfdd4efc2", features = ["egui"] }
 wordcraft-geom = { workspace = true }
 wordcraft-doc = { workspace = true }
 unicode-bidi = { workspace = true }

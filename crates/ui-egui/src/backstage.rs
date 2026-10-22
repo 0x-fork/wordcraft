@@ -325,7 +325,7 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
 fn new_page(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     heading(ui, "New");
-    let id = egui::Id::new("backstage_template_search");
+    let id = app.window_id("backstage_template_search");
     let mut query = ui.ctx().data(|d| d.get_temp::<String>(id)).unwrap_or_default();
     let search = ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0));
     if search.changed() {
@@ -1073,14 +1073,15 @@ mod tests {
         assert!(h.query_by_label("Report").is_some(), "the built-in templates stay");
 
         // The search covers both.
-        h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("backstage_template_search"), "memo".to_string()));
+        let search = h.state().window_id("backstage_template_search");
+        h.ctx.data_mut(|d| d.insert_temp(search, "memo".to_string()));
         h.run_steps(3);
         assert!(h.query_by_label("Team memo").is_some(), "search finds a personal template");
         assert!(h.query_by_label("Contract").is_none() && h.query_by_label("Report").is_none());
-        h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("backstage_template_search"), "zzz".to_string()));
+        h.ctx.data_mut(|d| d.insert_temp(search, "zzz".to_string()));
         h.run_steps(3);
         assert!(h.query_by_label("No templates match your search.").is_some());
-        h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("backstage_template_search"), String::new()));
+        h.ctx.data_mut(|d| d.insert_temp(search, String::new()));
         h.run_steps(3);
 
         h.get_by_label("Team memo").click();

@@ -400,6 +400,14 @@ impl Session {
         Ok(())
     }
 
+    /// Make document `id` the active one, as [`Session::activate`] does, but a Read Aloud
+    /// reading of another document carries on: for a front end that shows each document in a
+    /// window of its own, and makes each window's document active to draw it. An id that isn't
+    /// open is an error.
+    pub fn switch_document(&mut self, id: u64) -> Result<(), CmdError> {
+        self.switch_to(id)
+    }
+
     /// Open `doc` as another document and make it active; the one that was active stays open.
     /// The new document starts as a replaced one does ([`Session::set_document`]): caret at the
     /// start, no undo history, not dirty, no path, an untitled name (`Document2`), and the view

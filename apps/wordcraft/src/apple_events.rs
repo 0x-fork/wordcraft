@@ -55,7 +55,12 @@ pub fn poll(inbox: &Inbox, app: &mut WordApp, ctx: &egui::Context) {
                     }
                 }
             }
-            Event::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            // Quitting asks about every document with unsaved changes, each in its window; the
+            // app closes once that's done (`quit_requested`).
+            Event::Quit => {
+                app.quit();
+                ctx.request_repaint();
+            }
         }
     }
 }

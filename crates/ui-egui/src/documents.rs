@@ -1,10 +1,11 @@
-//! Several open documents in one window. The window shows the session's active document; what
-//! it keeps about a document (AutoSave's file, comment drafts) follows the active one, and the
-//! window's own state about the page (drags, menus, the composition…) starts afresh when the
-//! document changes ([`WordApp::sync_document`]; per-window state is listed in
+//! Several open documents. On the desktop each has a window of its own ([`crate::windows`]); the
+//! web app shows them in one window, which shows the session's active document. What the app
+//! keeps about a document (AutoSave's file, comment drafts) follows the active one. In one
+//! window, the window's own state about the page (drags, menus, the composition…) starts afresh
+//! when the document changes ([`WordApp::sync_document`]; per-window state is listed in
 //! [`crate::window_ui`]). View › Window › Switch Windows lists the open documents, File › Close
-//! closes the shown one and shows the next, and quitting asks about every document with unsaved
-//! changes, one after another.
+//! closes the shown one, and quitting asks about every document with unsaved changes, one after
+//! another, each in its window.
 
 use serde_json::{Value, json};
 use wordcraft_engine::DocInfo;
@@ -28,23 +29,22 @@ impl WordApp {
     /// dialogs and menus, drags, the input method's composition, the status message, caches
     /// keyed by revision. Its scroll position and zoom come back with it (the scroll area is per
     /// document; the zoom is in the session's view). Runs after every command and every frame.
+    /// With native windows ([`crate::windows`]) the window that shows the document comes to the
+    /// front instead, or a new one opens for it.
     pub(crate) fn sync_document(&mut self) {
         let id = self.session.document_id();
+        if self.windows.native() {
+            self.prune_windows();
+        }
         if id == self.shown_document {
             return;
         }
-        let left = std::mem::replace(&mut self.shown_document, id);
-        let leaving = Parked { autosave_path: self.autosave_path.take(), comment_drafts: std::mem::take(&mut self.comment_drafts) };
-        if self.session.is_open(left) {
-            self.parked.insert(left, leaving);
+        if self.windows.native() && self.follow_in_windows(id) {
+            return;
         }
-        let back = self.parked.remove(&id);
-        let seen = back.is_some();
-        let back = back.unwrap_or_default();
-        self.autosave_path = back.autosave_path;
-        self.comment_drafts = back.comment_drafts;
-        let session = &self.session;
-        self.parked.retain(|d, _| session.is_open(*d));
+        let left = std::mem::replace(&mut self.shown_document, id);
+        let seen = self.carry_document_state(left, id);
+        self.window_shows(id);
 
         self.canvas.show_other_document(seen);
         self.controls = Default::default();
@@ -74,6 +74,32 @@ impl WordApp {
             let _ = self.session.close_document(placeholder);
             self.parked.remove(&placeholder);
         }
+    }
+
+    /// The active document is `to` and no longer `from`: `from`'s own state is put aside (or
+    /// dropped, if it was closed or replaced) and `to`'s comes back. Makes `to` the session's
+    /// active document. Returns whether `to` had state put aside.
+    pub(crate) fn carry_document_state(&mut self, from: u64, to: u64) -> bool {
+        if self.session.document_id() != to
+            && let Err(e) = self.session.switch_document(to)
+        {
+            log::error!("couldn't show document {to}: {e}");
+        }
+        if from == to {
+            return false;
+        }
+        let leaving = Parked { autosave_path: self.autosave_path.take(), comment_drafts: std::mem::take(&mut self.comment_drafts) };
+        if self.session.is_open(from) {
+            self.parked.insert(from, leaving);
+        }
+        let back = self.parked.remove(&to);
+        let seen = back.is_some();
+        let back = back.unwrap_or_default();
+        self.autosave_path = back.autosave_path;
+        self.comment_drafts = back.comment_drafts;
+        let session = &self.session;
+        self.parked.retain(|d, _| session.is_open(*d));
+        seen
     }
 
     /// Show open document `id` in the window (View › Window › Switch Windows, quitting).
@@ -153,13 +179,18 @@ pub(crate) fn untitled_title(english: &str) -> Option<String> {
     })
 }
 
-/// View › Window › Switch Windows: the open documents in the order they were opened, the shown
-/// one marked, unsaved ones with the title bar's dot. Choosing one shows it.
+/// View › Window › Switch Windows: the open windows (in one window, the open documents) in the
+/// order they were opened, this one marked, unsaved ones with the title bar's dot. Choosing one
+/// brings its window to the front (in one window, shows the document).
 pub(crate) fn switch_windows_menu(ui: &mut egui::Ui, app: &mut WordApp) {
-    for d in app.session.documents() {
-        let label = format!("{}{}", display_title(&d), if d.dirty { " •" } else { "" });
-        if ui.add(egui::Button::selectable(d.active, label).min_size(egui::vec2(220.0, 0.0))).clicked() {
-            let _ = app.run("view.switchWindows", json!({"id": d.id}));
+    let entries: Vec<(u64, String, bool)> = if app.windows.native() {
+        app.switch_windows_entries()
+    } else {
+        app.session.documents().into_iter().map(|d| (d.id, format!("{}{}", display_title(&d), if d.dirty { " •" } else { "" }), d.active)).collect()
+    };
+    for (doc, label, current) in entries {
+        if ui.add(egui::Button::selectable(current, label).min_size(egui::vec2(220.0, 0.0))).clicked() {
+            let _ = app.run("view.switchWindows", json!({"id": doc}));
             ui.close();
         }
     }
@@ -268,11 +299,12 @@ mod tests {
         assert!(a.close_requested());
     }
 
-    /// A request an agent's command makes for a document that isn't shown never acts on the
-    /// shown one: Print doesn't open Backstage over it.
+    /// In one window (the web app), a request an agent's command makes for a document that isn't
+    /// shown never acts on the shown one: Print doesn't open Backstage over it.
     #[test]
     fn requests_for_a_document_not_shown_leave_the_window_alone() {
         let mut a = app();
+        a.windows.single();
         let first = a.session.document_id();
         a.run("file.new", json!({})).unwrap();
         a.session.with_document(first, |s| s.run("file.print", &json!({}))).unwrap().unwrap();

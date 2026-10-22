@@ -87,6 +87,7 @@ pub mod widgets;
 pub mod window_close;
 pub mod window_geometry;
 mod window_ui;
+mod windows;
 pub mod wordart_menus;
 pub mod zotero;
 
@@ -367,6 +368,9 @@ pub struct UiState {
 /// no longer applies (a contextual tab after the selection moved away, a tab hidden in Customize
 /// Ribbon). Word opens on Home every launch; see [`UiState::tab`].
 pub const DEFAULT_TAB: &str = "Home";
+
+/// ⌘Q, which only the Mac sends: quit.
+const QUIT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::MAC_CMD, egui::Key::Q);
 /// Most recent documents kept (File › Options › Advanced offers 0–50, as Word does).
 pub const MAX_RECENT: usize = 50;
 /// Most custom dictionary words read back from `ui.json`.
@@ -667,6 +671,10 @@ pub struct WordApp {
     shown_document: u64,
     /// The per-document state of the open documents not shown.
     parked: std::collections::HashMap<u64, documents::Parked>,
+    /// The open windows ([`windows`]).
+    pub(crate) windows: windows::Windows,
+    /// The document the last print job was for: its window reports how the job went.
+    print_document: Option<u64>,
 }
 
 /// The answer to "Do you want to save changes?" (`ui.saveChanges`).
@@ -797,6 +805,8 @@ impl WordApp {
             no_document: None,
             comment_drafts: Default::default(),
             parked: Default::default(),
+            windows: windows::Windows::new(shown_document),
+            print_document: None,
             canvas,
             controls,
             dialog,
@@ -1442,9 +1452,10 @@ impl WordApp {
         self.quit_requested
     }
 
-    /// File › Close (Mod+W, Mod+F4) closes the shown document and keeps the window, as Word does
-    /// (#1712): the next open document shows, or, when it was the only one, no page, as after Esc
-    /// on the Start screen (#1129), and File › New or Open goes on from there. `{"quit": true}`,
+    /// File › Close (Mod+W, Mod+F4) closes the shown document. Its window closes too while other
+    /// windows are open, and the one focused before it comes forward (in the web app's one window,
+    /// the next document shows). The last window stays, as Word's does (#1712), with no page, as
+    /// after Esc on the Start screen (#1129), and File › New or Open goes on from there. `{"quit": true}`,
     /// from the window's close button, goes on quitting: the shown document's prompt has been
     /// answered, so it closes and the next document with unsaved changes is asked about
     /// ([`WordApp::ask_before_quit`]). With no document open there is nothing to close. Unsaved
@@ -1465,21 +1476,23 @@ impl WordApp {
                 self.quit_requested = true;
                 return Ok(json!({"quit": true}));
             }
-            self.session.close_document(self.session.document_id()).map_err(|e| e.to_string())?;
-            self.sync_document();
+            self.close_shown_document()?;
             return Ok(self.ask_before_quit());
         }
         if !self.has_document() {
             return Ok(json!({"closed": false}));
         }
-        self.session.close_document(self.session.document_id()).map_err(|e| e.to_string())?;
+        self.close_shown_document()?;
         self.recovery_seen = true;
-        self.sync_document();
         if last {
             self.no_document = Some(self.session.document_id());
             self.session.release_untitled_name();
         }
-        self.ui.backstage = false;
+        // The window that stays leaves the File page; another window that came forward keeps
+        // its own.
+        if last || !self.windows.native() {
+            self.ui.backstage = false;
+        }
         Ok(json!({"closed": true}))
     }
 
@@ -1528,12 +1541,16 @@ impl WordApp {
     }
 
     /// Requests commands make of the UI (open a dialog…).
-    fn handle_request(&mut self, req: &Value) {
-        // Made for a document that isn't shown (an agent's command run there).
+    pub(crate) fn handle_request(&mut self, req: &Value) {
+        // Made for a document that isn't shown (an agent's command run there): its window handles
+        // it when it draws.
         if let Some(document) = req.get("document").and_then(Value::as_u64)
             && document != self.session.document_id()
         {
-            self.handle_request_for(document, req);
+            let app_wide = req.get("interfaceTheme").is_some() || req.get("toggle").and_then(Value::as_str) == Some("interfaceTheme");
+            if app_wide || req.get("close").is_some() || !self.queue_for_window(document, req) {
+                self.handle_request_for(document, req);
+            }
             return;
         }
         // Ctrl+F: type straight into the Navigation pane's search box (#712).
@@ -1581,10 +1598,10 @@ impl WordApp {
         }
     }
 
-    /// A request made for document `document`, which isn't shown: the interface theme is the
-    /// app's and changes; Close closes that document if it has nothing unsaved; the rest (dialogs,
-    /// panes, focus, scrolling) are about the window's page and are dropped, as the page shows
-    /// another document.
+    /// A request made for document `document`, which isn't shown and which no other window
+    /// handles: the interface theme is the app's and changes; Close closes that document if it
+    /// has nothing unsaved; the rest (dialogs, panes, focus, scrolling) are about a window's page
+    /// and are dropped, as no window shows the document.
     fn handle_request_for(&mut self, document: u64, req: &Value) {
         let theme_only = req.get("interfaceTheme").is_some() || req.get("toggle").and_then(Value::as_str) == Some("interfaceTheme");
         if theme_only {
@@ -1605,7 +1622,7 @@ impl WordApp {
             self.sync_document();
             return;
         }
-        log::warn!("dropped a request for document {document}, which isn't shown: {req}");
+        log::warn!("dropped a request for document {document}, which no window shows: {req}");
     }
 
     /// Follow the desktop's light/dark choice while the app runs (Linux, where winit reports no
@@ -1936,6 +1953,7 @@ impl WordApp {
 
     /// Submit the selected print job; the implementation lives beside its localized controls.
     fn print_to_system(&mut self, p: &Value) -> Result<Value, String> {
+        self.print_document = Some(self.session.document_id());
         printing::submit(self, p)
     }
 
@@ -2189,6 +2207,11 @@ impl WordApp {
     /// Terminal feedback also reaches the normal window when printing starts through control.
     pub fn poll_printing(&mut self, ctx: &egui::Context) {
         self.printing.poll(ctx);
+        self.print_feedback();
+    }
+
+    /// Say how the print job went, once, in the window showing the printed document.
+    fn print_feedback(&mut self) {
         if self.printing.message == self.print_feedback_seen {
             return;
         }
@@ -2228,17 +2251,6 @@ impl WordApp {
         }
         options::sync(self);
         self.settle_async_saves();
-        // SmartArt Text Pane (#2701): Tab demotes and Shift+Tab promote the focused item, as Word's
-        // pane does. Consuming the key stops Tab from moving the caret to the next row, and so does
-        // resetting the focus direction: the item keeps focus after its level changes.
-        if self.session.view.smart_art_pane && self.smart_art_row_focused && self.smart_art_item.is_some() {
-            let shift_tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
-            let tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
-            if shift_tab || tab {
-                ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
-                let _ = self.run(if shift_tab { "smartArt.promote" } else { "smartArt.demote" }, json!({"index": self.smart_art_item.unwrap_or(0)}));
-            }
-        }
         // Chinese text wants the Chinese face before the Japanese one (one glyph style per line).
         // An installed CJK font is read only once CJK text is shown (#241): a CJK interface, the
         // language names in Options, or a file name the caption is drawing. A file opened later
@@ -2294,12 +2306,16 @@ impl WordApp {
         if self.ctx.is_none() {
             self.ctx = Some(ctx.clone());
         }
-        self.poll_printing(ctx);
+        let native = self.windows.native();
+        if native {
+            self.printing.poll(ctx);
+        } else {
+            self.poll_printing(ctx);
+        }
         self.drain_control(ctx);
-        zotero::poll(self, ctx);
-        read_aloud::poll(self, ctx);
-        self.clear_stale_change_picture();
-        let _ = self.poll_file_dialog();
+        // The active window's own work; with native windows each window does it again as it
+        // draws, for itself.
+        self.window_work(ctx);
         self.drain_inbox();
         self.drain_pasted();
         self.watch_fonts(ctx);
@@ -2321,15 +2337,62 @@ impl WordApp {
         if let Some(wait) = self.session.recovery_wait() {
             ctx.request_repaint_after(wait);
         }
+        if !native {
+            self.window_input(ctx);
+        }
+        self.issue_screenshots(ctx);
+        self.send_control_input(ctx);
+        if !self.synthetic.is_empty() {
+            ctx.request_repaint();
+        }
+        // The open above may have changed the file name the caption draws.
+        self.ensure_caption_fonts();
+        self.ensure_comment_fonts();
+        self.ensure_recent_fonts();
+        self.ensure_find_fonts();
+        self.install_ui_fonts(ctx, lang);
+        self.report_dirty();
+    }
+
+    /// A window's own work, with its state in place: print feedback for its document, Zotero,
+    /// Read Aloud, its file dialog, AutoSave of its document. Runs in [`WordApp::logic`] for the
+    /// active window and, with native windows, as each window draws.
+    fn window_work(&mut self, ctx: &egui::Context) {
+        if self.windows.native() {
+            let doc = self.session.document_id();
+            if self.print_document.is_none_or(|d| d == doc || !self.session.is_open(d)) {
+                self.print_feedback();
+            }
+        }
+        zotero::poll(self, ctx);
+        read_aloud::poll(self, ctx);
+        self.clear_stale_change_picture();
+        let _ = self.poll_file_dialog();
         self.autosave_tick(now_ms());
         if self.autosaves() && self.session.dirty {
             ctx.request_repaint_after(std::time::Duration::from_millis(1000));
         }
-        self.collect_screenshots(ctx);
-        self.issue_screenshots(ctx);
-        if !self.synthetic.is_empty() {
-            ctx.request_repaint();
+    }
+
+    /// A window's own input before it draws: the SmartArt Text Pane's Tab keys, ⌘Q, screenshots
+    /// of it, files dropped on it. Runs in [`WordApp::logic`] with one window, else as each
+    /// window draws (each native window has its own input).
+    fn window_input(&mut self, ctx: &egui::Context) {
+        // SmartArt Text Pane (#2701): Tab demotes and Shift+Tab promote the focused item, as Word's
+        // pane does. Consuming the key stops Tab from moving the caret to the next row, and so does
+        // resetting the focus direction: the item keeps focus after its level changes.
+        if self.session.view.smart_art_pane && self.smart_art_row_focused && self.smart_art_item.is_some() {
+            let shift_tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+            let tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+            if shift_tab || tab {
+                ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+                let _ = self.run(if shift_tab { "smartArt.promote" } else { "smartArt.demote" }, json!({"index": self.smart_art_item.unwrap_or(0)}));
+            }
         }
+        if self.windows.native() && ctx.input_mut(|i| i.consume_shortcut(&QUIT)) {
+            self.quit();
+        }
+        self.collect_screenshots(ctx);
         #[cfg(not(target_arch = "wasm32"))]
         let mut placed_picture = false;
         #[cfg(not(target_arch = "wasm32"))]
@@ -2354,13 +2417,12 @@ impl WordApp {
                 };
             }
         }
-        // The open above may have changed the file name the caption draws.
-        self.ensure_caption_fonts();
-        self.ensure_comment_fonts();
-        self.ensure_recent_fonts();
-        self.ensure_find_fonts();
-        self.install_ui_fonts(ctx, lang);
-        self.report_dirty();
+        // The drawn window's caption, comments and Find results borrow faces it may not have.
+        if self.windows.native() {
+            self.ensure_caption_fonts();
+            self.ensure_comment_fonts();
+            self.ensure_find_fonts();
+        }
     }
 
     /// Install the interface fonts when the language, the CJK fallback, or a caption fallback
@@ -2369,17 +2431,29 @@ impl WordApp {
         let system_cjk = self.fonts_system_cjk || self.want_system_cjk || lang.uses_cjk();
         if !self.styled || lang.prefers_hans() != self.fonts_hans || lang.prefers_korean() != self.fonts_korean || system_cjk != self.fonts_system_cjk
         {
-            theme::install_fonts_language_extra(ctx, lang.prefers_hans(), lang.prefers_korean(), system_cjk, &self.canvas.ime_faces);
+            // Every window's borrowed faces: the fonts are the app's.
+            let mut faces = self.canvas.ime_faces.clone();
+            for w in self.other_windows() {
+                for face in &w.canvas.ime_faces {
+                    if !faces.iter().any(|f| f.id() == face.id()) {
+                        faces.push(face.clone());
+                    }
+                }
+            }
+            theme::install_fonts_language_extra(ctx, lang.prefers_hans(), lang.prefers_korean(), system_cjk, &faces);
             self.fonts_hans = lang.prefers_hans();
             self.fonts_korean = lang.prefers_korean();
             self.fonts_system_cjk = system_cjk;
             // Mod with -, = and 0 are Word shortcuts (optional hyphen, subscript, paragraph spacing);
             // egui's keyboard zoom would also scale the whole window on them. Zoom is View › Zoom.
             // egui quits on Command-Q, which is Ctrl+Q off the Mac: Word's Reset Paragraph
-            // Formatting there (#1218). Keep ⌘Q, which only the Mac sends.
+            // Formatting there (#1218). Keep ⌘Q, which only the Mac sends. egui would close only the
+            // window it was pressed in, so with native windows the app quits itself
+            // ([`WordApp::window_logic_before`]).
+            let quit = (!self.windows.native()).then_some(QUIT).into_iter().collect();
             ctx.options_mut(|o| {
                 o.zoom_with_keyboard = false;
-                o.quit_shortcuts = vec![egui::KeyboardShortcut::new(egui::Modifiers::MAC_CMD, egui::Key::Q)];
+                o.quit_shortcuts = quit;
             });
             self.styled = true;
         }
@@ -2447,23 +2521,17 @@ impl WordApp {
     }
 
     /// Read a Control-click as the right-click on macOS, then inject synthetic input events from
-    /// the control channel (one pointer event per frame).
+    /// the control channel (one pointer event per frame) when the active window draws in the root
+    /// viewport; [`windows::ViewportInput`] does both for the other windows.
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
         if cfg!(target_os = "macos") {
             control_click_as_secondary(&mut raw.events, &mut self.control_click);
         }
-        if self.synthetic.is_empty() {
+        if self.ctx.as_ref().is_some_and(|ctx| !self.control_input_is_roots(ctx)) {
             return;
         }
-        let n = match self.synthetic.first() {
-            Some(egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. }) => 1,
-            _ => self.synthetic.iter().position(|e| matches!(e, egui::Event::Key { pressed: false, .. })).map_or(self.synthetic.len(), |i| i + 1),
-        };
-        if let Some(egui::Event::PointerMoved(p) | egui::Event::PointerButton { pos: p, .. }) = self.synthetic.first() {
-            raw.events.push(egui::Event::PointerMoved(*p));
-        }
-        let n = n.min(self.synthetic.len());
-        if self.synthetic.iter().take(n).any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_))) {
+        let Some(events) = self.next_synthetic() else { return };
+        if events.iter().any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_))) {
             // Control input belongs to this window's remembered widget even while another app
             // is active. Give only this input frame egui focus, without requesting OS activation.
             raw.focused = true;
@@ -2472,11 +2540,44 @@ impl WordApp {
                 self.canvas.focused = ctx.memory(|m| m.has_focus(id));
             }
         }
-        raw.events.extend(self.synthetic.drain(..n));
+        raw.events.extend(events);
     }
 
-    /// Lay out the window.
+    /// The control channel's next input frame: one pointer event (after a move to it), or keys
+    /// and text up to the next key release.
+    fn next_synthetic(&mut self) -> Option<Vec<egui::Event>> {
+        if self.synthetic.is_empty() {
+            return None;
+        }
+        let n = match self.synthetic.first() {
+            Some(egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. }) => 1,
+            _ => self.synthetic.iter().position(|e| matches!(e, egui::Event::Key { pressed: false, .. })).map_or(self.synthetic.len(), |i| i + 1),
+        };
+        let mut events = Vec::new();
+        if let Some(egui::Event::PointerMoved(p) | egui::Event::PointerButton { pos: p, .. }) = self.synthetic.first() {
+            events.push(egui::Event::PointerMoved(*p));
+        }
+        let n = n.min(self.synthetic.len());
+        events.extend(self.synthetic.drain(..n));
+        Some(events)
+    }
+
+    /// Lay out the windows: on the desktop each open document's in its own native window
+    /// ([`windows`]), on the web the one window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        if self.windows.native() {
+            self.windows_ui(ui);
+        } else {
+            self.window_ui(ui);
+        }
+    }
+
+    /// Lay out the drawn window. A command that brings another window's state in (New, Open,
+    /// Switch Windows) ends this window's drawing for the frame: the rest would be the other
+    /// window's.
+    fn window_ui(&mut self, ui: &mut egui::Ui) {
+        let window = self.windows.shown();
+        let moved = |app: &WordApp| app.windows.shown() != window;
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
         i18n::set_current(i18n::Lang::from_pref(&self.ui.language));
@@ -2517,38 +2618,58 @@ impl WordApp {
                 chrome::screen_bar(self, ui, screen);
             } else {
                 chrome::title_bar(self, ui);
+                if moved(self) {
+                    return;
+                }
                 ribbon::show(self, ui);
+                if moved(self) {
+                    return;
+                }
                 chrome::status_bar(self, ui);
                 panes::show(self, ui);
+            }
+            if moved(self) {
+                return;
             }
             let fill = if screen == chrome::Screen::Focus { chrome::FOCUS_CANVAS } else { t.canvas };
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(fill)).show(ui, |ui| {
                 canvas::show(self, ui);
             });
-            if self.focus_ribbon {
+            if self.focus_ribbon && !moved(self) {
                 chrome::focus_ribbon(self, &ctx);
             }
         }
+        if moved(self) {
+            return;
+        }
         content_controls::popup(self, &ctx);
         dialogs::show(self, &ctx);
+        if moved(self) {
+            return;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         file_browser::show(self, &ctx);
         colors::show(self, &ctx);
         zotero::show_alert(self, &ctx);
         read_aloud::show(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
+        if moved(self) {
+            return;
+        }
         keys::global_shortcuts(self, &ctx);
+        if moved(self) {
+            return;
+        }
         self.refocus_after_chrome_click(&ctx);
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
-        let title = if self.has_document() {
-            format!("{}{} - WordCraft", self.title_stem(), if self.session.dirty { " •" } else { "" })
-        } else {
-            "WordCraft".to_string()
-        };
+        // With native windows the viewport driver gives the window its title.
+        let title = self.window_title();
         if title != self.sent_title {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            if !self.windows.driven() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            }
             self.sent_title = title;
         }
         self.sync_full_screen(&ctx);
@@ -2700,12 +2821,14 @@ impl WordApp {
         self.control_rx = Some(rx);
     }
 
+    /// Ask the active window for the screenshots `ui.screenshot` queued.
     fn issue_screenshots(&mut self, ctx: &egui::Context) {
         let now = now_ms();
+        let viewport = self.active_viewport();
         self.queued_shots.retain_mut(|(token, at, frames)| {
             *frames += 1;
             if now >= *at && *frames >= 3 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(*token)));
+                ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::Screenshot(egui::UserData::new(*token)));
                 false
             } else {
                 true
@@ -6707,7 +6830,8 @@ mod tests {
         assert!(!closes(&h), "Ctrl+Q doesn't close the window");
         h.event(key(egui::Key::Q, egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND));
         h.step();
-        assert!(closes(&h), "⌘Q still quits on the Mac");
+        // Quitting asks about the typed text first, in the document's window.
+        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("saveChanges"), "⌘Q still quits on the Mac");
     }
 
     /// #3424: Pressing Ctrl+Alt+Q (German shortcut for @, or AltGr+Q) types '@' and does not
@@ -8909,7 +9033,8 @@ mod tests {
         let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
         h.event(egui::Event::Text("Kilns fire clay. Kilns cool.".into()));
         h.step();
-        let nav_query = |h: &egui_kittest::Harness<WordApp>| h.ctx.data(|d| d.get_temp::<String>(egui::Id::new("nav_query"))).unwrap_or_default();
+        let nav_query =
+            |h: &egui_kittest::Harness<WordApp>| h.ctx.data(|d| d.get_temp::<String>(h.state().window_id("nav_query"))).unwrap_or_default();
         // Ctrl+F: the pane, and typing goes into its search box.
         h.event(key(egui::Key::F, egui::Modifiers::COMMAND));
         h.step();

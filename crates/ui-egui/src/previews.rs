@@ -522,7 +522,8 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
     let rev = app.session.rev();
     let skey = app.previews.styles_key(&app.session.doc, rev);
     let ppp = ui.ctx().pixels_per_point();
-    let start = ui.data(|d| d.get_temp::<usize>(egui::Id::new("gallery_start"))).unwrap_or(0).min(styles.len().saturating_sub(1));
+    let start_id = app.window_id("gallery_start");
+    let start = ui.data(|d| d.get_temp::<usize>(start_id)).unwrap_or(0).min(styles.len().saturating_sub(1));
     // A compact ribbon group (#662, #1285) trims the gallery to fewer tiles before it folds.
     let visible = if crate::ribbon_fit::compact(ui.ctx()) { STYLE_TILES_COMPACT } else { STYLE_TILES };
     crate::ribbon_fit::add_saving(ui.ctx(), (STYLE_TILES - STYLE_TILES_COMPACT) as f32 * 76.0);
@@ -595,7 +596,7 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
                 let _ = app.run("view.stylesPane", json!({"value": true}));
             } else {
                 let n = if *delta < 0 { start.saturating_sub(visible) } else { (start + visible).min(styles.len().saturating_sub(1)) };
-                ui.data_mut(|d| d.insert_temp(egui::Id::new("gallery_start"), n));
+                ui.data_mut(|d| d.insert_temp(start_id, n));
             }
         }
     }

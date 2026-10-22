@@ -60,6 +60,14 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     if !app.session.read_aloud.open {
         return;
     }
+    // With a window per document, the player is in the window of the document being read.
+    if app.windows.native()
+        && let Some(d) = app.session.read_aloud.document
+        && d != app.session.document_id()
+        && app.session.is_open(d)
+    {
+        return;
+    }
     let t = Tokens::get(ctx);
     let state = app.session.read_aloud.state();
     let (index, count) = app.session.read_aloud.progress();
