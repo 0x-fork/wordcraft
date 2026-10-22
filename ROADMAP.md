@@ -113,10 +113,10 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Vietnamese | vi | partial (#1434) | ~95% |
 
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries); Swedish (`sv`) covers that too, plus 44 newer strings no other catalog has yet (2,504 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
-system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish and Italian proofing are not included. Hungarian (`hu`) has a
+system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian proofing is not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
 2,448-entry catalog, also without proofing.
-Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), plus Czech and Indonesian (system Hunspell spelling, generic checks), chosen per run from its language. Word ships
+Proofing: English, Polish, Portuguese, Italian, Croatian, Turkish and Russian (spelling, grammar; hyphenation except Croatian), plus Czech and Indonesian (system Hunspell spelling, generic checks), chosen per run from its language; Bulgarian and German hyphenation only. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -311,6 +311,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-14 | HTML import (#1381): header cells (`<th>`) are bold unless their own CSS says otherwise, and `text-align` on a cell, its row, row group or table aligns the cell's paragraphs (a paragraph's own alignment wins), so `wordcraft-cli convert page.html out.docx` writes the bold header and `w:jc` right-aligned cells. HTML, Markdown and plain text, which give no page size, open on the region's paper (A4 in Italy, Letter in the US) like a new blank document, in the app and in `wordcraft-cli`; documents with their own page size keep it |
 | 2026-10-14 | Custom page sizes (#1433): Layout › Size ends with More Paper Sizes…, which opens Page Setup's new Paper group — a Paper size list (the named sizes, or Custom size) and Width and Height in the measurement unit; OK sets the size only when it changed, and a wider-than-tall size comes out landscape. `layout.size` now clamps each side to Word's 0.1"–22" and refuses a page the margins don't fit (the margins rule: 36 pt of text room), and Page Setup checks the size and margins together before applying either |
 | 2026-10-14 | Bold text in Arial Black and other Black or Heavy fonts looks as in Word: older copies of these fonts (Arial Black in the core fonts) call themselves regular weight, so bold was drawn with an extra synthetic bold; a family named Black/Heavy now counts as that heavy |
+| 2026-10-14 | German text hyphenates by German rules: runs in German (`de`, `de-DE`, `de-AT`, `de-CH`) use hyph-utf8's German patterns for the reformed spelling (MIT), so automatic hyphenation gives `un-ter-lie-gen-de` and `öf-fent-lich-recht-li-cher` instead of English-pattern breaks like `unterlieg-ende` and `rechtli-cher`; Swiss `ss` splits like any double consonant (`Stras-se`). German still has no spelling or grammar marks (#1564) |
 | 2026-10-13 | Highlighted text reads on a dark page (View › Switch Modes, #1252): highlights and character shading are dimmed, keeping their hue (yellow turns a dim olive, as in Word), and the text on them is drawn light (coloured text below 4.5:1 is drawn white, and underlines and strikethroughs follow the same rule), instead of white text on bright yellow; light page, print and exports unchanged |
 | 2026-10-13 | Full screen (#980): F11, or View › Window › Full Screen, fills the screen with the window (⌃⌘F on macOS); F11 again or Escape gives back the window as it was. Next Field, which Word puts on F11, keeps Word's Alt+F1 and Alt+Shift+F1 (and Shift+F11). The web app leaves full screen to the browser's own F11 |
 | 2026-10-13 | Double-clicking the top or bottom margin of a page creates its header or footer when it has none and puts the caret in it, as in Word (#960): the one that page shows (different first page, odd and even pages), only in Print Layout; one left empty is taken away again when you leave it, so nothing empty is saved. `insert.editHeader`/`insert.editFooter` take `{"page"}` for agents |
@@ -517,6 +518,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | trivial | Progress log: German text hyphenates by the German patterns |
 | 2026-10-21 | trivial | Progress log: File › Recover follows the app theme (#3243) |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
