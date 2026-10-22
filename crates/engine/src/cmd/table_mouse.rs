@@ -199,6 +199,30 @@ pub fn handle_table(l: &DocLayout, doc: &Document, story: StoryRef, page: usize,
         .max_by_key(|g| g.table.0.len())
 }
 
+/// The move and resize handles of table `table` of `story` on this page, as Word shows them
+/// while the caret is in the table: the move handle where it starts, the resize handle where it
+/// ends.
+pub fn caret_handles(l: &DocLayout, doc: &Document, story: StoryRef, table: &Path, page: usize) -> (Option<Rect>, Option<Rect>) {
+    let rows = doc.table(story, table).map_or(0, |t| t.rows.len());
+    let has_row = |p: usize, r: usize| {
+        l.pages.get(p).is_some_and(|pg| {
+            pg.items.iter().any(|it| matches!(it, Placed::Cell { table: t, story: st, row, .. } if *st == story && t == table && *row == r))
+        })
+    };
+    // A repeated header row, or a row running on to the next page, is drawn on more than one
+    // page: the handles go where the table starts and where it ends (its pages are consecutive).
+    let first = has_row(page, 0) && !page.checked_sub(1).is_some_and(|p| has_row(p, 0));
+    let last = rows.checked_sub(1).is_some_and(|r| has_row(page, r) && !page.checked_add(1).is_some_and(|p| has_row(p, r)));
+    if !first && !last {
+        return (None, None);
+    }
+    // The table's geometry on this page that the pointer handles are drawn and grabbed from.
+    let Some(g) = table_resize::tables_on(l, doc, page).into_iter().find(|g| g.story == story && g.table == *table) else {
+        return (None, None);
+    };
+    (first.then(|| handle(&g)), last.then(|| g.handle()))
+}
+
 /// The insert button a target is, if it's one.
 pub fn insert_mark(t: &Target) -> Option<InsertMark> {
     let g = &t.geom;
@@ -425,7 +449,7 @@ fn insert_at(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// Where table `table` of `story` is first drawn: its page and top-left corner.
-fn corner(l: &DocLayout, story: StoryRef, table: &Path) -> Option<(usize, f32, f32)> {
+pub fn corner(l: &DocLayout, story: StoryRef, table: &Path) -> Option<(usize, f32, f32)> {
     l.pages.iter().enumerate().find_map(|(pi, pg)| {
         let cells = pg.items.iter().filter_map(|it| match it {
             Placed::Cell { rect, table: t, story: st, .. } if *st == story && t == table => Some(*rect),
