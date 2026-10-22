@@ -31,7 +31,7 @@ native-speaker review (human).
 - Pending PRs: Norwegian Bokmål (#208) and Nynorsk (#210), Hebrew with RTL (#20).
 - **Proofing: English, Polish, Portuguese, Italian, Russian, Czech and Indonesian**, chosen per run from its language (`w:lang`, resolved through
   the styles; Review › Language and the status bar set it: a short list, plus Set Proofing
-  Language… for any of 30 languages and Set As Default for the document). Languages without proofing tools get
+  Language… for any of 30 languages and Set As Default for the document and future blank documents). Languages without proofing tools get
   the styles; Review › Language and the status bar set it). Languages without proofing tools get
   no spelling or grammar marks (as in Word without the language's tools) instead of being flagged
   as English. Detail in [Proofing per language](#proofing-per-language).
@@ -87,8 +87,8 @@ gallery, watermarks, paper sizes and preview tiles. The Czech coverage test
 enforces both reference catalogs and retains the Chinese catalog coverage; counts keep the existing
 count-neutral wording (`Počet slov: 21`). Czech proofing is not included.
 
-Polish, Portuguese and Czech interfaces write new documents and opened TXT/Markdown text
-in their proofing languages (`pl-PL`, `pt-BR`, `cs-CZ`).
+When no saved proofing-language default exists, Polish, Portuguese and Czech interfaces write
+new documents and opened TXT/Markdown text in their proofing languages (`pl-PL`, `pt-BR`, `cs-CZ`).
 
 **Interface audit (runs in CI).** `untranslated_interface_text` lays the app out in a pseudo-language
 (every tab, File page, dialog, pane, the right-click menu, and a hover and a click on every ribbon
@@ -98,6 +98,8 @@ GOST, LaTeX, Unicode) and `bad parameters:` errors, which name a command's JSON 
 scripts and MCP, stay English. Size labels (Envelopes, Labels, Layout › Size) are translated
 patterns (`{name}   {height} × {width} in`) with the region's decimal separator; paper names
 other than envelopes (Letter, Legal, A4, B5 (JIS)) stay as they are (#1128).
+
+Set Proofing Language › Set As Default keeps the chosen language in user preferences across restarts (#2882), taking precedence over the interface language for blank documents and plain-text/Markdown files. Existing DOCX and built-in English templates keep their own language. Ordinary selection-language changes do not change this preference; older settings keep following the interface language. A rejected command, including a final protected-region check, retains the previous saved default. This does not install dictionaries or add proofing support.
 
 ## Proofing per language
 
@@ -199,6 +201,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | trivial | Set As Default persists the proofing language across restarts; command and dialog regressions cover new documents, interface changes, existing document languages and rejection rollback (#2882); readiness estimates unchanged |
 | 2026-10-18 | trivial | German hyphenation: runs in `de` (any region) use the TeX German patterns for the reformed spelling (MIT) instead of the English ones; still no German spelling or grammar |
 | 2026-10-14 | trivial | The sentence-capital rule (English, Polish, Croatian, Italian, Turkish, Portuguese) skips the first word of a list item (#1741) |
 | 2026-10-16 | minor | Indonesian proofing (#498): id-ID spelling from the installed Hunspell `id_ID` dictionary (not bundled), Czech's dictionary-driven suggestions, repeated-word (hyphenated reduplication offered) and spacing checks with Indonesian messages; Review › Language, the status bar, Set Proofing Language and File › Options › Proofing list Indonesian; estimates unchanged |

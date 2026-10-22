@@ -702,7 +702,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"format": "decimal|upperRoman|lowerLetter…", "text"?: "%1.", "start"?: n}"#),
         CommandSpec::new("review.language", "Language", "Review › Language", language).params(
-            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default language)}"#,
+            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default and the saved language for future blank documents)}"#,
         ),
         CommandSpec::new("review.showMarkup", "Show Markup", "Review › Tracking", |s, v| {
             s.view.show_markup = p::bool(v, "value").unwrap_or(!s.view.show_markup);
@@ -755,7 +755,8 @@ pub fn specs() -> Vec<CommandSpec> {
 }
 
 /// Set Proofing Language: the selection's language and "do not check spelling or grammar",
-/// or (`default`) the document's default language; `detect` is the per-user preference.
+/// or (`default`) the document's default and the saved language for future blank documents;
+/// `detect` is the per-user detection preference.
 /// Nothing at all sets US English, as before.
 fn language(s: &mut Session, v: &Value) -> CmdResult {
     let lang = match p::str(v, "lang") {
@@ -787,14 +788,18 @@ fn language(s: &mut Session, v: &Value) -> CmdResult {
     if lang.is_none() && no_proof.is_none() {
         return Ok(json!({"detect": s.prefs.detect_language}));
     }
-    super::format::apply(s, &|c| {
+    let result = super::format::apply(s, &|c| {
         if let Some(l) = &lang {
             c.lang = Some(l.clone());
         }
         if let Some(np) = no_proof {
             c.no_proof = Some(np);
         }
-    })
+    })?;
+    if p::bool(v, "default") == Some(true) {
+        s.prefs.default_language = lang;
+    }
+    Ok(result)
 }
 
 fn macros(s: &mut Session, v: &Value) -> CmdResult {

@@ -6911,6 +6911,85 @@ fn new_documents_follow_the_editing_language() {
     assert_eq!(s.editing_lang, None);
 }
 
+/// #2882: Set As Default survives preference serialization and overrides the interface language.
+#[test]
+fn default_proofing_language_survives_a_restart() {
+    let mut first = s();
+    first.set_editing_language(Some("en-US"));
+    run(&mut first, "review.language", json!({"lang": "FR_fr", "default": true}));
+    let saved = serde_json::to_vec(&first.prefs).unwrap();
+    run(&mut first, "review.language", json!({"lang": "en-GB"}));
+    run(&mut first, "edit.undo", json!({}));
+    run(&mut first, "file.new", json!({}));
+    assert_eq!(first.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+
+    let mut second = s();
+    second.prefs = serde_json::from_slice(&saved).unwrap();
+    second.set_editing_language(Some("pl-PL"));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+    assert!(!second.dirty && !second.can_undo());
+    run(&mut second, "file.new", json!({}));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+    let data = crate::cmd::insert::base64_encode(b"Bonjour");
+    run(&mut second, "file.open", json!({"path": "note.txt", "data": data}));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+
+    let mut english = wordcraft_doc::Document::from_text("English document");
+    english.styles.default_chr.lang = Some("en-GB".into());
+    let bytes = crate::io::save_bytes("english.docx", &english).unwrap();
+    let data = crate::cmd::insert::base64_encode(&bytes);
+    run(&mut second, "file.open", json!({"path": "english.docx", "data": data}));
+    second.set_editing_language(Some("ru-RU"));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("en-GB"));
+    run(&mut second, "file.new", json!({"template": "letter"}));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("en-US"));
+}
+
+/// Older or malformed settings retain the interface fallback and unrelated preferences.
+#[test]
+fn default_proofing_language_ignores_damaged_preferences() {
+    for value in [json!(null), json!("not a tag"), json!(17), json!([])] {
+        let mut session = s();
+        session.prefs = serde_json::from_value(json!({"defaultLanguage": value, "detectLanguage": false})).unwrap();
+        session.set_editing_language(Some("pl-PL"));
+        assert_eq!(session.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"));
+        assert!(!session.prefs.detect_language);
+    }
+    let mut old = s();
+    old.prefs = serde_json::from_str("{}").unwrap();
+    old.set_editing_language(Some("ru-RU"));
+    assert_eq!(old.doc.styles.default_chr.lang.as_deref(), Some("ru-RU"));
+}
+
+/// #2882: a final protection rejection rolls back the saved default as well as the document.
+#[test]
+fn rejected_default_proofing_language_does_not_survive_a_restart() {
+    for saved in [None, Some("pl-PL")] {
+        let mut session = Session::new(wordcraft_doc::Document::from_text("Locked intro.\nEditable text.\nLocked end."));
+        session.prefs.default_language = saved.map(str::to_string);
+        session.set_editing_language(Some("en-US"));
+        run(&mut session, "select.text", json!({"text": "Editable text."}));
+        run(&mut session, "review.restrict", json!({"exception": "add"}));
+        run(&mut session, "review.restrict", json!({"mode": "readOnly"}));
+        run(&mut session, "select.text", json!({"text": "Editable"}));
+        // Selection-only language formatting is allowed inside the exception.
+        run(&mut session, "review.language", json!({"lang": "en-GB"}));
+        let before = session.doc.clone();
+        let prefs = serde_json::to_value(&session.prefs).unwrap();
+        let undo = session.undo_labels();
+        let error = session.run("review.language", &json!({"lang": "fr-FR", "default": true})).unwrap_err();
+        assert!(error.to_string().contains("only the editable regions"), "{error}");
+        assert_eq!(session.doc, before);
+        assert_eq!(session.undo_labels(), undo);
+        assert_eq!(serde_json::to_value(&session.prefs).unwrap(), prefs);
+        let mut restarted = s();
+        restarted.prefs = serde_json::from_value(prefs).unwrap();
+        restarted.set_editing_language(Some("en-US"));
+        run(&mut restarted, "file.new", json!({}));
+        assert_eq!(restarted.doc.styles.default_chr.lang.as_deref(), Some(saved.unwrap_or("en-US")));
+    }
+}
+
 /// A Polish document keeps its languages through .docx: the default (`w:docDefaults`) and an
 /// English run (`w:lang`) come back, and so does the proofing.
 #[test]

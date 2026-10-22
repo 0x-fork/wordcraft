@@ -182,6 +182,7 @@ fn privacy(s: &Session) -> Value {
     json!({"removePersonalInfo": s.doc.settings.remove_personal_info, "removeDateTime": s.doc.settings.remove_date_time})
 }
 
+/// Create a blank document in the saved proofing language, or use the requested template.
 fn new(s: &mut Session, v: &Value) -> CmdResult {
     let doc = match p::str(v, "template").unwrap_or("blank") {
         "sample" => crate::sample::sample_document(),
@@ -199,12 +200,13 @@ fn new(s: &mut Session, v: &Value) -> CmdResult {
 /// language (the templates' text is English).
 fn normal_document(s: &Session) -> Document {
     let mut d = s.blank_document();
-    if let Some(lang) = &s.editing_lang {
+    if let Some(lang) = s.prefs.default_language.as_ref().or(s.editing_lang.as_ref()) {
         d.styles.default_chr.lang = Some(lang.clone());
     }
     d
 }
 
+/// Open a document, using the saved proofing default only for plain text and Markdown.
 fn open(s: &mut Session, v: &Value) -> CmdResult {
     let Some(path) = p::str(v, "path") else {
         s.ui_requests.push(json!({"open": "openFile"}));
@@ -227,7 +229,7 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
     };
     // Plain text and Markdown carry no language: they are in the editing language.
     let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if let Some(lang) = &s.editing_lang
+    if let Some(lang) = s.prefs.default_language.as_ref().or(s.editing_lang.as_ref())
         && matches!(ext.as_str(), "txt" | "text" | "md" | "markdown")
     {
         doc.styles.default_chr.lang = Some(lang.clone());

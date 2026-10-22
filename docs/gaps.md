@@ -31,6 +31,8 @@ Legacy Word imports (#2445): interactive Save for `.doc`/`.dot` uses the existin
 
 Active footnote and endnote text stays readable while editing (#2545). This fixes a display-context defect; the broader fidelity, accessibility and readiness gates below are unchanged.
 
+Set Proofing Language › Set As Default now persists in user preferences and applies to future blank documents and opened plain text (#2882). Existing document and template languages stay intact; rejected commands retain the previous saved default. This does not add proofing dictionaries.
+
 ## Ranked
 
 | # | Gap | B | Evidence | Impact | Hours | Doc |
@@ -106,6 +108,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | trivial | Set As Default persists the proofing language across restarts; command and dialog regressions cover new documents, interface changes, existing document languages and rejection rollback (#2882); readiness estimates unchanged |
 | 2026-10-18 | trivial | Gap 8 narrowed: German text hyphenates by the TeX German patterns (reformed spelling); German spelling and grammar remain |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
