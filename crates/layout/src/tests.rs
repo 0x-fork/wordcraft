@@ -9780,6 +9780,8 @@ fn early_float_survives_a_column_break_into_another_width() {
         assert!(!want.is_empty(), "second column first: {skip}: text after the break");
         assert_eq!(got, want, "second column first: {skip}: the text after the break wraps around nothing");
     }
+}
+
 /// A table with its own width keeps it when it is over 1.5 times the text width (#1721); one
 /// without is still squeezed to the margins.
 #[test]
