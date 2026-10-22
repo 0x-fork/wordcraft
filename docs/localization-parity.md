@@ -94,6 +94,9 @@ count-neutral wording (`Počet slov: 21`). Czech proofing is not included.
 
 When no saved proofing-language default exists, Polish, Portuguese and Czech interfaces write
 new documents and opened TXT/Markdown text in their proofing languages (`pl-PL`, `pt-BR`, `cs-CZ`).
+A Spanish interface writes them in the region's Spanish: `es-` plus the system region when that
+region's language is Spanish (`es-UY` on a Uruguayan system, `es-MX` on a Mexican one), else
+Spain's `es-ES` (#3360).
 
 **Interface audit (runs in CI).** `untranslated_interface_text` lays the app out in a pseudo-language
 (every tab, File page, dialog, pane, the right-click menu, and a hover and a click on every ribbon
