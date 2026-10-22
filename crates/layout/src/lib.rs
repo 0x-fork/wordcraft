@@ -1183,6 +1183,11 @@ fn layout_box(
     let mut excl: Vec<WrapArea> = Vec::new();
     // Areas of the box's floating tables, which other floating tables may have to avoid.
     let mut float_tables: Vec<Rect> = Vec::new();
+    // Deepest a floating picture or shape that takes part in the text flow reaches, so the box
+    // (a table cell especially) grows to hold it instead of letting it hang past the box's own
+    // bottom edge (#3108). Behind-text and in-front-of-text objects don't: a page-anchored logo or
+    // watermark behind a cell's text must not stretch its row (see `align_h` in table.rs).
+    let mut float_objects_bottom = 0.0f32;
     let mut table_areas = Vec::new();
     let mut page_table_wraps = Vec::new();
     let mut y = 0.0f32;
@@ -1287,6 +1292,13 @@ fn layout_box(
                 if !p.objects.is_empty() {
                     let at = ObjFrame { page: frame, col: (0.0, width), para_y: y, table_chr: table.map(|t| &t.chr), pinned: Some(&pinned) };
                     let (back, front) = place_objects(ctx, story, &path, p, &pl, (0, pl.lines.len()), (0.0, y + lead), &at, &floats, depth);
+                    for placed in back.iter().chain(front.iter()) {
+                        if let Placed::Object { rect, spin, wrap, .. } = placed
+                            && !matches!(wrap, Wrap::Inline | Wrap::BehindText | Wrap::InFrontOfText)
+                        {
+                            float_objects_bottom = float_objects_bottom.max(spin.bounds(*rect).bottom());
+                        }
+                    }
                     let at = behind.min(items.len());
                     behind += back.len();
                     items.splice(at..at, back);
@@ -1347,7 +1359,7 @@ fn layout_box(
             }
         }
     }
-    let floats_bottom = float_tables.iter().map(|r| r.bottom()).fold(0.0, f32::max);
+    let floats_bottom = float_tables.iter().map(|r| r.bottom()).fold(float_objects_bottom, f32::max);
     ctx.hide_deleted = outer_hide;
     BoxLayout { items, height: y.max(0.0), floats_bottom, last_top: last_top.max(0.0), table_areas, page_table_wraps }
 }
