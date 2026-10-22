@@ -148,8 +148,10 @@ Romanian, Estonian, Latvian, Lithuanian, Slovenian and Icelandic (`crates/doc/sr
 a hand-written per-language alphabet table; full CLDR collation is not used). Table sort and
 table formulas read numbers with the language's decimal and group separators (`1 250,50` in
 Polish, `1.250,50` in German, `1,250.50` in English) and write formula results with its decimal
-separator (`crates/doc/src/locale_number.rs`). Interface lists (styles, fonts) still sort by code
-point.
+separator (`crates/doc/src/locale_number.rs`). Cuban and Peruvian Spanish (`es-CU`, `es-PE`) use
+decimal points (`1,234.50`), matching the existing region settings and CLDR's Latin American
+Spanish parent locale; `cuban_and_peruvian_numbers_use_decimal_points` covers parsing and result
+formatting. Interface lists (styles, fonts) still sort by code point.
 
 ## Region conventions (#838)
 
@@ -198,6 +200,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | trivial | Cuban and Peruvian Spanish table numbers use decimal points for parsing and formula results, matching CLDR and the existing region settings; regression covers grouped values and a Spain control |
 | 2026-10-14 | trivial | The sentence-capital rule (English, Polish, Croatian, Italian, Turkish, Portuguese) skips the first word of a list item (#1741) |
 | 2026-10-16 | minor | Indonesian proofing (#498): id-ID spelling from the installed Hunspell `id_ID` dictionary (not bundled), Czech's dictionary-driven suggestions, repeated-word (hyphenated reduplication offered) and spacing checks with Indonesian messages; Review › Language, the status bar, Set Proofing Language and File › Options › Proofing list Indonesian; estimates unchanged |
 | 2026-10-16 | trivial | Read Aloud picks a voice for the sentence's language (run tag, else script) when the default voice doesn't speak it, reads Windows text as UTF-8 |

@@ -31,6 +31,10 @@ Legacy Word imports (#2445): interactive Save for `.doc`/`.dot` uses the existin
 
 Active footnote and endnote text stays readable while editing (#2545). This fixes a display-context defect; the broader fidelity, accessibility and readiness gates below are unchanged.
 
+Table sorting and formulas use decimal points for Cuban and Peruvian Spanish (`es-CU`, `es-PE`),
+matching their existing region settings. Parsing and result-formatting regression tests cover
+both locales and preserve Spain's decimal comma; see [localization parity](localization-parity.md).
+
 ## Ranked
 
 | # | Gap | B | Evidence | Impact | Hours | Doc |
@@ -107,6 +111,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
+| 2026-10-20 | trivial | Corrected Cuban and Peruvian Spanish table-number parsing and formula results to use decimal points; broader localization estimates unchanged |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |
