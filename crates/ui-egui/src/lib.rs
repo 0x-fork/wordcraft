@@ -1068,6 +1068,9 @@ impl WordApp {
         // When the document has been replaced (not when Open only showed its picker), a pending
         // "Save changes?" and AutoSave's go-ahead were both about the old one.
         if self.session.document_id() != document {
+            // A requested New/Open wins over the asynchronous startup recovery scan.
+            // Older copies remain available through File > Recover.
+            self.recovery_seen = true;
             self.autosave_path = None;
             if matches!(self.dialog, Some(dialogs::Dialog::SaveChanges { .. })) {
                 self.dialog = None;

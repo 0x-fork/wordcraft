@@ -761,7 +761,7 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn recovery_app() -> (WordApp, std::path::PathBuf) {
+    fn recovery_fixture() -> (WordApp, std::path::PathBuf) {
         let root = std::env::temp_dir().join(format!(
             "wordcraft-recovery-ui-{}-{}",
             std::process::id(),
@@ -780,8 +780,40 @@ mod tests {
         )
         .unwrap();
         let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        app.ui.language = "en".into();
+        (app, root)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_app() -> (WordApp, std::path::PathBuf) {
+        let (mut app, root) = recovery_fixture();
         app.session.enable_recovery(root.clone(), std::sync::Arc::new(|| {})).unwrap();
         (app, root)
+    }
+
+    /// Hold discovery polling until the accessible control has dispatched its command.
+    /// Warming up first keeps font installation independent of worker timing.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn pending_recovery_harness(
+        app: WordApp,
+        root: &std::path::Path,
+    ) -> (egui_kittest::Harness<'static, WordApp>, std::rc::Rc<std::cell::Cell<bool>>) {
+        let poll = std::rc::Rc::new(std::cell::Cell::new(true));
+        let gate = poll.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                if gate.get() {
+                    app.logic(&ui.ctx().clone());
+                }
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        poll.set(false);
+        h.state_mut().session.enable_recovery(root.to_path_buf(), std::sync::Arc::new(|| {})).unwrap();
+        assert!(!h.state().session.recovery_ready());
+        (h, poll)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -860,6 +892,72 @@ mod tests {
             drop(app);
             let _ = std::fs::remove_dir_all(root);
         }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_does_not_replace_an_explicit_new_document() {
+        for template in ["Blank document", "Report"] {
+            let (mut app, root) = recovery_fixture();
+            app.ui.backstage = true;
+            app.ui.backstage_page = "home".into();
+            let (mut h, poll) = pending_recovery_harness(app, &root);
+            let previous = h.state().session.document_id();
+            h.get_by_label("New").click();
+            h.run_steps(4);
+            h.get_by_label(template).click();
+            h.run_steps(4);
+            assert!(!h.state().session.recovery_ready());
+            let document = h.state().session.document_id();
+            let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+            assert_ne!(document, previous);
+            poll.set(true);
+            settle_recovery(&mut h);
+            assert!(!h.state().ui.backstage, "the requested template must stay visible");
+            assert_eq!(h.state().session.document_id(), document);
+            assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), text);
+            assert_eq!(h.state().session.recovery_documents().len(), 1, "older copies remain available");
+            h.state_mut().ui.backstage = true;
+            h.run_steps(4);
+            h.get_by_label("Recover").click();
+            h.run_steps(4);
+            assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover");
+            drop(h);
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_does_not_replace_an_explicitly_opened_file() {
+        let (mut app, root) = recovery_fixture();
+        let path = root.join("Requested.txt");
+        std::fs::write(&path, "Requested synthetic document").unwrap();
+        app.services.pick_open = Some(Box::new(move |_| Some(path.to_string_lossy().into_owned())));
+        app.ui.backstage = true;
+        app.ui.backstage_page = "home".into();
+        let (mut h, poll) = pending_recovery_harness(app, &root);
+        let previous = h.state().session.document_id();
+        h.get_by_label("Open").click();
+        h.run_steps(4);
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        assert!(!h.state().session.recovery_ready());
+        let document = h.state().session.document_id();
+        assert_ne!(document, previous);
+        poll.set(true);
+        settle_recovery(&mut h);
+        assert!(!h.state().ui.backstage);
+        assert_eq!(h.state().session.document_id(), document);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Requested synthetic document");
+        assert_eq!(h.state().session.recovery_documents().len(), 1);
+        h.state_mut().ui.backstage = true;
+        h.run_steps(4);
+        h.get_by_label("Recover").click();
+        h.run_steps(4);
+        assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover");
+        drop(h);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

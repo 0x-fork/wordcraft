@@ -1,7 +1,11 @@
 # Local document recovery
 
 Desktop WordCraft periodically keeps a local copy of unsaved work, including new drafts.
-File › Recover lists available copies. The page opens at startup when copies are found.
+File › Recover lists available copies. The page opens at startup when copies are found,
+unless a document was explicitly created or opened before the startup scan completed.
+In particular, a window launched for New/Open keeps the requested document visible;
+older copies remain available through File › Recover. Recovery uses the regular interface
+palette so its labels and buttons stay readable in light and dark themes.
 Restore opens an unsaved document with no file path. Save As chooses where to keep it.
 Recovery never writes to the original document. AutoSave's permission to write to an earlier
 file is cleared on restore.
