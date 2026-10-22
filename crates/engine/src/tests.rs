@@ -225,6 +225,33 @@ fn custom_dictionary_words_persist_through_their_file() {
 }
 
 #[test]
+fn confined_sessions_neither_save_the_dictionary_nor_choose_folders_outside_their_roots() {
+    // #3737 (findings 34 and WC-35): the custom dictionary file and the folder settings are
+    // held to the automation roots like any other path.
+    let base = scratch_dir("dict-roots");
+    for d in ["in", "out", "outside"] {
+        std::fs::create_dir_all(base.join(d)).unwrap();
+    }
+    let roots = crate::file_access::AutomationRoots::new(Some(&base.join("in")), Some(&base.join("out"))).unwrap();
+    let mut s = s();
+    let outside = base.join("outside/custom-dictionary.txt");
+    s.user_dict_path = Some(outside.clone());
+    let confined = |s: &mut Session, cmd: &str, v: serde_json::Value| crate::file_access::confine(roots.as_ref(), || s.run(cmd, &v));
+    assert!(confined(&mut s, "review.addToDictionary", json!({"word": "zxqengconfined"})).is_ok());
+    assert!(wordcraft_proof::user_dictionary().contains(&"zxqengconfined".to_string()), "kept in memory");
+    assert!(!outside.exists(), "nothing written outside the write root");
+    for key in ["dictionariesFolder", "userTemplatesFolder"] {
+        assert!(confined(&mut s, "file.options", json!({key: base.join("outside").to_string_lossy()})).is_err(), "{key}");
+    }
+    assert_eq!((s.prefs.dictionaries_folder.as_deref(), s.prefs.user_templates_folder.as_deref()), (None, None));
+    // A folder inside the read root is still taken.
+    let inside = base.join("in");
+    assert!(confined(&mut s, "file.options", json!({"userTemplatesFolder": inside.to_string_lossy()})).is_ok());
+    let _ = std::fs::remove_dir_all(&base);
+    assert_eq!(s.prefs.user_templates_folder.as_deref(), Some(inside.to_string_lossy().as_ref()));
+}
+
+#[test]
 fn add_to_dictionary_takes_only_words_the_file_keeps() {
     // #40: the same rule as loading the dictionary file, so nothing added is dropped on the next load.
     let mut s = s();
