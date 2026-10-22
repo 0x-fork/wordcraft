@@ -528,6 +528,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
 | 2026-10-20 | trivial | Progress log: a picture cropped to a sliver of its source is drawn at the size the file gives (#1899) |
 | 2026-10-20 | trivial | Progress log: Cuban and Peruvian Spanish table numbers use decimal points, matching their CLDR parent locale and existing region settings |
+| 2026-10-21 | trivial | Progress log: ODT table column widths are read, so widths set in LibreOffice or changed in WordCraft survive a save |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
 | 2026-10-17 | trivial | Progress log: #2048 entry covers anchors pushed onto the next page |

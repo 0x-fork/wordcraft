@@ -1067,6 +1067,8 @@ struct StyleInfo {
     cell_background: Option<Rgb>,
     /// `style:vertical-align` of a table-cell style's `style:table-cell-properties`.
     cell_valign: Option<VAlign>,
+    /// `style:column-width` of a table-column style's `style:table-column-properties`, in points.
+    column_width: Option<f32>,
     /// `style:master-page-name` of a paragraph or table style: its paragraphs (tables) start a
     /// page of that master page. Empty: explicitly none, which stops the lookup up the chain.
     master_page: Option<String>,
@@ -1268,6 +1270,13 @@ impl Styles {
                         s.page_number = Some(v.trim().parse::<u32>().ok().map(|n| n.min(32_767)));
                     }
                 }
+                "table-column-properties" => {
+                    if let Some((_, s)) = &mut cur
+                        && let Some(w) = get(&a, "style:column-width").and_then(length)
+                    {
+                        s.column_width = Some(w);
+                    }
+                }
                 "table-cell-properties" => {
                     if let Some((_, s)) = &mut cur {
                         if let Some(c) = get(&a, "fo:background-color").and_then(model::parse_color) {
@@ -1397,6 +1406,11 @@ impl Styles {
         self.chain(name).iter().find_map(|(_, s)| s.columns.clone())
     }
 
+    /// Width in points of a table-column style (whole chain).
+    fn column_width(&self, name: &str) -> Option<f32> {
+        self.chain(name).iter().find_map(|(_, s)| s.column_width)
+    }
+
     /// Background colour of a table-cell style (whole chain).
     fn cell_background(&self, name: &str) -> Option<Rgb> {
         self.chain(name).iter().find_map(|(_, s)| s.cell_background)
@@ -1458,6 +1472,16 @@ struct TableB {
     row: Vec<Cell>,
     /// Covered cells still owed to the previous cell's column span.
     hcover: usize,
+    /// Widths in points of the `table:table-column`s so far, 0 where the style gives none.
+    widths: Vec<f32>,
+}
+
+impl TableB {
+    fn finish(self) -> FTable {
+        // A column without a width leaves the whole grid to the equal split.
+        let widths = if self.widths.iter().all(|w| *w > 0.0) { self.widths } else { Vec::new() };
+        FTable { rows: self.rows, widths, borderless: false }
+    }
 }
 
 /// A `text:changed-region` read from `text:tracked-changes`.
@@ -1920,7 +1944,15 @@ impl Body<'_> {
                     self.skip = 1;
                     return;
                 }
-                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0 });
+                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0, widths: Vec::new() });
+            }
+            "table-column" => {
+                let w = get(a, "table:style-name").and_then(|n| self.styles.column_width(n)).unwrap_or(0.0);
+                let n = get(a, "table:number-columns-repeated").and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(1).max(1);
+                if let Some(t) = self.tables.last_mut() {
+                    let room = wordcraft_doc::table::MAX_COLS.saturating_sub(t.widths.len());
+                    t.widths.extend(std::iter::repeat_n(w, n.min(room)));
+                }
             }
             "table-row" => {
                 if let Some(t) = self.tables.last_mut() {
@@ -2215,7 +2247,7 @@ impl Body<'_> {
                 if let Some(t) = self.tables.pop()
                     && !t.rows.is_empty()
                 {
-                    self.container().push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+                    self.container().push(FBlock::Table(t.finish()));
                 }
             }
             "desc" | "title" => self.in_desc = false,
@@ -2435,7 +2467,7 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>, Opti
     let mut blocks = body.containers.pop().unwrap_or_default();
     for t in body.tables.drain(..) {
         if !t.rows.is_empty() {
-            blocks.push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+            blocks.push(FBlock::Table(t.finish()));
         }
     }
     // An open section with nothing in it (after a column section at the end) isn't one: the
@@ -2799,6 +2831,54 @@ mod tests {
             assert_eq!((sec.margin_top, sec.margin_right), (def.margin_top, def.margin_right), "{m}");
             assert!(sec.page_w.is_finite() && sec.margin_left.is_finite());
         }
+    }
+
+    #[test]
+    fn table_column_styles_are_the_grid_widths() {
+        // A column's `style:column-width` (and `table:number-columns-repeated`) sets its width.
+        let content = format!(
+            r##"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="Table1.A" style:family="table-column"><style:table-column-properties style:column-width="1in"/></style:style><style:style style:name="Table1.B" style:family="table-column"><style:table-column-properties style:column-width="2in"/></style:style></office:automatic-styles><office:body><office:text><table:table><table:table-column table:style-name="Table1.A"/><table:table-column table:style-name="Table1.B" table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell><table:table-cell><text:p>C</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"##
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert_eq!(t.widths, vec![72.0, 144.0, 144.0]);
+    }
+
+    #[test]
+    fn table_column_widths_survive_a_round_trip() {
+        // A width changed in the document is written and read back; the file's own widths are
+        // what the first import shows.
+        let content = format!(
+            r##"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="Table1.A" style:family="table-column"><style:table-column-properties style:column-width="1in"/></style:style><style:style style:name="Table1.B" style:family="table-column"><style:table-column-properties style:column-width="3in"/></style:style></office:automatic-styles><office:body><office:text><table:table><table:table-column table:style-name="Table1.A"/><table:table-column table:style-name="Table1.B"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"##
+        );
+        let grid = |doc: &Document| match doc
+            .body
+            .iter()
+            .find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t.grid.clone()) } else { None })
+        {
+            Some(g) => g,
+            None => panic!("no table"),
+        };
+        let mut doc = import(&package(&content, None)).unwrap();
+        assert_eq!(grid(&doc), vec![72.0, 216.0]);
+        let widths = vec![150.0, 100.0];
+        for b in doc.body.iter_mut() {
+            if let wordcraft_doc::Block::Table(t) = std::sync::Arc::make_mut(b) {
+                t.grid = widths.clone();
+            }
+        }
+        let back = import(&export(&doc).unwrap()).unwrap();
+        assert_eq!(grid(&back), widths);
+    }
+
+    #[test]
+    fn table_without_column_widths_keeps_the_equal_split() {
+        let content = format!(
+            r##"<office:document-content {NS_T}><office:body><office:text><table:table><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"##
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert!(t.widths.is_empty());
     }
 
     #[test]

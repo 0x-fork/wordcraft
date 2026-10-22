@@ -241,6 +241,7 @@ Imported text fields use the first nonempty cached result run's formatting on th
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
+| 2026-10-21 | trivial | ODT: `table:table-column` styles (`style:column-width`, `table:number-columns-repeated`) are read as the table's grid, so column widths set in LibreOffice or changed in WordCraft survive a save; before, every opened table got equal columns and the written widths were dropped on the next open |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
 | 2026-10-18 | trivial | A Word 2003 XML or Flat OPC document, or a web page, saved under a `.doc`, `.docx` or `.rtf` name opens by what it holds, as in Word, instead of going to the Word 97-2003 reader and showing a blank page (#2853) |
