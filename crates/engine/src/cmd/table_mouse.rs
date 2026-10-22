@@ -1027,4 +1027,35 @@ mod tests {
         let moved = cell_rect(&mut s, 0, 0);
         assert!(moved.x >= -0.5 && moved.right() <= 612.5 && moved.y >= -0.5, "{moved:?}");
     }
+
+    /// #2038: a table dragged to the right floats and the empty paragraph after it moves up beside
+    /// it. As in Word, a click anywhere below the table then goes to that paragraph, not to a cell of the last row; a click in a cell still lands there.
+    #[test]
+    fn a_click_below_a_floating_table_goes_to_the_text_not_its_cells() {
+        let mut s = table_session(3, 3);
+        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0)[0]);
+        let (hx, hy) = (h.x + h.w / 2.0, h.y + h.h / 2.0);
+        s.run("table.moveDrag", &json!({"page": 0, "x": hx, "y": hy, "toX": hx + 60.0, "toY": hy + 10.0})).unwrap();
+        assert!(first_table(&s).props.float.is_some());
+        let after = Path(vec![table_path(&s).0[0] + 1]);
+        assert!(s.doc.block(StoryRef::Body, &after).is_some_and(|b| b.as_table().is_none()), "a paragraph follows the table");
+        let (first, last) = (cell_rect(&mut s, 0, 0), cell_rect(&mut s, 2, 2));
+        let (mid, bottom, margin) = ((first.x + last.right()) / 2.0, last.bottom(), s.layout().pages[0].body.x + 5.0);
+        let at = |s: &mut Session, x: f32, y: f32| {
+            s.run("caret.set", &json!({"page": 0, "x": x, "y": y})).unwrap();
+            s.sel.focus.path.clone()
+        };
+        for (name, x, y) in [
+            ("just below the middle", mid, bottom + 12.0),
+            ("far below the middle", mid, bottom + 200.0),
+            ("below, at the margin", margin, bottom + 12.0),
+        ] {
+            assert_eq!(at(&mut s, x, y), after, "a click {name}");
+        }
+        let b2 = cell_rect(&mut s, 1, 1);
+        assert_eq!(at(&mut s, b2.x + b2.w / 2.0, mid_y(b2)), cell_pos(&s, 1, 1).path, "in B2");
+        assert_eq!(at(&mut s, last.x + last.w / 2.0, last.bottom() - 1.0), cell_pos(&s, 2, 2).path, "low in C3");
+        s.run("caret.docEnd", &json!({})).unwrap();
+        assert_eq!(s.sel.focus.path, after, "Ctrl+End");
+    }
 }
