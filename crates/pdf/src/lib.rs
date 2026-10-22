@@ -443,14 +443,14 @@ fn parse_iso(s: &str) -> Option<Civil> {
 
 /// The system clock, or the browser's on the web.
 fn now_unix() -> Option<i64> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
         use std::time::{SystemTime, UNIX_EPOCH};
         let secs = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
         i64::try_from(secs).ok()
     }
     // `SystemTime::now()` panics on wasm32-unknown-unknown, so ask the browser's clock.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         let ms = js_sys::Date::now();
         (ms.is_finite() && ms > 0.0).then(|| (ms / 1000.0) as i64)
