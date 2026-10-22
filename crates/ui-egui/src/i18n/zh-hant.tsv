@@ -2361,6 +2361,7 @@
 	Deep	深沉
 	Lit from Bottom	底部照亮
 	Center Glow	中央光暈
+	Close Document	關閉文件
 # File › Home greeting
 	Good morning	早安
 	Good afternoon	午安
@@ -2368,3 +2369,5 @@
 	More tabs	更多索引標籤
 # #3013: Insert Table of Figures
 	Include label and number	包含標籤和編號
+	Switch Windows	切換視窗
+	Switch\nWindows	切換\n視窗

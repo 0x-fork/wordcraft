@@ -2370,6 +2370,7 @@
 	Deep	Dubok
 	Lit from Bottom	Osvetljen odozdo
 	Center Glow	Sjaj iz sredine
+	Close Document	Zatvori dokument
 # File › Home greeting
 	Good morning	Dobro jutro
 	Good afternoon	Dobar dan
@@ -2377,3 +2378,5 @@
 	More tabs	Još kartica
 # #3013: Insert Table of Figures
 	Include label and number	Uključi oznaku i broj
+	Switch Windows	Promeni prozore
+	Switch\nWindows	Promeni\nprozore

@@ -2372,6 +2372,7 @@
 	Deep	Глибокий
 	Lit from Bottom	Освітлення знизу
 	Center Glow	Сяйво з центру
+	Close Document	Закрити документ
 # File › Home greeting
 	Good morning	Доброго ранку
 	Good afternoon	Добрий день
@@ -2379,3 +2380,5 @@
 	More tabs	Інші вкладки
 # #3013: Insert Table of Figures
 	Include label and number	Додавати мітку й номер
+	Switch Windows	Перейти до іншого вікна
+	Switch\nWindows	Перейти до\nіншого вікна

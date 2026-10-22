@@ -2783,6 +2783,7 @@ preview	Title	Tytuł
 # English text until translated (keys the Italian catalog has)
 	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10.12" × 14.33"
 	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7.17" × 10.12"
+	Close Document	Zamknij dokument
 	Enter bookmark name:	Enter bookmark name:
 	Envelope #10   4.12" × 9.50"	Envelope #10   4.12" × 9.50"
 	Envelope DL   4.33" × 8.66"	Envelope DL   4.33" × 8.66"
@@ -2791,6 +2792,8 @@ preview	Title	Tytuł
 	Legal   8.50" × 14.00"	Legal   8.50" × 14.00"
 	Letter   8.50" × 11.00"	Letter   8.50" × 11.00"
 	Statement   5.50" × 8.50"	Statement   5.50" × 8.50"
+	Switch Windows	Przełącz okna
+	Switch\nWindows	Przełącz\nokna
 	Tabloid   11.00" × 17.00"	Tabloid   11.00" × 17.00"
 	This document has no bookmarks.	This document has no bookmarks.
 	Type a page number, or +2 / -1.	Type a page number, or +2 / -1.

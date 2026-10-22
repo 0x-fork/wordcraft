@@ -1127,33 +1127,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&chosen);
     }
 
-    /// A personal template replaces the document like New does: unsaved changes are asked about
-    /// first, and nothing is replaced until that is answered.
+    /// A personal template opens a new document like New does: nothing is asked, and the
+    /// document with unsaved changes stays open beside it.
     #[test]
-    fn a_personal_template_asks_about_unsaved_changes_first() {
+    fn a_personal_template_opens_beside_unsaved_work() {
         let dir = personal_dir("dirty");
         let memo = dir.join("Memo.dotx");
         write_template(&memo, "From the template");
         let mut h = new_page_harness(Some(dir.clone()));
         h.state_mut().run("document.setText", json!({"text": "Unsaved work"})).unwrap();
-        assert!(h.state().session.dirty);
+        let first = h.state().session.document_id();
         h.get_by_label("Memo").click();
         h.run_steps(3);
         let body = |h: &egui_kittest::Harness<'static, WordApp>| h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
-        assert!(matches!(h.state().dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })), "Save changes is asked");
-        assert_eq!(body(&h), "Unsaved work", "the document stays until the question is answered");
-        h.state_mut().run("ui.saveChanges", json!({"answer": "cancel"})).unwrap();
-        h.run_steps(2);
-        assert_eq!(body(&h), "Unsaved work", "Cancel keeps it");
-        assert_eq!(h.state().session.doc.settings.attached_template, None);
-        h.state_mut().run("ui.backstage", json!({"value": true, "page": "new"})).unwrap();
-        h.run_steps(3);
-        h.get_by_label("Memo").click();
-        h.run_steps(3);
-        h.state_mut().run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
-        h.run_steps(2);
-        assert!(body(&h).contains("From the template"), "Don't Save makes the document from the template");
+        assert!(h.state().dialog.is_none(), "nothing is asked");
+        assert!(body(&h).contains("From the template"));
         assert_eq!(h.state().session.doc.settings.attached_template.as_deref(), Some(memo.to_string_lossy().as_ref()));
+        h.state_mut().run("view.switchWindows", json!({"id": first})).unwrap();
+        assert_eq!(body(&h), "Unsaved work", "the unsaved document is still open");
+        assert!(h.state().session.dirty);
         drop(h);
         let _ = std::fs::remove_dir_all(&dir);
     }

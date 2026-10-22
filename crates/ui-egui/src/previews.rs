@@ -296,6 +296,11 @@ impl Previews {
         Some(h)
     }
 
+    /// Another document is shown: its revisions count apart from the last one's.
+    pub(crate) fn document_changed(&mut self) {
+        self.styles_hash = (u64::MAX, 0);
+    }
+
     /// Hash of the style sheet (recomputed only when the document revision changes).
     fn styles_key(&mut self, app_doc: &Document, rev: u64) -> u64 {
         if self.styles_hash.0 != rev {

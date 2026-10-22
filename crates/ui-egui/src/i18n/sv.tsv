@@ -2792,6 +2792,7 @@ template	Letter	Brev
 	📂  Browse…	📂  Bläddra…
 	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10,12" × 14,33"
 	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7,17" × 10,12"
+	Close Document	Stäng dokument
 	Envelope #10   4.12" × 9.50"	Kuvert #10   4,12" × 9,50"
 	Envelope DL   4.33" × 8.66"	Kuvert DL   4,33" × 8,66"
 	Executive   7.25" × 10.50"	Executive   7,25" × 10,50"
@@ -2802,3 +2803,5 @@ template	Letter	Brev
 	More tabs	Fler flikar
 # #3013: Insert Table of Figures
 	Include label and number	Ta med etikett och nummer
+	Switch Windows	Växla fönster
+	Switch\nWindows	Växla\nfönster

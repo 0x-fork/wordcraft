@@ -2509,6 +2509,7 @@ preview	Title	Titel
 	Document name	Dokumentnavn
 	Rename	Omdøb
 	Account	Konto
+	Close Document	Luk dokument
 	Privacy Options	Indstillinger for beskyttelse af personlige oplysninger
 	Trust Center	Center for sikkerhed og beskyttelse
 	Privacy for this document	Beskyttelse af personlige oplysninger for dette dokument
@@ -2598,4 +2599,6 @@ preview	Title	Titel
 	Format Shape Pane	Format Shape Pane
 	Full Screen View	Full Screen View
 	Personal Templates	Personal Templates
+	Switch Windows	Skift vinduer
+	Switch\nWindows	Skift\nvinduer
 	Underline Color	Underline Color

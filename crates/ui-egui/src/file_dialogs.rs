@@ -315,8 +315,12 @@ impl WordApp {
                 r
             }
             AfterPick::SaveAs { after, document } => {
+                // The document it was for may wait behind another one: it is shown and saved.
                 if document != self.session.document_id() {
-                    return Err("the document for this save has been replaced".into());
+                    if !self.session.is_open(document) {
+                        return Err("the document for this save has been closed".into());
+                    }
+                    self.show_document(document)?;
                 }
                 // The save's error, kept for the Save Changes prompt to explain (#1445). A plain
                 // Save As (Backstage's Browse…, AutoSave) has no prompt to carry it to, so it was
@@ -601,7 +605,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// A late Save As answer belongs to the imported document that opened the picker.
+    /// A late Save As answer belongs to the imported document that opened the picker: once that
+    /// document is closed, it writes nothing.
     #[test]
     fn imported_word_stale_save_as_never_writes_the_replacement_document() {
         for close in [false, true] {
@@ -623,8 +628,8 @@ mod tests {
             }
             assert!(a.file_dialog_open());
             let previous = a.session.document_id();
-            // Automation bypasses the user prompt and can replace a document during a picker.
-            a.execute("file.new", json!({})).unwrap();
+            // Automation bypasses the user prompt and can close a document during a picker.
+            a.execute("file.closeDocument", json!({"force": true})).unwrap();
             typed(&mut a);
             assert_ne!(previous, a.session.document_id());
             let draft = a.session.doc.clone();
@@ -960,14 +965,14 @@ mod tests {
     }
 
     /// "Save changes?" → Save on a new document: the held-back Close runs only once the later
-    /// Save As has actually saved; a cancelled Save As cancels the held-back New.
+    /// Save As has actually saved; a cancelled Save As cancels it.
     #[test]
     fn save_changes_waits_for_the_save_as_answer() {
         let dir = scratch("prompt");
         let path = dir.join("novel.docx");
         let (mut a, shown) = async_app();
         typed(&mut a);
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         answer(&shown, None);
         a.poll_file_dialog();

@@ -49,6 +49,7 @@ pub mod dialogs_ribbon;
 pub mod dialogs_smart_art;
 pub mod dialogs_table_style;
 pub mod dialogs_templates;
+pub mod documents;
 pub mod equation_tab;
 /// The built-in file browser, for desktops without a system file dialog (#576).
 #[cfg(not(target_arch = "wasm32"))]
@@ -659,6 +660,12 @@ pub struct WordApp {
     no_document: Option<u64>,
     /// Comment and reply text typed but not yet written to the document (#1348).
     pub(crate) comment_drafts: panes::CommentDrafts,
+    /// The document the window's per-document state belongs to; when the session's active
+    /// document is another, [`WordApp::sync_document`] puts that state aside and brings the
+    /// other's.
+    shown_document: u64,
+    /// The per-document state of the open documents not shown.
+    parked: std::collections::HashMap<u64, documents::Parked>,
 }
 
 /// The answer to "Do you want to save changes?" (`ui.saveChanges`).
@@ -686,6 +693,7 @@ impl WordApp {
         if let Some(tag) = sys_locale::get_locale() {
             wordcraft_engine::set_system_locale(&tag);
         }
+        let session_document = session.document_id();
         WordApp {
             session,
             ui: UiState::default(),
@@ -760,6 +768,8 @@ impl WordApp {
             recovery_seen: false,
             no_document: None,
             comment_drafts: Default::default(),
+            shown_document: session_document,
+            parked: Default::default(),
         }
     }
 
@@ -1065,17 +1075,13 @@ impl WordApp {
             // Its HTML too when it has some (an equation as MathML, #816).
             crate::system_clipboard::put_result(self, ctx, v);
         }
-        // When the document has been replaced (not when Open only showed its picker), a pending
-        // "Save changes?" and AutoSave's go-ahead were both about the old one.
+        // Another document is shown (not when Open only showed its picker): the window's state
+        // for the one it showed is put aside.
         if self.session.document_id() != document {
             // A requested New/Open wins over the asynchronous startup recovery scan.
             // Older copies remain available through File > Recover.
             self.recovery_seen = true;
-            self.autosave_path = None;
-            if matches!(self.dialog, Some(dialogs::Dialog::SaveChanges { .. })) {
-                self.dialog = None;
-            }
-            crate::table_pen::stop(self);
+            self.sync_document();
         }
         // An explicit save to the document's own file lets AutoSave keep writing there.
         if let Ok(v) = &r
@@ -1294,6 +1300,9 @@ impl WordApp {
                     async_saves::SaveOutcome::Cancelled | async_saves::SaveOutcome::Failed(_) => {
                         if save.marked_saved && save.document == current {
                             self.session.dirty = true;
+                        } else if save.marked_saved {
+                            // Another document is shown: the one saved is unsaved again where it waits.
+                            let _ = self.session.with_document(save.document, |s| s.dirty = true);
                         }
                     }
                 }
@@ -1362,33 +1371,46 @@ impl WordApp {
             return true;
         }
         // A comment draft the document refuses is an unsaved change: the prompt can drop it.
-        let refused = panes::flush_comment_drafts(self).is_err();
-        if !self.session.dirty && !self.save_unconfirmed() && !refused {
+        let _ = panes::flush_comment_drafts(self);
+        if !self.has_unsaved_documents() {
             return true;
         }
-        // `quit`: once the prompt is answered the window closes too, not just the document.
-        let _ = self.run("file.close", json!({"quit": true}));
-        false
+        // Each document with unsaved work is shown and asked about in turn; Cancel stops.
+        self.ask_before_quit();
+        self.quit_requested
     }
 
-    /// File › Close (Mod+W, Mod+F4) closes the document and keeps the window, as Word does
-    /// (#1712): it shows no page, as after Esc on the Start screen (#1129), and File › New or Open
-    /// goes on from there. `{"quit": true}`, from the window's close button, quits instead. With no
-    /// document open there is nothing to close. Unsaved changes are never discarded unasked: a
-    /// dirty document closes only with `{"force": true}` (Don't Save in the prompt passes it).
+    /// File › Close (Mod+W, Mod+F4) closes the shown document and keeps the window, as Word does
+    /// (#1712): the next open document shows, or, when it was the only one, no page, as after Esc
+    /// on the Start screen (#1129), and File › New or Open goes on from there. `{"quit": true}`,
+    /// from the window's close button, goes on quitting: the shown document's prompt has been
+    /// answered, so it closes and the next document with unsaved changes is asked about
+    /// ([`WordApp::ask_before_quit`]). With no document open there is nothing to close. Unsaved
+    /// changes are never discarded unasked: a dirty document closes only with `{"force": true}`
+    /// (Don't Save in the prompt passes it).
     fn close_document(&mut self, params: &Value) -> Result<Value, String> {
         if let Some(e) = control::close_refused(self, "file.close", params) {
             return Err(e.into());
         }
+        let last = self.session.documents().len() <= 1;
         if params.get("quit").and_then(Value::as_bool) == Some(true) {
-            self.quit_requested = true;
-            return Ok(json!({"quit": true}));
+            if last {
+                self.quit_requested = true;
+                return Ok(json!({"quit": true}));
+            }
+            self.session.close_document(self.session.document_id()).map_err(|e| e.to_string())?;
+            self.sync_document();
+            return Ok(self.ask_before_quit());
         }
         if !self.has_document() {
             return Ok(json!({"closed": false}));
         }
-        self.execute("file.new", json!({}))?;
-        self.no_document = Some(self.session.document_id());
+        self.session.close_document(self.session.document_id()).map_err(|e| e.to_string())?;
+        self.recovery_seen = true;
+        self.sync_document();
+        if last {
+            self.no_document = Some(self.session.document_id());
+        }
         self.ui.backstage = false;
         Ok(json!({"closed": true}))
     }
@@ -1439,6 +1461,13 @@ impl WordApp {
 
     /// Requests commands make of the UI (open a dialog…).
     fn handle_request(&mut self, req: &Value) {
+        // Made for a document that isn't shown (an agent's command run there).
+        if let Some(document) = req.get("document").and_then(Value::as_u64)
+            && document != self.session.document_id()
+        {
+            self.handle_request_for(document, req);
+            return;
+        }
         // Ctrl+F: type straight into the Navigation pane's search box (#712).
         if req.get("focus").and_then(Value::as_str) == Some("navSearch") {
             self.nav_search_focus = true;
@@ -1482,6 +1511,33 @@ impl WordApp {
         if req.get("close").is_some() {
             self.quit_requested = true;
         }
+    }
+
+    /// A request made for document `document`, which isn't shown: the interface theme is the
+    /// app's and changes; Close closes that document if it has nothing unsaved; the rest (dialogs,
+    /// panes, focus, scrolling) are about the window's page and are dropped, as the page shows
+    /// another document.
+    fn handle_request_for(&mut self, document: u64, req: &Value) {
+        let theme_only = req.get("interfaceTheme").is_some() || req.get("toggle").and_then(Value::as_str) == Some("interfaceTheme");
+        if theme_only {
+            let mut req = req.clone();
+            if let Some(o) = req.as_object_mut() {
+                o.remove("document");
+            }
+            self.handle_request(&req);
+            return;
+        }
+        if req.get("close").is_some() {
+            let dirty = self.session.documents().iter().any(|d| d.id == document && d.dirty);
+            if dirty {
+                log::warn!("not closing document {document}: it has unsaved changes");
+            } else if let Err(e) = self.session.close_document(document) {
+                log::warn!("closing document {document}: {e}");
+            }
+            self.sync_document();
+            return;
+        }
+        log::info!("dropped a request for document {document}, which isn't shown: {req}");
     }
 
     /// Follow the desktop's light/dark choice while the app runs (Linux, where winit reports no
@@ -2054,7 +2110,9 @@ impl WordApp {
             Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
             None => match &self.session.file_name {
                 Some(name) => name.clone(),
-                None if self.session.doc.core.title.is_empty() => tl!("Document1").into(),
+                None if self.session.doc.core.title.is_empty() => {
+                    documents::untitled_title(&self.session.resolved_filenames().0).unwrap_or_else(|| tl!("Document1").into())
+                }
                 None => self.session.doc.core.title.clone(),
             },
         }
@@ -2177,13 +2235,13 @@ impl WordApp {
         self.drain_inbox();
         self.drain_pasted();
         self.watch_fonts(ctx);
+        // A script, an agent or a later result may have made another document the active one.
+        self.sync_document();
         let document = self.session.document_id();
         self.session.recovery_tick();
         if self.session.document_id() != document {
-            self.autosave_path = None;
-            self.dialog = None;
             self.ui.backstage = false;
-            self.canvas.want_focus = true;
+            self.sync_document();
         }
         if !self.recovery_seen && self.session.recovery_ready() {
             self.recovery_seen = true;
@@ -2830,17 +2888,13 @@ fn flushes_comment_drafts(id: &str, params: &Value) -> bool {
     ) || discards_document(id, params)
 }
 
-/// User commands that replace or close the document (New, also from a template; `file.open` without a path only shows the
-/// file picker; the open that follows is checked). Envelopes, Labels and Finish & Merge make a
-/// new document in its place; a merge written to a file (`path`) and an envelope added to this
-/// document (`add`) leave it alone.
+/// User commands that close or replace the shown document: Close, and restoring a recovered
+/// copy in its place. New, Open, Envelopes, Labels and Finish & Merge open their document beside
+/// it (Open replaces only an untouched blank document, which has nothing to lose).
 pub(crate) fn discards_document(id: &str, params: &Value) -> bool {
     match id {
-        "file.new" | "file.newFromTemplate" | "file.close" | "mailings.labels" => true,
-        "mailings.envelopes" => params.get("add").and_then(Value::as_bool) != Some(true),
-        "file.open" => params.get("path").is_some(),
+        "file.close" => true,
         "file.recover" => params.get("restore").is_some(),
-        "mailings.finish" => params.get("path").and_then(Value::as_str).is_none(),
         _ => false,
     }
 }
@@ -5351,27 +5405,19 @@ mod tests {
         path
     }
 
-    /// Surfaces finding 1: Mod+N (and the File › New tiles) replaced unsaved work without asking.
+    /// Mod+N (and the File › New tiles) open a new document beside unsaved work, asking nothing:
+    /// nothing is replaced.
     #[test]
-    fn new_asks_before_discarding_unsaved_work() {
+    fn new_opens_beside_unsaved_work() {
         let mut a = typed();
-        a.run("file.new", json!({})).unwrap();
-        assert_eq!(prompt(&a), Some("saveChanges"));
-        assert!(body_text(&a).contains(UNSAVED), "the document is untouched while the prompt is up");
-        assert!(a.session.dirty);
-
-        // Cancel: nothing happens.
-        a.run("ui.saveChanges", json!({"answer": "cancel"})).unwrap();
-        assert_eq!(prompt(&a), None);
-        assert!(body_text(&a).contains(UNSAVED));
-
-        // Don't Save: the new document replaces it.
+        let first = a.session.document_id();
         a.run("file.new", json!({"template": "letter"})).unwrap();
-        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
         assert_eq!(prompt(&a), None);
         assert!(!body_text(&a).contains(UNSAVED));
         assert!(!a.session.dirty);
         assert!(!body_text(&a).trim().is_empty(), "the template the user picked was used");
+        a.run("view.switchWindows", json!({"id": first})).unwrap();
+        assert!(body_text(&a).contains(UNSAVED) && a.session.dirty, "the unsaved document is still open");
     }
 
     #[test]
@@ -5395,9 +5441,8 @@ mod tests {
         assert!(a.execute("file.open", json!({"path": path.to_string_lossy()})).is_err(), "a script gets the error");
         assert_eq!(prompt(&a), None);
         a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
-        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
         assert_eq!(prompt(&a), Some("password"));
-        assert!(body_text(&a).contains(UNSAVED), "nothing is replaced until the password fits");
+        assert!(body_text(&a).contains(UNSAVED), "nothing opens until the password fits");
         let state = serde_json::to_string(&a.dialog).unwrap();
         assert!(state.contains("locked.docx") && !state.contains("sesame"));
 
@@ -5410,20 +5455,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Open (after the file is picked), recent files and dropped files all go through `file.open`.
+    /// Open (after the file is picked), recent files and dropped files all go through `file.open`:
+    /// the file opens beside unsaved work, asking nothing, and opening it again shows it.
     #[test]
-    fn open_asks_before_discarding_unsaved_work() {
+    fn open_opens_beside_unsaved_work() {
         let dir = scratch("open");
         let path = docx_on_disk(&dir, "Signed contract");
         let mut a = typed();
+        let first = a.session.document_id();
         a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
-        assert_eq!(prompt(&a), Some("saveChanges"));
-        assert!(body_text(&a).contains(UNSAVED));
-        assert_eq!(a.session.path, None);
-
-        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert_eq!(prompt(&a), None);
         assert!(body_text(&a).contains("Signed contract"));
         assert_eq!(a.session.path.as_deref(), Some(path.as_path()));
+        let opened = a.session.document_id();
+        a.run("view.switchWindows", json!({"id": first})).unwrap();
+        assert!(body_text(&a).contains(UNSAVED) && a.session.dirty);
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        assert_eq!(a.session.document_id(), opened, "an open file is shown, not opened twice");
+        assert_eq!(a.session.documents().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -6144,15 +6193,15 @@ mod tests {
         }
     }
 
-    /// A prompt about document A outlived an agent replacing A with B, and Don't Save then ran
-    /// the pending New against B, throwing away B's edits under a question naming A.
+    /// A prompt about document A outlived an agent showing B instead, and Don't Save then ran
+    /// the pending Close against B, throwing away B's edits under a question naming A.
     #[test]
     fn a_prompt_is_dropped_when_its_document_is_replaced() {
         let dir = scratch("stale");
         let path = docx_on_disk(&dir, "Agent document");
         let ctx = egui::Context::default();
         let mut a = typed();
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         assert_eq!(prompt(&a), Some("saveChanges"));
         let asked = a.dialog.clone();
         for command in [
@@ -6711,11 +6760,11 @@ mod tests {
         let mut a = app();
         a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
         a.run("text.insert", json!({"text": "Revised "})).unwrap();
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         assert_eq!(prompt(&a), Some("saveChanges"));
         a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         assert_eq!(prompt(&a), None);
-        assert_eq!(a.session.path, None, "the new document replaced the saved one");
+        assert!(!a.has_document(), "the saved document closed");
         let saved = wordcraft_engine::io::open_path(&path).unwrap();
         assert!(saved.plain_text(wordcraft_doc::StoryRef::Body).contains("Revised Draft"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -6730,10 +6779,10 @@ mod tests {
             let picked = dir.join(format!("novel.{ext}")).to_string_lossy().to_string();
             let mut a = typed();
             a.services.pick_save = Some(Box::new(move |_| Some(picked.clone())));
-            a.run("file.new", json!({})).unwrap();
+            a.run("file.close", json!({})).unwrap();
             a.status_msg = None;
             let r = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
-            assert_eq!(r["done"], false, "{ext}: the New was cancelled");
+            assert_eq!(r["done"], false, "{ext}: the Close was cancelled");
             assert!(dir.join(format!("novel.{ext}")).exists(), "{ext}: the copy was written");
             assert_eq!(prompt(&a), None);
             assert!(body_text(&a).contains(UNSAVED), "{ext}: the document is kept");
@@ -6818,9 +6867,9 @@ mod tests {
         assert!(a.execute("file.save", json!({})).is_err());
         assert!(a.session.dirty);
 
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         a.status_msg = None;
-        // A failed save is an error, not a quiet Cancel (#1445); the New doesn't run.
+        // A failed save is an error, not a quiet Cancel (#1445); the Close doesn't run.
         let err = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
         assert!(err.contains("still open") && err.contains("blocked by the browser"), "{err}");
         assert!(body_text(&a).contains(UNSAVED));
@@ -6845,21 +6894,21 @@ mod tests {
         (a, saves, last)
     }
 
-    /// #1315: Save in the prompt before New waits for the picker: New runs only once the file
+    /// #1315: Save in the prompt before Close waits for the picker: Close runs only once the file
     /// is written and closed.
     #[test]
-    fn web_save_before_new_waits_for_the_picker_to_finish() {
+    fn web_save_before_close_waits_for_the_picker_to_finish() {
         let (mut a, saves, last) = web_picker_app();
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         assert_eq!(prompt(&a), Some("saveChanges"));
         let r = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         assert_eq!(r["pending"], "save", "{r}");
         assert_eq!(saves.pending(), 1);
         a.settle_async_saves();
-        assert!(body_text(&a).contains(UNSAVED), "nothing is replaced while the picker is open");
+        assert!(body_text(&a).contains(UNSAVED), "nothing closes while the picker is open");
         saves.finish(last.get(), async_saves::SaveOutcome::Saved);
         a.settle_async_saves();
-        assert!(!body_text(&a).contains(UNSAVED), "the New ran once the save finished");
+        assert!(!body_text(&a).contains(UNSAVED), "the Close ran once the save finished");
         assert!(!a.session.dirty);
         assert_eq!(prompt(&a), None);
     }
@@ -6867,12 +6916,12 @@ mod tests {
     /// #1315: cancelling the picker, or a write/close that fails, keeps the document: its text,
     /// its undo, still unsaved, and the prompt back with the reason. Nothing is replaced.
     #[test]
-    fn web_save_before_new_that_is_cancelled_or_fails_keeps_the_document() {
+    fn web_save_before_close_that_is_cancelled_or_fails_keeps_the_document() {
         for (outcome, reason) in
             [(async_saves::SaveOutcome::Cancelled, "cancel"), (async_saves::SaveOutcome::Failed("the disk is full".into()), "the disk is full")]
         {
             let (mut a, saves, last) = web_picker_app();
-            a.run("file.new", json!({})).unwrap();
+            a.run("file.close", json!({})).unwrap();
             a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
             a.status_msg = None;
             saves.finish(last.get(), outcome.clone());
@@ -6892,11 +6941,11 @@ mod tests {
 
     /// #1315 review: the prompt's Save is in the picker (ticket 1), the user edits and saves
     /// again (ticket 2, which marks the document saved at once). Ticket 1 ending doesn't let the
-    /// held-back New replace the document while ticket 2 hasn't written its edits.
+    /// held-back Close close the document while ticket 2 hasn't written its edits.
     #[test]
     fn web_overlapping_saves_hold_the_replacement() {
         let (mut a, saves, last) = web_picker_app();
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         let first = last.get();
         a.run("text.insert", json!({"text": "Later edit "})).unwrap();
@@ -6909,11 +6958,11 @@ mod tests {
     }
 
     /// #1315 review: edited while the picker was open, then the save ends: those edits aren't
-    /// in the file, so the prompt asks again instead of running New.
+    /// in the file, so the prompt asks again instead of running Close.
     #[test]
     fn web_save_that_ends_after_an_edit_asks_again() {
         let (mut a, saves, last) = web_picker_app();
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         a.run("text.insert", json!({"text": "Later edit "})).unwrap();
         saves.finish(last.get(), async_saves::SaveOutcome::Saved);
@@ -6924,12 +6973,12 @@ mod tests {
         assert_eq!(prompt_message(&a).as_deref(), Some(""));
     }
 
-    /// #1315 review: the status bar says New/Open is waiting for the save; a cancelled picker
+    /// #1315 review: the status bar says Close is waiting for the save; a cancelled picker
     /// says it was cancelled, not that saving failed.
     #[test]
     fn web_save_prompt_says_it_waits_and_that_a_cancel_was_a_cancel() {
         let (mut a, saves, last) = web_picker_app();
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         a.status_msg = None;
         a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         let status = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
@@ -6941,62 +6990,61 @@ mod tests {
         assert!(!message.contains("Couldn't save"), "a cancel isn't a failure: {message}");
     }
 
-    /// #1315 review: a document dropped or picked on the web (`file.open` with its bytes) waits
-    /// for the save too, then opens.
+    /// #1315 review: a document dropped or picked on the web (`file.open` with its bytes) opens
+    /// beside one whose save is still in the picker, asking nothing.
     #[test]
-    fn web_save_before_open_opens_the_file_once_saved() {
+    fn web_open_opens_beside_a_save_in_flight() {
         let dir = scratch("web-open-after-save");
         let bytes = std::fs::read(docx_on_disk(&dir, "Picked document")).unwrap();
-        let (mut a, saves, last) = web_picker_app();
+        let (mut a, _saves, _last) = web_picker_app();
+        let first = a.session.document_id();
+        a.execute("file.save", json!({})).unwrap();
         let data = wordcraft_engine::cmd::insert::base64_encode(&bytes);
         a.run("file.open", json!({"path": "picked.docx", "data": data})).unwrap();
-        assert_eq!(prompt(&a), Some("saveChanges"));
-        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
-        a.settle_async_saves();
-        assert!(body_text(&a).contains(UNSAVED), "nothing opened while the picker is open");
-        saves.finish(last.get(), async_saves::SaveOutcome::Saved);
-        a.settle_async_saves();
+        assert_eq!(prompt(&a), None);
         assert!(body_text(&a).contains("Picked document"), "the picked file opened: {:?}", body_text(&a));
+        a.run("view.switchWindows", json!({"id": first})).unwrap();
+        assert!(body_text(&a).contains(UNSAVED), "the first document is still open");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// #1315: while the picker save is in flight the document's save isn't confirmed, so New
-    /// asks again instead of replacing it.
+    /// #1315: while the picker save is in flight the document's save isn't confirmed, so Close
+    /// asks again instead of closing it.
     #[test]
-    fn web_new_while_a_picker_save_is_in_flight_asks_first() {
+    fn web_close_while_a_picker_save_is_in_flight_asks_first() {
         let (mut a, _saves, _last) = web_picker_app();
         a.execute("file.save", json!({})).unwrap();
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         assert_eq!(prompt(&a), Some("saveChanges"));
         assert!(body_text(&a).contains(UNSAVED), "nothing was replaced");
     }
 
-    /// #1315: a save that ends after the document was replaced neither runs the held-back New on
-    /// the new document nor marks it unsaved.
+    /// #1315: a save that ends after another document is shown neither runs the held-back Close
+    /// on that document nor marks it unsaved.
     #[test]
     fn web_picker_save_ending_after_the_document_changed_leaves_the_new_one_alone() {
         for outcome in [async_saves::SaveOutcome::Saved, async_saves::SaveOutcome::Failed("gone".into())] {
             let (mut a, saves, last) = web_picker_app();
-            a.run("file.new", json!({})).unwrap();
+            a.run("file.close", json!({})).unwrap();
             a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
-            // Another document replaces it (an agent's or a script's command) while the picker is open.
+            // Another document is shown (an agent's or a script's command) while the picker is open.
             a.execute("file.new", json!({})).unwrap();
             a.execute("text.insert", json!({"text": "Second document"})).unwrap();
             a.session.dirty = false;
             saves.finish(last.get(), outcome.clone());
             a.settle_async_saves();
-            assert!(body_text(&a).contains("Second document"), "{outcome:?}: the held-back New didn't run on it");
+            assert!(body_text(&a).contains("Second document"), "{outcome:?}: the held-back Close didn't run on it");
             assert!(!a.session.dirty, "{outcome:?}: the new document isn't marked unsaved");
             assert_eq!(prompt(&a), None, "{outcome:?}");
         }
     }
 
-    /// A new document has no path: Save goes through Save As, and cancelling that cancels the New.
+    /// A new document has no path: Save goes through Save As, and cancelling that cancels the Close.
     #[test]
     fn save_as_cancelled_keeps_the_document() {
         let mut a = typed();
         a.services.pick_save = Some(Box::new(|_| None));
-        a.run("file.new", json!({})).unwrap();
+        a.run("file.close", json!({})).unwrap();
         a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
         assert_eq!(prompt(&a), None);
         assert!(body_text(&a).contains(UNSAVED));
@@ -7100,35 +7148,21 @@ mod tests {
         }
     }
 
-    /// Envelopes, Labels and Finish & Merge replace the document with a new one, like New, but
-    /// the ribbon ran them at once and the unsaved document was gone without a question.
+    /// Envelopes, Labels and Finish & Merge open their result as a new document beside the
+    /// unsaved one, like New, asking nothing.
     #[test]
-    fn mailings_ask_before_replacing_unsaved_work() {
+    fn mailings_open_beside_unsaved_work() {
         for id in MAILINGS {
             let mut a = typed();
             a.run("mailings.recipients", json!({"csv": "Name\nAda"})).unwrap();
             let document = a.session.document_id();
             a.run(id, mailing(id)).unwrap();
-            assert_eq!(prompt(&a), Some("saveChanges"), "{id}");
-            assert_eq!(a.session.document_id(), document, "{id}: untouched while the prompt is up");
-
-            a.run("ui.saveChanges", json!({"answer": "cancel"})).unwrap();
-            assert_eq!(prompt(&a), None);
-            assert_eq!(a.session.document_id(), document, "{id}: Cancel keeps the document");
-            assert!(body_text(&a).contains(UNSAVED));
-            assert!(a.session.dirty);
-
-            a.run(id, mailing(id)).unwrap();
-            a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
-            assert_eq!(prompt(&a), None);
-            assert_ne!(a.session.document_id(), document, "{id}: Don't Save makes the new document");
+            assert_eq!(prompt(&a), None, "{id}");
+            assert_ne!(a.session.document_id(), document, "{id}: the result is a new document");
             assert_eq!(a.session.path, None);
+            a.run("view.switchWindows", json!({"id": document})).unwrap();
+            assert!(body_text(&a).contains(UNSAVED) && a.session.dirty, "{id}: the unsaved document is still open");
         }
-        // A `path` that isn't text merges into a new document, like no path at all.
-        let mut a = typed();
-        a.run("mailings.recipients", json!({"csv": "Name\nAda"})).unwrap();
-        a.run("mailings.finish", json!({"path": null})).unwrap();
-        assert_eq!(prompt(&a), Some("saveChanges"));
     }
 
     /// A clean document is replaced straight away, like New; a merge written to a file
@@ -7157,7 +7191,7 @@ mod tests {
     }
 
     /// The result is a new, untitled document: Save, AutoSave and the title never point at the
-    /// file the original came from, even after Save in the prompt wrote that file.
+    /// file the original came from.
     #[test]
     fn mailings_results_never_save_over_the_original() {
         for id in MAILINGS {
@@ -7170,14 +7204,9 @@ mod tests {
             assert!(a.autosaves());
             a.run("mailings.recipients", json!({"csv": "Name\nAda"})).unwrap();
             a.run("text.insert", json!({"text": "Again "})).unwrap();
-            a.run(id, mailing(id)).unwrap();
-            a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
-            assert_eq!(prompt(&a), None);
             let saved = std::fs::read(&path).unwrap();
-            assert!(
-                wordcraft_engine::io::open_path(&path).unwrap().plain_text(wordcraft_doc::StoryRef::Body).contains("Revised Again Signed"),
-                "{id}: Save wrote the document first"
-            );
+            a.run(id, mailing(id)).unwrap();
+            assert_eq!(prompt(&a), None);
 
             assert_eq!(a.session.path, None, "{id}");
             assert!(!a.saved_here() && !a.autosaves(), "{id}: AutoSave doesn't cover the result");
@@ -7210,26 +7239,28 @@ mod tests {
         }
     }
 
-    /// Review finding: with undo kept across the swap, an agent's Undo brought document A back
-    /// under the id of the mailing result B while a prompt about B was up, and Don't Save then
-    /// threw away A. The history starts afresh instead, so the prompt only ever discards B.
+    /// Review finding: an agent's Undo while a prompt about the mailing result B was up must not
+    /// bring document A back under B, where Don't Save would throw A away. The result is its
+    /// own document: Undo stays in B, and Don't Save closes B and shows A, unsaved work intact.
     #[test]
     fn undo_after_a_mailing_cannot_redirect_a_pending_prompt() {
         for id in MAILINGS {
             let mut a = typed();
             a.execute("mailings.recipients", json!({"csv": "Name\nAda"})).unwrap();
+            let first = a.session.document_id();
             a.execute(id, json!({})).unwrap();
-            let result = body_text(&a);
             let b = a.session.document_id();
-            assert!(a.session.dirty, "{id}: the result is unsaved");
-            a.run("file.new", json!({})).unwrap();
+            assert_ne!(b, first, "{id}");
+            a.run("text.insert", json!({"text": "Edited result "})).unwrap();
+            a.run("file.close", json!({})).unwrap();
             assert_eq!(prompt(&a), Some("saveChanges"), "{id}");
 
             a.execute("edit.undo", json!({})).unwrap();
             assert_eq!(a.session.document_id(), b, "{id}");
-            assert_eq!(body_text(&a), result, "{id}: nothing from before the mailing comes back");
             a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
-            assert_ne!(a.session.document_id(), b, "{id}: Don't Save discarded the document it asked about");
+            assert!(!a.session.is_open(b), "{id}: Don't Save closed the document it asked about");
+            assert_eq!(a.session.document_id(), first, "{id}");
+            assert!(body_text(&a).contains(UNSAVED) && a.session.dirty, "{id}");
         }
     }
 
@@ -8637,10 +8668,11 @@ mod tests {
         assert!(!a.recipient_list_pending);
         inbox.lock().unwrap().push(("notes.txt".into(), b"A plain text document.\nAnother line.\n".to_vec()));
         a.drain_inbox();
-        assert_eq!(prompt(&a), Some("saveChanges"), "the TXT opens like any document");
-        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
-        assert_eq!(a.session.merge.headers, vec!["Name", "City"], "the recipients stay");
+        assert_eq!(prompt(&a), None, "the TXT opens like any document, beside the first");
         assert!(body_text(&a).contains("A plain text document."), "the TXT opened as a document");
+        let first = a.session.documents().first().map(|d| d.id).unwrap();
+        a.run("view.switchWindows", json!({"id": first})).unwrap();
+        assert_eq!(a.session.merge.headers, vec!["Name", "City"], "the recipients stay with their document");
         // A cancelled picker leaves nothing pending once the user does something else.
         a.run("ui.openRecipientList", json!({})).unwrap();
         a.run("format.bold", json!({})).unwrap();

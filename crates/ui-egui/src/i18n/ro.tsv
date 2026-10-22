@@ -2693,6 +2693,7 @@ template	Letter	Scrisoare
 	Add gradient stop	Add gradient stop
 	Angle	Angle
 	Center Glow	Center Glow
+	Close Document	Închidere document
 	Continue from previous section	Continue from previous section
 	Dark Variations	Dark Variations
 	Deep	Deep
@@ -2756,6 +2757,8 @@ template	Letter	Scrisoare
 	Show the ribbon	Show the ribbon
 	Soft	Soft
 	Solid fill	Solid fill
+	Switch Windows	Comutare ferestre
+	Switch\nWindows	Comutare\nferestre
 	Templates you save in your templates folder show up here.	Templates you save in your templates folder show up here.
 	Underline Color	Underline Color
 	User templates:	User templates:

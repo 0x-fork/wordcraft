@@ -514,6 +514,11 @@ impl CommentDrafts {
         }
         self
     }
+
+    /// Nothing typed and not yet written.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.edits.is_empty() && self.replies.is_empty()
+    }
 }
 
 /// The pending draft of comment `id`'s text in the open document, if any.

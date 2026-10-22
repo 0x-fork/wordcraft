@@ -2783,6 +2783,7 @@ preview	Title	Esempio
 # Paper sizes, Go To, bookmarks and print labels the Croatian, Swedish and Vietnamese catalogs added
 	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10,12" × 14,33"
 	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7,17" × 10,12"
+	Close Document	Chiudi documento
 	Executive   7.25" × 10.50"	Executive   7,25" × 10,50"
 	Legal   8.50" × 14.00"	Legal   8,50" × 14,00"
 	Letter   8.50" × 11.00"	Letter   8,50" × 11,00"
@@ -2799,3 +2800,5 @@ template	Letter	Lettera
 	More tabs	Altre schede
 # #3013: Insert Table of Figures
 	Include label and number	Includi etichetta e numero
+	Switch Windows	Cambia finestra
+	Switch\nWindows	Cambia\nfinestra

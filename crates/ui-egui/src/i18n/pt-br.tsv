@@ -2372,6 +2372,7 @@
 	Deep	Profundo
 	Lit from Bottom	Iluminado de baixo
 	Center Glow	Brilho central
+	Close Document	Fechar Documento
 # File › Home greeting
 	Good morning	Bom dia
 	Good afternoon	Boa tarde
@@ -2379,3 +2380,5 @@
 	More tabs	Mais guias
 # #3013: Insert Table of Figures
 	Include label and number	Incluir rótulo e número
+	Switch Windows	Alternar Janelas
+	Switch\nWindows	Alternar\nJanelas

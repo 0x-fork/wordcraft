@@ -2645,6 +2645,7 @@ preview	Title	Naslov
 	AutoFit to window	AutoFit to window
 	Center Glow	Center Glow
 	Chapter 1	Chapter 1
+	Close Document	Zapri dokument
 	Commas	Commas
 	Continue from previous section	Continue from previous section
 	Dark Variations	Dark Variations
@@ -2740,6 +2741,8 @@ preview	Title	Naslov
 	Soft	Soft
 	Solid fill	Solid fill
 	Spike	Spike
+	Switch Windows	Preklopi okna
+	Switch\nWindows	Preklopi\nokna
 	Table size	Table size
 	Templates you save in your templates folder show up here.	Templates you save in your templates folder show up here.
 	The measurement must be between {min} and {max}.	The measurement must be between {min} and {max}.

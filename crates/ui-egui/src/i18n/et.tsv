@@ -2394,6 +2394,7 @@
 	Deep	Sügav
 	Lit from Bottom	Alt valgustatud
 	Center Glow	Keskne kuma
+	Close Document	Sulge dokument
 # File › Home greeting
 	Good morning	Tere hommikust
 	Good afternoon	Tere päevast
@@ -2401,3 +2402,5 @@
 	More tabs	Veel vahekaarte
 # #3013: Insert Table of Figures
 	Include label and number	Lisa silt ja number
+	Switch Windows	Vaheta aknaid
+	Switch\nWindows	Vaheta\naknaid

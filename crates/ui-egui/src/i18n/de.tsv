@@ -2359,6 +2359,7 @@
 	Deep	Tief
 	Lit from Bottom	Von unten beleuchtet
 	Center Glow	Leuchten aus der Mitte
+	Close Document	Dokument schließen
 # File › Home greeting
 	Good morning	Guten Morgen
 	Good afternoon	Guten Tag
@@ -2366,3 +2367,5 @@
 	More tabs	Weitere Registerkarten
 # #3013: Insert Table of Figures
 	Include label and number	Bezeichnung und Nummer einbeziehen
+	Switch Windows	Fenster wechseln
+	Switch\nWindows	Fenster\nwechseln
