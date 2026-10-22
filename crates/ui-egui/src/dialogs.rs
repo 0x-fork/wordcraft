@@ -2597,7 +2597,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.ctx().input_mut(|i| i.events.retain(|e| !swallow_shortcut_text(swallow, e)));
             }
             let r = ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Type a command, e.g. \"insert table\"")).desired_width(380.0));
-            r.request_focus();
+            // Only when it lacks focus: `request_focus` always interrupts IME, and on X11 that
+            // recreates the XIM context, so asking every frame left fcitx taking no keys (#2986).
+            if !r.has_focus() {
+                r.request_focus();
+            }
             let reg = app.session.registry.clone();
             // An empty box suggests a few common commands, as Word's Search does.
             let mut hits: Vec<&wordcraft_engine::CommandSpec> = if query.trim().is_empty() {
@@ -3822,7 +3826,10 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
         ui.vertical(|ui| match what {
             GoToWhat::Page => {
                 ui.label(tl!("Enter page number:"));
-                ui.add(egui::TextEdit::singleline(target).desired_width(220.0)).request_focus();
+                let r = ui.add(egui::TextEdit::singleline(target).desired_width(220.0));
+                if !r.has_focus() {
+                    r.request_focus();
+                }
                 ui.label(egui::RichText::new(tl!("Type +2 or -1 to move from the page you are on.")).weak());
             }
             GoToWhat::Bookmark => {
@@ -3899,7 +3906,10 @@ fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, category: &mut
     let t = Tokens::get(ui.ctx());
     ui.set_width(560.0);
     // Typing goes to the search box (never to the document behind the dialog).
-    ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Search icons")).desired_width(560.0)).request_focus();
+    let r = ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Search icons")).desired_width(560.0));
+    if !r.has_focus() {
+        r.request_focus();
+    }
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
@@ -4229,6 +4239,77 @@ mod tests {
         let reg = h.state().session.registry.clone();
         assert!(command_matches(reg.get("insert.table").unwrap(), "INSERT"), "tr: INSERT finds Table");
         crate::i18n::set_current(crate::i18n::Lang::EN);
+    }
+
+    /// #2986: a box that keeps the keyboard asks for focus only while it lacks it. `request_focus`
+    /// always interrupts IME; on X11 that recreates the XIM context, and Search asking every frame
+    /// left fcitx taking no keys at all. Once the box has focus, no frame interrupts, and typing lands;
+    /// after Tab takes the keyboard away, the box takes it back with one reset, not one per frame.
+    #[test]
+    fn boxes_that_keep_focus_do_not_interrupt_ime_every_frame() {
+        fn typed(d: Option<&Dialog>) -> Option<&str> {
+            match d? {
+                Dialog::Commands { query, .. } | Dialog::Icons { query, .. } => Some(query.as_str()),
+                Dialog::Find { goto_target, .. } => Some(goto_target.as_str()),
+                Dialog::Refs(r) => match r.as_ref() {
+                    crate::dialogs_refs::RefsDialog::NewLabel(f) => Some(f.new_label.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        for name in ["commands", "icons", "goto", "newLabel"] {
+            let mut app = app_with("Unchanged document");
+            let dialog = match name {
+                "newLabel" => Dialog::Refs(Box::new(crate::dialogs_refs::RefsDialog::NewLabel(crate::dialogs_refs::CaptionForm::read(&app)))),
+                _ => Dialog::open(name, &mut app).unwrap(),
+            };
+            app.dialog = Some(dialog);
+            let mut h = app_harness(app);
+            // The box takes the keyboard from the page in the first frames.
+            h.run_steps(4);
+            let interrupted =
+                |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|i| i.should_interrupt_composition);
+            for frame in 0..6 {
+                h.step();
+                assert_eq!(interrupted(&h), Some(false), "{name}: frame {frame} resets the input method");
+            }
+            for (k, t) in [(egui::Key::A, "a"), (egui::Key::B, "b")] {
+                h.event(key(k));
+                h.event(egui::Event::Text(t.into()));
+                h.step();
+                assert_eq!(interrupted(&h), Some(false), "{name}: typing {t} resets the input method");
+            }
+            assert_eq!(typed(h.state().dialog.as_ref()), Some("ab"), "{name}: the keys reach the box");
+
+            // Tab moves the keyboard to the dialog's next control and the box takes it back. As
+            // egui-winit does, count a reset when IME comes back on or is interrupted while on (each
+            // recreates the XIM context): one or two for the round trip, then none, and the next
+            // key reaches the box.
+            let reset = |h: &egui_kittest::Harness<'_, WordApp>, on: &mut bool| {
+                let ime = h.output().platform_output.ime.as_ref();
+                let reset = ime.is_some_and(|i| !*on || i.should_interrupt_composition);
+                *on = ime.is_some();
+                reset
+            };
+            let mut on = true;
+            h.event(key(egui::Key::Tab));
+            let mut back = 0;
+            for _ in 0..4 {
+                h.step();
+                back += usize::from(reset(&h, &mut on));
+            }
+            assert!((1..=2).contains(&back), "{name}: Tab and back reset the input method {back} times");
+            for frame in 0..4 {
+                h.step();
+                assert!(!reset(&h, &mut on), "{name}: frame {frame} after Tab resets the input method");
+            }
+            h.event(key(egui::Key::C));
+            h.event(egui::Event::Text("c".into()));
+            h.step();
+            assert_eq!(typed(h.state().dialog.as_ref()), Some("abc"), "{name}: the box has the keyboard back after Tab");
+        }
     }
 
     /// Open the Paragraph dialog and press OK without changing anything.

@@ -484,7 +484,9 @@ fn numbering_ui(ui: &mut Ui, f: &mut CaptionForm, was: &CaptionForm) -> Next {
 fn new_label_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) -> Next {
     ui.label(tl!("Label:"));
     let r = ui.add(egui::TextEdit::singleline(&mut f.new_label).desired_width(260.0));
-    r.request_focus();
+    if !r.has_focus() {
+        r.request_focus();
+    }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     let name: String = f.new_label.chars().filter(|c| !matches!(c, '"' | '\\') && !c.is_control()).take(40).collect::<String>().trim().to_string();
     if ok && !name.is_empty() {
