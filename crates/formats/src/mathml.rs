@@ -755,12 +755,8 @@ fn elem(e: &El, depth: usize, budget: &mut usize) -> Arg {
             let is_box = has("box") || has("roundedbox") || has("circle");
             let (top, right) = (has("top") || actuarial, has("right") || actuarial);
             let has_border = is_box || top || has("bottom") || has("left") || right;
-            let strike = [
-                has("horizontalstrike"),
-                has("verticalstrike"),
-                has("updiagonalstrike") || has("cross"),
-                has("downdiagonalstrike") || has("cross"),
-            ];
+            let strike =
+                [has("horizontalstrike"), has("verticalstrike"), has("updiagonalstrike") || has("cross"), has("downdiagonalstrike") || has("cross")];
             if has_border || strike.iter().any(|&s| s) {
                 let hide = if is_box {
                     [false; 4]

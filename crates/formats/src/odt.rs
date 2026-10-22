@@ -1219,9 +1219,8 @@ impl Styles {
                         };
                         // The fo: value governs Latin text; the Asian and complex-script values
                         // stand in only when a style sets nothing else.
-                        let weight = get(&a, "fo:font-weight")
-                            .or_else(|| get(&a, "style:font-weight-asian"))
-                            .or_else(|| get(&a, "style:font-weight-complex"));
+                        let weight =
+                            get(&a, "fo:font-weight").or_else(|| get(&a, "style:font-weight-asian")).or_else(|| get(&a, "style:font-weight-complex"));
                         if let Some(w) = weight {
                             d.bold = Some(is_bold(w));
                         }
@@ -1229,9 +1228,8 @@ impl Styles {
                             let v = v.trim();
                             v.eq_ignore_ascii_case("italic") || v.eq_ignore_ascii_case("oblique")
                         };
-                        let style = get(&a, "fo:font-style")
-                            .or_else(|| get(&a, "style:font-style-asian"))
-                            .or_else(|| get(&a, "style:font-style-complex"));
+                        let style =
+                            get(&a, "fo:font-style").or_else(|| get(&a, "style:font-style-asian")).or_else(|| get(&a, "style:font-style-complex"));
                         if let Some(v) = style {
                             d.italic = Some(is_italic(v));
                         }
