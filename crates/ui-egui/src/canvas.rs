@@ -3385,9 +3385,6 @@ pub(crate) fn caret_contrast(bg: wordcraft_doc::props::Rgb) -> Color32 {
     if (l + 0.05) * (l + 0.05) >= 0.05 * 1.05 { Color32::BLACK } else { Color32::WHITE }
 }
 
-/// The caret colour at page point (`x`, `y`) of page `page`: [`caret_contrast`] of the paper,
-/// shading or highlight there. Cached until the layout, the view or the point changes, so the
-/// blink doesn't rebuild the page's draw list every frame.
 /// The frame around the equation being edited, on screen: Word's outline, the grip at its top
 /// left and the options strip inside its right edge.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -3411,6 +3408,9 @@ fn equation_frame(page: Rect, bx: &wordcraft_layout::hit::EquationBox, scale: f3
     EquationFrame { outline, grip, strip }
 }
 
+/// The caret colour at page point (`x`, `y`) of page `page`: [`caret_contrast`] of the paper,
+/// shading or highlight there. Cached until the layout, the view or the point changes, so the
+/// blink doesn't rebuild the page's draw list every frame.
 fn caret_color_at(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, page: usize, x: f32, y: f32, view: u64, dim_body: bool) -> Color32 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (std::sync::Arc::as_ptr(layout) as usize, page, x.to_bits(), y.to_bits(), view).hash(&mut h);
@@ -4924,8 +4924,6 @@ mod tests {
         }
     }
 
-    /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
-    /// mouse's way to it), so it opens the same menu and leaves the caret where the menu needs it.
     /// Word's frame around the equation being edited: as wide as the equation plus the options
     /// strip at its right, as tall as its line, with the grip over its top-left corner. The
     /// strip and grip keep their screen size at every zoom.
@@ -4945,6 +4943,8 @@ mod tests {
         }
     }
 
+    /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
+    /// mouse's way to it), so it opens the same menu and leaves the caret where the menu needs it.
     #[cfg(target_os = "macos")]
     #[test]
     fn control_click_on_macos_opens_the_context_menu() {
