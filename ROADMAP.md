@@ -270,6 +270,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-12 | Holding a click on the ribbon or toolbar no longer scrolls the document up (#1019): a double-click in the header or footer area left a text drag running, so the next press anywhere drove the edge auto-scroll; a drag now ends with the button, wherever it's released |
 | 2026-10-12 | Tracked insertions and deletions inside a field result (a `=SUM(ABOVE)` subtotal) are kept as revisions: Accept All and Reject All act on them and a save writes the `w:del` back (#1037) |
 | 2026-10-12 | Document title opens Rename Document; the account badge opens Options › General for user name and initials. `file.rename {name}` preserves file extensions and refuses an existing destination; unsaved names become the suggested save name without changing the Title property. |
+| 2026-10-14 | Tables nest 24 deep at most, the depth the .docx reader and writer keep (#1596): pasting a table into its own cell again and again no longer builds a document that crashes when it is saved as JSON, copied, closed or replaced by a new one. A table that would go deeper arrives as its paragraphs, text kept, and Insert › Table in a cell 24 tables deep says why it can't. Word has no limit |
 | 2026-10-13 | Rounded rectangles (#1476): a `roundRect` keeps the corner radius its file gives it (`adj`), on screen, in PDF and when saved; all were drawn with a 16% corner |
 | 2026-10-13 | PAGEREF in headers and footers (#1477): "Page X of Y" with Y a page reference to a bookmark at each letter's end shows each letter's own total instead of the result stored in the file |
 | 2026-10-13 | Replace All respects locked content controls with Track Changes on or off; it refuses the entire batch before editing when any match would change locked content or remove a control locked against deletion |
@@ -627,6 +628,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-12 | trivial | Progress log: a press on the ribbon no longer scrolls the document (#1019) |
 | 2026-10-12 | trivial | Progress log: Ctrl+drag copies an object (#1014) |
 | 2026-10-12 | trivial | Document title opens Rename Document; the account badge opens Options › General for user name and initials. |
+| 2026-10-14 | trivial | Progress log: tables nest 24 deep at most (#1596) |
 | 2026-10-13 | trivial | Progress log: rounded rectangle corners (#1476) |
 | 2026-10-13 | trivial | Progress log: PAGEREF in headers and footers (#1477) |
 | 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |
