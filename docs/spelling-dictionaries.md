@@ -31,7 +31,7 @@ WordCraft looks for the first of these file names (each name means a `<name>.aff
 | Turkish | `tr_TR`, `tr-TR`, `tr` | LibreOffice `dict-tr` |
 | Spanish (Spain) | `es_ES`, `es-ES`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
 | Spanish (Mexico) | `es_MX`, `es-MX`, `es_419`, `es-419`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
-| Spanish (Latin America, and the other Spanish regions of the Americas) | `es_419`, `es-419`, `es_ANY`, `es`, `es_US`, `es_MX` | LibreOffice `dict-es` (RLA-ES) |
+| Spanish (Latin America, and the other Spanish regions of the Americas) | `es_419`, `es-419`, `es_ANY`, `es`, `es_US`, `es_MX`, `es_AR`, `es-AR` | LibreOffice `dict-es` (RLA-ES) |
 | Spanish (Uruguay) | `es_UY`, `es-UY`, `es_AR`, `es-AR`, `es_419`, `es-419`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
 
 Every Portuguese region uses the same `pt_BR` dictionary, so text marked *Português (Portugal)*
