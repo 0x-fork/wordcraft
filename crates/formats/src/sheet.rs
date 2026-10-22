@@ -824,7 +824,8 @@ fn iso_time(v: &str) -> Option<String> {
         return Some(if s == 0 { format!("{h:02}:{m:02}") } else { format!("{h:02}:{m:02}:{s:02}") });
     }
     // xs:time: hh:mm[:ss[.sss]][Z|+...]
-    let hms: Vec<u32> = t.split(['Z', '+', '-']).next().unwrap_or("").split(':').filter_map(|p| p.split('.').next().and_then(|x| x.parse().ok())).collect();
+    let hms: Vec<u32> =
+        t.split(['Z', '+', '-']).next().unwrap_or("").split(':').filter_map(|p| p.split('.').next().and_then(|x| x.parse().ok())).collect();
     if let [h, mi, rest @ ..] = hms.as_slice() {
         let s = rest.first().copied().unwrap_or(0);
         return Some(if s == 0 { format!("{h:02}:{mi:02}") } else { format!("{h:02}:{mi:02}:{s:02}") });
@@ -994,9 +995,7 @@ fn ods_value(c: &OCell) -> String {
         ("date", Some(v)) => iso_datetime(v).unwrap_or_else(|| c.text.clone()),
         ("time", Some(v)) => iso_time(v).unwrap_or_else(|| c.text.clone()),
         ("boolean", Some(v)) => if v.eq_ignore_ascii_case("true") || v == "1" { "TRUE" } else { "FALSE" }.into(),
-        ("percentage" | "currency", Some(v)) if c.text.trim().is_empty() => {
-            v.parse::<f64>().map(number).unwrap_or_else(|_| c.text.clone())
-        }
+        ("percentage" | "currency", Some(v)) if c.text.trim().is_empty() => v.parse::<f64>().map(number).unwrap_or_else(|_| c.text.clone()),
         ("string", Some(v)) if c.text.trim().is_empty() => v.to_string(),
         _ => c.text.clone(),
     }
