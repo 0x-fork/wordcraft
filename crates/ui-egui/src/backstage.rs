@@ -57,14 +57,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
                 resp
             } else {
-                let (r, resp) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::click());
-                icons::paint(
-                    ui.painter(),
-                    Rect::from_center_size(pos2(r.min.x + 26.0, r.center().y), vec2(18.0, 18.0)),
-                    "chevronLeft",
-                    egui::Color32::WHITE,
-                    egui::Color32::WHITE,
-                );
+                // The hit area is scoped to the chevron, not the whole 200px-wide row (#3041):
+                // the row reads as plain sidebar background next to it, so clicking there must
+                // not also close the File page, same as the macOS chevron fix (#2972) below.
+                let (r, _) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::hover());
+                let c = pos2(r.min.x + 26.0, r.center().y);
+                let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, r.height())), ui.id().with("backstage_back"), Sense::click());
+                icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
                 resp
             };
             // Escape in the built-in file browser closes only the browser.
@@ -1123,7 +1122,7 @@ mod tests {
         h.state_mut().run("ui.backstage", json!({"value": true})).unwrap();
         h.run_steps(4);
         // The arrow heads the File page's side bar; it has no label to find it by.
-        let arrow = egui::pos2(100.0, 32.0);
+        let arrow = egui::pos2(26.0, 32.0);
         h.event(egui::Event::PointerMoved(arrow));
         for pressed in [true, false] {
             h.event(egui::Event::PointerButton { pos: arrow, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
@@ -1131,6 +1130,19 @@ mod tests {
         h.run_steps(4);
         assert!(!h.state().ui.backstage, "the arrow closes the File page");
         assert!(h.state().canvas.focused, "and the page has the keyboard");
+    }
+
+    /// #3041: clicking the plain sidebar background next to the back arrow must not also close
+    /// the File page — only the chevron itself does, same scoping as the macOS chevron (#2972).
+    #[test]
+    fn clicking_beside_the_back_arrow_does_not_close_the_file_page() {
+        let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        let mut h = a11y_harness(a);
+        h.state_mut().run("ui.backstage", json!({"value": true})).unwrap();
+        h.run_steps(4);
+        // Well clear of the chevron (centred at x=26) but still inside the old 200px-wide row.
+        click_at(&mut h, egui::pos2(100.0, 32.0));
+        assert!(h.state().ui.backstage, "clicking beside the arrow leaves the File page open");
     }
 
     /// A harness over the whole app; kittest always runs AccessKit, so a frame that names as
@@ -1229,7 +1241,7 @@ mod tests {
                 a.ui.start_screen = true;
                 assert!(a.start_screen());
             }
-            let back = if mac { mac_chevron(&a) } else { egui::pos2(100.0, 32.0) };
+            let back = if mac { mac_chevron(&a) } else { egui::pos2(26.0, 32.0) };
             let mut h = a11y_harness(a);
             if !start {
                 h.state_mut().run("ui.backstage", json!({"value": true})).unwrap();
