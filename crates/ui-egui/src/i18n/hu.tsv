@@ -2663,6 +2663,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+	Dot-dot-dash	Pont-pont-vonal
+	More Underlines…	További aláhúzások…
+	Underline Color	Aláhúzás színe
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Cellák egyesítése felosztás előtt
 	Table size	Táblázat mérete

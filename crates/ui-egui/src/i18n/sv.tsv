@@ -2680,6 +2680,9 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+	Dot-dot-dash	Punkt-punkt-streck
+	More Underlines…	Fler understrykningar…
+	Underline Color	Understrykningsfärg
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Sammanfoga celler före delning
 	Table size	Tabellstorlek

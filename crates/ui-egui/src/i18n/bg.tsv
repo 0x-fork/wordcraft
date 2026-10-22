@@ -2657,6 +2657,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+	Dot-dot-dash	Точка-точка-тире
+	More Underlines…	Още подчертавания…
+	Underline Color	Цвят на подчертаването
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Обединяване на клетките преди разделяне
 	Table size	Размер на таблицата

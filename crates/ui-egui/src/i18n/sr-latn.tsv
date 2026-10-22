@@ -2277,6 +2277,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Uska
 	Medium	Srednja
+	Dot-dot-dash	Tačka-tačka-crta
+	More Underlines…	Još podvlačenja…
+	Underline Color	Boja podvlačenja
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Spoji ćelije pre deljenja
 	Table size	Veličina tabele

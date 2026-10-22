@@ -2301,6 +2301,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Kitsas
 	Medium	Keskmine
+	Dot-dot-dash	Punkt-punkt-kriipsjoon
+	More Underlines…	Rohkem allajooni…
+	Underline Color	Allajoone värv
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Ühenda lahtrid enne tükeldamist
 	Table size	Tabeli suurus

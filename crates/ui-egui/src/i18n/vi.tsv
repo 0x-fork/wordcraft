@@ -2707,6 +2707,9 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+	Dot-dot-dash	Nét chấm chấm gạch
+	More Underlines…	Kiểu gạch chân khác…
+	Underline Color	Màu gạch chân
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Gộp ô trước khi tách
 	Table size	Kích thước bảng

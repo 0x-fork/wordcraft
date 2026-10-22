@@ -2676,6 +2676,9 @@ preview	Title	Esempio
 # Reading Mode column widths (#1040)
 	Narrow	Stretta
 	Medium	Media
+	Dot-dot-dash	Punto punto linea
+	More Underlines…	Altre sottolineature…
+	Underline Color	Colore sottolineatura
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Unisci le celle prima di dividere
 	Table size	Dimensioni tabella

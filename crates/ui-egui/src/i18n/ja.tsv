@@ -2267,6 +2267,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	狭い
 	Medium	中
+	Dot-dot-dash	二点鎖線
+	More Underlines…	その他の下線…
+	Underline Color	下線の色
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	分割する前にセルを結合する
 	Table size	表のサイズ

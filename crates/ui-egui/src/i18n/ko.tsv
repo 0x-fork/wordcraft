@@ -2521,6 +2521,9 @@ preview	Title	제목
 	Any field	모든 필드
 	Matches: {count}	일치: {count}개
 	Show only records that will be merged	병합할 레코드만 표시
+	Dot-dot-dash	이점쇄선
+	More Underlines…	밑줄 더 보기…
+	Underline Color	밑줄 색
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	나누기 전에 셀 병합
 	Table size	표 크기

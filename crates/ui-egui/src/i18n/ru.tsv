@@ -2666,6 +2666,9 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+	Dot-dot-dash	Штрихпунктирный с двумя точками
+	More Underlines…	Другие подчёркивания…
+	Underline Color	Цвет подчёркивания
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Объединить ячейки перед разбиением
 	Table size	Размер таблицы

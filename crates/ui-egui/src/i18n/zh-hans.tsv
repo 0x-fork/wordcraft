@@ -2279,6 +2279,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+	Dot-dot-dash	双点划线
+	More Underlines…	其他下划线…
+	Underline Color	下划线颜色
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	拆分前合并单元格
 	Table size	表格尺寸
