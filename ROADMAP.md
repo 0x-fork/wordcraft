@@ -12,6 +12,8 @@ agent control. This page is the summary; the assessment is
 [`docs/gaps.md`](docs/gaps.md), and milestones and the current focus are in
 [`docs/roadmap.md`](docs/roadmap.md).
 
+> **Comment command update:** 2026-10-14 · malformed explicit IDs rejected; synthetic refusal, undo/redo and DOCX save/reopen checks (#1690 finding 3). Readiness estimates unchanged.
+
 ## Headline numbers (2026-10-10)
 
 | Number | Value | Kind |
@@ -266,6 +268,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-14 | Update Field works inside headers, footers, notes and text boxes, on the part being edited, as in Word (#1706); with the caret in the body it still leaves them alone, and printing updates every field in the document |
 | 2026-10-12 | Comments can show only for the selected text (#1055): Track Changes Options › Comments › "Only for the selected text" drops the margin column, and the comment under the caret, or the clicked one, floats beside the page (over its edge in a narrow window). The default stays "In the margin", as in Word; `review.trackingOptions {"commentDisplay"}` for agents |
 | 2026-10-12 | Clicking inside a selected comment's balloon moves the caret in its text (#1013); the click used to leave the balloon, so the caret could only be moved with the arrow keys. A press on any balloon now belongs to the balloon, not the page behind it |
+| 2026-10-14 | Comment commands refuse explicit fractional, negative or wrong-type IDs (#1690, finding 3). Malformed IDs no longer truncate floats or fall back to the caret; omitted IDs still use the caret for Delete and Resolve. Refused commands keep the document, selection and undo/redo history; valid operations have synthetic repeated DOCX save/reopen coverage |
 | 2026-10-12 | Page background pictures and textures (Design › Page Color › Fill Effects) are drawn (tiled or stretched) and kept on save instead of being dropped from the package (#999); PDF export paints them too |
 | 2026-10-12 | Holding a click on the ribbon or toolbar no longer scrolls the document up (#1019): a double-click in the header or footer area left a text drag running, so the next press anywhere drove the edge auto-scroll; a drag now ends with the button, wherever it's released |
 | 2026-10-12 | Tracked insertions and deletions inside a field result (a `=SUM(ABOVE)` subtotal) are kept as revisions: Accept All and Reject All act on them and a save writes the `w:del` back (#1037) |
@@ -624,6 +627,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-13 | trivial | Progress log: Insert › Bookmark deletes and goes to bookmarks (#1236) |
 | 2026-10-12 | trivial | Progress log: an option to show only the selected text's comment (#1055) |
 | 2026-10-12 | trivial | Progress log: clicking in a comment's text moves its caret (#1013) |
+| 2026-10-14 | trivial | Comment commands reject malformed explicit IDs instead of truncating floats or targeting the caret (#1690, finding 3); synthetic command, undo/redo and DOCX save/reopen coverage; readiness estimates unchanged |
 | 2026-10-12 | trivial | Progress log: a press on the ribbon no longer scrolls the document (#1019) |
 | 2026-10-12 | trivial | Progress log: Ctrl+drag copies an object (#1014) |
 | 2026-10-12 | trivial | Document title opens Rename Document; the account badge opens Options › General for user name and initials. |
