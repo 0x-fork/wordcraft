@@ -232,15 +232,16 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
         "type_text" => {
             let t = st("text").unwrap_or("");
             if a.get("paragraphs").and_then(Value::as_bool).unwrap_or(false) {
-                // One `text.insert`: `\r` is a paragraph break there (Enter's split), so the
-                // lines go in as one edit and one undo step, all or nothing, instead of a command
-                // (and a whole-document undo snapshot) per line.
+                // One `text.insert` with `paragraphs`: each break is Enter's own (its AutoFormat,
+                // and its refusal in a one-line control), but the lines go in as one edit and one
+                // undo step, all or nothing, instead of a command (and a whole-document undo
+                // snapshot) per line.
                 let t = t.replace("\r\n", "\n").replace('\r', "\n");
                 let lines = t.split(['\n', '\u{2029}']).count();
                 if lines > MAX_TYPED_PARAGRAPHS {
                     return ToolResult::error(format!("`text` has {lines} lines; type at most {MAX_TYPED_PARAGRAPHS} paragraphs per call"));
                 }
-                wrap(exec(b, "text.insert", json!({"text": t.replace('\n', "\r"), "raw": true})))
+                wrap(exec(b, "text.insert", json!({"text": t, "raw": true, "paragraphs": true})))
             } else {
                 wrap(exec(b, "text.insert", json!({"text": t, "raw": true})))
             }
