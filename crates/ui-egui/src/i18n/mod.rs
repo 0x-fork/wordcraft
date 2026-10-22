@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 25] = [
+pub static LANGUAGES: [LangInfo; 26] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -169,6 +169,8 @@ pub static LANGUAGES: [LangInfo; 25] = [
     LangInfo { code: "nl", name: "Nederlands", source: include_str!("nl.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Danish; `da`, `da-DK` and `da_DK.UTF-8` resolve here.
     LangInfo { code: "da", name: "Dansk", source: include_str!("da.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Romanian; `ro`, `ro-RO`, `ro_RO.UTF-8` and `ro-MD` resolve here.
+    LangInfo { code: "ro", name: "Română", source: include_str!("ro.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
