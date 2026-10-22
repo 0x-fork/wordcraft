@@ -1,7 +1,7 @@
 //! Programmatic control of the running app (agents, tests, MCP bridge).
 //!
 //! Methods (JSON lines over the host's transport, see `docs/control-protocol.md`):
-//! - `engine.execute {command, params}`: run any command (engine or `ui.*`)
+//! - `engine.execute {command, params, doc?}`: run any command (engine or `ui.*`)
 //! - `engine.commands {search?}`: engine and app print commands with enablement and parameters
 //! - `document.inspect`: document structure; `ui.inspect`: UI state, canvas geometry, perf
 //! - `ui.wheel {x, y, dx?, dy, unit?, phase?}`: a mouse-wheel / trackpad scroll at a window point.
@@ -12,6 +12,10 @@
 //! - `ui.screenshot {path?}`: PNG of the window; `ui.render {path?, page?, scale?}`: page PNG
 //!   (without `path`, both reply with the PNG as base64 `png`)
 //! - `ui.parity`: feature catalog parity
+//!
+//! `engine.execute`, `document.inspect` and `ui.render` take `doc`, the id of an open document
+//! (`view.switchWindows` lists them): they work on that document while the window keeps showing
+//! the active one. Without `doc` they work on the active document.
 
 use std::sync::mpsc::Sender;
 
@@ -61,6 +65,8 @@ pub fn inspect(app: &mut WordApp, ctx: &egui::Context) -> Value {
         "focused": app.canvas.focused,
         "title": app.title_stem(),
         "dirty": app.session.dirty,
+        "document": app.session.document_id(),
+        "documents": app.session.documents(),
         "perf": {"frameMs": app.frame_ms, "renderMs": app.canvas.render_ms, "layoutMs": app.session.layout().ms},
     })
 }
@@ -113,18 +119,99 @@ pub(crate) fn close_refused(app: &WordApp, id: &str, params: &Value) -> Option<&
         return None;
     }
     if id == "file.close" && app.session.dirty {
-        return Some("the document has unsaved changes: save it first, or pass {\"force\": true} to discard them and close");
+        return Some(UNSAVED);
     }
     // Comment text still being typed is unsaved work too (#1348): replacing the document would drop it.
     (crate::discards_document(id, params) && crate::panes::has_comment_drafts(app))
         .then_some("a comment is still being edited: finish it first, or pass {\"force\": true} to discard it")
 }
 
+const UNSAVED: &str = "the document has unsaved changes: save it first, or pass {\"force\": true} to discard them and close";
+
 /// The reply to a request that needs a document while none is open (#1129).
 const NO_DOCUMENT: &str = "no document is open; create one (file.new) or open one (file.open) first";
 
+/// The methods that take `doc`.
+const DOC_METHODS: &[&str] = &["engine.execute", "command", "document.inspect", "ui.render"];
+
+/// The open document other than the active one that a request's `doc` names; `None` for the
+/// active document (no `doc`, null, or the active document's id). An id that names no open
+/// document is an error.
+fn addressed(app: &WordApp, p: &Value) -> Result<Option<u64>, String> {
+    let id = match p.get("doc") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(v) => v.as_u64().ok_or("`doc` must be the id of an open document (view.switchWindows lists them)")?,
+    };
+    if !app.session.is_open(id) {
+        return Err(format!("no open document has id {id}"));
+    }
+    Ok((id != app.session.document_id()).then_some(id))
+}
+
+/// The reply to work run on another document: its result, or why it couldn't run or failed.
+fn reply<E: std::fmt::Display, F: std::fmt::Display>(r: Result<Result<Value, E>, F>) -> Outcome {
+    match r {
+        Ok(Ok(v)) => ok(v),
+        Ok(Err(e)) => err(e),
+        Err(e) => err(e),
+    }
+}
+
+/// A document method addressed to open document `doc`, which isn't the active one: it runs on
+/// that document, and the window keeps showing the active one.
+fn handle_in(app: &mut WordApp, doc: u64, method: &str, p: &Value) -> Outcome {
+    if app.no_document == Some(doc) {
+        return err(NO_DOCUMENT);
+    }
+    match method {
+        "document.inspect" => reply(app.session.with_document(doc, |s| s.run("document.inspect", p))),
+        "ui.render" => {
+            let page = p.get("page").and_then(Value::as_u64).unwrap_or(1);
+            let scale = p.get("scale").and_then(Value::as_f64).map_or(2.0, |v| v as f32);
+            let path = p.get("path").and_then(Value::as_str);
+            let r = app.session.with_document(doc, |s| match path {
+                Some(path) => s.run("file.exportPng", &json!({"path": path, "page": page, "scale": scale})).map_err(|e| e.to_string()),
+                None => render_png(s, page, scale),
+            });
+            reply(r)
+        }
+        _ => {
+            let Some(id) = p.get("command").or(p.get("id")).and_then(Value::as_str) else { return err("missing `command`") };
+            let params = p.get("params").cloned().filter(|v| !v.is_null()).unwrap_or(json!({}));
+            if id.starts_with("ui.") {
+                return err(format!("`{id}` works on the window: make the document active first (view.switchWindows {{\"id\": {doc}}})"));
+            }
+            // Close, with the same guard as the window's: unsaved changes need `force`.
+            if id == "file.close" {
+                let force = params.get("force").and_then(Value::as_bool) == Some(true);
+                if !force && app.session.documents().iter().any(|d| d.id == doc && d.dirty) {
+                    return err(UNSAVED);
+                }
+                return match app.session.close_document(doc) {
+                    Ok(()) => ok(json!({"closed": true, "id": doc, "documents": app.session.documents()})),
+                    Err(e) => err(e),
+                };
+            }
+            let r = app.session.with_document(doc, |s| s.run(id, &params));
+            // UI requests the command made carry `document`, so the window can tell they aren't
+            // about the document it shows.
+            for req in std::mem::take(&mut app.session.ui_requests) {
+                app.handle_request(&req);
+            }
+            reply(r)
+        }
+    }
+}
+
 pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
     let p = &req.params;
+    if DOC_METHODS.contains(&req.method.as_str()) {
+        match addressed(app, p) {
+            Ok(Some(doc)) => return handle_in(app, doc, &req.method, p),
+            Ok(None) => {}
+            Err(e) => return err(e),
+        }
+    }
     let s = |k: &str| p.get(k).and_then(Value::as_str);
     let f = |k: &str| p.get(k).and_then(Value::as_f64).map(|v| v as f32);
     match req.method.as_str() {
@@ -263,7 +350,7 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
                 },
                 // No path: the PNG travels in the reply. Never a fixed name in the shared
                 // temporary folder, where another user could have planted a link to a file.
-                None => match render_png(app, page, scale) {
+                None => match render_png(&app.session, page, scale) {
                     Ok(v) => ok(v),
                     Err(e) => err(e),
                 },
@@ -298,11 +385,11 @@ pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> O
 
 /// A page rendered by the engine, as base64 PNG in the reply (the same shape as the headless
 /// MCP server's `ui.render`).
-fn render_png(app: &WordApp, page: u64, scale: f32) -> Result<Value, String> {
+fn render_png(session: &wordcraft_engine::Session, page: u64, scale: f32) -> Result<Value, String> {
     let page = usize::try_from(page.max(1)).unwrap_or(usize::MAX).saturating_sub(1);
-    let l = app.session.export_layout();
-    let pg = l.pages.get(page).ok_or_else(|| format!("no page {}", page + 1))?;
-    let img = wordcraft_render::render_page(&app.session.doc, pg, scale.clamp(0.1, 8.0), &Default::default());
+    let l = session.export_layout();
+    let pg = l.pages.get(page).ok_or_else(|| format!("no page {}", page.saturating_add(1)))?;
+    let img = wordcraft_render::render_page(&session.doc, pg, scale.clamp(0.1, 8.0), &Default::default());
     let png = img.to_png();
     Ok(json!({"png": wordcraft_engine::cmd::insert::base64_encode(&png), "width": img.width, "height": img.height, "pages": l.pages.len()}))
 }
@@ -327,3 +414,7 @@ pub fn save_screenshot(image: &egui::ColorImage, path: Option<&str>) -> Value {
     }
     json!({"ok": true, "result": {"path": path, "width": w, "height": h}})
 }
+
+#[cfg(test)]
+#[path = "control_tests.rs"]
+mod tests;
