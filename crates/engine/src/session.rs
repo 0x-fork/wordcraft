@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wordcraft_doc::edit::Fragment;
 use wordcraft_doc::props::CharProps;
-use wordcraft_doc::{Document, Path, Pos, StoryRef, Table};
+use wordcraft_doc::{Document, PartKind, Path, Pos, StoryRef, Table};
 use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
 
 use crate::{CmdError, Registry};
@@ -404,6 +404,8 @@ pub struct Session {
     /// (#960): `insert.closeHeader` takes those still empty away again, as Word does, and saving
     /// leaves them out. Kept after that, so one an undo brings back goes again on the next close.
     pub new_header_parts: Vec<u32>,
+    /// The body selection a command left for a header or footer: `insert.closeHeader` puts it back.
+    pub hf_return: Option<Selection>,
     /// Undo and redo steps. Shared so `run` can snapshot both stacks cheaply (a pointer per
     /// step) and put them back exactly when a command fails.
     history: Vec<Arc<Undo>>,
@@ -666,6 +668,7 @@ impl Session {
             painter: None,
             status: String::new(),
             new_header_parts: Vec::new(),
+            hf_return: None,
             history: Vec::new(),
             undo_evicted: 0,
             redo: Vec::new(),
@@ -764,6 +767,12 @@ impl Session {
         let st = self.sel.focus.story;
         let (a, b) = self.sel.ordered();
         a == self.doc.start_of(st) && b == self.doc.end_of(st)
+    }
+
+    /// Whether the caret is in a header or footer.
+    pub fn in_header_footer(&self) -> bool {
+        let StoryRef::Part(id) = self.sel.focus.story else { return false };
+        self.doc.parts.get(&id).is_some_and(|p| matches!(p.kind, PartKind::Header | PartKind::Footer))
     }
 
     /// Document revision (bumped by every change).
@@ -1155,6 +1164,7 @@ impl Session {
         self.widened = None;
         self.edit_marks.clear();
         self.new_header_parts.clear();
+        self.hf_return = None;
         self.go_back_step = 0;
         self.view.outline.collapsed.clear();
         self.reset_history();
@@ -1206,6 +1216,7 @@ impl Session {
             status: _,
             // Headers just created to edit: closing checks they still exist and are empty.
             new_header_parts: _,
+            hf_return: _,
             history,
             undo_evicted,
             redo,
@@ -1423,6 +1434,9 @@ impl Session {
                     }
                 }
                 self.clamp_selection();
+                if sel_before.focus.story == StoryRef::Body && self.in_header_footer() {
+                    self.hf_return = Some(sel_before.clone());
+                }
                 // A selection command that moves the insertion point ends the typing group, like
                 // caret movement: typing, Select, typing are two undo steps (#419).
                 if !spec.mutates && self.sel != sel_before {

@@ -65,11 +65,13 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("insert.createFooter", "Footer", "Insert › Header & Footer", |s, v| create_hf(s, v, false))
             .params(r#"{"page"?: number (0-based; default: the caret's section)} — the footer that page shows, created if it has none, with the caret in it"#),
         CommandSpec::new("insert.closeHeader", "Close Header and Footer", "Header & Footer", |s, _| {
+            // Back where the caret was in the body, as Word does, not on page 1.
+            let back = s.hf_return.take().filter(|_| s.in_header_footer());
             if !new_empty_headers(s).is_empty() {
                 // Its own undo step; a protected document keeps it, and the caret still leaves.
                 let _ = s.run("insert.removeEmptyHeaders", &json!({}));
             }
-            s.sel = Selection::caret(s.doc.start_of(StoryRef::Body));
+            s.sel = back.unwrap_or_else(|| Selection::caret(s.doc.start_of(StoryRef::Body)));
             sel_result(s)
         })
         .pure(),
@@ -977,6 +979,28 @@ fn cover_page(s: &mut Session, v: &Value) -> CmdResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Closing the header or footer (Esc, the ribbon) puts the caret back where it was in the
+    /// body, not on page 1 (#3331).
+    #[test]
+    fn close_header_returns_to_the_body_selection() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("text.insert", &json!({"text": "One"})).unwrap();
+        s.run("insert.pageBreak", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": "Two words here"})).unwrap();
+        s.run("select.text", &json!({"text": "words"})).unwrap();
+        let before = s.sel.clone();
+        // A header written to stays.
+        s.run("insert.editHeader", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": "Head"})).unwrap();
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        assert_eq!(s.sel, before);
+        // An empty one made by a double-click on page 2 is taken away again.
+        s.run("insert.editFooter", &json!({"page": 1})).unwrap();
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        assert_eq!(s.sel, before);
+        assert_eq!(s.doc.last_section.footers, Default::default());
+    }
 
     /// #960: editing the header of a page that has none creates the one that page shows (first
     /// page, even page or default); typing goes into it, and closing an unwritten one takes it
