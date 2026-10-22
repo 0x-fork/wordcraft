@@ -3720,6 +3720,33 @@ fn mailings_results_are_new_untitled_documents() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A save that fails to write (no permission, disk full, a bad path) leaves the document's own
+/// save stamps untouched: `stamp_save` runs before the fallible write, so a prior version of this
+/// left `modified`/`created`/`last_modified_by`/`revision`/`zoom` changed for a save that never
+/// actually happened, which a later successful save would then persist (CodeRabbit catch on #3434).
+#[test]
+fn a_failed_save_leaves_the_save_stamps_untouched() {
+    // pid + nanos (not pid alone): a name no other test or run could already own, so there's
+    // nothing to pre-clean and nothing of anyone else's this test could delete by mistake. `dir`
+    // itself is deliberately never created: that's what makes the write below fail.
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-save-stamps-{}-{nanos}", std::process::id()));
+    assert!(!dir.exists(), "a fresh name");
+    let bogus = dir.join("does-not-exist").join("out.docx");
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "draft"}));
+    let core_before = s.doc.core.clone();
+    let zoom_before = s.doc.settings.zoom;
+
+    let error = s.run("file.save", &json!({"path": bogus.to_string_lossy()}));
+    assert!(error.is_err(), "the write fails: its parent directory doesn't exist");
+    assert!(!bogus.exists());
+    assert_eq!(s.doc.core, core_before, "modified/created/author/revision are unchanged");
+    assert_eq!(s.doc.settings.zoom, zoom_before);
+    assert!(s.path.is_none(), "the failed write never takes the document's path");
+    assert!(s.dirty, "still unsaved");
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn html_pictures_load_relative_to_the_file() {

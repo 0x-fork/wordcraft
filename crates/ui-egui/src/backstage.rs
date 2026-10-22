@@ -548,6 +548,19 @@ pub(crate) fn forget_open_error(ctx: &egui::Context) {
     });
 }
 
+/// The Save As page's write-failure message ([`WordApp::fail_save_as`]): this page's own
+/// render loop skips the status bar, so a failed write (no permission, disk full, a bad path)
+/// needs its own place to say why, or the page just sits there with a Browse… button and no clue.
+pub(crate) fn save_as_error_id() -> egui::Id {
+    egui::Id::new("backstage_save_as_error")
+}
+
+/// Drop the Save As page's error once File is closed or a later save succeeds, so it doesn't
+/// come back next time.
+pub(crate) fn forget_save_as_error(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<String>(save_as_error_id()));
+}
+
 /// Open a file from the Recent list. A file that can't be opened (deleted, moved, unreadable)
 /// leaves File open so the list can say why, rather than closing it on a greyed-out window.
 fn open_recent(app: &mut WordApp, path: &str) -> Result<(), String> {
@@ -580,6 +593,11 @@ fn open_page(app: &mut WordApp, ui: &mut Ui) {
 /// opens it, which is not what Save As is for.
 fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Save As");
+    let error = ui.ctx().data(|d| d.get_temp::<String>(save_as_error_id())).unwrap_or_default();
+    if !error.is_empty() {
+        ui.label(egui::RichText::new(&error).color(ui.visuals().error_fg_color));
+        ui.add_space(6.0);
+    }
     if ui.button(egui::RichText::new(tl!("Browse…")).font(medium(14.0))).clicked() {
         app.save_as_dialog();
     }
@@ -1412,6 +1430,104 @@ mod tests {
         assert_eq!(h.state().ui.backstage_page, "saveAs");
         assert_eq!(shown.get(), 0, "no native Save As dialog");
         assert!(!h.state().file_dialog_open());
+    }
+
+    /// Repro: a brand-new document, typed text, File > Save (unnamed) > Save As page > Browse…,
+    /// answered asynchronously by a native dialog (as the desktop host does), should land back on
+    /// the document, not the "no document" screen.
+    #[test]
+    fn backstage_save_browse_native_dialog_lands_on_the_document() {
+        use std::sync::mpsc::channel;
+        let shown: std::rc::Rc<std::cell::RefCell<Vec<(crate::FileDialogRequest, std::sync::mpsc::Sender<crate::FileDialogAnswer>)>>> =
+            Default::default();
+        let log = shown.clone();
+        let services = Services {
+            file_dialog: Some(Box::new(move |req| {
+                let (tx, rx) = channel();
+                log.borrow_mut().push((req, tx));
+                rx
+            })),
+            ..Default::default()
+        };
+        let dir = std::env::temp_dir().join(format!("wordcraft-backstage-save-repro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Document1.docx");
+
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("text.insert", json!({"text": "Hello from the repro"})).unwrap();
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_label("Save").click();
+        h.run_steps(4);
+        assert_eq!(h.state().ui.backstage_page, "saveAs", "unnamed Save opens Save As page");
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        assert!(h.state().file_dialog_open(), "Browse opened the native dialog");
+        let (_, tx) = shown.borrow_mut().pop().unwrap();
+        tx.send(Ok(vec![path.to_string_lossy().to_string()])).unwrap();
+        h.run_steps(6);
+        assert!(h.state().session.path.as_deref() == Some(path.as_path()), "the document was saved to the picked path");
+        assert!(!h.state().ui.backstage, "backstage closes once saved");
+        assert!(h.state().has_document(), "the document stays open after Save");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The Save As page's own render loop skips the status bar while Backstage is open, so a
+    /// write failure (no permission, disk full, a bad path) needs its own place to say why, or
+    /// the page just sits there with a Browse… button and no clue (CodeRabbit catch on #3434).
+    #[test]
+    fn backstage_save_browse_write_failure_shows_on_the_save_as_page() {
+        use std::sync::mpsc::channel;
+        let shown: std::rc::Rc<std::cell::RefCell<Vec<(crate::FileDialogRequest, std::sync::mpsc::Sender<crate::FileDialogAnswer>)>>> =
+            Default::default();
+        let log = shown.clone();
+        let services = Services {
+            file_dialog: Some(Box::new(move |req| {
+                let (tx, rx) = channel();
+                log.borrow_mut().push((req, tx));
+                rx
+            })),
+            ..Default::default()
+        };
+        let dir = std::env::temp_dir().join(format!("wordcraft-backstage-save-error-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // `dir` is deliberately never created, so the write fails: its parent doesn't exist.
+        let bogus = dir.join("missing").join("out.docx");
+
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("text.insert", json!({"text": "unsaved text"})).unwrap();
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_label("Save").click();
+        h.run_steps(4);
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        let (_, tx) = shown.borrow_mut().pop().unwrap();
+        tx.send(Ok(vec![bogus.to_string_lossy().to_string()])).unwrap();
+        h.run_steps(6);
+        assert!(h.state().ui.backstage && h.state().ui.backstage_page == "saveAs", "nothing was actually saved");
+        let msg = h.state().status_msg.as_ref().map(|(m, _)| m.clone()).expect("the failure set a status message");
+        assert!(!msg.is_empty());
+        // The same text is rendered on the Save As page itself, not just the (invisible, while
+        // Backstage is open) status bar.
+        h.get_by_label(msg.as_str());
     }
 
     #[test]
