@@ -2009,6 +2009,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
     let mut row_first = 0usize;
     // Spans skipped in a row because the next word didn't fit (see `skip`).
     let mut skipped = 0;
+    // A left tab past the right indent that wrapped to start the next line.
+    let mut wrapped_tab: Option<usize> = None;
     loop {
         // A line already sits on this row (a span before this one may have been skipped).
         let beside = !row_rest.is_empty() && lines.len() > row_first;
@@ -2110,15 +2112,26 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                         break;
                     }
                     xs.push(x);
-                    if ptab.is_none() && stop.pos > right_edge + 0.01 && j > c0 && stop.align == TabAlign::Left {
-                        // Tab past the right indent wraps (Word moves it to the next line).
-                        if let Some(c) = pl.clusters.get_mut(j) {
-                            c.adv = 0.0;
+                    if ptab.is_none() && stop.pos > right_edge + 0.01 && stop.align == TabAlign::Left {
+                        // Not when only markers (a bookmark, say) are before it: the line is empty.
+                        if (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker)) {
+                            // Tab past the right indent wraps: like Word, it starts the next line
+                            // and goes to the first stop there (a TOC entry's leader and page number).
+                            xs.pop();
+                            end = LineEnd::Wrap;
+                            wrapped_tab = Some(j);
+                            break;
                         }
-                        x = right_edge.max(x);
-                        last_break = Some(j);
-                        j += 1;
-                        continue;
+                        if wrapped_tab == Some(j) {
+                            // Still past the right indent on the line it wrapped to: it takes no
+                            // room, and its text starts at the indent rather than on a line of its own.
+                            if let Some(c) = pl.clusters.get_mut(j) {
+                                c.adv = 0.0;
+                            }
+                            last_break = Some(j);
+                            j += 1;
+                            continue;
+                        }
                     }
                     match stop.align {
                         TabAlign::Left | TabAlign::Bar | TabAlign::Clear => {
@@ -2178,6 +2191,17 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     && right_edge - px <= zone
                 {
                     last_break = Some(pj);
+                }
+                // The text after a right, centre or decimal tab doesn't fit: like Word, the tab
+                // goes to the next line with its text (a TOC entry's page number stays at the
+                // right margin, after a leader) instead of ending this line.
+                if let Some((tj, ..)) = pending_tab
+                    && last_break == Some(tj)
+                    && (c0..tj).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker))
+                {
+                    last_break = Some(tj - 1);
+                    pending_tab = None;
+                    leaders.retain(|(k, _)| *k < tj);
                 }
                 if let Some(bk) = last_break.filter(|bk| *bk >= c0) {
                     xs.truncate(bk + 1 - c0);
