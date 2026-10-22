@@ -231,18 +231,27 @@ pub fn local_path(target: &str, base: Option<&Path>) -> Option<PathBuf> {
         return None;
     }
     let p = PathBuf::from(&path);
-    if p.is_relative()
-        && !is_windows_absolute(&path)
-        && let Some(dir) = base.and_then(Path::parent)
-    {
-        return Some(dir.join(p));
-    }
-    Some(p)
+    let p = match base.and_then(Path::parent) {
+        Some(dir) if p.is_relative() && !is_windows_absolute(&path) => dir.join(p),
+        _ => p,
+    };
+    // Checked again once joined: the document's own folder may be on another machine (#3698).
+    (!is_network_path(&p.to_string_lossy())).then_some(p)
 }
 
+/// Does `p` name another machine or a device, whatever separators it mixes: `\\host\share`,
+/// `//host`, `\\?\UNC\…`, `\\.\…`, and the NT namespace `\??\…` unless a drive letter
+/// follows (`\??\C:\…`, #3698). Purely lexical, so it is the same on every platform.
 pub(crate) fn is_network_path(p: &str) -> bool {
+    let sep = |c: Option<&u8>| matches!(c, Some(b'\\' | b'/'));
     let b = p.as_bytes();
-    matches!((b.first(), b.get(1)), (Some(b'\\' | b'/'), Some(b'\\' | b'/')))
+    if sep(b.first()) && sep(b.get(1)) {
+        return true;
+    }
+    // `\??\` then anything but `X:` (and the end or a separator).
+    let nt = sep(b.first()) && b.get(1) == Some(&b'?') && b.get(2) == Some(&b'?') && sep(b.get(3));
+    let drive = b.get(4).is_some_and(u8::is_ascii_alphabetic) && b.get(5) == Some(&b':') && (b.len() == 6 || sep(b.get(6)));
+    nt && !drive
 }
 
 fn is_windows_absolute(p: &str) -> bool {
@@ -504,9 +513,23 @@ mod tests {
             "file://evil.example/share/T.dotx",
             "file:////evil.example/share/T.dotx",
             "FILE://Evil.Example/T.dotx",
+            // The NT namespace (#3698), with any separators.
+            "\\??\\UNC\\evil.example\\share\\T.dotx",
+            "/??/UNC/evil.example/share/T.dotx",
+            "\\??/UNC\\evil.example/share/T.dotx",
+            "\\??\\GLOBALROOT\\Device\\Mup\\evil.example\\share\\T.dotx",
+            "\\\\.\\UNC\\evil.example\\share\\T.dotx",
         ] {
             assert_eq!(local_path(remote, Some(Path::new("/docs/Letter.docx"))), None, "{remote}");
+            assert_eq!(local_path(remote, None), None, "{remote} without a folder");
         }
+        // A relative reference from a document whose folder is on another machine (#3698).
+        assert_eq!(local_path("T.dotx", Some(Path::new("//evil.example/share/Letter.docx"))), None);
+        assert_eq!(local_path("file:T.dotx", Some(Path::new("//evil.example/share/Letter.docx"))), None);
+        // A drive in the NT namespace is local.
+        assert!(!is_network_path("\\??\\C:\\Templates\\T.dotx"));
+        assert!(!is_network_path("\\??\\C:"));
+        assert!(is_network_path("\\??\\C:evil"));
         assert_eq!(percent_decode("100%"), "100%");
         assert_eq!(percent_decode("%zz%4"), "%zz%4");
     }
