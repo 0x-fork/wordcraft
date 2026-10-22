@@ -622,6 +622,17 @@ mod tests {
         assert_eq!(sheet_rows(&sheet_stream(&recs), 0, &g).unwrap(), rows(&[&["late"]]));
     }
 
+    /// #2334: a formula's string result split by a CONTINUE record is read whole.
+    #[test]
+    fn formula_string_continues_in_a_continue_record() {
+        let mut formula = vec![0u8, 0, 0, 0, 0, 0, 0xFF, 0xFF];
+        formula.extend_from_slice(&[0; 6]);
+        let g = globals_with(Vec::new());
+        // cch 4, Latin-1: two characters here, the other two after the CONTINUE's flag byte.
+        let recs = vec![(FORMULA, cell(0, 0, &formula)), (STRING, vec![4u8, 0, 0, b'a', b'b']), (CONTINUE, vec![0u8, b'c', b'd'])];
+        assert_eq!(sheet_rows(&sheet_stream(&recs), 0, &g).unwrap(), rows(&[&["abcd"]]));
+    }
+
     #[test]
     fn hostile_workbooks_fail_cleanly() {
         let book = build(&[("S", rows(&[&["a", "1"]]))]).unwrap();
