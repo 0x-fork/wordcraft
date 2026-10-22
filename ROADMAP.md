@@ -151,6 +151,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-17 | Equation arrays centre a row that has no `&` among rows that do, as Word does, so case equations like Word's "First Property of Radicals" no longer push the aligned row right (#2617). |
 | 2026-10-16 | English dialects (#1281, #1045): English (UK), (Australia), (Canada) and the other Englishes are proofed in their own spelling — *colour* is flagged in a US document and *color* in a British one, with the right form suggested first — from our own list of American/British spellings, so nothing to install. Review › Language lists them, the .docx `w:lang` keeps them, and an English interface on a British (or Canadian, Australian…) system starts new documents in that English |
 | 2026-10-15 | Triple borders (tables, paragraphs, the `###` AutoFormat line) draw as three lines on screen and in PDF, across the line for vertical borders too; they used to draw as double lines (#1740) |
+| 2026-10-16 | DOCX: a `HYPERLINK` field (complex or simple) reads as a link, as a `w:hyperlink` does: its result stays ordinary text carrying the link (`url`, `url#bookmark` or `#bookmark`), so a tab in it reaches its tab stop and a `PAGEREF` in it stays a field (#2174). A table of contents from Word for the web, whose entries are such fields, showed a box for each tab and no dot leaders; the entries now open as in Word and their links work |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
 | 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
@@ -518,6 +519,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-16 | trivial | Progress log: `HYPERLINK` fields read as links (#2174) |
 | 2026-10-18 | trivial | Progress log: German text hyphenates by the German patterns |
 | 2026-10-21 | trivial | Progress log: File › Recover follows the app theme (#3243) |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
