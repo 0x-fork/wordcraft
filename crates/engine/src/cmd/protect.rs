@@ -312,10 +312,16 @@ pub(crate) fn check_before(s: &Session, id: &str, params: &Value) -> Result<bool
     // tracked: a document that tracks changes would take them with no revision to show for it, and
     // the revision trail would say nothing about them. They're refused while the document is
     // protected, as the content control's properties are (#3278 follow-up).
+    // The inspector's removals take content out of the document — the comments, the revisions,
+    // the properties, the hidden text, the headers — so they are refused in every mode too: under
+    // tracked changes they would change the document with no revision to show for it, and under
+    // the other modes the document may not change at all. (An inspection without removals only
+    // reads the document, and is let through by `always_allowed`.)
     if enforced(&s.doc) {
         match id {
             "file.properties" => return Err(CmdError::Disabled(format!("{id}: stop protection before changing the document's properties"))),
             "file.privacyOptions" => return Err(CmdError::Disabled(format!("{id}: stop protection before changing the privacy options"))),
+            "file.inspect" => return Err(CmdError::Disabled(format!("{id}: stop protection before removing content with the inspector"))),
             _ => {}
         }
     }
@@ -855,22 +861,27 @@ mod tests {
         assert!(s.doc.settings.remove_personal_info);
     }
 
-    /// A file command that changes the document is checked like any other: the privacy options
-    /// and the properties are document settings, and the inspector removes content (#1327
-    /// follow-up).
+    /// A file command that changes the document is checked like any other: the privacy options,
+    /// the properties and the inspector's removals are refused in every mode a protected document
+    /// can be in (#1327 follow-up).
     #[test]
     fn file_commands_that_change_the_document_are_protected() {
-        for (id, params) in [
-            ("file.privacyOptions", json!({"removePersonalInfo": true})),
-            ("file.properties", json!({"title": "New title"})),
-            ("file.inspect", json!({"remove": ["comments"]})),
-        ] {
-            let mut s = Session::new(Document::from_text("Some text."));
-            s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
-            let before = s.doc.clone();
-            assert!(s.run(id, &params).is_err(), "{id}: a protected document took the change");
-            assert_eq!(s.doc, before, "{id}");
+        for mode in ["readOnly", "forms", "comments", "trackedChanges"] {
+            for (id, params) in [
+                ("file.privacyOptions", json!({"removePersonalInfo": true})),
+                ("file.properties", json!({"title": "New title"})),
+                ("file.inspect", json!({"remove": ["comments"]})),
+            ] {
+                let mut s = Session::new(Document::from_text("Some text."));
+                s.run("review.restrict", &json!({"mode": mode})).unwrap();
+                let before = s.doc.clone();
+                assert!(s.run(id, &params).is_err(), "{mode} {id}: a protected document took the change");
+                assert_eq!(s.doc, before, "{mode} {id}");
+            }
         }
+        // Without protection they work.
+        let mut s = Session::new(Document::from_text("Some text."));
+        s.run("file.inspect", &json!({"remove": ["comments"]})).unwrap();
     }
 
     /// The user name is the identity a named exception range is checked against, and the author
