@@ -865,6 +865,7 @@ pub fn format_date_parts(fmt: &str, y: i64, m: usize, d: u32, (hh, mm, ss): (u32
             ('d' | 'D', 1) => out.push_str(&d.to_string()),
             ('H', 2..) => out.push_str(&format!("{hh:02}")),
             ('H', _) => out.push_str(&hh.to_string()),
+            ('h', 2..) => out.push_str(&format!("{:02}", if hh.is_multiple_of(12) { 12 } else { hh % 12 })),
             ('h', _) => out.push_str(&(if hh.is_multiple_of(12) { 12 } else { hh % 12 }).to_string()),
             ('m', 2..) => out.push_str(&format!("{mm:02}")),
             ('m', _) => out.push_str(&mm.to_string()),
@@ -1224,6 +1225,10 @@ mod tests {
         // Word accepts either case for the day and year instructions.
         assert_eq!(format_date_parts("MM/DD/YYYY", 2026, 10, 21, (17, 27, 3), 0), "10/21/2026");
         assert_eq!(format_date_parts("D MMMM YYYY", 2026, 10, 21, (17, 27, 3), 0), "21 October 2026");
+        // Both 12-hour instructions pad a single-digit hour; only the 12-hour one wraps at noon.
+        assert_eq!(format_date_parts("hh:mm", 2026, 10, 21, (17, 27, 3), 0), "05:27");
+        assert_eq!(format_date_parts("h:mm", 2026, 10, 21, (17, 27, 3), 0), "5:27");
+        assert_eq!(format_date_parts("HH:mm", 2026, 10, 21, (5, 7, 3), 0), "05:07");
         let d = format_date("yyyy-MM-dd");
         assert_eq!(d.len(), 10);
         assert!(format_date("MMMM d, yyyy").contains(", "));
