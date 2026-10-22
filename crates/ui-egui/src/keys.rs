@@ -351,6 +351,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 }
                 egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
                     app.canvas.ime_preedit.clear();
+                    app.canvas.ime_preedit_range = None;
                     if !text.is_empty() {
                         let _ = app.run("equation.type", json!({"text": text}));
                     }
@@ -381,9 +382,13 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 }
             }
             egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars }) => delete_surrounding(app, before_chars, after_chars),
-            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => app.canvas.ime_preedit = text,
+            egui::Event::Ime(egui::ImeEvent::Preedit { text, active_range_chars }) => {
+                app.canvas.ime_preedit = text;
+                app.canvas.ime_preedit_range = active_range_chars;
+            }
             egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
                 app.canvas.ime_preedit.clear();
+                app.canvas.ime_preedit_range = None;
                 if !text.is_empty() && !crate::dialogs_smart_art::type_into(app, &text) {
                     type_text(app, &text);
                 }
