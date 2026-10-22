@@ -3116,12 +3116,6 @@ mod tests {
     /// document fallback face that covers it (#2067).
     #[test]
     fn recent_documents_borrow_fallback_faces() {
-    /// #3248: the Find box and the Navigation pane's Results list draw the typed query and
-    /// document excerpts with the interface faces, which have no Georgian (or Armenian, Thai,
-    /// …), so a Georgian search was all boxes. Running a search that finds Georgian text borrows
-    /// a document fallback face that covers it, as the caption and comments already do.
-    #[test]
-    fn georgian_find_text_is_drawn_in_the_navigation_pane() {
         let ctx = egui::Context::default();
         let frame = |app: &mut WordApp| {
             ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
@@ -3141,6 +3135,19 @@ mod tests {
         let n = arabic.canvas.ime_faces.len();
         frame(&mut arabic);
         assert_eq!(arabic.canvas.ime_faces.len(), n, "the face is added once");
+    }
+
+    /// #3248: the Find box and the Navigation pane's Results list draw the typed query and
+    /// document excerpts with the interface faces, which have no Georgian (or Armenian, Thai,
+    /// …), so a Georgian search was all boxes. Running a search that finds Georgian text borrows
+    /// a document fallback face that covers it, as the caption and comments already do.
+    #[test]
+    fn georgian_find_text_is_drawn_in_the_navigation_pane() {
+        let ctx = egui::Context::default();
+        let frame = |app: &mut WordApp| {
+            ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+        };
+        let mut latin = app();
         latin.run("text.insert", json!({"text": "This is some text"})).unwrap();
         latin.run("edit.find", json!({"text": "some text"})).unwrap();
         frame(&mut latin);
