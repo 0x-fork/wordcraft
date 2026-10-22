@@ -63,11 +63,15 @@ config works across the suite) keep the agent to the folders you give it:
   `file.newFromTemplate`, `insert.textFromFile` and `insert.object`, `insert.picture` and
   `picture.change` with a `path`, `mailings.recipients` with a `path` (csv, tsv, txt, xlsx, xlsm,
   ods), `review.compare` (`path` and `original`), the templates and documents `tools.updateStyles`,
-  `styles.organizer` and `styles.copyFrom` read. The pictures an opened HTML file names are read
-  from beside that file, so they are inside the read root too (a link that leads out is not followed).
+  `styles.organizer` and `styles.copyFrom` read, and the folders `file.options` takes
+  (`dictionariesFolder`, `userTemplatesFolder`). The pictures an opened HTML file names are read
+  from beside that file and must be inside the read root too, even when the file was opened through
+  a link (#3736).
 - Every file a command writes must lie inside the **write root**: `save_document`, `file.save`,
   `file.saveAs`, `file.rename` (the file and its new name), `file.exportPdf`, `file.exportPng`, `file.printPdf`,
-  `file.saveTemplate`, and `mailings.finish` with a `path`.
+  `file.saveTemplate`, and `mailings.finish` with a `path`. A save replaces the name it is given,
+  so that name must be inside the write root as well as what it leads to: a link outside the root
+  pointing in is refused (#3735).
 - Read and write access are separate. Give the same folder twice for both; a root left out grants
   none of its access (with only `--automation-read-root`, nothing can be written to disk). Without
   either flag nothing changes.
@@ -108,7 +112,7 @@ files it was given rather than guarding against other software on the computer.
 | `batch` | run several commands in order |
 | `new_document` | blank, sample, letter, resume, report |
 | `open_document` / `save_document` | docx, doc (open only), odt, rtf, html, md, tex, txt, json; save also pdf, png |
-| `type_text` | type at the caret (`paragraphs: true` splits lines into paragraphs) |
+| `type_text` | type at the caret (`paragraphs: true` splits lines into paragraphs: one undo step, at most 10,000 lines) |
 | `select_text` | select the n-th occurrence of some text |
 | `get_text` / `inspect_document` | read the document back (verify without screenshots) |
 | `render_page` | a page as PNG |
