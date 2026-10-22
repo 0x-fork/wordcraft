@@ -1217,38 +1217,33 @@ impl Styles {
                             let w = w.trim();
                             w.eq_ignore_ascii_case("bold") || w.parse::<u32>().is_ok_and(|n| n >= 600)
                         };
-                        let weights: Vec<&str> = [get(&a, "fo:font-weight"), get(&a, "style:font-weight-asian"), get(&a, "style:font-weight-complex")]
-                            .into_iter()
-                            .flatten()
-                            .collect();
-                        if !weights.is_empty() {
-                            d.bold = Some(weights.iter().any(|&w| is_bold(w)));
+                        // The fo: value governs Latin text; the Asian and complex-script values
+                        // stand in only when a style sets nothing else.
+                        let weight = get(&a, "fo:font-weight")
+                            .or_else(|| get(&a, "style:font-weight-asian"))
+                            .or_else(|| get(&a, "style:font-weight-complex"));
+                        if let Some(w) = weight {
+                            d.bold = Some(is_bold(w));
                         }
                         let is_italic = |v: &str| {
                             let v = v.trim();
                             v.eq_ignore_ascii_case("italic") || v.eq_ignore_ascii_case("oblique")
                         };
-                        let styles: Vec<&str> = [get(&a, "fo:font-style"), get(&a, "style:font-style-asian"), get(&a, "style:font-style-complex")]
-                            .into_iter()
-                            .flatten()
-                            .collect();
-                        if !styles.is_empty() {
-                            d.italic = Some(styles.iter().any(|&v| is_italic(v)));
+                        let style = get(&a, "fo:font-style")
+                            .or_else(|| get(&a, "style:font-style-asian"))
+                            .or_else(|| get(&a, "style:font-style-complex"));
+                        if let Some(v) = style {
+                            d.italic = Some(is_italic(v));
                         }
                         let is_not_none = |v: &str| !v.trim().eq_ignore_ascii_case("none");
-                        let ul_attrs: Vec<&str> = [get(&a, "style:text-underline-style"), get(&a, "style:text-underline-type")]
-                            .into_iter()
-                            .flatten()
-                            .collect();
-                        if !ul_attrs.is_empty() {
-                            d.underline = Some(ul_attrs.iter().any(|&v| is_not_none(v)));
+                        // The line style decides; the line type counts only when no style is given.
+                        let ul = get(&a, "style:text-underline-style").or_else(|| get(&a, "style:text-underline-type"));
+                        if let Some(v) = ul {
+                            d.underline = Some(is_not_none(v));
                         }
-                        let strike_attrs: Vec<&str> = [get(&a, "style:text-line-through-style"), get(&a, "style:text-line-through-type")]
-                            .into_iter()
-                            .flatten()
-                            .collect();
-                        if !strike_attrs.is_empty() {
-                            d.strike = Some(strike_attrs.iter().any(|&v| is_not_none(v)));
+                        let strike = get(&a, "style:text-line-through-style").or_else(|| get(&a, "style:text-line-through-type"));
+                        if let Some(v) = strike {
+                            d.strike = Some(is_not_none(v));
                         }
                         if let Some(v) = get(&a, "style:text-position") {
                             let v = v.trim();
@@ -3417,5 +3412,25 @@ mod tests {
         assert!(fmt(ps[4]).bold);
         assert_eq!(ps[4].align, Some(Align::Center));
         assert!(ps[4].page_break);
+    }
+
+    #[test]
+    fn latin_attributes_win_over_asian_and_line_types() {
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles>
+                <style:style style:name="AsianOnly" style:family="paragraph"><style:text-properties fo:font-weight="normal" style:font-weight-asian="bold" fo:font-style="normal" style:font-style-complex="italic"/></style:style>
+                <style:style style:name="NoLines" style:family="paragraph"><style:text-properties style:text-underline-style="none" style:text-underline-type="single" style:text-line-through-style="none" style:text-line-through-type="double"/></style:style>
+            </office:automatic-styles><office:body><office:text>
+                <text:p text:style-name="AsianOnly">Latin</text:p>
+                <text:p text:style-name="NoLines">Plain</text:p>
+            </office:text></office:body></office:document-content>"#
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let ps = paras(&f);
+        let fmt = |p: &Para| p.inlines.iter().find_map(|i| if let Inline::Text(_, f) = i { Some(f.clone()) } else { None }).unwrap();
+        assert!(!fmt(ps[0]).bold, "Asian bold does not make Latin text bold");
+        assert!(!fmt(ps[0]).italic, "complex-script italic does not make Latin text italic");
+        assert!(!fmt(ps[1]).underline, "a line type does not override a line style of none");
+        assert!(!fmt(ps[1]).strike);
     }
 }
