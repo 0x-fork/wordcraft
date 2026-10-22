@@ -47,8 +47,9 @@ impl Rgb {
     }
     /// Parse `RRGGBB` or `#RRGGBB`.
     pub fn parse(s: &str) -> Option<Rgb> {
-        let s = s.trim().trim_start_matches('#');
-        if s.len() != 6 || !s.is_ascii() {
+        let s = s.trim();
+        let s = s.strip_prefix('#').unwrap_or(s);
+        if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
         let p = |i: usize| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
@@ -1386,6 +1387,16 @@ mod tests {
         assert_eq!(Rgb::parse("#FF0010"), Some(Rgb(255, 0, 16)));
         assert_eq!(Rgb::parse("zzzzzz"), None);
         assert_eq!(Rgb::parse("é1234"), None);
+    }
+
+    #[test]
+    fn rgb_parse_rejects_non_hex() {
+        assert_eq!(Rgb::parse("+1+2+3"), None);
+        assert_eq!(Rgb::parse("-1-2-3"), None);
+        assert_eq!(Rgb::parse("##ff0000"), None);
+        assert_eq!(Rgb::parse("ff00 0"), None);
+        assert_eq!(Rgb::parse("#ff0000"), Some(Rgb(255, 0, 0)));
+        assert_eq!(Rgb::parse("ff0000"), Some(Rgb(255, 0, 0)));
     }
 
     #[test]
