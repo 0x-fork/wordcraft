@@ -3120,6 +3120,39 @@ fn toc_entry_links_lose_the_hyperlink_style() {
     assert_eq!(run("plain").style.as_deref(), Some("Hyperlink"), "outside fields: kept");
 }
 
+/// Localized Word (Spanish: `Hipervnculo`) and older files (`Hyperlnk`) give the built-in
+/// Hyperlink character style another id; its name stays "Hyperlink". TOC entries carrying it are
+/// plain too (#3239: entries showed blue).
+#[test]
+fn toc_entry_links_lose_a_localized_hyperlink_style() {
+    for id in ["Hipervnculo", "Hyperlnk"] {
+        let styles = format!(
+            r#"<w:styles {W_NS}><w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style>
+            <w:style w:type="character" w:styleId="{id}"><w:name w:val="Hyperlink"/><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style></w:styles>"#
+        );
+        let link = |t: &str| {
+            format!(
+                r#"<w:hyperlink w:anchor="_Toc1"><w:r><w:rPr><w:rStyle w:val="{id}"/></w:rPr><w:t>{t}</w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc1 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:hyperlink>"#
+            )
+        };
+        let body = format!(
+            r#"<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{}</w:p><w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:sdtContent></w:sdt><w:p>{}</w:p><w:p><w:bookmarkStart w:id="1" w:name="_Toc1"/><w:r><w:t>Target</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>"#,
+            link("entry"),
+            link("plain")
+        );
+        let d = wordcraft_docx::read(&docx(&body, &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+        let run = |word: &str| {
+            paras(&d)
+                .into_iter()
+                .find_map(|p| p.text.find(word).map(|at| p.props_of_char(at).clone()))
+                .unwrap_or_else(|| panic!("no run with {word}"))
+        };
+        let entry = run("entry");
+        assert_eq!((entry.style.as_deref(), entry.link.as_deref()), (None, Some("#_Toc1")), "{id}: a TOC entry: plain, still a link");
+        assert_eq!(run("plain").style.as_deref(), Some(id), "{id}: outside fields: kept");
+    }
+}
+
 /// A style or paragraph whose `w:numPr` gives only a level (`w:ilvl`) takes the list from its
 /// style chain (ECMA-376 §17.3.1.19): a Heading 3 based on a numbered Heading 2 is level 3 of the
 /// same list. WordCraft dropped the level, so Heading 3s numbered as Heading 2s (6.15 where Word

@@ -422,12 +422,21 @@ fn keep_glued_ids(doc: &mut Document, glued: &HashSet<u32>) {
 /// no underline) though the entries carry it (measured in Word for Windows: a Hyperlink-styled run
 /// in a hyperlink inside a TOC field's result is plain; one outside a hyperlink, another style,
 /// direct formatting, or a hyperlink in another field keep their look). The style is dropped from
-/// those runs so they look the same here; the links stay.
+/// those runs so they look the same here; the links stay. The style is found by its built-in
+/// name: localized Word and older files give it another id (`Hipervnculo`, `Hyperlnk`).
 fn unstyle_toc_links(doc: &mut Document) {
+    let ids: HashSet<String> = doc
+        .styles
+        .styles
+        .iter()
+        .filter(|s| s.kind == StyleKind::Character && s.name.eq_ignore_ascii_case("Hyperlink"))
+        .map(|s| s.id.clone())
+        .chain(["Hyperlink".to_string()])
+        .collect();
     for f in doc.field_ranges(wordcraft_doc::StoryRef::Body) {
         if is_toc(&f.instr) {
             let _ = doc.format_range(&f.start, &f.end, &|c| {
-                if c.link.is_some() && c.style.as_deref() == Some("Hyperlink") {
+                if c.link.is_some() && c.style.as_deref().is_some_and(|s| ids.contains(s)) {
                     c.style = None;
                 }
             });
