@@ -73,18 +73,24 @@ Any other method name is treated as a command id: `{"method": "format.bold"}` wo
 ### Open documents
 
 Several documents can be open at once. Each has an id, a whole number that stays the same while
-the document is open and is never reused by the running app. One document is the active one: the
-window shows it, and commands work on it unless told otherwise.
+the document is open and is never reused by the running app. On the desktop each open document
+has a native window of its own; the web app shows them one at a time in its one window. One
+document is the active one: on the desktop, the document of the window focused last (the active
+window); in the browser, the one the window shows. Commands work on it unless told otherwise.
 
-- `file.new` opens another document and makes it active. `file.open` does the same with a file;
-  it replaces a blank document nobody has used yet, and a file that is already open becomes
-  active again (`"alreadyOpen": true`). Its result carries the document's `id`.
+- `file.new` opens another document in a new window, focused, and makes it active. `file.open`
+  does the same with a file; it replaces a blank document nobody has used yet in that document's
+  window, and a file that is already open becomes active again and its window comes to the front
+  (`"alreadyOpen": true`). Its result carries the document's `id`.
 - `view.switchWindows` lists the open documents (`{"documents": [{"id", "title", "path",
-  "dirty", "active"}]}`); with `{"id": n}` it makes that document active.
-- `file.closeDocument {"id"?, "force"?}` closes a document without touching the window.
+  "dirty", "active"}]}`); with `{"id": n}` it makes that document active and brings its window to
+  the front.
+- `file.closeDocument {"id"?, "force"?}` closes a document; its window closes with it unless it
+  is the last window.
 - `engine.execute`, `document.inspect` and `ui.render` take `doc`, the id of the document to work
-  on, next to their other params. The command runs on that document and the window keeps showing
-  the active one:
+  on, next to their other params. The command runs on that document and the active window stays
+  active. A dialog or page the command opens (Save As, Print) opens in that document's window,
+  which comes to the front:
 
 ```json
 {"id": 2, "key": "…", "method": "engine.execute", "params": {"command": "text.insert", "params": {"text": "Hello"}, "doc": 3}}
@@ -92,7 +98,14 @@ window shows it, and commands work on it unless told otherwise.
 
 `doc` left out, or `null`, is the active document. An id that names no open document, or a value
 that isn't a whole number from 0 up, is an error and nothing runs. Window commands (`ui.*`) work
-on the document on screen only: with the id of another document they are an error.
+on the active window only: with the id of another document they are an error.
+
+### The active window
+
+Input and window methods go to the active window, the one focused last: `ui.click`, `ui.key`,
+`ui.text`, `ui.wheel` and the other input methods (coordinates are that window's),
+`ui.screenshot` (a PNG of that window), `ui.inspect` (its size), `ui.resize` and `ui.focus`. To
+work in another window, make its document active first with `view.switchWindows {"id": n}`.
 
 The `CharProps` and `ParaProps` that `format.set`, `para.set` and `styles.modify` take are listed
 in [MCP server](mcp.md#character-and-paragraph-properties).
@@ -117,10 +130,11 @@ document with unsaved changes it replies with an error (the app keeps running an
 stay); save first (`file.save`), or pass `{"force": true}` to discard the changes and close.
 The bare form `{"method": "file.close", "force": true}` (a method name that is a command id) is
 guarded the same way, and only a boolean `true` counts as `force`. A document without unsaved
-changes closes at once (#1268). Closing closes the document, not the app: the window stays and
-shows no page, and `file.new` or `file.open` goes on from there (#1712). With `doc` naming a
-document in the background, `file.close` closes that document under the same rule (unsaved
-changes need `{"force": true}`), and the window keeps showing the active one.
+changes closes at once (#1268). Closing closes the document and its window, and the window
+focused before it becomes the active one. The last window stays open with no page, and
+`file.new` or `file.open` goes on from there (#1712); closing it doesn't quit the app. With
+`doc` naming a document in the background, `file.close` closes that document and its window under
+the same rule (unsaved changes need `{"force": true}`), and the active window stays active.
 
 ### Native printing
 
