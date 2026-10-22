@@ -72,6 +72,9 @@ pub struct CanvasState {
     /// The last primary press on the page (time, screen point, clicks in a row), to count
     /// double- and triple-presses as they go down (egui reports them on release).
     last_press: Option<(f64, Pos2, u8)>,
+    /// The first press of the current run of presses moved header/footer editing into another
+    /// header/footer; the double-click it starts doesn't select a word there.
+    hf_press_switched: bool,
     /// A drag after a double-click, triple-click or Ctrl/⌘+click: the unit it extends by, the
     /// unit first selected, and the last position the pointer hit.
     unit_drag: Option<UnitDrag>,
@@ -242,6 +245,7 @@ impl Default for CanvasState {
             dragging: false,
             column_drag: None,
             last_press: None,
+            hf_press_switched: false,
             unit_drag: None,
             last_highlight: "yellow".into(),
             last_font_color: "C00000".into(),
@@ -2499,16 +2503,12 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     } else {
         None
     };
-    // Entering: from the body, or from another header/footer: the other one of the two
-    // (switching, #1026), or with Different First Page on, page 1's header is not the one being
-    // edited on page 2 (#2826).
-    let hf_enter = hf_zone.is_some_and(|(shown, header)| match part_kind(app, story) {
-        _ if story == StoryRef::Body => true,
-        Some(PartKind::Header) => !header || shown != Some(story),
-        Some(PartKind::Footer) => header || shown != Some(story),
-        _ => false,
-    });
+    let hf_enter = enters_header_footer(app, story, hf_zone);
     if resp.double_clicked() {
+        // Its first press already moved into the header/footer and placed the caret.
+        if app.canvas.hf_press_switched {
+            return;
+        }
         if let Some((_, header)) = hf_zone
             && hf_enter
         {
@@ -2554,8 +2554,11 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         let clicks = press_count(app.canvas.last_press, now, p, delay, dist);
         app.canvas.last_press = Some((now, p, clicks));
         app.canvas.unit_drag = None;
+        if clicks <= 1 {
+            app.canvas.hf_press_switched = false;
+        }
         // A double-click that enters or leaves a header/footer is handled on release.
-        let hf_switch = hf_enter || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
+        let hf_switch = hf_enter || app.canvas.hf_press_switched || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
         // Clicking into a footnote/endnote or a text box edits it; clicking outside a text box goes
         // back to where it is. While editing a header/footer, only its own text boxes are in reach.
         let story = {
@@ -2573,6 +2576,27 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
                 _ => story,
             }
         };
+        // While editing a header/footer, a press in another one (the footer while editing the
+        // header, or another page's own) edits that one, with the caret at the press. Hit-tested
+        // against the story being edited, the press put the caret back in it, scrolling the view
+        // away from the band that was clicked.
+        if !mods.shift
+            && matches!(part_kind(app, story), Some(PartKind::Header | PartKind::Footer))
+            && let Some((_, header)) = hf_zone
+            && enters_header_footer(app, story, hf_zone)
+        {
+            app.canvas.column_drag = None;
+            app.canvas.hf_press_switched = true;
+            let id = if header { "insert.editHeader" } else { "insert.editFooter" };
+            if app.run(id, json!({ "page": page })).is_ok() {
+                let to = app.session.sel.focus.story;
+                if let Some(pos) = app.session.layout().hit(page, x, y, to) {
+                    app.session.sel = wordcraft_engine::Selection::caret(pos);
+                }
+                app.session.page_hint = page;
+            }
+            return;
+        }
         // A press in the header/footer area from the body leaves the caret where it is, as in
         // Word (#2103): moving it to the nearest body text scrolled the view there, away from the
         // footer the double-click was aiming at.
@@ -3156,6 +3180,18 @@ pub(crate) fn text_box_host(app: &WordApp, layout: &DocLayout) -> Option<StoryRe
         StoryRef::Part(id) if in_text_box(app) => layout.text_box(id, app.session.page_hint).map(|o| o.story),
         _ => None,
     }
+}
+
+/// Whether a press in a page's header/footer area (`zone`, from `header_footer_zone`) goes into
+/// another header/footer than `story`: from the body, the other one of the two (#1026), or with
+/// Different First Page on, page 1's header while editing page 2's (#2826).
+fn enters_header_footer(app: &WordApp, story: StoryRef, zone: Option<(Option<StoryRef>, bool)>) -> bool {
+    zone.is_some_and(|(shown, header)| match part_kind(app, story) {
+        _ if story == StoryRef::Body => true,
+        Some(PartKind::Header) => !header || shown != Some(story),
+        Some(PartKind::Footer) => header || shown != Some(story),
+        _ => false,
+    })
 }
 
 /// Editing a header or footer, or a text box in one.

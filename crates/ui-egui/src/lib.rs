@@ -4776,6 +4776,88 @@ mod tests {
         assert!(drift.x.abs() <= 1.0 && drift.y.abs() <= 1.0, "the view stays on that page: {:?} vs {:?}", a.canvas.scroll_offset, before.1);
     }
 
+    /// While editing the header, a single click in the footer edits the footer there (and one in
+    /// the next page's header goes back to the header) without scrolling. The click used to be
+    /// hit-tested against the header, so the caret stayed in it and the view scrolled back up.
+    #[test]
+    fn a_click_in_the_footer_while_editing_the_header_moves_there() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("insert.header", json!({"text": "Head"})).unwrap();
+        a.run("insert.footer", json!({"text": "Foot"})).unwrap();
+        a.run("insert.closeHeader", json!({})).unwrap();
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(1200)})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        a.run("caret.docStart", json!({})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        a.run("insert.editHeader", json!({"page": 0})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let page = a.session.layout().pages[0].clone();
+        let (header, footer) = (page.header_story.expect("a header"), page.footer_story.expect("a footer"));
+        assert_eq!(a.session.sel.focus.story, wordcraft_doc::StoryRef::Part(header));
+        let (x, foot_y) = (page.body.x + 20.0, (page.body.bottom() + page.h) / 2.0);
+        // Scroll down to page 1's footer a wheel notch at a time: page 1's header goes off screen.
+        let vp = a.canvas.viewport.expect("the canvas laid out");
+        for _ in 0..100 {
+            let at = canvas::page_to_screen(&mut a, 0, x, foot_y).expect("footer laid out");
+            if at.y < vp.center().y {
+                break;
+            }
+            let wheel = egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, -1.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Default::default(),
+            };
+            frame(&mut a, vec![egui::Event::PointerMoved(vp.center()), wheel]);
+            for _ in 0..30 {
+                frame(&mut a, Vec::new());
+            }
+        }
+        let at = canvas::page_to_screen(&mut a, 0, x, foot_y).expect("footer laid out");
+        let head_at = canvas::page_to_screen(&mut a, 0, x, page.body.y / 2.0).expect("header laid out");
+        assert!(vp.shrink(100.0).contains(at) && !vp.contains(head_at), "the footer is well on screen, the header isn't: {vp:?} {at:?} {head_at:?}");
+        let before = a.canvas.scroll_offset;
+        frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+        frame(&mut a, vec![btn(at, true)]);
+        frame(&mut a, vec![btn(at, false)]);
+        for _ in 0..40 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.session.sel.focus.story, wordcraft_doc::StoryRef::Part(footer), "editing the footer");
+        assert_eq!(a.session.page_hint, 0, "on the clicked page");
+        assert!((a.canvas.scroll_offset.y - before.y).abs() < 1.0, "the view stays put: {before:?} -> {:?}", a.canvas.scroll_offset);
+        // The next page's header, just below: back in the header, still without scrolling.
+        let next = a.session.layout().pages[1].clone();
+        let at = canvas::page_to_screen(&mut a, 1, x, next.body.y / 2.0).expect("header laid out");
+        assert!(vp.contains(at), "the next page's header is on screen");
+        frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+        frame(&mut a, vec![btn(at, true)]);
+        frame(&mut a, vec![btn(at, false)]);
+        for _ in 0..40 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.session.sel.focus.story, wordcraft_doc::StoryRef::Part(header), "editing the header again");
+        assert_eq!(a.session.page_hint, 1, "on the clicked page");
+        assert!((a.canvas.scroll_offset.y - before.y).abs() < 1.0, "the view stays put: {before:?} -> {:?}", a.canvas.scroll_offset);
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Part(footer)), "Foot");
+    }
+
     fn control_frame(a: &mut WordApp, ctx: &egui::Context, focused: bool) {
         let mut raw = egui::RawInput {
             focused,
