@@ -1014,6 +1014,25 @@ fn anchor_alignment_reference_areas_and_distances() {
 }
 
 #[test]
+fn anchor_stacking_order_is_read_and_kept() {
+    let shape = |z: &str| {
+        format!(
+            r#"<w:r><w:drawing><wp:anchor behindDoc="0" {z}><wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="127000" cy="127000"/><wp:wrapNone/><wp:docPr id="1" name="S"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><wps:wsp><wps:spPr><a:prstGeom prst="rect"/></wps:spPr></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>"#
+        )
+    };
+    let body = format!("<w:p>{}{}{}</w:p>", shape(r#"relativeHeight="251660288""#), shape(r#"relativeHeight="251657214""#), shape(""));
+    let zs = |d: &Document| -> Vec<u32> {
+        paras(d)[0].objects.iter().filter_map(|o| if let InlineObject::Shape { float, .. } = o { Some(float.z) } else { None }).collect()
+    };
+    let d = read_body(&body);
+    assert_eq!(zs(&d), [251660288, 251657214, 0]);
+    let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    let z = zs(&again);
+    assert_eq!(&z[..2], &[251660288, 251657214]);
+    assert!(z[2] > 0, "an object without one gets an order on saving: {z:?}");
+}
+
+#[test]
 fn documents_without_a_compatibility_mode_are_laid_out_as_word_2007() {
     assert_eq!(read_body("<w:p/>").settings.compat_mode, wordcraft_doc::LEGACY_COMPAT_MODE);
 }
@@ -1619,6 +1638,46 @@ fn ole_object_round_trips() {
     assert!(kind.ends_with("/image"), "{kind}");
     assert_eq!(files.get(&part_at("word", &target)).map(Vec::as_slice), Some(picture.as_bytes()));
     assert!(!body.contains("<w:drawing>"), "the object, not a plain picture");
+
+    let back = wordcraft_docx::read(&out).unwrap();
+    assert!(matches!(paras(&back)[0].objects.first(), Some(InlineObject::Image { w: 144.0, ole: Some(_), .. })));
+}
+
+#[test]
+fn signature_line_round_trips() {
+    // Insert › Signature Line: a VML picture (the line, its X and the signer drawn in a metafile)
+    // with an `o:signatureline` that makes it signable in Word. Saving keeps it a signature line,
+    // not a plain picture; a VML picture without one still becomes a DrawingML picture.
+    let body = r##"<w:p><w:r><w:pict><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype><v:shape id="_x0000_i1025" type="#_x0000_t75" alt="Signature line" style="width:192pt;height:96pt"><v:imagedata r:id="rId8" o:title=""/><o:lock v:ext="edit" ungrouping="t" rotation="t" cropping="t" verticies="t" text="t" grouping="t"/><o:signatureline v:ext="edit" id="{00000000-0000-0000-0000-000000000001}" provid="{00000000-0000-0000-0000-000000000000}" o:suggestedsigner="A. Example" o:suggestedsigner2="Director" showsigndate="f" issignatureline="t"/></v:shape></w:pict></w:r><w:r><w:pict><v:shape style="width:72pt;height:36pt" alt="plain"><v:imagedata r:id="rId8" o:title=""/></v:shape></w:pict></w:r></w:p>"##;
+    let picture = "\u{89}PNG stand-in";
+    let types =
+        r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="png" ContentType="image/png"/></Types>"#;
+    let bytes = docx(body, &[("rId8", "image", "media/image1.png")], &[("[Content_Types].xml", types), ("word/media/image1.png", picture)]);
+    let d = wordcraft_docx::read(&bytes).unwrap();
+    let objects = &paras(&d)[0].objects;
+    let [InlineObject::Image { w, alt, ole: Some(_), .. }, InlineObject::Image { ole: None, .. }] = objects.as_slice() else { panic!("{objects:?}") };
+    assert_eq!((*w, alt.as_str()), (192.0, "Signature line"));
+
+    // Resized in WordCraft.
+    let mut doc = d.clone();
+    if let Some(wordcraft_doc::Block::Para(p)) = doc.body.first_mut().map(std::sync::Arc::make_mut)
+        && let Some(InlineObject::Image { w, h, .. }) = p.objects.first_mut()
+    {
+        (*w, *h) = (144.0, 72.0);
+    }
+    let out = wordcraft_docx::write(&doc).unwrap();
+    let files = unzip(&out);
+    let body = text(&files, "word/document.xml");
+    let rels = text(&files, "word/_rels/document.xml.rels");
+    assert_eq!(attr_values(&body, "o:signatureline", "o:suggestedsigner"), ["A. Example"]);
+    assert_eq!(attr_values(&body, "o:signatureline", "o:suggestedsigner2"), ["Director"]);
+    assert_eq!(attr_values(&body, "v:shape", "style"), ["width:144pt;height:72pt"]);
+    assert_eq!(attr_values(&body, "v:shapetype", "id"), ["_x0000_t75"]);
+    let [pic_id] = attr_values(&body, "v:imagedata", "r:id").try_into().unwrap();
+    let (kind, target) = rel(&rels, &pic_id);
+    assert!(kind.ends_with("/image"), "{kind}");
+    assert_eq!(files.get(&part_at("word", &target)).map(Vec::as_slice), Some(picture.as_bytes()));
+    assert_eq!(body.matches("<w:drawing>").count(), 1, "only the plain picture becomes a DrawingML picture");
 
     let back = wordcraft_docx::read(&out).unwrap();
     assert!(matches!(paras(&back)[0].objects.first(), Some(InlineObject::Image { w: 144.0, ole: Some(_), .. })));
@@ -3120,6 +3179,39 @@ fn toc_entry_links_lose_the_hyperlink_style() {
     assert_eq!(run("plain").style.as_deref(), Some("Hyperlink"), "outside fields: kept");
 }
 
+/// Localized Word (Spanish: `Hipervnculo`) and older files (`Hyperlnk`) give the built-in
+/// Hyperlink character style another id; its name stays "Hyperlink". TOC entries carrying it are
+/// plain too (#3239: entries showed blue).
+#[test]
+fn toc_entry_links_lose_a_localized_hyperlink_style() {
+    for id in ["Hipervnculo", "Hyperlnk"] {
+        let styles = format!(
+            r#"<w:styles {W_NS}><w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style>
+            <w:style w:type="character" w:styleId="{id}"><w:name w:val="Hyperlink"/><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style></w:styles>"#
+        );
+        let link = |t: &str| {
+            format!(
+                r#"<w:hyperlink w:anchor="_Toc1"><w:r><w:rPr><w:rStyle w:val="{id}"/></w:rPr><w:t>{t}</w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc1 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:hyperlink>"#
+            )
+        };
+        let body = format!(
+            r#"<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent><w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{}</w:p><w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:sdtContent></w:sdt><w:p>{}</w:p><w:p><w:bookmarkStart w:id="1" w:name="_Toc1"/><w:r><w:t>Target</w:t></w:r><w:bookmarkEnd w:id="1"/></w:p>"#,
+            link("entry"),
+            link("plain")
+        );
+        let d = wordcraft_docx::read(&docx(&body, &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+        let run = |word: &str| {
+            paras(&d)
+                .into_iter()
+                .find_map(|p| p.text.find(word).map(|at| p.props_of_char(at).clone()))
+                .unwrap_or_else(|| panic!("no run with {word}"))
+        };
+        let entry = run("entry");
+        assert_eq!((entry.style.as_deref(), entry.link.as_deref()), (None, Some("#_Toc1")), "{id}: a TOC entry: plain, still a link");
+        assert_eq!(run("plain").style.as_deref(), Some(id), "{id}: outside fields: kept");
+    }
+}
+
 /// A style or paragraph whose `w:numPr` gives only a level (`w:ilvl`) takes the list from its
 /// style chain (ECMA-376 §17.3.1.19): a Heading 3 based on a numbered Heading 2 is level 3 of the
 /// same list. WordCraft dropped the level, so Heading 3s numbered as Heading 2s (6.15 where Word
@@ -3199,6 +3291,45 @@ fn text_frames_read_and_round_trip() {
     assert_eq!(q[0].props.frame, p[0].props.frame);
     assert_eq!(q[1].props.frame, p[1].props.frame);
     assert!(q.iter().any(|x| x.props.drop_cap == Some(2) && x.props.frame.is_none()));
+}
+
+/// #2360: a `w:framePr` in the document defaults, the sizeless top-left one Apple Pages writes,
+/// frames no paragraph, as in Word: a header's title and the body's text stay in the text instead
+/// of moving to the page's corner, and the default isn't written back. The defaults' other
+/// properties are kept, and a style's own frame still applies.
+#[test]
+fn a_frame_in_the_paragraph_defaults_frames_nothing() {
+    let styles = format!(
+        r#"<w:styles {W_NS}><w:docDefaults><w:pPrDefault><w:pPr><w:framePr w:anchorLock="0" w:w="0" w:h="0" w:vSpace="0" w:hSpace="0" w:xAlign="left" w:y="0" w:hRule="exact" w:vAnchor="margin"/><w:spacing w:after="120"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Framed"><w:name w:val="Framed"/><w:pPr><w:framePr w:wrap="around" w:hAnchor="margin" w:vAnchor="text" w:xAlign="right" w:y="1"/></w:pPr></w:style></w:styles>"#
+    );
+    let header = format!(r#"<w:hdr {W_NS}><w:p><w:r><w:t>Title</w:t></w:r></w:p></w:hdr>"#);
+    let body = r#"<w:p><w:r><w:t>Body</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Framed"/></w:pPr><w:r><w:t>Boxed</w:t></w:r></w:p><w:sectPr><w:headerReference w:type="default" r:id="rIdH"/></w:sectPr>"#;
+    let bytes = docx(
+        body,
+        &[("rIdS", "styles", "styles.xml"), ("rIdH", "header", "header1.xml")],
+        &[("word/styles.xml", &styles), ("word/header1.xml", &header)],
+    );
+    let check = |d: &Document| {
+        assert!(d.styles.default_para.frame.is_none(), "{:?}", d.styles.default_para.frame);
+        assert_eq!(d.styles.default_para.space_after, Some(6.0), "the defaults' spacing is kept");
+        let frame = |p: &Paragraph| d.styles.resolve_para(&p.props).frame;
+        let body = paras(d);
+        assert_eq!(body[0].text, "Body");
+        assert!(frame(body[0]).is_none(), "body text is not a frame");
+        let boxed = frame(body[1]).expect("a style's frame still applies");
+        assert_eq!((boxed.h_anchor.as_str(), boxed.x_align.as_deref()), ("margin", Some("right")));
+        let hid = d.last_section.headers.default.expect("a header");
+        let title = d.parts.get(&hid).unwrap().blocks.iter().find_map(|b| b.as_para()).expect("the title");
+        assert_eq!(title.text, "Title");
+        assert!(frame(title).is_none(), "the header's title is not a frame");
+    };
+    let d = wordcraft_docx::read(&bytes).unwrap();
+    check(&d);
+    let saved = wordcraft_docx::write(&d).unwrap();
+    let xml = text(&unzip(&saved), "word/styles.xml");
+    let defaults = xml.split("</w:docDefaults>").next().unwrap_or_default();
+    assert!(!defaults.contains("w:framePr"), "the default frame isn't written back: {defaults}");
+    check(&wordcraft_docx::read(&saved).unwrap());
 }
 
 /// A legacy VML freeform (`v:shape` with a `path`, ECMA-376 Part 4): a rule across a header,
@@ -3288,21 +3419,56 @@ fn hostile_vml_paths_stay_finite() {
     }
 }
 
-/// Measured in Word: `w:asciiTheme="minorBidi"` names the theme's complex-script font (`a:cs`);
-/// when that is empty it names nothing, and the run keeps the font it inherits.
+/// Measured in Word for Mac: a `majorBidi`/`minorBidi` theme slot names the theme's font for the
+/// script of the settings' `w:themeFontLang/@w:bidi` (the Latin font for a Latin language), else
+/// the theme's `a:cs`, else Times New Roman; with no bidi language there, Times New Roman whatever
+/// the theme says. The run's own `w:lang` and the inherited fonts play no part. Papers set in
+/// `majorBidi` with Office's usual theme (`Arab` → Times New Roman) came out in Calibri Light.
 #[test]
-fn bidi_theme_slots_name_the_complex_script_font() {
-    let font = |cs: &str| {
+fn bidi_theme_slots_follow_the_theme_font_language() {
+    let tnr = "Times New Roman";
+    // (themeFontLang, a:cs, Arab entries present, run lang) → (majorBidi, minorBidi)
+    let cases: &[(Option<&str>, &str, bool, &str, [&str; 2])] = &[
+        (None, "", true, "", [tnr, tnr]),
+        (None, "Arial", true, r#"<w:lang w:bidi="ar-SA"/>"#, [tnr, tnr]),
+        (Some(r#"w:val="en-US""#), "Arial", true, "", [tnr, tnr]),
+        (Some(r#"w:bidi="ar-SA""#), "", true, r#"<w:lang w:bidi="he-IL"/>"#, ["Georgia", "Trebuchet MS"]),
+        (Some(r#"w:bidi="ar-SA""#), "Arial", true, "", ["Georgia", "Trebuchet MS"]),
+        (Some(r#"w:bidi="he-IL""#), "", true, "", ["Courier New", "Comic Sans MS"]),
+        (Some(r#"w:bidi="ur-PK""#), "Arial", true, "", ["Georgia", "Trebuchet MS"]),
+        (Some(r#"w:bidi="pa-PK""#), "Arial", true, "", ["Georgia", "Trebuchet MS"]),
+        (Some(r#"w:bidi="pa-IN""#), "Arial", true, "", ["Arial", "Arial"]),
+        (Some(r#"w:bidi="fr-FR""#), "Arial", true, "", ["Verdana", "Impact"]),
+        (Some(r#"w:bidi="th-TH""#), "Arial", true, "", ["Arial", "Arial"]),
+        (Some(r#"w:bidi="th-TH""#), "", true, "", [tnr, tnr]),
+        (Some(r#"w:bidi="ar-SA""#), "Arial", false, "", ["Arial", "Arial"]),
+    ];
+    for (i, (lang, cs, arab, run_lang, want)) in cases.iter().enumerate() {
+        let script = |f: &str| if *arab { format!(r#"<a:font script="Arab" typeface="{f}"/>"#) } else { String::new() };
         let theme = format!(
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="T"><a:themeElements><a:fontScheme name="F"><a:majorFont><a:latin typeface="Cambria"/><a:ea typeface=""/><a:cs typeface="{cs}"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface="{cs}"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>"#
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="T"><a:themeElements><a:fontScheme name="F"><a:majorFont><a:latin typeface="Verdana"/><a:ea typeface=""/><a:cs typeface="{cs}"/>{}<a:font script="Hebr" typeface="Courier New"/></a:majorFont><a:minorFont><a:latin typeface="Impact"/><a:ea typeface=""/><a:cs typeface="{cs}"/>{}<a:font script="Hebr" typeface="Comic Sans MS"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>"#,
+            script("Georgia"),
+            script("Trebuchet MS")
         );
-        let rels = [("rId9", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme", "theme/theme1.xml")];
-        let body = r#"<w:p><w:r><w:rPr><w:rFonts w:asciiTheme="minorBidi" w:hAnsiTheme="minorBidi"/></w:rPr><w:t>x</w:t></w:r></w:p>"#;
-        let d = wordcraft_docx::read(&docx(body, &rels, &[("word/theme/theme1.xml", &theme)])).unwrap();
-        paras(&d)[0].runs[0].props.font.clone()
-    };
-    assert_eq!(font(""), None);
-    assert_eq!(font("Times New Roman").as_deref(), Some("Times New Roman"));
+        let font_lang = lang.map(|l| format!("<w:themeFontLang {l}/>")).unwrap_or_default();
+        let settings = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings {W_NS}>{font_lang}</w:settings>"#);
+        let styles = format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles {W_NS}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Andale Mono" w:hAnsi="Andale Mono" w:cs="Andale Mono"/><w:lang w:val="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>"#
+        );
+        let run = |slot: &str| {
+            format!(r#"<w:p><w:r><w:rPr><w:rFonts w:asciiTheme="{slot}" w:hAnsiTheme="{slot}"/>{run_lang}</w:rPr><w:t>x</w:t></w:r></w:p>"#)
+        };
+        let body = [run("majorBidi"), run("minorBidi"), run("majorHAnsi")].concat();
+        let rels = [
+            ("rId7", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings", "settings.xml"),
+            ("rId8", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles", "styles.xml"),
+            ("rId9", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme", "theme/theme1.xml"),
+        ];
+        let parts = [("word/theme/theme1.xml", theme.as_str()), ("word/settings.xml", settings.as_str()), ("word/styles.xml", styles.as_str())];
+        let d = wordcraft_docx::read(&docx(&body, &rels, &parts)).unwrap();
+        let fonts: Vec<_> = paras(&d).iter().map(|p| p.runs[0].props.font.clone().unwrap_or_default()).collect();
+        assert_eq!(fonts, [want[0], want[1], "Verdana"], "case {i}");
+    }
 }
 
 /// The font table's family classes: Word draws a missing roman font in a serif face.
@@ -3651,4 +3817,100 @@ fn shape_gradients_and_transparency_are_read_and_survive_saving() {
     let d = wordcraft_docx::read(&bytes).unwrap();
     check(&d);
     check(&wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap());
+}
+
+/// #3415: a table style's row and column band sizes (`w:tblStyleRowBandSize`,
+/// `w:tblStyleColBandSize`, ECMA-376 §17.7.6.5 and §17.7.6.7) are read, zero included, and left
+/// unset when the file has none, which is how Word reads it: no bands. A style based on one with
+/// sizes inherits them.
+#[test]
+fn table_style_band_sizes_read_as_word_reads_them() {
+    let band = r#"<w:tblStylePr w:type="band1Horz"><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="C1E4F5"/></w:tcPr></w:tblStylePr>"#;
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+ <w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/></w:style>
+ <w:style w:type="table" w:styleId="Missing"><w:name w:val="Missing"/><w:basedOn w:val="TableNormal"/>{band}</w:style>
+ <w:style w:type="table" w:styleId="One"><w:name w:val="One"/><w:basedOn w:val="TableNormal"/><w:tblPr><w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/></w:tblPr>{band}</w:style>
+ <w:style w:type="table" w:styleId="Zero"><w:name w:val="Zero"/><w:basedOn w:val="One"/><w:tblPr><w:tblStyleRowBandSize w:val="0"/></w:tblPr></w:style>
+ <w:style w:type="table" w:styleId="Child"><w:name w:val="Child"/><w:basedOn w:val="One"/>{band}</w:style>
+</w:styles>"#
+    );
+    let d = wordcraft_docx::read(&docx("<w:p/>", &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+    let sizes = |id: &str| d.styles.table_style(id).map(|t| (t.parts.band_size, t.parts.col_band_size));
+    assert_eq!(sizes("Missing"), Some((None, None)), "no sizes: no bands, as in Word");
+    assert_eq!(sizes("One"), Some((Some(1), Some(1))));
+    assert_eq!(sizes("Zero"), Some((Some(0), Some(1))));
+    assert_eq!(sizes("Child"), Some((Some(1), Some(1))), "inherited");
+    // Written back as read: still no sizes where there were none.
+    let xml = text(&unzip(&wordcraft_docx::write(&d).unwrap()), "word/styles.xml");
+    let style = |id: &str| {
+        let start = xml.find(&format!(r#"w:styleId="{id}""#)).unwrap();
+        xml[start..start + xml[start..].find("</w:style>").unwrap()].to_string()
+    };
+    assert!(!style("Missing").contains("BandSize"), "{}", style("Missing"));
+    assert!(style("One").contains(r#"<w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/>"#), "{}", style("One"));
+    assert!(style("Zero").contains(r#"<w:tblStyleRowBandSize w:val="0"/>"#), "{}", style("Zero"));
+}
+
+/// #3415: a document saved with one of our banded table styles tells Word its band sizes, so Word
+/// shades the same rows we do (it reads a style without them as having no bands).
+#[test]
+fn our_banded_table_styles_write_their_band_sizes() {
+    let d = Document::new();
+    let xml = text(&unzip(&wordcraft_docx::write(&d).unwrap()), "word/styles.xml");
+    let start = xml.find(r#"w:styleId="GridTable4AccentBlue""#).expect("Grid Table 4 – Blue is written");
+    let style = &xml[start..start + xml[start..].find("</w:style>").unwrap()];
+    assert!(style.contains(r#"<w:tblPr><w:tblStyleRowBandSize w:val="1"/><w:tblStyleColBandSize w:val="1"/>"#), "{style}");
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+    assert_eq!(back.styles.table_style("GridTable4AccentBlue").map(|t| t.parts.band_size), Some(Some(1)));
+}
+
+#[test]
+fn vml_shape_wrap_side_and_anchor_case_insensitivity() {
+    let body = r##"<w:p>
+        <w:r>
+            <w:pict xmlns:w10="urn:schemas-microsoft-com:office:word">
+                <v:rect style="position:absolute;width:100pt;height:50pt;mso-position-horizontal-relative:Page;mso-position-vertical-relative:Margin" filled="False" stroked="t">
+                    <w10:wrap type="Square" side="left"/>
+                </v:rect>
+            </w:pict>
+        </w:r>
+    </w:p>"##;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.iter().find_map(|b| b.as_para()).unwrap();
+    let shape = match p.objects.first() {
+        Some(InlineObject::Shape { fill, float, .. }) => (fill, float),
+        o => panic!("expected shape, got {o:?}"),
+    };
+    assert_eq!(*shape.0, None);
+    assert_eq!(shape.1.wrap, wordcraft_doc::para::Wrap::Square);
+    assert_eq!(shape.1.wrap_text, wordcraft_doc::para::WrapText::Left);
+    assert_eq!(shape.1.h_rel, wordcraft_doc::para::Anchor::Page);
+    assert_eq!(shape.1.v_rel, wordcraft_doc::para::Anchor::Margin);
+}
+
+#[test]
+fn vml_textbox_style_anchor_and_fit() {
+    let body = r#"<w:p>
+        <w:r>
+            <w:pict>
+                <v:rect style="width:100pt;height:50pt">
+                    <v:textbox style="v-text-anchor:Middle;mso-fit-shape-to-text:True">
+                        <w:txbxContent>
+                            <w:p><w:r><w:t>Centered text</w:t></w:r></w:p>
+                        </w:txbxContent>
+                    </v:textbox>
+                </v:rect>
+            </w:pict>
+        </w:r>
+    </w:p>"#;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.first().unwrap().as_para().unwrap();
+    let story_id = match p.objects.first() {
+        Some(InlineObject::Shape { story: Some(id), .. }) => *id,
+        o => panic!("expected shape with story, got {o:?}"),
+    };
+    let tb = doc.parts.get(&story_id).unwrap();
+    assert_eq!(tb.body.anchor, wordcraft_doc::props::VAlign::Center);
+    assert!(tb.body.auto_fit);
 }

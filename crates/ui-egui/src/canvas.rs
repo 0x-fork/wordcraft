@@ -105,6 +105,9 @@ pub struct CanvasState {
     pub context_menu_from_keys: bool,
     /// Where the context menu stands: the right-click point, or below the caret.
     pub context_menu_at: Option<Pos2>,
+    /// The frame drawn around the equation being edited, on screen (its options strip opens the
+    /// equation's menu).
+    pub eq_options: Option<EquationFrame>,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
     /// The selection the mini toolbar was put away for by a click outside the document (the
@@ -262,6 +265,7 @@ impl Default for CanvasState {
             context_menu_open: false,
             context_menu_from_keys: false,
             context_menu_at: None,
+            eq_options: None,
             mini_anchor: None,
             mini_dismissed: None,
             pasted: false,
@@ -1485,19 +1489,46 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // After an automatic change, the web's text agent starts afresh (`keys::note_automatic_change`).
         // Only there: on X11 an interrupt recreates the input context and fcitx drops later keys (#1169).
         let ime_reset = std::mem::take(&mut app.canvas.ime_reset) && cfg!(target_arch = "wasm32") && app.canvas.ime_preedit.is_empty();
-        // Editing an equation: shade it and draw the caret inside it.
+        // Editing an equation: frame it as Word does (a box as tall as its line, a grip at its
+        // top left, an options strip at its right) and draw the caret inside it.
         let mut math_caret = false;
+        app.canvas.eq_options = None;
         if let Some(m) = app.session.math.clone()
-            && let Some((pi, ex, base, ml)) = layout.equation_geom(&m.at, app.session.page_hint)
-            && let Some(pr) = rects.get(pi)
+            && let Some(bx) = layout.equation_box(&m.at, app.session.page_hint)
+            && let Some(pr) = rects.get(bx.page)
         {
             math_caret = true;
+            let (pi, ex, base, ml) = (bx.page, bx.x, bx.base, bx.math.clone());
             let s = geo.scale;
-            let zone = Rect::from_min_max(
-                pos2(pr.min.x + ex * s - 2.0, pr.min.y + (base - ml.ascent) * s - 2.0),
-                pos2(pr.min.x + (ex + ml.width) * s + 2.0, pr.min.y + (base + ml.descent) * s + 2.0),
-            );
-            painter.rect_filled(zone, 2.0, Color32::from_black_alpha(16));
+            let frame = equation_frame(*pr, &bx, s);
+            // The argument the caret is in (a numerator, a radicand…) is shaded.
+            if !m.pos.path.is_empty()
+                && let Some((x0, x1, up, down)) = ml.arg_extent(&m.pos.path)
+            {
+                let arg = Rect::from_min_max(
+                    pos2(pr.min.x + (ex + x0) * s, pr.min.y + (base - up) * s),
+                    pos2(pr.min.x + (ex + x1) * s, pr.min.y + (base + down) * s),
+                );
+                painter.rect_filled(arg.expand(1.0), 0.0, Color32::from_black_alpha(26));
+            }
+            painter.rect_filled(frame.strip, 0.0, t.equation_box.gamma_multiply(0.35));
+            let (c, w) = (frame.strip.center(), frame.strip.width() * 0.3);
+            painter.add(egui::Shape::convex_polygon(
+                vec![pos2(c.x - w, c.y - w * 0.6), pos2(c.x + w, c.y - w * 0.6), pos2(c.x, c.y + w * 0.6)],
+                t.equation_box,
+                Stroke::NONE,
+            ));
+            painter.rect_stroke(frame.outline, 2.0, Stroke::new(1.0, t.equation_box), egui::StrokeKind::Inside);
+            painter.rect_filled(frame.grip, 1.0, Color32::WHITE);
+            painter.rect_stroke(frame.grip, 1.0, Stroke::new(1.0, t.equation_box), egui::StrokeKind::Inside);
+            for k in 0..3 {
+                painter.circle_filled(
+                    pos2(frame.grip.center().x, frame.grip.min.y + frame.grip.height() * (k as f32 + 1.0) / 4.0),
+                    0.9,
+                    t.equation_box,
+                );
+            }
+            app.canvas.eq_options = Some(frame);
             if let Some(slot) = ml.slot(&m.pos.path, m.pos.off) {
                 let x = (pr.min.x + (ex + slot.x) * s).round() + 0.5;
                 let y0 = pr.min.y + (base - slot.y - slot.a) * s;
@@ -1715,28 +1746,63 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
     let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
+    // A click on the equation frame's options strip opens the equation's menu below the strip.
+    let eq_strip = app.canvas.eq_options.map(|f| f.strip).filter(|r| resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| r.contains(p)));
     if from_keys {
         context_suggestions(app);
         app.canvas.context_menu_at = caret_screen(app).map(|(p, h)| p + egui::vec2(0.0, h));
+    } else if let Some(r) = eq_strip {
+        app.canvas.context_menu_at = Some(r.left_bottom());
     } else if secondary_clicked {
         app.canvas.context_menu_at = resp.interact_pointer_pos();
     }
-    let open = if secondary_clicked || from_keys {
-        Some(egui::SetOpenCommand::Bool(true))
-    } else if resp.clicked() {
-        Some(egui::SetOpenCommand::Bool(false))
-    } else {
-        None
-    };
-    let menu = egui::Popup::menu(&resp).open_memory(open);
-    let menu = match app.canvas.context_menu_at {
-        Some(p) => menu.at_position(p),
-        None => menu.at_pointer_fixed(),
-    };
-    menu.show(|ui| context_menu(app, ui));
-    // Stand down while the context menu owns the pointer so the two never double up; the open
-    // state also covers the click that dismisses the menu.
-    app.canvas.context_menu_open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
+    // Keep the parent independently of egui's one memory popup: the toolbar's font, size and
+    // colour controls use that slot for their own lists (as in a collapsed ribbon group).
+    let mut open = app.canvas.context_menu_open;
+    if secondary_clicked || from_keys || eq_strip.is_some() {
+        egui::Popup::close_all(ui.ctx());
+        open = true;
+    } else if open && ui.input(|i| i.pointer.any_click()) {
+        let layer = ui.input(|i| i.pointer.interact_pos()).and_then(|p| ui.ctx().layer_id_at(p));
+        if !layer.is_some_and(|l| matches!(l.order, egui::Order::Foreground | egui::Order::Tooltip)) {
+            open = false;
+        }
+    }
+    let child_open = egui::Popup::is_any_open(ui.ctx());
+    let mut shown = open;
+    if open {
+        app.escape_free = false;
+    }
+    let menu = egui::Popup::menu(&resp).open_bool(&mut shown);
+    let menu = menu.at_position(app.canvas.context_menu_at.unwrap_or(out.inner_rect.left_top()));
+    let with_toolbar = crate::mini_toolbar::context_menu_visible(app);
+    let menu = if with_toolbar { menu.frame(egui::Frame::NONE).close_behavior(egui::PopupCloseBehavior::IgnoreClicks) } else { menu };
+    menu.show(|ui| {
+        if with_toolbar {
+            crate::mini_toolbar::show_in_context_menu(app, ui);
+            ui.add_space(4.0);
+            // The command panel keeps its own width, not the toolbar's: the popup's justified
+            // layout would stretch it, so it takes the width egui measures in its sizing pass.
+            let width_id = ui.id().with("context_menu_width");
+            let width = ui.data(|d| d.get_temp::<f32>(width_id)).filter(|_| !ui.is_sizing_pass());
+            let size = egui::vec2(width.unwrap_or(ui.available_width()), ui.available_height());
+            let rect = egui::Rect::from_min_size(ui.cursor().min, size);
+            let panel = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| context_menu(app, ui)).response.rect.width()
+            });
+            if ui.is_sizing_pass() {
+                ui.data_mut(|d| d.insert_temp(width_id, panel.inner));
+            }
+        } else {
+            context_menu(app, ui);
+        }
+    });
+    // Escape closes the child list first; a second Escape closes the context menu.
+    if open && !shown && child_open && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        shown = true;
+    }
+    // The standalone selection toolbar stands down while the context popup owns the pointer.
+    app.canvas.context_menu_open = shown;
     if let Some(c) = crate::ink::cursor(app).filter(|_| resp.hovered() || app.canvas.ink.is_some()) {
         ui.ctx().set_cursor_icon(c);
     } else if resp.hovered() || app.canvas.obj_drag.is_some() {
@@ -2043,8 +2109,22 @@ fn card_shapes(painter: &egui::Painter, t: &Tokens, card: Rect, color: Color32, 
 }
 
 /// Does `text` hold right-to-left letters (Arabic, Hebrew, Syriac, Thaana, N'Ko …)?
-fn has_rtl(text: &str) -> bool {
+pub(crate) fn has_rtl(text: &str) -> bool {
     text.chars().any(|c| matches!(unicode_bidi::bidi_class(c), unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL))
+}
+
+/// Put `text` into visual display order for egui when it contains right-to-left characters.
+/// Uses an LTR base paragraph direction so left-aligned UI elements (recent files, paths) preserve
+/// trailing extensions and numbers in their proper visual order.
+pub(crate) fn bidi_display(text: &str) -> std::borrow::Cow<'_, str> {
+    if !has_rtl(text) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let info = unicode_bidi::BidiInfo::new(text, Some(unicode_bidi::Level::ltr()));
+    match info.paragraphs.first() {
+        Some(p) => std::borrow::Cow::Owned(visual_row(&info, p, text, 0..text.len())),
+        None => std::borrow::Cow::Borrowed(text),
+    }
 }
 
 /// The row `line` of paragraph `p` of `para` in display order, for egui: the bidi runs left to
@@ -2281,7 +2361,8 @@ fn scrollbar_page_tip(app: &mut WordApp, ui: &Ui, scroll: egui::Id, rects: &[Rec
         .fixed_pos(at - vec2(16.0, 0.0))
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.label(text);
+                // Unwrapped: the area keeps last frame's width, too narrow once the number grows (#3341).
+                ui.add(egui::Label::new(text).extend());
             });
         });
 }
@@ -2364,8 +2445,10 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     let Some((page, x, y)) = page_at(rects, layout, scale, p) else { return };
     let mods = ui.input(|i| i.modifiers);
     let story = app.session.sel.focus.story;
-    // Inside an equation, clicks place the caret in it (and double-clicks don't select words).
-    if (resp.double_clicked() || resp.triple_clicked()) && layout.equation_hit(page, x, y, story).is_some() {
+    // Inside an equation, clicks place the caret in it (and double-clicks don't select words);
+    // so do clicks on the grip and options strip of its frame.
+    let on_frame = app.canvas.eq_options.is_some_and(|f| f.strip.contains(p) || f.grip.contains(p));
+    if (resp.double_clicked() || resp.triple_clicked()) && (on_frame || layout.equation_hit(page, x, y, story).is_some()) {
         return;
     }
     // Outline view: a paragraph's symbol selects it with what is under it; a double-click
@@ -2401,11 +2484,18 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     } else {
         None
     };
+    // Entering: from the body, or from another header/footer: the other one of the two
+    // (switching, #1026), or with Different First Page on, page 1's header is not the one being
+    // edited on page 2 (#2826).
+    let hf_enter = hf_zone.is_some_and(|(shown, header)| match part_kind(app, story) {
+        _ if story == StoryRef::Body => true,
+        Some(PartKind::Header) => !header || shown != Some(story),
+        Some(PartKind::Footer) => header || shown != Some(story),
+        _ => false,
+    });
     if resp.double_clicked() {
-        // Also from another header/footer: with Different First Page on, page 1's header is not
-        // the one being edited on page 2 (#2826).
-        if let Some((shown, header)) = hf_zone
-            && (story == StoryRef::Body || (shown != Some(story) && matches!(part_kind(app, story), Some(PartKind::Header | PartKind::Footer))))
+        if let Some((_, header)) = hf_zone
+            && hf_enter
         {
             let id = if header { "insert.editHeader" } else { "insert.editFooter" };
             if app.run(id, json!({ "page": page })).is_ok()
@@ -2434,10 +2524,15 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         return;
     }
     if resp.triple_clicked() {
-        let _ = app.run("select.paragraph", json!({}));
+        let _ = app.run("select.paragraph", json!({"cell": true}));
         return;
     }
     let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);
+    // The equation frame's grip and options strip stay in the equation (the strip's click opens
+    // its menu, in `show`).
+    if pressed && on_frame {
+        return;
+    }
     if pressed {
         let now = ui.input(|i| i.time);
         let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
@@ -2445,8 +2540,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.canvas.last_press = Some((now, p, clicks));
         app.canvas.unit_drag = None;
         // A double-click that enters or leaves a header/footer is handled on release.
-        let hf_switch =
-            (hf_zone.is_some() && story == StoryRef::Body) || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
+        let hf_switch = hf_enter || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
         // Clicking into a footnote/endnote or a text box edits it; clicking outside a text box goes
         // back to where it is. While editing a header/footer, only its own text boxes are in reach.
         let story = {
@@ -2616,9 +2710,13 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             let _ = app.run("edit.pasteFormat", json!({}));
         }
     }
-    // Hover a link: show its target.
+    // Hover a link: show its target, unless the context menu is opening or open: a tooltip draws
+    // above the menu and would cover its first items (#3368).
     if resp.hovered()
         && !app.canvas.dragging
+        && !app.canvas.context_menu_open
+        && !resp.secondary_clicked()
+        && !ui.input(|i| i.pointer.secondary_down())
         && let Some(pos) = layout.hit(page, x, y, story)
         && let Some(link) = link_under(app, layout, page, x, y, &pos)
     {
@@ -3030,7 +3128,7 @@ pub fn in_text_box(app: &WordApp) -> bool {
     part_kind(app, app.session.sel.focus.story) == Some(PartKind::TextBox)
 }
 
-fn part_kind(app: &WordApp, s: StoryRef) -> Option<PartKind> {
+pub(crate) fn part_kind(app: &WordApp, s: StoryRef) -> Option<PartKind> {
     match s {
         StoryRef::Part(id) => app.session.doc.parts.get(&id).map(|p| p.kind),
         StoryRef::Body => None,
@@ -3167,7 +3265,12 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
     item(ui, app, "Cut", "edit.cut", json!({}));
     item(ui, app, "Copy", "edit.copy", json!({}));
+    // How to paste, chosen before pasting (#2583): the ribbon's Paste menu, item for item. Paste
+    // keeps the clipboard's formatting (Word's Keep Source Formatting).
     item(ui, app, "Paste", "edit.paste", json!({}));
+    item(ui, app, "Keep Text Only", "edit.pasteText", json!({}));
+    item(ui, app, "Merge Formatting", "edit.pasteMerge", json!({}));
+    item(ui, app, "Paste Special…", "edit.pasteSpecial", json!({}));
     ui.separator();
     if let Some(syn) = app.canvas.context_synonyms.clone().and_then(|v| v.as_array().cloned()).filter(|a| !a.is_empty()) {
         ui.menu_button(tl!("Synonyms"), |ui| {
@@ -3343,6 +3446,29 @@ pub(crate) fn caret_contrast(bg: wordcraft_doc::props::Rgb) -> Color32 {
     if (l + 0.05) * (l + 0.05) >= 0.05 * 1.05 { Color32::BLACK } else { Color32::WHITE }
 }
 
+/// The frame around the equation being edited, on screen: Word's outline, the grip at its top
+/// left and the options strip inside its right edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EquationFrame {
+    pub outline: Rect,
+    pub grip: Rect,
+    pub strip: Rect,
+}
+
+/// Lay the frame out around `bx` on the page drawn at `page` (`scale` screen pixels a point):
+/// the equation's width and its line's height, plus the strip; the frame's pieces keep their
+/// screen size at every zoom.
+fn equation_frame(page: Rect, bx: &wordcraft_layout::hit::EquationBox, scale: f32) -> EquationFrame {
+    let (pad, strip_w) = (2.0, 10.0);
+    let x0 = page.min.x + bx.x * scale - pad;
+    let x1 = page.min.x + (bx.x + bx.math.width) * scale + pad;
+    let (top, bottom) = (page.min.y + bx.top * scale - pad, page.min.y + bx.bottom * scale + pad);
+    let outline = Rect::from_min_max(pos2(x0, top), pos2(x1 + strip_w, bottom));
+    let strip = Rect::from_min_max(pos2(x1, top), pos2(x1 + strip_w, bottom));
+    let grip = Rect::from_min_size(pos2(x0 - 5.0, top - 3.0), vec2(7.0, 14.0));
+    EquationFrame { outline, grip, strip }
+}
+
 /// The caret colour at page point (`x`, `y`) of page `page`: [`caret_contrast`] of the paper,
 /// shading or highlight there. Cached until the layout, the view or the point changes, so the
 /// blink doesn't rebuild the page's draw list every frame.
@@ -3362,6 +3488,13 @@ fn caret_color_at(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, page: u
     c
 }
 
+/// The caret colour at page point (`x`, `y`) of page `page`, uncached: for a caret drawn while
+/// dragging, such as an inline picture's insertion cursor.
+pub(crate) fn caret_color_on(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32) -> Color32 {
+    let Some(p) = layout.pages.get(page) else { return Color32::BLACK };
+    caret_contrast(wordcraft_render::background_at(&app.session.doc, p, &page_render_options(app, dims_body(app, layout)), x, y))
+}
+
 /// Render options for page rasters shown on screen: on macOS, text is darkened the way the system
 /// draws it, so a page looks as it does in other Mac apps (exports never are).
 pub(crate) fn screen_render_options() -> wordcraft_render::RenderOptions {
@@ -3377,10 +3510,19 @@ fn link_under(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32, po
     let at = wordcraft_geom::Point::new(x, y);
     // The caret falls between characters: the one under the point is on either side of it.
     [(pos.off, para.next_boundary(pos.off)), (para.prev_boundary(pos.off), pos.off)].into_iter().filter(|(a, b)| a < b).find_map(|(a, b)| {
-        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty())?;
+        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty()).or_else(|| field_link(para.object_at(a)?))?;
         let (from, to) = (Pos { off: a, ..pos.clone() }, Pos { off: b, ..pos.clone() });
         layout.selection_rects(doc, &from, &to, page).into_iter().any(|(pi, r)| pi == page && r.contains(at)).then_some(link)
     })
+}
+
+/// The link a cross-reference field makes: `REF name \h` and `PAGEREF name \h` lead to the
+/// bookmark `name` (`#name`), as in Word; without `\h` the result is plain text (#2945).
+fn field_link(obj: &wordcraft_doc::InlineObject) -> Option<String> {
+    let wordcraft_doc::InlineObject::Field { instr, .. } = obj else { return None };
+    let code = wordcraft_engine::cmd::references::FieldCode::parse(instr);
+    let name = code.args.first().filter(|n| !n.is_empty())?;
+    (matches!(code.name.as_str(), "REF" | "PAGEREF") && code.has('h')).then(|| format!("#{name}"))
 }
 
 /// A link to a hidden bookmark (`#_Toc…`, `#_Ref…`): a name the program made, which nobody
@@ -3871,7 +4013,8 @@ mod tests {
     }
 
     /// #2551: dragging the vertical scrollbar shows the page at the top of the window beside the
-    /// pointer ("Page 7 of 10"), and the tip goes when the button is let go.
+    /// pointer ("Page 7 of 12"), on one line as the number grows (#3341), and the tip goes when the
+    /// button is let go.
     #[test]
     fn dragging_the_scrollbar_names_the_page_at_the_top() {
         use egui::accesskit::Role;
@@ -3879,7 +4022,7 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         for hide_white_space in [false, true] {
             let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
-            for _ in 0..9 {
+            for _ in 0..11 {
                 a.run("text.insert", json!({"text": "Page text"})).unwrap();
                 a.run("layout.break", json!({"kind": "page"})).unwrap();
             }
@@ -3897,7 +4040,7 @@ mod tests {
             for _ in 0..6 {
                 h.step();
             }
-            assert_eq!(h.state_mut().session.layout().pages.len(), 10);
+            assert_eq!(h.state_mut().session.layout().pages.len(), 12);
             let bar = h
                 .query_all_by_role(Role::ScrollBar)
                 .map(|n| n.rect())
@@ -3918,13 +4061,24 @@ mod tests {
                 h.step();
             }
             let page = h.state().canvas.scrollbar_page.expect("a tip while the scrollbar is dragged");
-            assert!((4..10).contains(&page), "a page well down the document: {page}");
-            assert!(h.query_by_label(&format!("Page {} of 10", page + 1)).is_some(), "the tip names page {}", page + 1);
-            h.event(button(to, false));
+            assert!((4..9).contains(&page), "a page well down the document: {page}");
+            assert!(h.query_by_label(&format!("Page {} of 12", page + 1)).is_some(), "the tip names page {}", page + 1);
+            let end = pos2(from.x, bar.bottom() - 4.0);
+            for k in 1..=6 {
+                h.event(Event::PointerMoved(to + (end - to) * (k as f32 / 6.0)));
+                h.step();
+            }
+            let last = h.state().canvas.scrollbar_page.expect("still dragging");
+            assert!(last >= 9, "a two-digit page: {last}");
+            let label = format!("Page {} of 12", last + 1);
+            let tip = h.query_by_label(&label).expect("the tip names the last page").rect();
+            let body = egui::TextStyle::Body.resolve(&h.ctx.global_style());
+            assert!(tip.height() < 1.5 * h.ctx.fonts_mut(|f| f.row_height(&body)), "one line as the number grows: {tip:?}");
+            h.event(button(end, false));
             h.step();
             h.step();
             assert_eq!(h.state().canvas.scrollbar_page, None, "the tip goes with the button");
-            assert!(h.query_by_label(&format!("Page {} of 10", page + 1)).is_none(), "and its text");
+            assert!(h.query_by_label(&label).is_none(), "and its text");
             assert_eq!((h.state().session.rev(), &h.state().session.sel), (rev, &sel), "scrolling changes neither the document nor the selection");
         }
     }
@@ -4251,6 +4405,13 @@ mod tests {
     }
 
     #[test]
+    fn bidi_display_preserves_extensions_and_numbers() {
+        assert_eq!(bidi_display("report.docx").as_ref(), "report.docx");
+        assert_eq!(bidi_display("نواقص 2026.docx").as_ref(), "2026 نواقص.docx");
+        assert_eq!(bidi_display("مذكرة داخلية.docx").as_ref(), "داخلية مذكرة.docx");
+    }
+
+    #[test]
     fn a_balloon_edits_its_comment() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
         a.run("text.insert", json!({"text": "Some text here"})).unwrap();
@@ -4407,6 +4568,67 @@ mod tests {
         assert_eq!(h.state_mut().session.layout().pages[0].header_story.map(StoryRef::Part), Some(first));
     }
 
+    /// #1026: while editing the header, double-clicking the bottom margin switches to the
+    /// footer (and back), as in Word, instead of selecting a word in the header.
+    #[test]
+    fn double_click_switches_between_header_and_footer() {
+        use egui::{Event, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Body text"})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 2200.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let double_click = |h: &mut egui_kittest::Harness<'_, WordApp>, at: Pos2| {
+            h.event(Event::PointerMoved(at));
+            for _ in 0..2 {
+                h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+                h.step();
+                h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+                h.step();
+            }
+            for _ in 0..40 {
+                h.step();
+            }
+        };
+        let kind = |h: &egui_kittest::Harness<'_, WordApp>| part_kind(h.state(), h.state().session.sel.focus.story);
+        let page = h.state_mut().session.layout().pages[0].clone();
+        let (x, top, bottom) = (page.body.x + 20.0, page.body.y / 2.0, (page.body.bottom() + page.h) / 2.0);
+        let head_at = page_to_screen(h.state_mut(), 0, x, top).expect("top margin on screen");
+        let foot_at = page_to_screen(h.state_mut(), 0, x, bottom).expect("bottom margin on screen");
+        double_click(&mut h, head_at);
+        assert_eq!(kind(&h), Some(PartKind::Header), "editing a new header");
+        let header = h.state().session.sel.focus.story;
+        h.event(Event::Text("Head".into()));
+        for _ in 0..3 {
+            h.step();
+        }
+        // Header -> footer.
+        double_click(&mut h, foot_at);
+        assert_eq!(kind(&h), Some(PartKind::Footer), "header -> footer band double-click switches");
+        assert!(h.state().session.sel.is_collapsed(), "no word selected");
+        assert_eq!(h.state().session.doc.plain_text(header), "Head");
+        h.event(Event::Text("Foot".into()));
+        for _ in 0..3 {
+            h.step();
+        }
+        let footer = h.state().session.sel.focus.story;
+        // Footer -> header.
+        double_click(&mut h, head_at);
+        assert_eq!(h.state().session.sel.focus.story, header, "footer -> header band double-click switches");
+        assert!(h.state().session.sel.is_collapsed(), "no word selected");
+        assert_eq!(h.state().session.doc.plain_text(footer), "Foot");
+        assert_eq!(h.state().session.doc.plain_text(header), "Head");
+    }
+
     /// #513: right-clicking a picture selects it and offers Wrap Text, as in Word; choosing
     /// Square there wraps text around it.
     /// #1348: an app with one comment ("Original") on some text, its balloon on screen.
@@ -4495,6 +4717,24 @@ mod tests {
         leave_field(&mut h);
         let text = comment_text(h.state(), id);
         assert!(text.contains("Edited"), "the typed text survived the refusal: {text:?}");
+    }
+
+    /// #3268: clicking a balloon's Reply button, typing a reply and clicking away posts it as a
+    /// reply comment under the original, not a draft that silently disappears.
+    #[test]
+    fn replying_to_a_comment_from_its_balloon_posts_the_reply() {
+        use egui_kittest::kittest::Queryable;
+        let (mut h, id) = comment_harness();
+        click_balloon(&mut h, id);
+        h.get_by_label("Reply").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        type_in(&mut h, "A reply");
+        leave_field(&mut h);
+        let replies: Vec<u32> = h.state().session.doc.comments.iter().filter(|(_, c)| c.parent == Some(id)).map(|(k, _)| *k).collect();
+        assert_eq!(replies.len(), 1, "{:?}", h.state().session.doc.comments);
+        assert_eq!(comment_text(h.state(), replies[0]), "A reply");
     }
 
     /// #1348: a draft typed in one document never lands in another document's comment that happens
@@ -4859,6 +5099,100 @@ mod tests {
         }
     }
 
+    /// #2583: the context menu offers the ribbon's Paste menu, item for item, and each pastes its
+    /// own way: Paste keeps the copied bold and colour (Word's Keep Source Formatting), Merge
+    /// Formatting keeps only the bold, Keep Text Only neither; Paste Special… opens its dialog.
+    #[test]
+    fn context_menu_offers_the_ribbons_paste_items() {
+        use egui_kittest::kittest::Queryable;
+        use wordcraft_doc::props::{Rgb, TextColor};
+        let red = Some(TextColor::Rgb(Rgb(0xC0, 0, 0)));
+        let items = [
+            ("Paste", "edit.paste"),
+            ("Keep Text Only", "edit.pasteText"),
+            ("Merge Formatting", "edit.pasteMerge"),
+            ("Paste Special…", "edit.pasteSpecial"),
+        ];
+        for (choice, pasted) in [
+            ("Paste", Some((true, red))),
+            ("Merge Formatting", Some((true, None))),
+            ("Keep Text Only", Some((false, None))),
+            ("Paste Special…", None),
+        ] {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Bold\nTarget")), Default::default());
+            a.session
+                .doc
+                .format_range(&Pos::body(0, 0), &Pos::body(0, 4), &|c| {
+                    c.bold = Some(true);
+                    c.color = red;
+                })
+                .unwrap();
+            a.session.relayout();
+            a.run("select.text", json!({"text": "Bold"})).unwrap();
+            a.run("edit.copy", json!({})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..6 {
+                h.step();
+            }
+            let c = h.state_mut().session.layout().caret(&Pos::body(1, 6)).expect("laid out");
+            let at = page_to_screen(h.state_mut(), c.page, c.x, c.top + c.height / 2.0).expect("on screen");
+            h.event(egui::Event::PointerMoved(at));
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+                h.step();
+            }
+            h.step();
+            // Each item reads as its name and its shortcut (none for Merge Formatting).
+            let labels: Vec<String> = items.iter().map(|(name, id)| format!("{name} {}", crate::widgets::shortcut_text(h.state(), id))).collect();
+            for l in &labels {
+                assert!(h.query_by_label(l).is_some(), "{choice}: {l:?} is offered");
+            }
+            let k = items.iter().position(|(name, _)| *name == choice).unwrap();
+            h.get_by_label(&labels[k]).click();
+            for _ in 0..3 {
+                h.step();
+            }
+            match pasted {
+                Some((bold, colour)) => {
+                    let doc = &h.state().session.doc;
+                    assert_eq!(doc.plain_text(StoryRef::Body), "Bold\nTargetBold", "{choice}: pasted at the end of the second paragraph");
+                    let p = doc.para_at(&Pos::body(1, 0)).expect("the target paragraph");
+                    assert_eq!(p.props_of_char(7).bold == Some(true), bold, "{choice}: bold");
+                    assert_eq!(p.props_of_char(7).color, colour, "{choice}: colour");
+                }
+                None => {
+                    assert!(matches!(h.state().dialog, Some(crate::dialogs::Dialog::PasteSpecial { .. })), "{choice}: the dialog opens");
+                }
+            }
+        }
+    }
+
+    /// Word's frame around the equation being edited: as wide as the equation plus the options
+    /// strip at its right, as tall as its line, with the grip over its top-left corner. The
+    /// strip and grip keep their screen size at every zoom.
+    #[test]
+    fn the_equation_frame_holds_the_equation_and_its_strip() {
+        let math = wordcraft_layout::math::MathLayout { width: 40.0, ascent: 10.0, descent: 5.0, ..Default::default() };
+        let bx = wordcraft_layout::hit::EquationBox { page: 0, x: 100.0, base: 90.0, top: 76.0, bottom: 98.0, math: std::sync::Arc::new(math) };
+        let page = Rect::from_min_size(pos2(10.0, 20.0), vec2(600.0, 800.0));
+        for scale in [1.0, 2.5] {
+            let f = equation_frame(page, &bx, scale);
+            let (left, right) = (10.0 + 100.0 * scale, 10.0 + 140.0 * scale);
+            assert!(f.outline.min.x < left && f.strip.min.x > right && f.strip.max.x == f.outline.max.x, "{f:?}");
+            assert!(f.outline.min.y < 20.0 + 76.0 * scale && f.outline.max.y > 20.0 + 98.0 * scale, "{f:?}");
+            assert_eq!((f.strip.min.y, f.strip.max.y), (f.outline.min.y, f.outline.max.y));
+            assert!(f.grip.contains(f.outline.left_top() + vec2(1.0, 1.0)), "{f:?}");
+            assert_eq!(f.strip.width(), 10.0);
+        }
+    }
+
     /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
     /// mouse's way to it), so it opens the same menu and leaves the caret where the menu needs it.
     #[cfg(target_os = "macos")]
@@ -4900,6 +5234,38 @@ mod tests {
         h.event(egui::Event::ModifiersChanged(Default::default()));
         h.step();
         assert!(h.state().canvas.context_menu_open, "the Control-click opened the menu");
+        h.get_by_label("brown").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brown fox");
+    }
+
+    /// #3340: review.spelling (the Review tab's Spelling & Grammar button and the Home tab's
+    /// Editor button both run it) only moved the selection to the next issue — with no way to see
+    /// or apply a suggestion from there, just the generic selection toolbar, it looked broken.
+    /// Running it now also opens the same suggestions menu Shift+F10 and a Control-click already
+    /// open for the word at the caret.
+    #[test]
+    fn spelling_and_grammar_opens_suggestions_for_the_issue_it_selects() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "The quick brwn fox"})).unwrap();
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        a.run("review.spelling", json!({})).unwrap();
+        assert!(a.canvas.context_menu_from_keys, "queues the open the context menu already uses for Shift+F10");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.context_menu_open, "Spelling & Grammar opens the suggestions menu");
         h.get_by_label("brown").click();
         for _ in 0..3 {
             h.step();
@@ -5059,6 +5425,98 @@ mod tests {
         let (start, _) = wordcraft_engine::cmd::insert::bookmark_range(&s.doc, "Spot").unwrap();
         assert!(s.sel.is_collapsed(), "a caret, not a selection: {:?}", s.sel);
         assert_eq!(s.sel.focus, start, "at the bookmark's start");
+    }
+
+    /// #2945: only a `REF` or `PAGEREF` with `\h` and a bookmark makes a link.
+    #[test]
+    fn only_hyperlinked_reference_fields_make_links() {
+        let field = |instr: &str| wordcraft_doc::InlineObject::Field {
+            instr: instr.into(),
+            result: "x".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        };
+        assert_eq!(field_link(&field(r"REF _Ref000000001 \h")).as_deref(), Some("#_Ref000000001"));
+        assert_eq!(field_link(&field(r"PAGEREF Spot \h")).as_deref(), Some("#Spot"));
+        assert_eq!(field_link(&field(r"ref Spot \* MERGEFORMAT \H")).as_deref(), Some("#Spot"));
+        for plain in [r"REF Spot", r"REF \h", "REF", "", r"PAGE \h", r"TOC \h", r"SEQ Figure \h"] {
+            assert_eq!(field_link(&field(plain)), None, "{plain:?}");
+        }
+    }
+
+    /// #2945: a cross-reference (`REF … \h`) is a link to its target: Ctrl+click on it goes there,
+    /// and its hover tip names no bookmark.
+    #[test]
+    fn ctrl_click_on_a_cross_reference_goes_to_its_target() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Rock\nSee ")), Default::default());
+        a.run("select.text", json!({"text": "Rock"})).unwrap();
+        a.run("references.caption", json!({"label": "Figure", "text": "A rock"})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("insert.crossReference", json!({"to": "figure", "target": "Figure 1", "show": "number"})).unwrap();
+        let caption = a.session.doc.body.iter().position(|b| b.as_para().is_some_and(|p| p.props.style.as_deref() == Some("Caption"))).unwrap();
+        let last = a.session.doc.body.len() - 1;
+        assert_ne!(caption, last);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        // The field sits after "See ": click between its two edges.
+        let obj = wordcraft_doc::para::OBJ.len_utf8();
+        let (before, after) = {
+            let l = h.state_mut().session.layout();
+            let pos = |off| Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(last), off };
+            (l.caret(&pos(4)).unwrap(), l.caret(&pos(4 + obj)).unwrap())
+        };
+        let at = screen(&mut h, (before.x + after.x) / 2.0, before.top + before.height / 2.0);
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        let press = egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::COMMAND };
+        h.event_modifiers(press, egui::Modifiers::COMMAND);
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+        steps(&mut h, 3);
+        let s = &h.state().session;
+        assert_eq!(s.sel.focus.path.last(), caption, "the caret went to the caption: {:?}", s.sel);
+    }
+
+    /// #3368: right-clicking a link dismisses the hover tooltip. A tooltip draws above the
+    /// context menu and covered its first items (Cut, Copy, Paste, Font…), so the menu looked
+    /// truncated; the tooltip must stand down while the menu owns the pointer.
+    #[test]
+    fn right_clicking_a_link_hides_the_hover_tooltip() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("See here")), Default::default());
+        a.run("select.text", json!({"text": "here"})).unwrap();
+        a.run("insert.link", json!({"url": "https://example.com/very/long/tracking/url?with=parameters&and=still-more"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        // Between the link's "h" and "e".
+        let c = h.state_mut().session.layout().caret(&Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 5 }).unwrap();
+        let at = screen(&mut h, c.x, c.top + c.height / 2.0);
+        h.event(egui::Event::PointerMoved(at));
+        steps(&mut h, 2);
+        let tips = |h: &egui_kittest::Harness<'_, WordApp>| h.query_all_by_label_contains("Click to follow link").count();
+        assert!(tips(&h) > 0, "hovering the link shows its target");
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        steps(&mut h, 2);
+        assert!(h.state().canvas.context_menu_open, "the context menu is open");
+        assert_eq!(tips(&h), 0, "the link tooltip is gone, so it can't cover the menu");
     }
 
     /// #688: the drag auto-scroll waits in the middle, ramps in from both edges and never leaves

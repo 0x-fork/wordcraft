@@ -84,8 +84,11 @@
 	Book Title	Kitap Başlığı
 	Bookmark	Yer İşareti
 	Bookmark name:	Yer işareti adı:
+	Continue from previous section	Önceki bölümden devam et
 	Delete Bookmark	Yer İşaretini Sil
 	Hidden bookmarks	Gizli yer işaretleri
+	Page Number Format	Sayfa numarası biçimi
+	Page numbering	Sayfa numaralandırma
 	Sort by:	Sıralama ölçütü:
 	Border Painter	Kenarlık Fırçası
 	Border\nPainter	Kenarlık\nFırçası
@@ -232,6 +235,8 @@
 	Edit\nRecipient List	Alıcı Listesini\nDüzenle
 	Edited	Düzenlendi
 	Editing	Düzenleme
+	Editing endnote	Sonnot düzenleniyor
+	Editing footnote	Dipnot düzenleniyor
 	Editing header/footer	Üstbilgi/altbilgi düzenleniyor
 	Editing — edit the document directly	Düzenleme — belgeyi doğrudan düzenleyin
 	Editor	Düzenleyici
@@ -711,6 +716,7 @@
 	Spelling & Grammar	Yazım ve Dilbilgisi
 	Spelling &\nGrammar	Yazım ve\nDilbilgisi
 	Spelling Suggestions	Yazım Önerileri
+	Possible spelling mistake	Olası yazım hatası
 	Split	Böl
 	Split Cells	Hücreleri Böl
 	Split Table	Tabloyu Böl
@@ -1138,6 +1144,9 @@ preview	Title	Örnek
 	Version	Sürüm
 	% of all commits	Commit payı (%)
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Save the document to turn on AutoSave	Otomatik Kaydet'i açmak için belgeyi kaydedin
 	Models	Modeller
 	Good evening	İyi akşamlar
@@ -2615,6 +2624,7 @@ preview	Title	Örnek
 	Submitting print job…	Yazdırma işi gönderiliyor…
 	Print job submitted.	Yazdırma işi gönderildi.
 	Print job submitted: {receipt}	Yazdırma işi gönderildi: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Yazdırma işi gönderildi: {count} sayfa kuyruğa alındı
 	Print failed: the printing worker stopped.	Yazdırma başarısız oldu: yazdırma işlemi durdu.
 	Print settings	Yazdırma ayarları
 	Submit print job	Yazdırma işini gönder
@@ -2655,6 +2665,9 @@ preview	Title	Örnek
 # Reading Mode column widths (#1040)
 	Narrow	Dar
 	Medium	Orta
+	Dot-dot-dash	Nokta-nokta-çizgi
+	More Underlines…	Diğer Alt Çizgiler…
+	Underline Color	Alt Çizgi Rengi
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Bölmeden önce hücreleri birleştir
 	Table size	Tablo boyutu
@@ -2756,3 +2769,6 @@ preview	Title	Örnek
 	Deep	Koyu
 	Lit from Bottom	Alttan aydınlatılmış
 	Center Glow	Merkez parıltısı
+	More tabs	Diğer sekmeler
+# #3013: Insert Table of Figures
+	Include label and number	Etiketi ve numarayı ekle

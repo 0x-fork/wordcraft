@@ -85,8 +85,11 @@
 	Book Title	Название книги
 	Bookmark	Закладка
 	Bookmark name:	Имя закладки:
+	Continue from previous section	Продолжить из предыдущего раздела
 	Delete Bookmark	Удалить закладку
 	Hidden bookmarks	Скрытые закладки
+	Page Number Format	Формат номеров страниц
+	Page numbering	Нумерация страниц
 	Sort by:	Сортировать по:
 	Border Painter	Кисть границ
 	Border\nPainter	Кисть\nграниц
@@ -236,6 +239,8 @@
 	Edit\nRecipient List	Изменить список\nполучателей
 	Edited	Изменено
 	Editing	Редактирование
+	Editing endnote	Редактирование концевой сноски
+	Editing footnote	Редактирование сноски
 	Editing header/footer	Редактирование колонтитула
 	Editing — edit the document directly	Редактирование — правка документа напрямую
 	Editor	Редактор
@@ -706,6 +711,7 @@
 	Spelling & Grammar	Орфография и грамматика
 	Spelling &\nGrammar	Орфография\nи грамматика
 	Spelling Suggestions	Варианты написания
+	Possible spelling mistake	Возможная орфографическая ошибка
 	Split	Разделить
 	Split Cells	Разделить ячейки
 	Split Table	Разделить таблицу
@@ -1138,6 +1144,9 @@ preview	Title	Пример
 	Version	Версия
 	% of all commits	% всех коммитов
 	pt	пт
+	cm	см
+	mm	мм
+	pi	пик
 	Save the document to turn on AutoSave	Сохраните документ, чтобы включить автосохранение
 	Contributors	Участники
 	Models	Модели
@@ -2616,6 +2625,7 @@ preview	Title	Пример
 	Submitting print job…	Отправка задания на печать…
 	Print job submitted.	Задание на печать отправлено.
 	Print job submitted: {receipt}	Задание на печать отправлено: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Задание печати отправлено: в очередь передано листов: {count}
 	Print failed: the printing worker stopped.	Печать не удалась: процесс печати остановлен.
 	Print settings	Параметры печати
 	Submit print job	Отправить задание на печать
@@ -2656,6 +2666,9 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+	Dot-dot-dash	Штрихпунктирный с двумя точками
+	More Underlines…	Другие подчёркивания…
+	Underline Color	Цвет подчёркивания
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Объединить ячейки перед разбиением
 	Table size	Размер таблицы
@@ -2757,3 +2770,6 @@ preview	Title	Пример
 	Deep	Глубокий
 	Lit from Bottom	Освещение снизу
 	Center Glow	Свечение из центра
+	More tabs	Другие вкладки
+# #3013: Insert Table of Figures
+	Include label and number	Включить подпись и номер

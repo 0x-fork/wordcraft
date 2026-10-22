@@ -140,8 +140,11 @@
 	Book Title	Název knihy
 	Bookmark	Záložka
 	Bookmark name:	Název záložky:
+	Continue from previous section	Pokračovat z předchozího oddílu
 	Delete Bookmark	Odstranit záložku
 	Hidden bookmarks	Skryté záložky
+	Page Number Format	Formát čísel stránek
+	Page numbering	Číslování stránek
 	Sort by:	Seřadit podle:
 	Border Painter	Štětec ohraničení
 	Border\nPainter	Štětec\nohraničení
@@ -377,6 +380,8 @@
 	Edit\nRecipient List	Upravit seznam\npříjemců
 	Edited	Upraveno
 	Editing	Úpravy
+	Editing endnote	Úprava vysvětlivky
+	Editing footnote	Úprava poznámky pod čarou
 	Editing header/footer	Úprava záhlaví/zápatí
 	Editing — edit the document directly	Úpravy — přímá úprava dokumentu
 	Editor	Editor
@@ -1393,6 +1398,9 @@
 	{cols}×{rows} Table	Tabulka {cols}×{rows}
 	AaBbYyZz	AaBbYyZz ČčŘřŽž
 	pt	b.
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Dokument1
 	Username	Uživatelské jméno
 	Display name	Zobrazované jméno
@@ -2610,6 +2618,7 @@ preview	Title	Ukázka
 	Submitting print job…	Odesílání tiskové úlohy…
 	Print job submitted.	Tisková úloha odeslána.
 	Print job submitted: {receipt}	Tisková úloha odeslána: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Tisková úloha odeslána: do tiskové fronty předáno listů: {count}
 	Print failed: the printing worker stopped.	Tisk se nezdařil: proces tisku se zastavil.
 	Print settings	Nastavení tisku
 	Submit print job	Odeslat tiskovou úlohu
@@ -2650,6 +2659,9 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+	Dot-dot-dash	Dvojitě čerchované
+	More Underlines…	Další podtržení…
+	Underline Color	Barva podtržení
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Před rozdělením buňky sloučit
 	Table size	Velikost tabulky
@@ -2751,3 +2763,6 @@ preview	Title	Ukázka
 	Deep	Sytý
 	Lit from Bottom	Osvětlený zdola
 	Center Glow	Záře ze středu
+	More tabs	Další karty
+# #3013: Insert Table of Figures
+	Include label and number	Zahrnout popisek a číslo

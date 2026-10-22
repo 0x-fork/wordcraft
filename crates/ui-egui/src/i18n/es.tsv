@@ -84,6 +84,7 @@
 	Check spelling as you type	Revisar la ortografía mientras escribes
 	Click to switch back to inserting	Haz clic para volver a insertar
 	Color only	Solo color
+	Continue from previous section	Continuar desde la sección anterior
 	Custom dictionary	Diccionario personalizado
 	Define New Multilevel List	Definir nueva lista multinivel
 	Define New Multilevel List…	Definir nueva lista multinivel…
@@ -128,6 +129,8 @@
 	Outside border	Borde exterior
 	Overtype	Sobrescribir
 	Overtype (typing replaces the characters after the caret)	Sobrescribir (lo que escribes reemplaza los caracteres tras el cursor)
+	Page Number Format	Formato del número de página
+	Page numbering	Numeración de páginas
 	Show alignment guides when moving pictures and shapes	Mostrar guías de alineación al mover imágenes y formas
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Los objetos que mueves se ajustan a los bordes y el centro de la página, a los márgenes y a otros objetos. Mantén pulsada Alt para moverlos libremente.
 	Page display	Visualización de página
@@ -374,6 +377,8 @@
 	Edit\nRecipient List	Editar lista de\ndestinatarios
 	Edited	Editado
 	Editing	Edición
+	Editing endnote	Editando nota final
+	Editing footnote	Editando nota al pie
 	Editing header/footer	Editando encabezado y pie de página
 	Editing — edit the document directly	Edición — edita el documento directamente
 	Editor	Editor
@@ -1416,6 +1421,9 @@
 	{cols}×{rows} Table	Tabla de {cols}×{rows}
 	AaBbYyZz	AaBbYyZz ÑñÁá
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Documento1
 	Username	Nombre de usuario
 	Display name	Nombre visible
@@ -2591,6 +2599,7 @@ preview	Title	Título
 	Submitting print job…	Enviando trabajo de impresión…
 	Print job submitted.	Trabajo de impresión enviado.
 	Print job submitted: {receipt}	Trabajo de impresión enviado: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Trabajo de impresión enviado: {count} hoja(s) en cola de impresión
 	Print failed: the printing worker stopped.	La impresión falló: el proceso de impresión se detuvo.
 	Print settings	Configuración de impresión
 	Submit print job	Enviar trabajo de impresión
@@ -2624,6 +2633,9 @@ preview	Title	Título
 # Reading Mode column widths (#1040)
 	Narrow	Estrecha
 	Medium	Media
+	Dot-dot-dash	Punto, punto y raya
+	More Underlines…	Más subrayados…
+	Underline Color	Color de subrayado
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Combinar celdas antes de dividir
 	Table size	Tamaño de la tabla
@@ -2714,3 +2726,6 @@ preview	Title	Título
 	Deep	Profundo
 	Lit from Bottom	Iluminado desde abajo
 	Center Glow	Brillo central
+	More tabs	Más pestañas
+# #3013: Insert Table of Figures
+	Include label and number	Incluir rótulo y número

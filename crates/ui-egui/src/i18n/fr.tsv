@@ -79,6 +79,7 @@
 	Changed lines:	Lignes modifiées :
 	Click level to modify:	Cliquez sur le niveau à modifier :
 	Color only	Couleur uniquement
+	Continue from previous section	Continuer depuis la section précédente
 	Define New Multilevel List	Définir une nouvelle liste à plusieurs niveaux
 	Define New Multilevel List…	Définir une nouvelle liste à plusieurs niveaux…
 	Deletions:	Suppressions :
@@ -106,6 +107,8 @@
 	Outside border	Bordure extérieure
 	Overtype	Refrappe
 	Outside:	Extérieur :
+	Page Number Format	Format des numéros de page
+	Page numbering	Numérotation des pages
 	Restart list after:	Redémarrer la liste après :
 	Right border	Bordure droite
 	Save the document to turn on AutoSave	Enregistrez le document pour activer l’enregistrement automatique
@@ -332,6 +335,8 @@
 	Edit\nRecipient List	Modifier\nla liste des destinataires
 	Edited	Modifié
 	Editing	Modification
+	Editing endnote	Modification de la note de fin
+	Editing footnote	Modification de la note de bas de page
 	Editing header/footer	Modification de l’en-tête/pied de page
 	Editing — edit the document directly	Modification — modifier directement le document
 	Editor	Éditeur
@@ -1312,6 +1317,9 @@
 	{cols}×{rows} Table	Tableau {cols}×{rows}
 	AaBbYyZz	AaBbYyZz
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Document1
 	Username	Nom d’utilisateur
 	Display name	Nom d’affichage
@@ -2232,6 +2240,7 @@
 	Submitting print job…	Envoi du travail d'impression…
 	Print job submitted.	Travail d'impression envoyé.
 	Print job submitted: {receipt}	Travail d'impression envoyé : {receipt}
+	Print job submitted: spooled {count} sheet(s)	Travail d’impression envoyé : {count} feuille(s) mise(s) en file d’attente
 	Print failed: the printing worker stopped.	L'impression a échoué : le processus d'impression s'est arrêté.
 	Print settings	Paramètres d'impression
 	Submit print job	Envoyer le travail d'impression
@@ -2265,6 +2274,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Étroite
 	Medium	Moyenne
+	Dot-dot-dash	Tiret-point-point
+	More Underlines…	Autres soulignements…
+	Underline Color	Couleur de soulignement
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Fusionner les cellules avant le fractionnement
 	Table size	Taille du tableau
@@ -2760,3 +2772,6 @@ template	Letter	Lettre
 	Deep	Profond
 	Lit from Bottom	Éclairé par le bas
 	Center Glow	Halo central
+	More tabs	Plus d'onglets
+# #3013: Insert Table of Figures
+	Include label and number	Inclure l’étiquette et le numéro

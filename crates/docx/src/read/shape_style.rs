@@ -206,7 +206,12 @@ pub(crate) fn vml_fill(shape: &El, shapetype: Option<&El>) -> Option<Fill> {
     let own = |n: &str| shape.attr(n).or_else(|| shapetype.and_then(|t| t.attr(n)));
     let f = shape.child("v:fill").or_else(|| shapetype.and_then(|t| t.child("v:fill")));
     let attr = |n: &str| f.and_then(|f| f.attr(n));
-    let off = |v: Option<&str>| v.is_some_and(|v| matches!(v, "f" | "false" | "0"));
+    let off = |v: Option<&str>| {
+        v.is_some_and(|v| {
+            let t = v.trim();
+            t.eq_ignore_ascii_case("f") || t.eq_ignore_ascii_case("false") || t == "0"
+        })
+    };
     if off(own("filled")) || off(attr("on")) {
         return None;
     }

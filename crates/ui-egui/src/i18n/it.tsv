@@ -79,6 +79,7 @@
 	Changed lines:	Righe modificate:
 	Click level to modify:	Fai clic sul livello da modificare:
 	Color only	Solo colore
+	Continue from previous section	Continua dalla sezione precedente
 	Define New Multilevel List	Definisci nuovo elenco a più livelli
 	Define New Multilevel List…	Definisci nuovo elenco a più livelli…
 	Deletions:	Eliminazioni:
@@ -101,6 +102,8 @@
 	Number style for this level:	Stile numero per questo livello:
 	Only for the selected text	Solo per il testo selezionato
 	Outside border	Bordo esterno
+	Page Number Format	Formato numero di pagina
+	Page numbering	Numerazione pagine
 	Restart list after:	Riavvia elenco dopo:
 	Right border	Bordo destro
 	Save the document to turn on AutoSave	Salva il documento per attivare il salvataggio automatico
@@ -315,6 +318,8 @@
 	Edit\nRecipient List	Modifica elenco\ndestinatari
 	Edited	Modificato
 	Editing	Modifica
+	Editing endnote	Modifica nota di chiusura
+	Editing footnote	Modifica nota a piè di pagina
 	Editing header/footer	Modifica intestazione/piè di pagina
 	Editing — edit the document directly	Modifica — modifica direttamente il documento
 	Editor	Editor
@@ -1304,6 +1309,9 @@
 	{cols}×{rows} Table	Tabella {cols}×{rows}
 	AaBbYyZz	AaBbYyZz ÀàÈé
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Documento1
 	Username	Nome utente
 	Display name	Nome visualizzato
@@ -2601,6 +2609,7 @@ preview	Title	Esempio
 	Submitting print job…	Invio del lavoro di stampa in corso…
 	Print job submitted.	Lavoro di stampa inviato.
 	Print job submitted: {receipt}	Lavoro di stampa inviato: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Lavoro di stampa inviato: {count} foglio/i messo/i in coda
 	Print failed: the printing worker stopped.	Stampa non riuscita: il processo di stampa si è interrotto.
 	Print settings	Impostazioni di stampa
 	Submit print job	Invia lavoro di stampa
@@ -2667,6 +2676,9 @@ preview	Title	Esempio
 # Reading Mode column widths (#1040)
 	Narrow	Stretta
 	Medium	Media
+	Dot-dot-dash	Punto punto linea
+	More Underlines…	Altre sottolineature…
+	Underline Color	Colore sottolineatura
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Unisci le celle prima di dividere
 	Table size	Dimensioni tabella
@@ -2768,3 +2780,22 @@ preview	Title	Esempio
 	Deep	Profondo
 	Lit from Bottom	Illuminato dal basso
 	Center Glow	Bagliore centrale
+# Paper sizes, Go To, bookmarks and print labels the Croatian, Swedish and Vietnamese catalogs added
+	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10,12" × 14,33"
+	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7,17" × 10,12"
+	Executive   7.25" × 10.50"	Executive   7,25" × 10,50"
+	Legal   8.50" × 14.00"	Legal   8,50" × 14,00"
+	Letter   8.50" × 11.00"	Letter   8,50" × 11,00"
+	Statement   5.50" × 8.50"	Statement   5,50" × 8,50"
+	Tabloid   11.00" × 17.00"	Tabloid   11,00" × 17,00"
+	Envelope #10   4.12" × 9.50"	Busta n. 10   4,12" × 9,50"
+	Envelope DL   4.33" × 8.66"	Busta DL   4,33" × 8,66"
+	Enter bookmark name:	Inserisci il nome del segnalibro:
+	This document has no bookmarks.	Questo documento non ha segnalibri.
+	Find “{text}” in the document	Trova “{text}” nel documento
+	Type a page number, or +2 / -1.	Digita un numero di pagina, oppure +2 / -1.
+	Wait for the print job to finish submitting before closing.	Attendi che l'invio del lavoro di stampa sia terminato prima di chiudere.
+template	Letter	Lettera
+	More tabs	Altre schede
+# #3013: Insert Table of Figures
+	Include label and number	Includi etichetta e numero

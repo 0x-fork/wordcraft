@@ -498,6 +498,7 @@
 	Content Control at Selection	Kontrola sadržaja na odabiru
 	Contents can't be edited	Sadržaj se ne može uređivati
 	Context	Kontekst
+	Continue from previous section	Nastavi od prethodnog odjeljka
 	Continuous	Neprekinuto
 	Continuous numbering	Neprekinuto numeriranje
 	Contour Integral	Konturni integral
@@ -745,6 +746,8 @@
 	Edit\nRecipient List	Uredi\npopis primatelja
 	Edited	Uređeno
 	Editing	Uređivanje
+	Editing endnote	Uređivanje bilješke na kraju
+	Editing footnote	Uređivanje fusnote
 	Editing header/footer	Uređivanje zaglavlja/podnožja
 	Editing in this document is restricted.	Uređivanje u ovom dokumentu je ograničeno.
 	Editing — edit the document directly	Uređivanje – izravno uređujte dokument
@@ -1376,6 +1379,8 @@ template	Letter	Pismo
 	Multilevel List Library	Biblioteka višerazinskih popisa
 	Article I.	Članak I.
 	Chapter 1	Poglavlje 1
+	Page Number Format	Format broja stranice
+	Page numbering	Numeriranje stranica
 	Section 1.01	Odjeljak 1.01
 	Multiple Pages	Više stranica
 	Name	Naziv
@@ -1681,6 +1686,7 @@ template	Letter	Pismo
 	Print failed: {error}	Ispis nije uspio: {error}
 	Print job submitted.	Zadatak ispisa je poslan.
 	Print job submitted: {receipt}	Zadatak ispisa je poslan: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Zadatak ispisa je poslan: u red za ispis poslano listova: {count}
 	Print the page color	Ispiši boju stranice
 	Print to PDF	Ispiši u PDF
 	Print\nLayout	Izgled\nispisa
@@ -2491,6 +2497,9 @@ preview	Title	Naslov
 	n×n Identity Matrix	Jedinična matrica n×n
 	n×n Matrix	Matrica n×n
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	select two or more cells to merge	odaberite dvije ili više ćelija za spajanje
 	tOGGLE cASE	zAMIJENI vELIČINU sLOVA
 	there is no ink to replay	nema rukopisa za ponovnu reprodukciju
@@ -2656,6 +2665,9 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+	Dot-dot-dash	Točka-točka-crtica
+	More Underlines…	Više podcrtavanja…
+	Underline Color	Boja podcrtavanja
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Spoji ćelije prije razdvajanja
 	Table size	Veličina tablice
@@ -2759,3 +2771,6 @@ preview	Title	Naslov
 	Deep	Duboko
 	Lit from Bottom	Osvijetljeno odozdo
 	Center Glow	Sjaj u središtu
+	More tabs	Više kartica
+# #3013: Insert Table of Figures
+	Include label and number	Uključi oznaku i broj

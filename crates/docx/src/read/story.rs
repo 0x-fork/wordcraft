@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use wordcraft_doc::connector::{ConnEnd, ShapeExtra};
-use wordcraft_doc::control::{ContentControl, ControlKind, ControlWrap};
+use wordcraft_doc::control::{ContentControl, ControlWrap};
 use wordcraft_doc::effects::{Glow, Shadow, ShapeEffects};
 use wordcraft_doc::graphic::{Embedded, Graphic, GraphicItem, GraphicKind};
 use wordcraft_doc::para::{AltText, Anchor, Float, FloatAlign, NoteKind, PTabAlign, PTabBase, ShapeKind, Wrap, WrapText, cap_alt};
@@ -99,6 +99,69 @@ fn enclosure(f: &FieldState) -> Option<wordcraft_doc::eq::Enclosure> {
 /// several paragraphs (TOCs and citation managers' `ADDIN` fields).
 fn is_range_instr(instr: &str) -> bool {
     super::is_toc(instr) || instr.trim_start().get(..5).is_some_and(|k| k.eq_ignore_ascii_case("ADDIN"))
+}
+
+/// Where a `HYPERLINK` field goes, as a `w:hyperlink` reads: `url`, `url#bookmark` (`\l`) or
+/// `#bookmark`. None for any other field, or one with no target.
+fn hyperlink_target(instr: &str) -> Option<String> {
+    // Only a `HYPERLINK` code is split up (a field's code may run to megabytes).
+    if !instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("HYPERLINK")) {
+        return None;
+    }
+    let args = field_args(instr);
+    let mut args = args.iter();
+    if !args.next().is_some_and(|(k, quoted)| !quoted && k.eq_ignore_ascii_case("HYPERLINK")) {
+        return None;
+    }
+    let (mut url, mut anchor) = (None, None);
+    while let Some((a, quoted)) = args.next() {
+        if *quoted || !a.starts_with('\\') {
+            url = url.or(Some(a.as_str()));
+            continue;
+        }
+        // `\l` names a bookmark, `\o` a tooltip and `\t` a target frame; `\m` and `\n` take none.
+        let value = matches!(a.to_ascii_lowercase().as_str(), "\\l" | "\\o" | "\\t").then(|| args.next()).flatten();
+        if a.eq_ignore_ascii_case("\\l") {
+            anchor = value.map(|(v, _)| v.as_str());
+        }
+    }
+    let (url, anchor) = (url.map(str::trim).filter(|u| !u.is_empty()), anchor.map(str::trim).filter(|a| !a.is_empty()));
+    match (url, anchor) {
+        (Some(u), Some(a)) => Some(format!("{u}#{a}")),
+        (Some(u), None) => Some(u.to_string()),
+        (None, Some(a)) => Some(format!("#{a}")),
+        (None, None) => None,
+    }
+}
+
+/// A field code's words: the field's name, its switches and its arguments, each with whether
+/// it was quoted. In quotes, `\"` is a quote and `\\` a backslash.
+fn field_args(instr: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let mut chars = instr.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            continue;
+        }
+        let mut word = String::new();
+        if c == '"' {
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => break,
+                    '\\' if matches!(chars.peek(), Some('"' | '\\')) => word.extend(chars.next()),
+                    _ => word.push(c),
+                }
+            }
+            out.push((word, true));
+        } else {
+            word.push(c);
+            while let Some(c) = chars.next_if(|c| !c.is_whitespace() && *c != '"') {
+                word.push(c);
+            }
+            out.push((word, false));
+        }
+    }
+    out
 }
 
 /// The last paragraph of a block list: its last block, or inside a final table the last
@@ -265,10 +328,9 @@ impl Reader<'_> {
         ctl.run_props = e.child("w:sdtPr").and_then(|pr| pr.child("w:rPr")).map(|r| self.pc.rpr(r));
         let mut inner = Blocks::new();
         self.read_blocks(sc, content, rels, &mut inner, depth + 1);
-        // A table of contents' control belongs to the TOC: the writer puts it back around the
-        // TOC field and its entries, which References › Update Table rebuilds.
-        let toc = matches!(&ctl.kind, ControlKind::Gallery { list: false, gallery, .. } if gallery == "Table of Contents");
-        if inner.is_empty() || toc {
+        // A table of contents' control is handed to the TOC later, when the writer puts it back
+        // (`toc_control_to_toc`).
+        if inner.is_empty() {
             out.extend(inner);
             return;
         }
@@ -702,8 +764,12 @@ impl Reader<'_> {
                 }
             }
             "w:pict" => {
-                for o in self.read_vml_all(sc, k, rels) {
+                if let Some(o) = self.read_signature_line(sc, k, rels) {
                     self.emit_obj(sc, pb, o, props);
+                } else {
+                    for o in self.read_vml_all(sc, k, rels) {
+                        self.emit_obj(sc, pb, o, props);
+                    }
                 }
             }
             "w:object" => {
@@ -889,6 +955,19 @@ impl Reader<'_> {
             self.emit_obj(sc, pb, InlineObject::FieldEnd, &f.props);
             return;
         }
+        // A `HYPERLINK` field is a link, as a `w:hyperlink` is: its result stays ordinary content
+        // carrying the link, so a tab in it reaches its tab stop and the `PAGEREF` in a table of
+        // contents entry (Word for the web writes them this way) stays a field of its own (#2174).
+        if !nested_in_instr && let Some(target) = hyperlink_target(&f.instr) {
+            for (it, mut p) in f.buf {
+                p.link.get_or_insert_with(|| target.clone());
+                match it {
+                    Item::Text(t) => self.emit_text(sc, pb, &t, &p),
+                    Item::Obj(o) => self.emit_obj(sc, pb, *o, &p),
+                }
+            }
+            return;
+        }
         // A cached result holding a picture, chart or shape (`INCLUDEPICTURE`'s embedded
         // picture) can't be a text result: keep the field as a range around it so the picture
         // stays in the document and is saved again. The linked source is never read.
@@ -1048,14 +1127,19 @@ impl Reader<'_> {
             float.effect = float.effect.map(|e| e.max(0.0));
             return Some(InlineObject::Graphic { w, h, alt, float, graphic });
         }
+        // A textbox may contain a picture; its descendant blip is not the outer payload.
+        let direct_shape = gd.child("wps:wsp").filter(|shape| {
+            // Picture fills still use the image fallback; the shape model has no image fill.
+            shape.child("wps:spPr").and_then(|props| props.child("a:blipFill")).is_none()
+        });
         let mut obj = if let Some(c) = gd.child("wpc:wpc") {
             self.read_canvas(sc, c, rels, w, h, float)
         } else if let Some(g) = gd.child("wpg:wgp") {
             self.read_group(sc, g, rels, w, h, float)?
-        } else if gd.find("a:blip").is_some() {
+        } else if direct_shape.is_none() && gd.find("a:blip").is_some() {
             self.read_pic(gd, rels, w, h, alt.clone(), float)?
         } else {
-            let wsp = gd.find("wps:wsp")?;
+            let wsp = direct_shape.or_else(|| gd.find("wps:wsp"))?;
             let mut obj = self.read_wsp(sc, wsp, rels, w, h, float);
             // A freeform: whether it's ink WordCraft wrote.
             if let InlineObject::Shape { freeform: Some(f), .. } = &mut obj
@@ -1635,7 +1719,12 @@ impl Reader<'_> {
         let type_id = shape.attr("type").map(|t| t.trim().trim_start_matches('#'));
         let shapetype = type_id.and_then(|id| pict.els().find(|e| e.name == "v:shapetype" && e.attr("id") == Some(id)));
         let attr = |name: &str| shape.attr(name).or_else(|| shapetype.and_then(|t| t.attr(name)));
-        let on = |name: &str| attr(name).is_none_or(|v| !matches!(v, "f" | "false" | "0"));
+        let on = |name: &str| {
+            attr(name).is_none_or(|v| {
+                let t = v.trim();
+                !t.eq_ignore_ascii_case("f") && !t.eq_ignore_ascii_case("false") && t != "0"
+            })
+        };
         let stroke = on("stroked").then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
         let stroke_width = attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
         let fill = vml_fill(shape, shapetype);
@@ -1713,14 +1802,17 @@ impl Reader<'_> {
                 }
                 part.body.inset = (inset != wordcraft_doc::TEXT_BOX_INSET).then_some(inset);
                 // Resize shape to fit text (DrawingML's `a:spAutoFit`).
-                let fit = vml_style(tb.attr("style").unwrap_or(""), "mso-fit-shape-to-text");
+                let fit = vml_style(tb.attr("style").unwrap_or(""), "mso-fit-shape-to-text").or_else(|| vml_style(style, "mso-fit-shape-to-text"));
                 part.body.auto_fit = fit.is_some_and(|v| v.eq_ignore_ascii_case("t") || v.eq_ignore_ascii_case("true"));
                 // Where the text sits between the box's top and bottom (DrawingML's `anchor`).
-                if let Some(a) = vml_style(style, "v-text-anchor") {
-                    part.body.anchor = match a {
-                        a if a.starts_with("middle") => wordcraft_doc::props::VAlign::Center,
-                        a if a.starts_with("bottom") => wordcraft_doc::props::VAlign::Bottom,
-                        _ => wordcraft_doc::props::VAlign::Top,
+                if let Some(a) = vml_style(tb.attr("style").unwrap_or(""), "v-text-anchor").or_else(|| vml_style(style, "v-text-anchor")) {
+                    let al = a.trim().to_ascii_lowercase();
+                    part.body.anchor = if al.starts_with("middle") || al == "center" {
+                        wordcraft_doc::props::VAlign::Center
+                    } else if al.starts_with("bottom") {
+                        wordcraft_doc::props::VAlign::Bottom
+                    } else {
+                        wordcraft_doc::props::VAlign::Top
                     };
                 }
             }
@@ -1826,6 +1918,23 @@ impl Reader<'_> {
         };
         if let InlineObject::Image { ole, .. } = &mut o {
             *ole = self.keep_embedded(obj, rels, &[]);
+        }
+        Some(o)
+    }
+
+    /// A Word signature line (Insert › Signature Line): a `w:pict` whose one VML picture carries
+    /// an `o:signatureline` (the suggested signer, title, e-mail and instructions). Shown as its
+    /// picture, and kept whole like an OLE object so saving writes the signature line back,
+    /// still signable in Word, not a plain picture. `None` for any other `w:pict`.
+    fn read_signature_line(&mut self, sc: &mut StoryCtx, pict: &El, rels: &Rels) -> Option<InlineObject> {
+        let mut drawings = pict.els().filter(|e| e.name.starts_with("v:") && e.local() != "shapetype");
+        let shape = drawings.next().filter(|s| s.name == "v:shape")?;
+        if drawings.next().is_some() || shape.child("o:signatureline").is_none() {
+            return None;
+        }
+        let mut o = self.read_vml_shape(sc, pict, shape, rels, None)?;
+        if let InlineObject::Image { ole, .. } = &mut o {
+            *ole = self.keep_embedded(pict, rels, &[]);
         }
         Some(o)
     }
@@ -1951,7 +2060,10 @@ fn nv_alt(p: Option<&El>) -> (String, AltText) {
 }
 
 fn anchor_float(c: &El) -> Float {
-    let mut f = Float { wrap: Wrap::Square, ..Float::default() };
+    // `relativeHeight`: the stacking order Word draws floating objects in (higher on top), which
+    // need not be their order in the file.
+    let z = c.attr("relativeHeight").and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0);
+    let mut f = Float { wrap: Wrap::Square, z, ..Float::default() };
     let behind = on_off_attr(c, "behindDoc");
     // Word wraps a position relative to the page's size (`wp14:pctPosVOffset`) in
     // `mc:AlternateContent`; its Fallback gives the same position as an offset (#743).
@@ -2137,37 +2249,43 @@ fn vml_float(shape: &El, style: &str, in_hf: bool) -> Float {
     let off = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0);
     let max = crate::units::MAX_LEN_PT;
     let behind = get("z-index").and_then(int).is_some_and(|z| z < 0);
-    let wrap = match shape.child("w10:wrap").and_then(|w| w.attr("type")).unwrap_or("none") {
-        "square" => Wrap::Square,
-        "tight" => Wrap::Tight,
-        "through" => Wrap::Through,
-        "topAndBottom" => Wrap::TopAndBottom,
+    let wrap_el = shape.child("w10:wrap");
+    let wrap_type = wrap_el.and_then(|w| w.attr("type")).unwrap_or("none");
+    let wrap = match wrap_type {
+        t if t.eq_ignore_ascii_case("square") => Wrap::Square,
+        t if t.eq_ignore_ascii_case("tight") => Wrap::Tight,
+        t if t.eq_ignore_ascii_case("through") => Wrap::Through,
+        t if t.eq_ignore_ascii_case("topAndBottom") || t.eq_ignore_ascii_case("top-and-bottom") => Wrap::TopAndBottom,
         _ if behind => Wrap::BehindText,
         _ => Wrap::InFrontOfText,
     };
-    let h_rel = match get("mso-position-horizontal-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "char" => Anchor::Character,
-        "left-margin-area" => Anchor::LeftMargin,
-        "right-margin-area" => Anchor::RightMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let wrap_text = wrap_el.and_then(|w| w.attr("side")).and_then(wordcraft_doc::para::WrapText::from_ooxml).unwrap_or_default();
+    let h_rel_str = get("mso-position-horizontal-relative").unwrap_or("text");
+    let h_rel = match h_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("char") => Anchor::Character,
+        s if s.eq_ignore_ascii_case("left-margin-area") => Anchor::LeftMargin,
+        s if s.eq_ignore_ascii_case("right-margin-area") => Anchor::RightMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Column,
     };
-    let v_rel = match get("mso-position-vertical-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "line" => Anchor::Line,
-        "top-margin-area" => Anchor::TopMargin,
-        "bottom-margin-area" => Anchor::BottomMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let v_rel_str = get("mso-position-vertical-relative").unwrap_or("text");
+    let v_rel = match v_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("line") => Anchor::Line,
+        s if s.eq_ignore_ascii_case("top-margin-area") => Anchor::TopMargin,
+        s if s.eq_ignore_ascii_case("bottom-margin-area") => Anchor::BottomMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Paragraph,
     };
     let dist = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0).clamp(0.0, 1584.0);
     let mut f = Float {
         wrap,
+        wrap_text,
         h_rel,
         v_rel,
         x: (off("left") + off("margin-left")).clamp(-max, max),
@@ -2219,7 +2337,10 @@ fn vml_watermark(shape: &El) -> Option<wordcraft_doc::Watermark> {
         .unwrap_or(default.font);
     let color = shape.attr("fillcolor").and_then(vml_color).unwrap_or(default.color);
     let opacity = shape.child("v:fill").and_then(|f| f.attr("opacity")).and_then(vml_opacity).unwrap_or(1.0);
-    Some(wordcraft_doc::Watermark { text, font, color, diagonal: vml_spin(style).deg != 0.0, semitransparent: opacity < 1.0 })
+    // The box the text is stretched to (`fitshape`).
+    let len = |k: &str| vml_style(style, k).and_then(|v| measure(v, 1.0)).filter(|v| v.is_finite() && *v > 0.0).map(|v| v.min(4000.0));
+    let size = len("width").zip(len("height")).map(|(w, h)| [w, h]);
+    Some(wordcraft_doc::Watermark { text, font, color, diagonal: vml_spin(style).deg != 0.0, semitransparent: opacity < 1.0, size })
 }
 
 /// A VML `opacity`, 0..=1.

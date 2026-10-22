@@ -82,6 +82,7 @@
 	Click level to modify:	Zu ändernde Ebene anklicken:
 	Color only	Nur Farbe
 	Compress punctuation at the start of a line	Satzzeichen am Zeilenanfang komprimieren
+	Continue from previous section	Fortlaufend vom vorherigen Abschnitt
 	Dark page (white text on black)	Dunkle Seite (weißer Text auf Schwarz)
 	Drag a rectangle to draw a table, or a line across cells to split them. Esc stops.	Ziehen Sie ein Rechteck, um eine Tabelle zu zeichnen, oder eine Linie über Zellen, um sie zu teilen. Esc beendet.
 	Draw Table	Tabelle zeichnen
@@ -113,6 +114,8 @@
 	Number style for this level:	Nummernstil für diese Ebene:
 	Only for the selected text	Nur für den ausgewählten Text
 	Outside border	Äußere Rahmenlinie
+	Page Number Format	Format der Seitenzahlen
+	Page numbering	Seitenzahlen
 	Reopen	Erneut öffnen
 	Restart list after:	Liste neu starten nach:
 	Right border	Rechte Rahmenlinie
@@ -322,6 +325,8 @@
 	Edit\nRecipient List	Empfängerliste\nbearbeiten
 	Edited	Bearbeitet
 	Editing	Bearbeitung
+	Editing endnote	Endnote bearbeiten
+	Editing footnote	Fußnote bearbeiten
 	Editing header/footer	Kopf-/Fußzeile bearbeiten
 	Editing — edit the document directly	Bearbeitung — das Dokument direkt bearbeiten
 	Editor	Editor
@@ -1298,6 +1303,9 @@
 	{cols}×{rows} Table	{cols}×{rows}-Tabelle
 	AaBbYyZz	AaBbYyZz
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Document1
 	Username	Benutzername
 	Display name	Anzeigename
@@ -2224,6 +2232,7 @@
 	Submitting print job…	Druckauftrag wird gesendet…
 	Print job submitted.	Druckauftrag gesendet.
 	Print job submitted: {receipt}	Druckauftrag gesendet: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Druckauftrag gesendet: {count} Blatt an den Spooler übergeben
 	Print failed: the printing worker stopped.	Drucken fehlgeschlagen: Der Druckvorgang wurde angehalten.
 	Print settings	Druckeinstellungen
 	Submit print job	Druckauftrag senden
@@ -2257,6 +2266,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Schmal
 	Medium	Mittel
+	Dot-dot-dash	Punkt-Punkt-Strich
+	More Underlines…	Weitere Unterstreichungen…
+	Underline Color	Unterstreichungsfarbe
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Zellen vor dem Teilen verbinden
 	Table size	Tabellengröße
@@ -2347,3 +2359,10 @@
 	Deep	Tief
 	Lit from Bottom	Von unten beleuchtet
 	Center Glow	Leuchten aus der Mitte
+# File › Home greeting
+	Good morning	Guten Morgen
+	Good afternoon	Guten Tag
+	Good evening	Guten Abend
+	More tabs	Weitere Registerkarten
+# #3013: Insert Table of Figures
+	Include label and number	Bezeichnung und Nummer einbeziehen

@@ -81,6 +81,7 @@
 	Changed lines:	Đường thay đổi:
 	Click level to modify:	Bấm vào cấp độ để chỉnh sửa:
 	Color only	Chỉ màu
+	Continue from previous section	Tiếp tục từ phần trước
 	Define New Multilevel List	Tạo danh sách đa cấp mới
 	Define New Multilevel List…	Tạo danh sách đa cấp mới…
 	Deletions:	Phần xóa:
@@ -100,6 +101,8 @@
 	Number format	Định dạng số
 	Number style for this level:	Kiểu số cho cấp độ này:
 	Outside border	Viền ngoài
+	Page Number Format	Định dạng số trang
+	Page numbering	Đánh số trang
 	Restart list after:	Đánh số lại sau:
 	Right border	Viền phải
 	Save the document to turn on AutoSave	Lưu tài liệu để bật Tự động lưu
@@ -314,6 +317,8 @@
 	Edit\nRecipient List	Sửa\ndanh sách người nhận
 	Edited	Đã sửa
 	Editing	Chỉnh sửa
+	Editing endnote	Đang chỉnh sửa chú thích cuối tài liệu
+	Editing footnote	Đang chỉnh sửa chú thích chân trang
 	Editing header/footer	Đang chỉnh sửa đầu trang/chân trang
 	Editing — edit the document directly	Chỉnh sửa — sửa tài liệu trực tiếp
 	Editor	Trình biên tập
@@ -1309,6 +1314,9 @@
 	{cols}×{rows} Table	Bảng {cols}×{rows}
 	AaBbYyZz	AaBbYyZz
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Document1
 	Username	Tên đăng nhập
 	Display name	Tên hiển thị
@@ -2561,6 +2569,7 @@
 	Submitting print job…	Đang gửi lệnh in…
 	Print job submitted.	Đã gửi lệnh in.
 	Print job submitted: {receipt}	Đã gửi lệnh in: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Đã gửi lệnh in: đã đưa {count} tờ vào hàng đợi
 	Print failed: the printing worker stopped.	In thất bại: tiến trình in đã dừng.
 	Print settings	Cài đặt in
 	Submit print job	Gửi lệnh in
@@ -2698,6 +2707,9 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+	Dot-dot-dash	Nét chấm chấm gạch
+	More Underlines…	Kiểu gạch chân khác…
+	Underline Color	Màu gạch chân
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Gộp ô trước khi tách
 	Table size	Kích thước bảng
@@ -2799,3 +2811,6 @@ template	Letter	Thư
 	Deep	Sâu
 	Lit from Bottom	Chiếu sáng từ dưới
 	Center Glow	Phát sáng ở giữa
+	More tabs	Các tab khác
+# #3013: Insert Table of Figures
+	Include label and number	Bao gồm nhãn và số

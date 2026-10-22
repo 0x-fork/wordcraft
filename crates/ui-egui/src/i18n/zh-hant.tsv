@@ -78,6 +78,7 @@
 	Click to switch back to inserting	按一下以切換回插入模式
 	Color only	僅色彩
 	Compress punctuation at the start of a line	壓縮行首標點
+	Continue from previous section	接續前一節
 	Couldn't make WordCraft the default: {error}	無法將 WordCraft 設為預設應用程式：{error}
 	Custom dictionary	自訂字典
 	Dark page (white text on black)	深色頁面（黑底白字）
@@ -136,6 +137,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	開啟「設定 › 預設應用程式」，在其中為 .docx 及其他文件類型選擇 WordCraft。
 	Overtype	取代
 	Overtype (typing replaces the characters after the caret)	取代（輸入的內容會取代插入點後的字元）
+	Page Number Format	頁碼格式
+	Page numbering	頁碼編號
 	Show alignment guides when moving pictures and shapes	移動圖片和圖案時顯示對齊參考線
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	移動的物件會貼齊頁面的邊緣和中心、邊界以及其他物件。按住 Alt 可自由移動。
 	Page display	頁面顯示
@@ -379,6 +382,8 @@
 	Edit\nRecipient List	編輯收件者清單
 	Edited	已編輯
 	Editing	編輯
+	Editing endnote	正在編輯章節附註
+	Editing footnote	正在編輯註腳
 	Editing header/footer	正在編輯頁首/頁尾
 	Editing — edit the document directly	編輯 — 直接編輯文件
 	Editor	編輯器
@@ -1378,6 +1383,9 @@
 	{cols}×{rows} Table	{cols}×{rows} 表格
 	AaBbYyZz	AaBbYyZz 中文
 	pt	點
+	cm	公分
+	mm	公釐
+	pi	派卡
 	Document1	文件1
 	Username	使用者名稱
 	Display name	顯示名稱
@@ -2226,6 +2234,7 @@
 	Submitting print job…	正在提交列印工作…
 	Print job submitted.	列印工作已提交。
 	Print job submitted: {receipt}	列印工作已提交：{receipt}
+	Print job submitted: spooled {count} sheet(s)	列印工作已傳送：已將 {count} 張紙送入背景處理
 	Print failed: the printing worker stopped.	列印失敗：列印工作執行緒已停止。
 	Print settings	列印設定
 	Submit print job	提交列印工作
@@ -2259,6 +2268,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+	Dot-dot-dash	雙點虛線
+	More Underlines…	其他底線…
+	Underline Color	底線色彩
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	分割前合併儲存格
 	Table size	表格大小
@@ -2349,3 +2361,10 @@
 	Deep	深沉
 	Lit from Bottom	底部照亮
 	Center Glow	中央光暈
+# File › Home greeting
+	Good morning	早安
+	Good afternoon	午安
+	Good evening	晚安
+	More tabs	更多索引標籤
+# #3013: Insert Table of Figures
+	Include label and number	包含標籤和編號

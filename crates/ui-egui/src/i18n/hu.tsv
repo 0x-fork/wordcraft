@@ -87,8 +87,11 @@
 	Book Title	Könyvcím
 	Bookmark	Könyvjelző
 	Bookmark name:	Könyvjelző neve:
+	Continue from previous section	Folytatás az előző szakaszból
 	Delete Bookmark	Könyvjelző törlése
 	Hidden bookmarks	Rejtett könyvjelzők
+	Page Number Format	Oldalszám formátuma
+	Page numbering	Oldalszámozás
 	Sort by:	Rendezés:
 	Border Painter	Szegélyfestő
 	Border\nPainter	Szegély-\nfestő
@@ -234,6 +237,8 @@
 	Edit\nRecipient List	Címzettlista\nszerkesztése
 	Edited	Szerkesztve
 	Editing	Szerkesztés
+	Editing endnote	Végjegyzet szerkesztése
+	Editing footnote	Lábjegyzet szerkesztése
 	Editing header/footer	Élőfej és élőláb szerkesztése
 	Editing — edit the document directly	Szerkesztés – a dokumentum közvetlen módosítása
 	Editor	Szerkesztő
@@ -1125,6 +1130,9 @@
 	Version	Verzió
 	% of all commits	Az összes commit %-a
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Save the document to turn on AutoSave	Az automatikus mentéshez mentsd a dokumentumot
 	Contributors	Közreműködők
 	Models	Modellek
@@ -2614,6 +2622,7 @@
 	Submitting print job…	Nyomtatási feladat küldése…
 	Print job submitted.	Nyomtatási feladat elküldve.
 	Print job submitted: {receipt}	Nyomtatási feladat elküldve: {receipt}
+	Print job submitted: spooled {count} sheet(s)	A nyomtatási feladat elküldve: {count} lap a nyomtatási sorba került
 	Print failed: the printing worker stopped.	A nyomtatás sikertelen: a nyomtatási folyamat leállt.
 	Print settings	Nyomtatási beállítások
 	Submit print job	Nyomtatási feladat küldése
@@ -2654,6 +2663,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+	Dot-dot-dash	Pont-pont-vonal
+	More Underlines…	További aláhúzások…
+	Underline Color	Aláhúzás színe
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Cellák egyesítése felosztás előtt
 	Table size	Táblázat mérete
@@ -2755,3 +2767,6 @@
 	Deep	Mély
 	Lit from Bottom	Alulról megvilágított
 	Center Glow	Középső ragyogás
+	More tabs	További lapok
+# #3013: Insert Table of Figures
+	Include label and number	Címkével és számmal

@@ -81,6 +81,7 @@
 	Changed lines:	Променени редове:
 	Click level to modify:	Щракнете върху ниво за промяна:
 	Color only	Само цвят
+	Continue from previous section	Продължаване от предишния раздел
 	Define New Multilevel List	Дефиниране на нов многостепенен списък
 	Define New Multilevel List…	Дефиниране на нов многостепенен списък…
 	Deletions:	Изтривания:
@@ -103,6 +104,8 @@
 	Number style for this level:	Стил на номериране за това ниво:
 	Only for the selected text	Само за избрания текст
 	Outside border	Външна граница
+	Page Number Format	Формат на номерата на страниците
+	Page numbering	Номериране на страниците
 	Restart list after:	Рестартиране на списъка след:
 	Right border	Дясна граница
 	Save the document to turn on AutoSave	Запазете документа, за да включите автоматичното запазване
@@ -320,6 +323,8 @@
 	Edit\nRecipient List	Редактиране на\nсписъка с получатели
 	Edited	Редактиран
 	Editing	Редактиране
+	Editing endnote	Редактиране на бележка в края
+	Editing footnote	Редактиране на бележка под линия
 	Editing header/footer	Редактиране на горен/долен колонтитул
 	Editing — edit the document directly	Редактиране – директно редактиране на документа
 	Editor	Редактор
@@ -805,6 +810,7 @@
 	Spelling & Grammar	Правопис и граматика
 	Spelling &\nGrammar	Правопис и\nграматика
 	Spelling Suggestions	Предложения за правопис
+	Possible spelling mistake	Възможна правописна грешка
 	Split	Разделяне
 	Split Cells	Разделяне на клетки
 	Split Table	Разделяне на таблица
@@ -1317,6 +1323,9 @@
 	{cols}×{rows} Table	Таблица {cols}×{rows}
 	AaBbYyZz	AaBbYyZz
 	pt	пт
+	cm	см
+	mm	мм
+	pi	pi
 	Document1	Документ1
 	Username	Потребителско име
 	Display name	Показвано име
@@ -2607,6 +2616,7 @@
 	Submitting print job…	Изпращане на задание за печат…
 	Print job submitted.	Заданието за печат е изпратено.
 	Print job submitted: {receipt}	Заданието за печат е изпратено: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Заданието за печат е изпратено: подадени {count} листа към спулера
 	Print failed: the printing worker stopped.	Печатът е неуспешен: процесът на печат спря.
 	Print settings	Настройки за печат
 	Submit print job	Изпращане на задание за печат
@@ -2647,6 +2657,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+	Dot-dot-dash	Точка-точка-тире
+	More Underlines…	Още подчертавания…
+	Underline Color	Цвят на подчертаването
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Обединяване на клетките преди разделяне
 	Table size	Размер на таблицата
@@ -2748,3 +2761,6 @@
 	Deep	Наситено
 	Lit from Bottom	Осветено отдолу
 	Center Glow	Сияние от центъра
+	More tabs	Още раздели
+# #3013: Insert Table of Figures
+	Include label and number	Включване на етикета и номера

@@ -83,8 +83,11 @@
 	Bold	Pogrubienie
 	Bookmark	Zakładka
 	Bookmark name:	Nazwa zakładki:
+	Continue from previous section	Kontynuuj od poprzedniej sekcji
 	Delete Bookmark	Usuń zakładkę
 	Hidden bookmarks	Ukryte zakładki
+	Page Number Format	Format numerów stron
+	Page numbering	Numeracja stron
 	Sort by:	Sortuj według:
 	Border Painter	Pędzel krawędzi
 	Border\nPainter	Pędzel\nkrawędzi
@@ -236,6 +239,8 @@
 	Edit\nRecipient List	Edytuj listę\nadresatów
 	Edited	Zmieniony
 	Editing	Edytowanie
+	Editing endnote	Edycja przypisu końcowego
+	Editing footnote	Edycja przypisu dolnego
 	Editing header/footer	Edycja nagłówka/stopki
 	Editing — edit the document directly	Edytowanie — zmiany trafiają wprost do dokumentu
 	Editor	Edytor
@@ -1365,6 +1370,9 @@
 	Width and spacing	Szerokość i odstępy
 	from Unicode (hex)	z Unicode (szesnastkowo)
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	{cols}×{rows} Table	Tabela {cols}×{rows}
 	{contributors} contributors · {commits} commits	Współtwórcy: {contributors} · commity: {commits}
 	Copyright Sign	Znak praw autorskich
@@ -2625,6 +2633,7 @@ preview	Title	Tytuł
 	Submitting print job…	Wysyłanie zadania drukowania…
 	Print job submitted.	Zadanie drukowania wysłane.
 	Print job submitted: {receipt}	Zadanie drukowania wysłane: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Zadanie drukowania wysłane: liczba arkuszy przekazanych do spoolera: {count}
 	Print failed: the printing worker stopped.	Drukowanie nie powiodło się: proces drukowania został zatrzymany.
 	Print settings	Ustawienia drukowania
 	Submit print job	Wyślij zadanie drukowania
@@ -2663,6 +2672,9 @@ preview	Title	Tytuł
 # Reading Mode column widths (#1040)
 	Narrow	Wąska
 	Medium	Średnia
+	Dot-dot-dash	Kreska-kropka-kropka
+	More Underlines…	Więcej podkreśleń…
+	Underline Color	Kolor podkreślenia
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Scal komórki przed podziałem
 	Table size	Rozmiar tabeli
@@ -2764,3 +2776,22 @@ preview	Title	Tytuł
 	Deep	Głęboki
 	Lit from Bottom	Oświetlony z dołu
 	Center Glow	Blask ze środka
+	More tabs	Więcej kart
+# #3013: Insert Table of Figures
+	Include label and number	Dołącz etykietę i numer
+
+# English text until translated (keys the Italian catalog has)
+	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10.12" × 14.33"
+	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7.17" × 10.12"
+	Enter bookmark name:	Enter bookmark name:
+	Envelope #10   4.12" × 9.50"	Envelope #10   4.12" × 9.50"
+	Envelope DL   4.33" × 8.66"	Envelope DL   4.33" × 8.66"
+	Executive   7.25" × 10.50"	Executive   7.25" × 10.50"
+	Find “{text}” in the document	Find “{text}” in the document
+	Legal   8.50" × 14.00"	Legal   8.50" × 14.00"
+	Letter   8.50" × 11.00"	Letter   8.50" × 11.00"
+	Statement   5.50" × 8.50"	Statement   5.50" × 8.50"
+	Tabloid   11.00" × 17.00"	Tabloid   11.00" × 17.00"
+	This document has no bookmarks.	This document has no bookmarks.
+	Type a page number, or +2 / -1.	Type a page number, or +2 / -1.
+	Wait for the print job to finish submitting before closing.	Wait for the print job to finish submitting before closing.

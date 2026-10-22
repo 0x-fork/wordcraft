@@ -80,8 +80,11 @@
 	Bold	Paks
 	Bookmark	Järjehoidja
 	Bookmark name:	Järjehoidja nimi:
+	Continue from previous section	Jätka eelmisest jaotisest
 	Delete Bookmark	Kustuta järjehoidja
 	Hidden bookmarks	Peidetud järjehoidjad
+	Page Number Format	Leheküljenumbri vorming
+	Page numbering	Lehekülgede nummerdamine
 	Sort by:	Sordi:
 	Book Title	Raamatu pealkiri
 	Border Painter	Äärisepintsel
@@ -238,6 +241,8 @@
 	Edit\nRecipient List	Muuda\nadressaatide loendit
 	Edited	Muudetud
 	Editing	Redigeerimine
+	Editing endnote	Lõpumärkuse redigeerimine
+	Editing footnote	Allmärkuse redigeerimine
 	Editing header/footer	Päise või jaluse redigeerimine
 	Editing — edit the document directly	Redigeerimine — muuda dokumenti otse
 	Editor	Toimetaja
@@ -1241,6 +1246,9 @@
 	{cols}×{rows} Table	Tabel {cols}×{rows}
 	AaBbYyZz	AaBbYyZz ÕõÄäÖöÜü
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Dokument1
 	Username	Kasutajanimi
 	Display name	Kuvatav nimi
@@ -2259,6 +2267,7 @@
 	Submitting print job…	Prinditöö saatmine…
 	Print job submitted.	Prinditöö saadetud.
 	Print job submitted: {receipt}	Prinditöö saadetud: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Printimistöö saadetud: prindijärjekorda lisati lehti: {count}
 	Print failed: the printing worker stopped.	Printimine nurjus: printimisprotsess peatus.
 	Print settings	Printimisseaded
 	Submit print job	Saada prinditöö
@@ -2292,6 +2301,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Kitsas
 	Medium	Keskmine
+	Dot-dot-dash	Punkt-punkt-kriipsjoon
+	More Underlines…	Rohkem allajooni…
+	Underline Color	Allajoone värv
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Ühenda lahtrid enne tükeldamist
 	Table size	Tabeli suurus
@@ -2382,3 +2394,10 @@
 	Deep	Sügav
 	Lit from Bottom	Alt valgustatud
 	Center Glow	Keskne kuma
+# File › Home greeting
+	Good morning	Tere hommikust
+	Good afternoon	Tere päevast
+	Good evening	Tere õhtust
+	More tabs	Veel vahekaarte
+# #3013: Insert Table of Figures
+	Include label and number	Lisa silt ja number

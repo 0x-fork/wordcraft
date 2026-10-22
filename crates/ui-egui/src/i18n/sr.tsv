@@ -108,6 +108,7 @@
 	Color: {color}	Боја: {color}
 	Compress punctuation at the start of a line	Сажми интерпункцију на почетку реда
 	Confirm password:	Потврдите лозинку:
+	Continue from previous section	Настави од претходног одељка
 	Couldn't make WordCraft the default: {error}	WordCraft није могао да постане подразумевана апликација: {error}
 	Custom dictionary	Прилагођени речник
 	Dark page (white text on black)	Тамна страница (бео текст на црном)
@@ -162,6 +163,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Отвара Подешавања › Подразумеване апликације, где бирате WordCraft за .docx и друге врсте докумената.
 	Overtype	Преписивање
 	Overtype (typing replaces the characters after the caret)	Преписивање (откуцано замењује знакове после курсора)
+	Page Number Format	Формат броја странице
+	Page numbering	Нумерација страница
 	Show alignment guides when moving pictures and shapes	Приказуј водиље за поравнање при померању слика и облика
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Померени објекти се приањају уз ивице и средину странице, маргине и друге објекте. Држите Alt да бисте померали слободно.
 	Page display	Приказ стране
@@ -430,6 +433,8 @@
 	Edit\nRecipient List	Уреди\nлисту прималаца
 	Edited	Измењено
 	Editing	Уређивање
+	Editing endnote	Уређивање ендноте
+	Editing footnote	Уређивање фусноте
 	Editing header/footer	Уређивање заглавља/подножја
 	Editing — edit the document directly	Уређивање — мењајте документ директно
 	Editor	Уредник
@@ -1314,6 +1319,9 @@
 	{cols}×{rows} Table	Табела {cols}×{rows}
 	AaBbYyZz	AaBbYyZz ЂђЋћ
 	pt	пт
+	cm	цм
+	mm	мм
+	pi	pi
 	Document1	Документ1
 	Username	Корисничко име
 	Display name	Име за приказ
@@ -2239,6 +2247,7 @@
 	Submitting print job…	Слање задатка за штампање…
 	Print job submitted.	Задатак за штампање је послат.
 	Print job submitted: {receipt}	Задатак за штампање је послат: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Задатак за штампу је послат: у ред за штампу послато листова: {count}
 	Print failed: the printing worker stopped.	Штампање није успело: процес штампања је заустављен.
 	Print settings	Подешавања штампања
 	Submit print job	Пошаљи задатак за штампање
@@ -2272,6 +2281,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Уска
 	Medium	Средња
+	Dot-dot-dash	Тачка-тачка-црта
+	More Underlines…	Још подвлачења…
+	Underline Color	Боја подвлачења
 # Split Cells and Convert Text to Table (#2592)
 	Merge cells before split	Споји ћелије пре дељења
 	Table size	Величина табеле
@@ -2362,3 +2374,10 @@
 	Deep	Дубок
 	Lit from Bottom	Осветљен одоздо
 	Center Glow	Сјај из средине
+# File › Home greeting
+	Good morning	Добро јутро
+	Good afternoon	Добар дан
+	Good evening	Добро вече
+	More tabs	Још картица
+# #3013: Insert Table of Figures
+	Include label and number	Укључи ознаку и број

@@ -57,6 +57,7 @@ Home|Font|Bold|format.bold
 Home|Font|Italic|format.italic
 Home|Font|Underline|format.underline
 Home|Font|Double Underline|format.doubleUnderline
+Home|Font|Underline Color|format.underlineColor
 Home|Font|Strikethrough|format.strikethrough
 Home|Font|Subscript|format.subscript
 Home|Font|Superscript|format.superscript
@@ -477,6 +478,7 @@ Editing|Keyboard|New Paragraph|text.newParagraph
 Editing|Keyboard|Line Break|text.lineBreak
 Editing|Keyboard|Column Break|text.columnBreak
 Editing|Keyboard|Tab|text.tab
+Editing|Keyboard|Tab Character|text.insertTab
 Editing|Keyboard|Backspace|text.backspace
 Editing|Keyboard|Delete|text.delete
 Editing|Keyboard|Delete Previous Word|text.deleteWordBack

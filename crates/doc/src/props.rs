@@ -47,8 +47,9 @@ impl Rgb {
     }
     /// Parse `RRGGBB` or `#RRGGBB`.
     pub fn parse(s: &str) -> Option<Rgb> {
-        let s = s.trim().trim_start_matches('#');
-        if s.len() != 6 || !s.is_ascii() {
+        let s = s.trim();
+        let s = s.strip_prefix('#').unwrap_or(s);
+        if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
         let p = |i: usize| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
@@ -445,6 +446,9 @@ pub struct CharProps {
     /// BCP 47 language of complex-script text (`w:lang/@w:bidi`, e.g. `fa-IR`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lang_bidi: Option<String>,
+    /// BCP 47 language of East Asian text (`w:lang/@w:eastAsia`, e.g. `zh-CN`, `ja-JP`, `ko-KR`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang_ea: Option<String>,
     /// East Asian typography: two lines in one and horizontal in vertical (`w:eastAsianLayout`).
     /// Kept for round trip; layout doesn't apply it yet.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -573,7 +577,7 @@ impl CharProps {
     pub fn minus(mut self, base: &CharProps) -> CharProps {
         drop_same_fields!(self, base; style, font, sym_font, size, bold, italic, underline, underline_color, strike, double_strike, color, highlight,
             shading, border, vert_align, caps, small_caps, hidden, spacing, scale, position, kern, outline, shadow, emboss, engrave, lang, no_proof, rtl,
-            cs, font_cs, size_cs, bold_cs, italic_cs, lang_bidi, east_asian_layout, link, ins, del, ligatures);
+            cs, font_cs, font_ea, size_cs, bold_cs, italic_cs, lang_bidi, lang_ea, east_asian_layout, link, ins, del, ligatures);
         self
     }
 
@@ -584,7 +588,7 @@ impl CharProps {
     pub fn overlay(&mut self, patch: &CharProps) {
         overlay_fields!(self, patch; style, font, sym_font, size, bold, italic, underline, underline_color, strike, double_strike, color, highlight,
             shading, border, vert_align, caps, small_caps, hidden, spacing, scale, position, kern, outline, shadow, emboss, engrave, lang, no_proof, rtl,
-            cs, font_cs, font_ea, size_cs, bold_cs, italic_cs, lang_bidi, east_asian_layout, link, ins, del, fmt_change, ligatures);
+            cs, font_cs, font_ea, size_cs, bold_cs, italic_cs, lang_bidi, lang_ea, east_asian_layout, link, ins, del, fmt_change, ligatures);
         if let Some(p) = &patch.text_effects {
             self.text_effects.get_or_insert_with(Default::default).overlay(p);
         }
@@ -1386,6 +1390,16 @@ mod tests {
         assert_eq!(Rgb::parse("#FF0010"), Some(Rgb(255, 0, 16)));
         assert_eq!(Rgb::parse("zzzzzz"), None);
         assert_eq!(Rgb::parse("é1234"), None);
+    }
+
+    #[test]
+    fn rgb_parse_rejects_non_hex() {
+        assert_eq!(Rgb::parse("+1+2+3"), None);
+        assert_eq!(Rgb::parse("-1-2-3"), None);
+        assert_eq!(Rgb::parse("##ff0000"), None);
+        assert_eq!(Rgb::parse("ff00 0"), None);
+        assert_eq!(Rgb::parse("#ff0000"), Some(Rgb(255, 0, 0)));
+        assert_eq!(Rgb::parse("ff0000"), Some(Rgb(255, 0, 0)));
     }
 
     #[test]
