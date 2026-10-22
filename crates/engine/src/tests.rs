@@ -1781,6 +1781,27 @@ fn select_extend_from_a_table_paragraph_selects_the_document() {
     assert_eq!(b, s.doc.end_of(StoryRef::Body));
 }
 
+/// #1596: tables nest 24 deep at most, the depth the DOCX reader and writer keep. Insert › Table
+/// in the deepest cell says so; a table pasted there brings its text as paragraphs.
+#[test]
+fn tables_nest_at_most_24_deep() {
+    use wordcraft_doc::table::MAX_TABLE_DEPTH;
+    let mut s = s();
+    for _ in 0..MAX_TABLE_DEPTH {
+        run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+    }
+    assert_eq!(s.sel.focus.path.depth(), MAX_TABLE_DEPTH);
+    let before = s.doc.clone();
+    let e = s.run("insert.table", &json!({"rows": 1, "cols": 1})).unwrap_err();
+    assert!(e.to_string().contains("24 deep"), "{e}");
+    assert_eq!(s.doc, before);
+    run(&mut s, "edit.paste", json!({"text": "b", "html": "<table><tr><td>b</td></tr></table>"}));
+    let cell = s.sel.focus.path.clone();
+    let blocks: Vec<_> = (0..).map_while(|i| s.doc.block(StoryRef::Body, &cell.with_last(i))).collect();
+    assert!(blocks.iter().all(|b| b.as_table().is_none()), "no table below the limit");
+    assert!(blocks.iter().any(|b| b.as_para().is_some_and(|p| p.text.contains('b'))), "the pasted text is there");
+}
+
 /// AutoFit Contents (#44) measures the text: a column of short words narrows, a column with a
 /// long sentence widens (wrapping within the page), and the widths are written to the grid.
 #[test]
@@ -8776,4 +8797,37 @@ fn rtf_list_round_trip_keeps_text() {
         let d = crate::io::open_bytes("x.rtf", &bytes).unwrap();
         assert_eq!(d.plain_text(StoryRef::Body), "first\nsecond", "{cmd}");
     }
+}
+
+/// #3490: `table.cellMargins` preserves existing margins for any sides not passed.
+#[test]
+fn table_cell_margins_preserves_unpassed_sides() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+    let (tp, _, _) = s.sel.focus.path.cell().unwrap();
+
+    // 1. Updating 'top' only retains default left (5.4), bottom (0.0), and right (5.4).
+    run(&mut s, "table.cellMargins", json!({"top": 20.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 5.4, 0.0, 5.4]);
+
+    // 2. Updating 'left' subsequently retains previously set top (20.0), bottom (0.0), and right (5.4).
+    run(&mut s, "table.cellMargins", json!({"left": 10.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 10.0, 0.0, 5.4]);
+
+    // 3. Updating 'bottom' retains top (20.0), left (10.0), and right (5.4).
+    run(&mut s, "table.cellMargins", json!({"bottom": 8.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 10.0, 8.0, 5.4]);
+
+    // 4. Updating 'right' retains top (20.0), left (10.0), and bottom (8.0).
+    run(&mut s, "table.cellMargins", json!({"right": 15.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 10.0, 8.0, 15.0]);
+
+    // 5. Updating multiple sides at once retains unpassed sides.
+    run(&mut s, "table.cellMargins", json!({"top": 0.0, "bottom": 0.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [0.0, 10.0, 0.0, 15.0]);
 }

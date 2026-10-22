@@ -3698,3 +3698,53 @@ fn our_banded_table_styles_write_their_band_sizes() {
     let back = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert_eq!(back.styles.table_style("GridTable4AccentBlue").map(|t| t.parts.band_size), Some(Some(1)));
 }
+
+#[test]
+fn vml_shape_wrap_side_and_anchor_case_insensitivity() {
+    let body = r##"<w:p>
+        <w:r>
+            <w:pict xmlns:w10="urn:schemas-microsoft-com:office:word">
+                <v:rect style="position:absolute;width:100pt;height:50pt;mso-position-horizontal-relative:Page;mso-position-vertical-relative:Margin" filled="False" stroked="t">
+                    <w10:wrap type="Square" side="left"/>
+                </v:rect>
+            </w:pict>
+        </w:r>
+    </w:p>"##;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.iter().find_map(|b| b.as_para()).unwrap();
+    let shape = match p.objects.first() {
+        Some(InlineObject::Shape { fill, float, .. }) => (fill, float),
+        o => panic!("expected shape, got {o:?}"),
+    };
+    assert_eq!(*shape.0, None);
+    assert_eq!(shape.1.wrap, wordcraft_doc::para::Wrap::Square);
+    assert_eq!(shape.1.wrap_text, wordcraft_doc::para::WrapText::Left);
+    assert_eq!(shape.1.h_rel, wordcraft_doc::para::Anchor::Page);
+    assert_eq!(shape.1.v_rel, wordcraft_doc::para::Anchor::Margin);
+}
+
+#[test]
+fn vml_textbox_style_anchor_and_fit() {
+    let body = r#"<w:p>
+        <w:r>
+            <w:pict>
+                <v:rect style="width:100pt;height:50pt">
+                    <v:textbox style="v-text-anchor:Middle;mso-fit-shape-to-text:True">
+                        <w:txbxContent>
+                            <w:p><w:r><w:t>Centered text</w:t></w:r></w:p>
+                        </w:txbxContent>
+                    </v:textbox>
+                </v:rect>
+            </w:pict>
+        </w:r>
+    </w:p>"#;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.first().unwrap().as_para().unwrap();
+    let story_id = match p.objects.first() {
+        Some(InlineObject::Shape { story: Some(id), .. }) => *id,
+        o => panic!("expected shape with story, got {o:?}"),
+    };
+    let tb = doc.parts.get(&story_id).unwrap();
+    assert_eq!(tb.body.anchor, wordcraft_doc::props::VAlign::Center);
+    assert!(tb.body.auto_fit);
+}

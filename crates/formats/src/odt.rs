@@ -22,6 +22,7 @@ use std::io::{Cursor, Read, Write};
 
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
+use wordcraft_doc::props::VAlign;
 use wordcraft_doc::section::{Columns, SectionStart};
 use wordcraft_doc::{Align, Document, RevisionKind, Rgb, SectionProps};
 
@@ -105,8 +106,8 @@ struct Writer {
     last_list: Option<String>,
     /// The page the block being written starts.
     master: Option<SecStart>,
-    /// Cell styles by shading.
-    cell_styles: Vec<Option<Rgb>>,
+    /// Cell styles by (shading, vertical-alignment).
+    cell_styles: Vec<(Option<Rgb>, Option<VAlign>)>,
     pictures: Vec<(String, std::sync::Arc<Vec<u8>>, String)>,
     /// `text:changed-region` elements written so far.
     regions: Vec<String>,
@@ -583,11 +584,12 @@ impl Writer {
         }
     }
 
-    fn cell_style(&mut self, shading: Option<Rgb>) -> String {
-        let k = match self.cell_styles.iter().position(|s| *s == shading) {
+    fn cell_style(&mut self, shading: Option<Rgb>, valign: Option<VAlign>) -> String {
+        let key = (shading, valign);
+        let k = match self.cell_styles.iter().position(|s| *s == key) {
             Some(k) => k,
             None => {
-                self.cell_styles.push(shading);
+                self.cell_styles.push(key);
                 self.cell_styles.len() - 1
             }
         };
@@ -625,7 +627,7 @@ impl Writer {
                     }
                     continue;
                 }
-                let st = self.cell_style(c.shading);
+                let st = self.cell_style(c.shading, c.valign);
                 let mut attrs = format!(" table:style-name=\"{st}\" office:value-type=\"string\"");
                 if span > 1 {
                     attrs.push_str(&format!(" table:number-columns-spanned=\"{span}\""));
@@ -708,10 +710,16 @@ impl Writer {
                 ));
             }
         }
-        for (i, sh) in self.cell_styles.iter().enumerate() {
+        for (i, (sh, va)) in self.cell_styles.iter().enumerate() {
             let bg = sh.map(|c| format!(" fo:background-color=\"#{}\"", c.hex().to_ascii_lowercase())).unwrap_or_default();
+            let va_str = match va {
+                Some(VAlign::Top) => " style:vertical-align=\"top\"",
+                Some(VAlign::Center) => " style:vertical-align=\"middle\"",
+                Some(VAlign::Bottom) => " style:vertical-align=\"bottom\"",
+                None => "",
+            };
             s.push_str(&format!(
-                "<style:style style:name=\"Cell{}\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"4pt\" fo:border=\"0.5pt solid #000000\"{bg}/></style:style>",
+                "<style:style style:name=\"Cell{}\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"4pt\" fo:border=\"0.5pt solid #000000\"{bg}{va_str}/></style:style>",
                 i + 1
             ));
         }
@@ -1064,6 +1072,10 @@ struct StyleInfo {
     border_bottom: bool,
     /// `fo:background-color` of a table-cell style's `style:table-cell-properties`.
     cell_background: Option<Rgb>,
+    /// `style:vertical-align` of a table-cell style's `style:table-cell-properties`.
+    cell_valign: Option<VAlign>,
+    /// `style:column-width` of a table-column style's `style:table-column-properties`, in points.
+    column_width: Option<f32>,
     /// `style:master-page-name` of a paragraph or table style: its paragraphs (tables) start a
     /// page of that master page. Empty: explicitly none, which stops the lookup up the chain.
     master_page: Option<String>,
@@ -1321,11 +1333,26 @@ impl Styles {
                         s.page_number = Some(v.trim().parse::<u32>().ok().map(|n| n.min(32_767)));
                     }
                 }
-                "table-cell-properties" => {
+                "table-column-properties" => {
                     if let Some((_, s)) = &mut cur
-                        && let Some(c) = get(&a, "fo:background-color").and_then(model::parse_color)
+                        && let Some(w) = get(&a, "style:column-width").and_then(length)
                     {
-                        s.cell_background = Some(c);
+                        s.column_width = Some(w);
+                    }
+                }
+                "table-cell-properties" => {
+                    if let Some((_, s)) = &mut cur {
+                        if let Some(c) = get(&a, "fo:background-color").and_then(model::parse_color) {
+                            s.cell_background = Some(c);
+                        }
+                        if let Some(va) = get(&a, "style:vertical-align") {
+                            s.cell_valign = match va.trim() {
+                                "top" => Some(VAlign::Top),
+                                "middle" | "center" => Some(VAlign::Center),
+                                "bottom" => Some(VAlign::Bottom),
+                                _ => None,
+                            };
+                        }
                     }
                 }
                 "paragraph-properties" => {
@@ -1442,9 +1469,19 @@ impl Styles {
         self.chain(name).iter().find_map(|(_, s)| s.columns.clone())
     }
 
+    /// Width in points of a table-column style (whole chain).
+    fn column_width(&self, name: &str) -> Option<f32> {
+        self.chain(name).iter().find_map(|(_, s)| s.column_width)
+    }
+
     /// Background colour of a table-cell style (whole chain).
     fn cell_background(&self, name: &str) -> Option<Rgb> {
         self.chain(name).iter().find_map(|(_, s)| s.cell_background)
+    }
+
+    /// Vertical alignment of a table-cell style (whole chain).
+    fn cell_valign(&self, name: &str) -> Option<VAlign> {
+        self.chain(name).iter().find_map(|(_, s)| s.cell_valign)
     }
 
     /// Paragraph kind, alignment, page break, rule, keep-with-next and base formatting. The text formatting of
@@ -1498,6 +1535,16 @@ struct TableB {
     row: Vec<Cell>,
     /// Covered cells still owed to the previous cell's column span.
     hcover: usize,
+    /// Widths in points of the `table:table-column`s so far, 0 where the style gives none.
+    widths: Vec<f32>,
+}
+
+impl TableB {
+    fn finish(self) -> FTable {
+        // A column without a width leaves the whole grid to the equal split.
+        let widths = if self.widths.iter().all(|w| *w > 0.0) { self.widths } else { Vec::new() };
+        FTable { rows: self.rows, widths, borderless: false }
+    }
 }
 
 /// A `text:changed-region` read from `text:tracked-changes`.
@@ -1651,7 +1698,7 @@ impl<'a> Body<'a> {
         let mut blocks = self.containers.pop().unwrap_or_default();
         for t in self.tables.drain(..) {
             if !t.rows.is_empty() {
-                blocks.push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+                blocks.push(FBlock::Table(t.finish()));
             }
         }
         blocks
@@ -2037,7 +2084,15 @@ impl Body<'_> {
                     self.skip = 1;
                     return;
                 }
-                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0 });
+                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0, widths: Vec::new() });
+            }
+            "table-column" => {
+                let w = get(a, "table:style-name").and_then(|n| self.styles.column_width(n)).unwrap_or(0.0);
+                let n = get(a, "table:number-columns-repeated").and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(1).max(1);
+                if let Some(t) = self.tables.last_mut() {
+                    let room = wordcraft_doc::table::MAX_COLS.saturating_sub(t.widths.len());
+                    t.widths.extend(std::iter::repeat_n(w, n.min(room)));
+                }
             }
             "table-row" => {
                 if let Some(t) = self.tables.last_mut() {
@@ -2050,10 +2105,11 @@ impl Body<'_> {
                 let span = get(a, "table:number-columns-spanned").and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(1).clamp(1, 63);
                 let rows = get(a, "table:number-rows-spanned").and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(1).clamp(1, 1000);
                 let shading = get(a, "table:style-name").and_then(|s| self.styles.cell_background(s));
+                let valign = get(a, "table:style-name").and_then(|s| self.styles.cell_valign(s));
                 if let Some(t) = self.tables.last_mut() {
                     t.hcover = span as usize - 1;
                 }
-                self.cells.push(Cell { colspan: span, rowspan: rows, shading, ..Default::default() });
+                self.cells.push(Cell { colspan: span, rowspan: rows, shading, valign, ..Default::default() });
                 self.containers.push(Vec::new());
                 self.lists_saved.push((std::mem::take(&mut self.lists), std::mem::take(&mut self.item_used)));
             }
@@ -2346,7 +2402,7 @@ impl Body<'_> {
                 if let Some(t) = self.tables.pop()
                     && !t.rows.is_empty()
                 {
-                    self.container().push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+                    self.container().push(FBlock::Table(t.finish()));
                 }
             }
             "desc" | "title" => self.in_desc = false,
@@ -2950,6 +3006,54 @@ mod tests {
     }
 
     #[test]
+    fn table_column_styles_are_the_grid_widths() {
+        // A column's `style:column-width` (and `table:number-columns-repeated`) sets its width.
+        let content = format!(
+            r##"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="Table1.A" style:family="table-column"><style:table-column-properties style:column-width="1in"/></style:style><style:style style:name="Table1.B" style:family="table-column"><style:table-column-properties style:column-width="2in"/></style:style></office:automatic-styles><office:body><office:text><table:table><table:table-column table:style-name="Table1.A"/><table:table-column table:style-name="Table1.B" table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell><table:table-cell><text:p>C</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"##
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert_eq!(t.widths, vec![72.0, 144.0, 144.0]);
+    }
+
+    #[test]
+    fn table_column_widths_survive_a_round_trip() {
+        // A width changed in the document is written and read back; the file's own widths are
+        // what the first import shows.
+        let content = format!(
+            r##"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="Table1.A" style:family="table-column"><style:table-column-properties style:column-width="1in"/></style:style><style:style style:name="Table1.B" style:family="table-column"><style:table-column-properties style:column-width="3in"/></style:style></office:automatic-styles><office:body><office:text><table:table><table:table-column table:style-name="Table1.A"/><table:table-column table:style-name="Table1.B"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"##
+        );
+        let grid = |doc: &Document| match doc
+            .body
+            .iter()
+            .find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t.grid.clone()) } else { None })
+        {
+            Some(g) => g,
+            None => panic!("no table"),
+        };
+        let mut doc = import(&package(&content, None)).unwrap();
+        assert_eq!(grid(&doc), vec![72.0, 216.0]);
+        let widths = vec![150.0, 100.0];
+        for b in doc.body.iter_mut() {
+            if let wordcraft_doc::Block::Table(t) = std::sync::Arc::make_mut(b) {
+                t.grid = widths.clone();
+            }
+        }
+        let back = import(&export(&doc).unwrap()).unwrap();
+        assert_eq!(grid(&back), widths);
+    }
+
+    #[test]
+    fn table_without_column_widths_keeps_the_equal_split() {
+        let content = format!(
+            r##"<office:document-content {NS_T}><office:body><office:text><table:table><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"##
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert!(t.widths.is_empty());
+    }
+
+    #[test]
     fn table_cell_style_background_is_shading() {
         // #437: `fo:background-color` on `style:table-cell-properties` is the cell's shading.
         let content = format!(
@@ -2959,6 +3063,23 @@ mod tests {
         let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
         let row: Vec<_> = t.rows[0].iter().map(|c| (c.text(), c.shading)).collect();
         assert_eq!(row, vec![("Red".to_string(), Some(Rgb(255, 0, 0))), ("Plain".to_string(), None)]);
+    }
+
+    #[test]
+    fn table_cell_style_vertical_alignment() {
+        let content = format!(
+            r##"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="MidCell" style:family="table-cell"><style:table-cell-properties style:vertical-align="middle"/></style:style><style:style style:name="BotCell" style:family="table-cell"><style:table-cell-properties style:vertical-align="bottom"/></style:style></office:automatic-styles><office:body><office:text><table:table><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell table:style-name="MidCell"><text:p>Mid</text:p></table:table-cell><table:table-cell table:style-name="BotCell"><text:p>Bot</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"##
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert_eq!(t.rows[0][0].valign, Some(VAlign::Center));
+        assert_eq!(t.rows[0][1].valign, Some(VAlign::Bottom));
+        let doc = crate::model::to_doc(&f);
+        let bytes = export(&doc).unwrap();
+        let f2 = parse(&bytes).unwrap();
+        let Some(FBlock::Table(t2)) = f2.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table in export") };
+        assert_eq!(t2.rows[0][0].valign, Some(VAlign::Center));
+        assert_eq!(t2.rows[0][1].valign, Some(VAlign::Bottom));
     }
 
     /// #1379: three master pages (A4 upright; A4 wide with page numbering restarting at 1; A4

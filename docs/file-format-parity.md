@@ -12,6 +12,13 @@ gives ~64%; we discount it to ~60% because DOCX fidelity has never been checked 
 files. DOCX dominates the weight: a Word user sends and receives .docx; everything else is
 occasional.
 
+## Drawing payloads
+
+DOCX textboxes retain their own frame and story when they contain an inline picture.
+The direct WPS payload takes precedence over picture blips inside its text. Textbox fitting
+and floating-child paint require separate qualification. A shape's own picture fill retains
+its existing image fallback.
+
 ## Legacy DOC/DOT document properties
 
 The binary Word reader imports SummaryInformation text properties: title, subject, author,
@@ -235,6 +242,8 @@ Imported text fields use the first nonempty cached result run's formatting on th
 | 2026-10-21 | trivial | HTML export writes ruby (furigana, phonetic guides) as `<ruby>base<rt>reading</rt></ruby>`, in the base text's run formatting, and HTML import reads `<ruby>`/`<rb>`/`<rt>` back into one ruby object: `<rp>` fallback parentheses and the tags are not text, an unclosed element ends at the next block, and malformed ruby keeps its text. HTML states no alignment, size or raise, so the Phonetic Guide's defaults apply (#1681) |
 | 2026-10-21 | trivial | RTF import (#1653): the East Asian multibyte code pages are decoded — 932 Shift-JIS (Japanese), 936 GBK (Simplified Chinese), 949 UHC/windows-949 (Korean) and 950 Big5 (Traditional Chinese), named by `\ansicpg`, a font's `\cpg` or `\fcharset128`/`129`/`134`/`136` (and the OEM charset 255 as 437), escaped (`\'hh`) or raw. Bytes are decoded as a run, so a lead byte and its trail byte decode together; a code page switch, a group end and the end of the document decode what is pending; invalid sequences read as U+FFFD and never lose the rest of the text. The decoder does no BOM sniffing, so a run that starts `EF BB BF` in GBK, Big5 or UHC stays text, and ASCII runs and picture hex no longer decode byte by byte. Single-byte code pages, `\uN?` escapes and their `\ucN` skips are unchanged |
 | 2026-10-21 | trivial | Tables: table style band sizes (`w:tblStyleRowBandSize`, `w:tblStyleColBandSize`) are written for our banded styles and read with zero kept; a style without them has no bands, as in Word, so banded rows shade the same rows in both (#3415) |
+| 2026-10-21 | trivial | ODT: `table:table-column` styles (`style:column-width`, `table:number-columns-repeated`) are read as the table's grid, so column widths set in LibreOffice or changed in WordCraft survive a save; before, every opened table got equal columns and the written widths were dropped on the next open |
+| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
 | 2026-10-19 | trivial | An equation from LibreOffice in an `.odt` file no longer shows blank: it's embedded as a `draw:object` formula sub-document (MathML), with a `draw:image` replacement preview in LibreOffice's own metafile format WordCraft can't decode as a picture; the formula's own `content.xml` is read instead, through the same MathML reader as HTML (#3099) |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
@@ -264,6 +273,7 @@ Imported text fields use the first nonempty cached result run's formatting on th
 | 2026-10-16 | trivial | Positional tabs (`w:ptab`) keep their alignment, base and leader through DOCX saves instead of becoming plain tabs (#2367) |
 | 2026-10-16 | trivial | PDF outline destinations point to heading text after leading page breaks, including selected-page exports |
 | 2026-10-16 | trivial | `w:eastAsianLayout` (two lines in one, horizontal in vertical) is read and written; not laid out yet |
+| 2026-10-16 | trivial | Drawing dispatch uses the direct graphic-data child so nested pictures keep their text boxes. Synthetic regressions. |
 | 2026-10-15 | trivial | A group holding Word ink can't be ungrouped (its ink would be lost on save) |
 | 2026-10-15 | trivial | Native ink nested in groups and drawing canvases kept on save, in its place, drawn from its fallback picture |
 | 2026-10-18 | trivial | DOCX: every VML shape anchored in a header table cell is placed on the page whatever `o:allowincell` says (user-checked in Word for Mac, #1775) |

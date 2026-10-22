@@ -143,6 +143,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 - 2026-10-21: Screen readers: the ribbon's font name and size boxes, and the dropdown arrows beside them, say what they are (#3172). The
   boxes announced themselves only as "edit" and the arrows beside them only as "button".
 - 2026-10-20: A click below a floating table (one dragged by its move handle, or from a .docx) goes to the paragraph beside or after it, as in Word, instead of a cell of its last row, so the text after a moved table can be reached with the mouse again (#2038).
+- 2026-10-20: A picture cropped to a sliver of its source (under 5% of an axis) is drawn at the size the file gives, on screen and in PDF: a header bar cropped to 2.7% of a page-sized WMF is no longer half as tall, so the name in the text box over it shows (#1899).
 - 2026-10-19: Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in.
 - 2026-10-19: Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey.
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
@@ -152,6 +153,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-19 | Personal templates (#2852): File › New lists the `.dotx` and `.dotm` files in your templates folder under Personal (a subfolder per category; the search box covers them), and one opens as a new untitled document attached to it, as in Word. Save As › Save as Word Template starts in that folder, made on first use in the settings folder; File › Options › Advanced › File locations › User templates points it elsewhere. Agents list them with `file.listTemplates`. |
 | 2026-10-19 | Delete with whole table cells selected (rows, columns, the table or one cell) empties each cell to one paragraph, as in Word: no blank paragraphs are left behind, the paragraph keeps the formatting of the cell's last one, and tables nested in the cells go too. One undo brings everything back (#2802). |
 | 2026-10-15 | A picture anchored further down a page but placed higher up it (fixed on the page, or moved up from its paragraph) has the paragraphs above its anchor wrap around it too, instead of running behind it, also when that wrap pushes the anchor onto the next page (#2048) |
+| 2026-10-20 | Table sorting and formulas read and write decimal points for Cuban and Peruvian Spanish (`es-CU`, `es-PE`), so `1.234` is a decimal instead of 1234; grouped-number and result-formatting regressions retain Spain's decimal comma. |
 | 2026-10-19 | Typing on Linux no longer stops after clicking Search (#2986): Search, Go To's page box, the Icons search and a new caption label asked for the keyboard on every frame, and each request reset the input method; they now ask only while they lack it. |
 | 2026-10-19 | An equation from LibreOffice in an `.odt` file no longer shows blank (#3099): it's embedded as a `draw:object` formula sub-document holding MathML, with a `draw:image` replacement preview in LibreOffice's own metafile format WordCraft can't decode as a picture; the formula's own MathML is read instead, through the same reader as HTML equations. |
 | 2026-10-19 | Save As, Export and Open no longer do nothing on Linux desktops whose file chooser portal fails to show its dialog (#2999): a "cancel" quicker than anyone could make one asks again without the parent window, then opens the built-in file browser. |
@@ -162,11 +164,14 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-17 | Equation arrays centre a row that has no `&` among rows that do, as Word does, so case equations like Word's "First Property of Radicals" no longer push the aligned row right (#2617). |
 | 2026-10-16 | English dialects (#1281, #1045): English (UK), (Australia), (Canada) and the other Englishes are proofed in their own spelling — *colour* is flagged in a US document and *color* in a British one, with the right form suggested first — from our own list of American/British spellings, so nothing to install. Review › Language lists them, the .docx `w:lang` keeps them, and an English interface on a British (or Canadian, Australian…) system starts new documents in that English |
 | 2026-10-15 | Triple borders (tables, paragraphs, the `###` AutoFormat line) draw as three lines on screen and in PDF, across the line for vertical borders too; they used to draw as double lines (#1740) |
+| 2026-10-16 | Pictures and shapes without text stories turn visibly while dragging the rotation handle (#2277), with Shift snapping to 15° steps; the document changes only on release through one `arrange.rotation` command, and Escape cancels the preview |
 | 2026-10-17 | The document's right-click menu offers the ribbon's Paste menu, item for item (#2583): Paste (the clipboard's formatting kept, Word's Keep Source Formatting), Keep Text Only, Merge Formatting and Paste Special…, where it had a single Paste. Same commands and shortcuts, with the system clipboard |
+| 2026-10-17 | SmartArt Text Pane: Tab demotes and Shift+Tab promotes the focused item, as Word's pane does (#2701). The row keeps its focus, so a second Tab acts on the same item; an item that can't go down a level is left alone |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
 | 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
 | 2026-10-18 | Symbols keep their font (#2036): a `w:sym` or Insert › Symbol character in Wingdings, Symbol or Webdings remembers its symbol font apart from the text's font, so selecting all and changing the font (or Clear Formatting) no longer turns the symbols into boxes; saved back to DOCX as `w:sym`, so Word shows them too. Typed text and the Format Painter don't pick up the symbol font. |
+| 2026-10-18 | Dragging a single selected cell's border (Select Cell, left-edge arrow, triple-click on its last paragraph) moves it in its row only; the neighbour takes up the difference. Checked against Word for Mac 16.113.4. |
 | 2026-10-16 | `wordcraft-cli run --script FILE.json` (`-` for stdin) runs a JSON list of commands, then saves to one or more outputs (docx and pdf in one run); errors name the command number and id and nothing is saved, #1963 |
 | 2026-10-17 | Restrict Editing holds for structure too (#1327): an exception inside a table cell no longer lets table, row or cell formatting change the protected rest of the table; formatting limited to styles refuses Paste Formatting, table shading, borders, cell alignment, cell margins, text direction, table-style edits and locked table styles; loading, filtering or sorting recipients no longer rewrites merge-field results in a protected document. |
 | 2026-10-18 | Manage Sources › Import… (#2640) reads a Word bibliography file (`b:Sources`: Word's own `Sources.xml` master list) into the document: the tags, names, kinds and fields Word saves are read by the same code that reads the bibliography custom XML part of a `.docx`, a tag already in the document is left alone (an import never overwrites an edited source), an untagged source gets a tag the way a new one does, the whole import is one undo step, and a file that isn't `b:Sources` is refused. |
@@ -191,6 +196,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-15 | Image size limits are checked before allocating (#1321): a picture whose header declares more RGBA bytes than the 512 MiB budget is refused before decoding (render and PDF share one helper in `wordcraft-geom`), and page rasters are capped at 100 million pixels in total, scaled down rather than only per side. |
 | 2026-10-15 | Saved DOCX files keep the order of mixed right-to-left and left-to-right text in Word: Hebrew around a Latin name, numbers, brackets or an e-mail address no longer changes places, and Word reports the Hebrew as Hebrew rather than Arabic (#1543). |
 | 2026-10-15 | Web: typing in Cyrillic or another non-Latin script no longer repeats text. WordCraft now honours the input method's request to erase around the caret before retyping (#1480). Chrome can still move the hidden text field's caret, so later letters may still land out of order. That cause is still open |
+| 2026-10-16 | Drawing dispatch uses the direct graphic-data child so nested pictures keep their text boxes. |
 | 2026-10-15 | Equations: typing `V_dd` or `x^ab` and pressing Space keeps `dd` and `ab` whole in the subscript or superscript, like `V_(dd)`, as Word for Mac does; Linear format shows the bare form |
 | 2026-10-15 | Plain text pasted from another program keeps the formatting of the paragraph it lands in: Paste inserts it as Keep Text Only does, so every pasted line, empty lines too, becomes a paragraph with that paragraph's direction, style, alignment, indents and list, and the text after the caret keeps them. The lines after the first had default formatting, so pasting several lines into a right-to-left paragraph turned all but the first left-to-right |
 | 2026-10-14 | Add Font… imports every file selected in the file chooser (#1789), not just the first: the desktop dialog and the web picker are multi-select, each file is added, a bad file is reported ("Added 11 fonts; 1 couldn't be read: X.ttf") without stopping the rest, and one pick adds at most 2,000 (the status line counts the skipped). On the web each font is added and reported on its own, with no single summary line. The built-in file browser still picks one file. |
@@ -284,6 +290,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-12 | Holding a click on the ribbon or toolbar no longer scrolls the document up (#1019): a double-click in the header or footer area left a text drag running, so the next press anywhere drove the edge auto-scroll; a drag now ends with the button, wherever it's released |
 | 2026-10-12 | Tracked insertions and deletions inside a field result (a `=SUM(ABOVE)` subtotal) are kept as revisions: Accept All and Reject All act on them and a save writes the `w:del` back (#1037) |
 | 2026-10-12 | Document title opens Rename Document; the account badge opens Options › General for user name and initials. `file.rename {name}` preserves file extensions and refuses an existing destination; unsaved names become the suggested save name without changing the Title property. |
+| 2026-10-14 | Tables nest 24 deep at most, the depth the .docx reader and writer keep (#1596): pasting a table into its own cell again and again no longer builds a document that crashes when it is saved as JSON, copied, closed or replaced by a new one. A table that would go deeper arrives as its paragraphs, text kept, and Insert › Table in a cell 24 tables deep says why it can't. Word has no limit |
 | 2026-10-13 | Rounded rectangles (#1476): a `roundRect` keeps the corner radius its file gives it (`adj`), on screen, in PDF and when saved; all were drawn with a 16% corner |
 | 2026-10-13 | PAGEREF in headers and footers (#1477): "Page X of Y" with Y a page reference to a bookmark at each letter's end shows each letter's own total instead of the result stored in the file |
 | 2026-10-13 | Replace All respects locked content controls with Track Changes on or off; it refuses the entire batch before editing when any match would change locked content or remove a control locked against deletion |
@@ -535,9 +542,13 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-21 | trivial | Progress log: File › Recover follows the app theme (#3243) |
 | 2026-10-21 | trivial | Bullets and Numbering toggle off style-inherited lists at their effective level, including basedOn chains and numbered ListParagraph styles; other paragraphs and list definitions stay unchanged (related to #3459) |
 | 2026-10-21 | trivial | Progress log: table style band sizes, banded rows as in Word (#3415) |
+| 2026-10-21 | trivial | Progress log: ODT table column widths are read, so widths set in LibreOffice or changed in WordCraft survive a save |
 | 2026-10-20 | trivial | Russian sorting keeps ё with е and recognises decomposed ё/й; synthetic ordering, case and index-heading regressions; broader parity estimates unchanged |
 | 2026-10-20 | trivial | Progress log: a click below a floating table goes to the text after it, not its last row (#2038) |
 | 2026-10-20 | trivial | Progress log: the table handles show while the caret is in the table (#2428) |
+| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
+| 2026-10-20 | trivial | Progress log: a picture cropped to a sliver of its source is drawn at the size the file gives (#1899) |
+| 2026-10-20 | trivial | Progress log: Cuban and Peruvian Spanish table numbers use decimal points, matching their CLDR parent locale and existing region settings |
 | 2026-10-19 | trivial | Progress log: typing no longer stops after clicking Search (#2986) |
 | 2026-10-19 | trivial | Progress log: Delete on selected table cells leaves one empty paragraph in each (#2802) |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
@@ -548,6 +559,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |
 | 2026-10-18 | trivial | A word after a slash wraps whole, like Word (#2963) |
 | 2026-10-17 | trivial | Progress log: recipient list search and merged-only view (#1576) |
+| 2026-10-18 | trivial | Progress log: a single selected cell's border drags in its row only |
 | 2026-10-18 | trivial | Progress log: symbols keep their font when the text font changes (#2036) |
 | 2026-10-17 | trivial | Progress log: Restrict Editing guards tables, Paste Formatting and merge fields (#1327) |
 | 2026-10-18 | trivial | Progress log: Picture Format › Size, sizes typed in any unit and the Size dialog (#2573); readiness estimates unchanged |
@@ -600,6 +612,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-16 | trivial | Progress log: Hebrew field results and smart quotes (#1670) |
 | 2026-10-16 | trivial | Progress log: Ctrl+wheel zoom no longer scrolls the document (#1743) |
 | 2026-10-16 | trivial | Hint-reliant CJK fonts execute TrueType contour assembly; Windows DFKai-SB no longer loses strokes. Synthetic local-font regression; no font binaries bundled. |
+| 2026-10-16 | trivial | Drawing dispatch uses the direct graphic-data child so nested pictures keep their text boxes. Synthetic regressions. |
 | 2026-10-14 | trivial | Progress log: RTF export writes sections (gap 19) |
 | 2026-10-15 | trivial | Progress log: multi-letter equation scripts (#1609) |
 | 2026-10-15 | trivial | Progress log: plain-text paste keeps the paragraph formatting where it lands |
@@ -623,6 +636,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-17 | trivial | Non-overlapping body floating tables clear header tables; overlapping tables keep their requested position |
 | 2026-10-15 | trivial | Progress log: caret inside ligatures (#1974) |
 | 2026-10-17 | trivial | Progress log: the ribbon's paste choices in the context menu (#2583) |
+| 2026-10-16 | trivial | Progress log: live rotation preview while dragging (#2277); readiness estimates unchanged |
 | 2026-10-15 | trivial | Progress log: recovery copies and .json files store pictures as base64 (#586 follow-up) |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
@@ -651,6 +665,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-12 | trivial | Progress log: a press on the ribbon no longer scrolls the document (#1019) |
 | 2026-10-12 | trivial | Progress log: Ctrl+drag copies an object (#1014) |
 | 2026-10-12 | trivial | Document title opens Rename Document; the account badge opens Options › General for user name and initials. |
+| 2026-10-14 | trivial | Progress log: tables nest 24 deep at most (#1596) |
 | 2026-10-13 | trivial | Progress log: rounded rectangle corners (#1476) |
 | 2026-10-13 | trivial | Progress log: PAGEREF in headers and footers (#1477) |
 | 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |

@@ -959,6 +959,66 @@ fn metafile_pictures_are_drawn_as_vector_paths() {
     assert!(!raw.contains("0.8156"), "the grey placeholder box is not drawn");
 }
 
+/// #1899: a picture cropped to a sliver of its source (3% across here) is drawn at that sliver's
+/// size, bitmap or metafile: the source spans 1/0.03 frames, not at most 20 (the old 5% floor).
+#[test]
+fn a_crop_keeping_a_sliver_draws_the_source_that_much_wider() {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    /// The widest image and the widest fill drawn, in page units.
+    #[derive(Default)]
+    struct Widest(f64, f64);
+    impl Device<'_> for Widest {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, path: &kurbo::BezPath, transform: kurbo::Affine, _: &Paint<'_>, mode: &PathDrawMode) {
+            if matches!(mode, PathDrawMode::Fill(_)) {
+                self.1 = self.1.max(kurbo::Shape::bounding_box(&(transform * path.clone())).width());
+            }
+        }
+        fn push_clip_path(&mut self, _: &ClipPath) {}
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, _: &Glyph<'_>, _: kurbo::Affine, _: kurbo::Affine, _: &Paint<'_>, _: &GlyphDrawMode) {}
+        fn draw_image(&mut self, _: Image<'_, '_>, transform: kurbo::Affine) {
+            self.0 = self.0.max(transform.as_coeffs()[0].abs());
+        }
+        fn pop_clip_path(&mut self) {}
+        fn pop_transparency_group(&mut self) {}
+    }
+    let widest = |bytes: Vec<u8>, ext: &str, crop: [f32; 4]| {
+        let mut d = Document::new();
+        let media = d.add_media(bytes, ext);
+        let mut p = Paragraph::new();
+        p.insert_object(
+            0,
+            InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop, ole: None },
+            &CharProps::default(),
+        )
+        .unwrap();
+        d.body = vec![para_block(p)];
+        let pdf = Pdf::new(export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap()).expect("parse");
+        let cache = InterpreterCache::new();
+        let mut w = Widest::default();
+        for page in pdf.pages().iter() {
+            let mut ctx =
+                Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+            interpret_page(page, &mut ctx, &mut w);
+        }
+        w
+    };
+    let sliver = [0.47, 0.0, 0.5, 0.0];
+    // The bitmap: the whole image drawn behind the frame's clip.
+    let (whole, cropped) = (widest(png(), "png", [0.0; 4]).0, widest(png(), "png", sliver).0);
+    assert!(whole > 0.0 && (cropped / whole - 1.0 / 0.03).abs() < 0.5, "png: {whole} → {cropped}");
+    // The metafile: its red right half, a filled path.
+    let (whole, cropped) = (widest(red_right_half_emf(), "emf", [0.0; 4]).1, widest(red_right_half_emf(), "emf", sliver).1);
+    assert!(whole > 0.0 && (cropped / whole - 1.0 / 0.03).abs() < 0.5, "emf: {whole} → {cropped}");
+}
+
 /// #1502: an inline picture's Figure carries its own alt text, not the "picture" fallback.
 #[test]
 fn inline_picture_figure_keeps_its_alt_text() {
@@ -1141,6 +1201,44 @@ fn cosmetic_metafile_pens_are_thin_but_visible() {
     let bytes = export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap();
     let raw = String::from_utf8_lossy(&bytes);
     assert!(raw.contains("0.25 w"), "the hairline is a quarter point wide");
+}
+
+/// EMF text records: EXTCREATEFONTINDIRECTW (Arial, 20 units high) in slot 1, SELECTOBJECT,
+/// SETTEXTCOLOR (black), then EXTTEXTOUTW `text` at (5, 40) with no dx array.
+fn emf_text_records(text: &str) -> Vec<Vec<u8>> {
+    let mut font = [82i32.to_le_bytes(), 104u32.to_le_bytes(), 1i32.to_le_bytes(), (-20i32).to_le_bytes()].concat();
+    font.extend([0i32, 0, 0, 400, 0, 0].iter().flat_map(|v| v.to_le_bytes()));
+    let mut name: Vec<u8> = "Arial".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    name.resize(64, 0);
+    font.extend(name);
+    let units: Vec<u8> = text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let padded = units.len().div_ceil(4) * 4;
+    let mut out = [84u32.to_le_bytes(), ((76 + padded) as u32).to_le_bytes()].concat();
+    out.extend([0i32, 0, 100, 100, 1, 0, 0, 5, 40, text.encode_utf16().count() as i32, 76, 0, 0, 0, 0, 0, 0].iter().flat_map(|v| v.to_le_bytes()));
+    out.extend(units);
+    out.resize(76 + padded, 0);
+    vec![font, emf_rec(37, &[1]), emf_rec(24, &[0]), out]
+}
+
+/// #1764: the text of an EMF picture (EXTTEXTOUTW) is drawn, so it is in the PDF's text layer.
+#[test]
+fn metafile_text_records_are_drawn_as_text() {
+    let mut recs = emf_text_records("Cell42");
+    recs.push(emf_rec(14, &[0; 3]));
+    let mut d = Document::new();
+    let media = d.add_media(emf_file(&recs), "emf");
+    let mut p = Paragraph::with_text("Figure: ", CharProps::default());
+    let n = p.len();
+    p.insert_object(
+        n,
+        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        &CharProps::default(),
+    )
+    .unwrap();
+    d.body = vec![para_block(p)];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap();
+    let text = extract_text(&bytes).concat();
+    assert!(text.contains("Cell42"), "the metafile's text is drawn: {text:?}");
 }
 
 /// #455: a link to a bookmark after a page break inside its paragraph goes to the page the

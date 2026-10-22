@@ -148,8 +148,10 @@ Romanian, Estonian, Latvian, Lithuanian, Slovenian and Icelandic (`crates/doc/sr
 a hand-written per-language alphabet table; full CLDR collation is not used). Table sort and
 table formulas read numbers with the language's decimal and group separators (`1 250,50` in
 Polish, `1.250,50` in German, `1,250.50` in English) and write formula results with its decimal
-separator (`crates/doc/src/locale_number.rs`). Interface lists (styles, fonts) still sort by code
-point.
+separator (`crates/doc/src/locale_number.rs`). Cuban and Peruvian Spanish (`es-CU`, `es-PE`) use
+decimal points (`1,234.50`), matching the existing region settings and CLDR's Latin American
+Spanish parent locale; `cuban_and_peruvian_numbers_use_decimal_points` covers parsing and result
+formatting. Interface lists (styles, fonts) still sort by code point.
 
 Russian (`ru`) sorting keeps ё with е (a secondary diaeresis difference), before ж. Composed and decomposed ё and й have the same keys and index headings; the stored text is unchanged. Tests cover Russian locale aliases, case, representative words and these two canonical pairs. This is a narrow Cyrillic correction, not full Unicode normalization or CLDR collation. Ordering reference: [Unicode CLDR Russian collation chart](https://unicode.org/cldr/charts/42/collation/ru.html).
 
@@ -203,6 +205,7 @@ WordCraft keeps 2,54 cm).
 | 2026-10-21 | trivial | Japanese row: ruby (Phonetic Guide) is supported over its base text and HTML export/import keeps it (#1681); the row had listed ruby as missing |
 | 2026-10-20 | trivial | Russian sorting keeps ё with е and recognises decomposed ё/й; synthetic ordering, case and index-heading regressions; broader parity estimates unchanged |
 | 2026-10-20 | trivial | File › Home's greeting (Good morning / afternoon / evening) added to the nine catalogs that lacked it (de, et, ja, pt-br, sr, sr-latn, uk, zh-hans, zh-hant); a test keeps it in every language |
+| 2026-10-20 | trivial | Cuban and Peruvian Spanish table numbers use decimal points for parsing and formula results, matching CLDR and the existing region settings; regression covers grouped values and a Spain control |
 | 2026-10-14 | trivial | The sentence-capital rule (English, Polish, Croatian, Italian, Turkish, Portuguese) skips the first word of a list item (#1741) |
 | 2026-10-16 | minor | Indonesian proofing (#498): id-ID spelling from the installed Hunspell `id_ID` dictionary (not bundled), Czech's dictionary-driven suggestions, repeated-word (hyphenated reduplication offered) and spacing checks with Indonesian messages; Review › Language, the status bar, Set Proofing Language and File › Options › Proofing list Indonesian; estimates unchanged |
 | 2026-10-16 | trivial | Read Aloud picks a voice for the sentence's language (run tag, else script) when the default voice doesn't speak it, reads Windows text as UTF-8 |

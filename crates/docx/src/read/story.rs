@@ -1048,14 +1048,19 @@ impl Reader<'_> {
             float.effect = float.effect.map(|e| e.max(0.0));
             return Some(InlineObject::Graphic { w, h, alt, float, graphic });
         }
+        // A textbox may contain a picture; its descendant blip is not the outer payload.
+        let direct_shape = gd.child("wps:wsp").filter(|shape| {
+            // Picture fills still use the image fallback; the shape model has no image fill.
+            shape.child("wps:spPr").and_then(|props| props.child("a:blipFill")).is_none()
+        });
         let mut obj = if let Some(c) = gd.child("wpc:wpc") {
             self.read_canvas(sc, c, rels, w, h, float)
         } else if let Some(g) = gd.child("wpg:wgp") {
             self.read_group(sc, g, rels, w, h, float)?
-        } else if gd.find("a:blip").is_some() {
+        } else if direct_shape.is_none() && gd.find("a:blip").is_some() {
             self.read_pic(gd, rels, w, h, alt.clone(), float)?
         } else {
-            let wsp = gd.find("wps:wsp")?;
+            let wsp = direct_shape.or_else(|| gd.find("wps:wsp"))?;
             let mut obj = self.read_wsp(sc, wsp, rels, w, h, float);
             // A freeform: whether it's ink WordCraft wrote.
             if let InlineObject::Shape { freeform: Some(f), .. } = &mut obj
@@ -1635,7 +1640,12 @@ impl Reader<'_> {
         let type_id = shape.attr("type").map(|t| t.trim().trim_start_matches('#'));
         let shapetype = type_id.and_then(|id| pict.els().find(|e| e.name == "v:shapetype" && e.attr("id") == Some(id)));
         let attr = |name: &str| shape.attr(name).or_else(|| shapetype.and_then(|t| t.attr(name)));
-        let on = |name: &str| attr(name).is_none_or(|v| !matches!(v, "f" | "false" | "0"));
+        let on = |name: &str| {
+            attr(name).is_none_or(|v| {
+                let t = v.trim();
+                !t.eq_ignore_ascii_case("f") && !t.eq_ignore_ascii_case("false") && t != "0"
+            })
+        };
         let stroke = on("stroked").then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
         let stroke_width = attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
         let fill = vml_fill(shape, shapetype);
@@ -1713,14 +1723,17 @@ impl Reader<'_> {
                 }
                 part.body.inset = (inset != wordcraft_doc::TEXT_BOX_INSET).then_some(inset);
                 // Resize shape to fit text (DrawingML's `a:spAutoFit`).
-                let fit = vml_style(tb.attr("style").unwrap_or(""), "mso-fit-shape-to-text");
+                let fit = vml_style(tb.attr("style").unwrap_or(""), "mso-fit-shape-to-text").or_else(|| vml_style(style, "mso-fit-shape-to-text"));
                 part.body.auto_fit = fit.is_some_and(|v| v.eq_ignore_ascii_case("t") || v.eq_ignore_ascii_case("true"));
                 // Where the text sits between the box's top and bottom (DrawingML's `anchor`).
-                if let Some(a) = vml_style(style, "v-text-anchor") {
-                    part.body.anchor = match a {
-                        a if a.starts_with("middle") => wordcraft_doc::props::VAlign::Center,
-                        a if a.starts_with("bottom") => wordcraft_doc::props::VAlign::Bottom,
-                        _ => wordcraft_doc::props::VAlign::Top,
+                if let Some(a) = vml_style(tb.attr("style").unwrap_or(""), "v-text-anchor").or_else(|| vml_style(style, "v-text-anchor")) {
+                    let al = a.trim().to_ascii_lowercase();
+                    part.body.anchor = if al.starts_with("middle") || al == "center" {
+                        wordcraft_doc::props::VAlign::Center
+                    } else if al.starts_with("bottom") {
+                        wordcraft_doc::props::VAlign::Bottom
+                    } else {
+                        wordcraft_doc::props::VAlign::Top
                     };
                 }
             }
@@ -2137,37 +2150,43 @@ fn vml_float(shape: &El, style: &str, in_hf: bool) -> Float {
     let off = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0);
     let max = crate::units::MAX_LEN_PT;
     let behind = get("z-index").and_then(int).is_some_and(|z| z < 0);
-    let wrap = match shape.child("w10:wrap").and_then(|w| w.attr("type")).unwrap_or("none") {
-        "square" => Wrap::Square,
-        "tight" => Wrap::Tight,
-        "through" => Wrap::Through,
-        "topAndBottom" => Wrap::TopAndBottom,
+    let wrap_el = shape.child("w10:wrap");
+    let wrap_type = wrap_el.and_then(|w| w.attr("type")).unwrap_or("none");
+    let wrap = match wrap_type {
+        t if t.eq_ignore_ascii_case("square") => Wrap::Square,
+        t if t.eq_ignore_ascii_case("tight") => Wrap::Tight,
+        t if t.eq_ignore_ascii_case("through") => Wrap::Through,
+        t if t.eq_ignore_ascii_case("topAndBottom") || t.eq_ignore_ascii_case("top-and-bottom") => Wrap::TopAndBottom,
         _ if behind => Wrap::BehindText,
         _ => Wrap::InFrontOfText,
     };
-    let h_rel = match get("mso-position-horizontal-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "char" => Anchor::Character,
-        "left-margin-area" => Anchor::LeftMargin,
-        "right-margin-area" => Anchor::RightMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let wrap_text = wrap_el.and_then(|w| w.attr("side")).and_then(wordcraft_doc::para::WrapText::from_ooxml).unwrap_or_default();
+    let h_rel_str = get("mso-position-horizontal-relative").unwrap_or("text");
+    let h_rel = match h_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("char") => Anchor::Character,
+        s if s.eq_ignore_ascii_case("left-margin-area") => Anchor::LeftMargin,
+        s if s.eq_ignore_ascii_case("right-margin-area") => Anchor::RightMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Column,
     };
-    let v_rel = match get("mso-position-vertical-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "line" => Anchor::Line,
-        "top-margin-area" => Anchor::TopMargin,
-        "bottom-margin-area" => Anchor::BottomMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let v_rel_str = get("mso-position-vertical-relative").unwrap_or("text");
+    let v_rel = match v_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("line") => Anchor::Line,
+        s if s.eq_ignore_ascii_case("top-margin-area") => Anchor::TopMargin,
+        s if s.eq_ignore_ascii_case("bottom-margin-area") => Anchor::BottomMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Paragraph,
     };
     let dist = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0).clamp(0.0, 1584.0);
     let mut f = Float {
         wrap,
+        wrap_text,
         h_rel,
         v_rel,
         x: (off("left") + off("margin-left")).clamp(-max, max),

@@ -3067,6 +3067,129 @@ fn repeated_header_moves_with_the_first_row_that_does_not_fit() {
     assert_eq!(rows_per_page(40.0), vec![vec![], vec![0, 1, 2]]);
 }
 
+#[test]
+fn a_repeated_header_is_never_left_alone_when_the_table_starts_mid_page() {
+    // #1704: a table whose repeated header row fits at the bottom of a page while a body row
+    // does not must not leave the header row there alone. Sweeps filler counts across the page
+    // boundary for several table geometries (height ratios, a cantSplit body row, an exact
+    // height body row, two header rows) and pins, for every configuration while the table
+    // continues onto a next page: no page ends with only header rows, and no row is dropped.
+    // A table that starts at the very top of a page is exempt (#1705): there the header is the
+    // table's own beginning, so fillers = 0 skips that assertion.
+    #[derive(Debug)]
+    struct Geo {
+        header: f32,
+        body: f32,
+        body_cant_split: bool,
+        body_exact: bool,
+        header_rows: usize,
+    }
+    let geos = [
+        (Geo { header: 100.0, body: 400.0, body_cant_split: false, body_exact: false, header_rows: 1 }, 1usize),
+        (Geo { header: 300.0, body: 100.0, body_cant_split: false, body_exact: false, header_rows: 1 }, 4),
+        (Geo { header: 50.0, body: 250.0, body_cant_split: false, body_exact: false, header_rows: 1 }, 4),
+        (Geo { header: 100.0, body: 400.0, body_cant_split: true, body_exact: false, header_rows: 1 }, 4),
+        (Geo { header: 100.0, body: 400.0, body_cant_split: false, body_exact: true, header_rows: 1 }, 4),
+        (Geo { header: 100.0, body: 400.0, body_cant_split: false, body_exact: false, header_rows: 2 }, 4),
+    ];
+    // The table, after `fillers` paragraphs: the same table in every configuration.
+    let table_doc = |fillers: usize, geo: &Geo| -> Document {
+        let mut d = Document::new();
+        for i in 0..fillers {
+            let mut p = wordcraft_doc::Paragraph::with_text(&format!("Filler {i}"), Default::default());
+            p.props.space_after = Some(0.0);
+            d.body.push(wordcraft_doc::para_block(p));
+        }
+        let mut t = Table::new(geo.header_rows + 2, 1, 468.0);
+        for (ri, row) in t.rows.iter_mut().enumerate() {
+            row.props.header = ri < geo.header_rows;
+            row.props.height = Some(if ri < geo.header_rows { geo.header } else { geo.body });
+            row.props.height_rule = wordcraft_doc::props::HeightRule::AtLeast;
+            if ri >= geo.header_rows && geo.body_cant_split {
+                row.props.cant_split = true;
+            }
+            if ri >= geo.header_rows && geo.body_exact {
+                row.props.height_rule = wordcraft_doc::props::HeightRule::Exact;
+            }
+        }
+        d.insert_block(StoryRef::Body, &Path::top(d.body.len()), wordcraft_doc::Block::Table(t)).unwrap();
+        d
+    };
+    let pages_with = |fillers: usize, geo: &Geo| -> Vec<Vec<usize>> {
+        let l = lay(&table_doc(fillers, geo));
+        l.pages
+            .iter()
+            .map(|p| p.items.iter().filter_map(|i| if let Placed::Cell { row, cell: 0, .. } = i { Some(*row) } else { None }).collect())
+            .collect()
+    };
+    // The same table, with the geometry: the (row, frame) of each row's first cell per page,
+    // and the page's body area, so the room under the header can be measured.
+    let pages_geom = |fillers: usize, geo: &Geo| -> Vec<(Vec<(usize, Rect)>, Rect)> {
+        let l = lay(&table_doc(fillers, geo));
+        l.pages
+            .iter()
+            .map(|p| {
+                let cells = p
+                    .items
+                    .iter()
+                    .filter_map(|i| match i {
+                        Placed::Cell { rect, row, cell: 0, .. } => Some((*row, *rect)),
+                        _ => None,
+                    })
+                    .collect();
+                (cells, p.body)
+            })
+            .collect()
+    };
+
+    for (geo, coarse) in &geos {
+        for fillers in (0..60).step_by(*coarse) {
+            let pages = pages_with(fillers, geo);
+            for w in pages.windows(2) {
+                // While the table continues on the next page, a page never ends with only
+                // header rows. (fillers = 0 starts the table at the top of a page: exempt.)
+                if !w[1].is_empty() && fillers > 0 {
+                    assert!(
+                        w[0].is_empty() || w[0].iter().any(|&r| r >= geo.header_rows),
+                        "fillers {fillers}, geo {geo:?}: a page ends with header rows alone: {pages:?}"
+                    );
+                }
+            }
+            // No configuration drops rows: every row of the table is placed somewhere.
+            let placed: std::collections::HashSet<usize> = pages.iter().flatten().copied().collect();
+            assert_eq!(placed.len(), geo.header_rows + 2, "fillers {fillers}, geo {geo:?}: rows placed: {pages:?}");
+        }
+    }
+    // Room for the header and the first body row together keeps them on the page, and keeps
+    // the body row *there*: where the row would fit under the header, it is placed on that
+    // page instead of being carried over. This is the position, not only the presence -- a
+    // table that carried a body row over although the page had room for it is the
+    // unnecessary move the sweep above cannot see.
+    let mut paired = 0;
+    for fillers in 1..60 {
+        let geo = &geos[0].0;
+        let geom = pages_geom(fillers, geo);
+        let Some((first_cells, body)) = geom.first() else { continue };
+        let Some((_, header_rect)) = first_cells.iter().find(|(r, _)| *r == 0) else {
+            // The header itself moved to a later page: there is nothing to pair it with here.
+            continue;
+        };
+        // The room left on the first page under the header.
+        let room = body.bottom() - header_rect.bottom();
+        // The body row's own height, wherever it was placed.
+        let body_h = geom.iter().flat_map(|(cells, _)| cells.iter()).find(|(r, _)| *r == geo.header_rows).map(|(_, rect)| rect.h).unwrap_or(geo.body);
+        if room >= body_h {
+            assert!(
+                first_cells.iter().any(|(r, _)| *r == geo.header_rows),
+                "fillers {fillers}: the first body row fits in the {room} pt left under the header \
+                 (it is {body_h} pt tall) but was carried over to the next page"
+            );
+            paired += 1;
+        }
+    }
+    assert!(paired > 0, "no configuration left room for the header and a body row together");
+}
+
 /// A drop-cap paragraph in a font larger than 1000 pt used to panic in layout (`clamp` with min > max).
 #[test]
 fn drop_cap_with_a_huge_font_lays_out() {
@@ -9915,5 +10038,72 @@ fn early_float_survives_a_column_break_into_another_width() {
         let (got, want) = (line_spots(&l, page, min_x), line_spots(&plain, page, min_x));
         assert!(!want.is_empty(), "second column first: {skip}: text after the break");
         assert_eq!(got, want, "second column first: {skip}: the text after the break wraps around nothing");
+    }
+}
+
+/// A table with its own width keeps it when it is over 1.5 times the text width (#1721); one
+/// without is still squeezed to the margins.
+#[test]
+fn table_with_its_own_width_is_not_squeezed_to_the_margins() {
+    let text = |s: &str| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(s, Default::default()));
+    let second_column_x = |own: Option<f32>| {
+        let mut t = Table::new(1, 3, 936.0);
+        t.props.width = own;
+        t.rows[0].cells[1].blocks = vec![text("Address")];
+        let mut d = Document::from_text("After");
+        d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let [(x, _, _)] = para_at(&l, &[0, 0, 1, 0])[..] else { panic!("second cell missing") };
+        x
+    };
+    // 936pt (twice the 468pt of text) of its own: the columns stay 312pt wide, past the margin.
+    let x = second_column_x(Some(936.0));
+    assert!(x > 72.0 + 300.0, "the second column starts at {x}, squeezed");
+    // The same columns with an automatic table width are squeezed to 156pt each.
+    let x = second_column_x(None);
+    assert!(x < 72.0 + 200.0, "the second column starts at {x}, not squeezed");
+}
+
+/// Cut marks: page-anchored rules thinner than a point keep their height (Word draws a 0.25 pt
+/// rectangle 0.25 pt high), and a flat `line` stays flat instead of running down a point.
+#[test]
+fn anchored_objects_thinner_than_a_point_keep_their_size() {
+    use wordcraft_doc::para::{Anchor, Float, ShapeKind, Wrap};
+    let float = |y: f32| Float { wrap: Wrap::InFrontOfText, h_rel: Anchor::Page, v_rel: Anchor::Page, x: 72.0, y, ..Default::default() };
+    let mut d = Document::from_text("Rules");
+    for (i, h) in [0.25f32, 0.5, 1.0, 2.0].into_iter().enumerate() {
+        d.insert_object(&Pos::body(0, 0), rect_shape(200.0, h, float(100.0 + 20.0 * i as f32)), &Default::default()).unwrap();
+    }
+    let line = |w: f32, h: f32, y: f32| InlineObject::Shape {
+        kind: ShapeKind::Line,
+        w,
+        h,
+        fill: None,
+        stroke: Some(Rgb::BLACK),
+        stroke_width: 0.25,
+        float: float(y),
+        story: None,
+        freeform: None,
+        effects: Default::default(),
+        extra: Default::default(),
+    };
+    d.insert_object(&Pos::body(0, 0), line(200.0, 0.0, 220.0), &Default::default()).unwrap();
+    d.insert_object(&Pos::body(0, 0), line(0.0, 100.0, 300.0), &Default::default()).unwrap();
+    let draws = flat(display::page_display(&d, &lay(&d).pages[0], &Default::default()));
+    let mut rects: Vec<(ShapeKind, Rect)> =
+        draws.iter().filter_map(|x| if let display::Draw::Shape { rect, kind, .. } = x { Some((*kind, *rect)) } else { None }).collect();
+    rects.sort_by(|a, b| a.1.y.total_cmp(&b.1.y));
+    let got: Vec<(f32, f32, f32, f32)> = rects.iter().map(|(_, r)| (r.x, r.y, r.w, r.h)).collect();
+    let want = [
+        (72.0, 100.0, 200.0, 0.25),
+        (72.0, 120.0, 200.0, 0.5),
+        (72.0, 140.0, 200.0, 1.0),
+        (72.0, 160.0, 200.0, 2.0),
+        (72.0, 220.0, 200.0, 0.0),
+        (72.0, 300.0, 0.0, 100.0),
+    ];
+    assert_eq!(got.len(), want.len(), "{rects:?}");
+    for (g, w) in got.iter().zip(want) {
+        assert!((g.0 - w.0).abs() < 1e-3 && (g.1 - w.1).abs() < 1e-3 && (g.2 - w.2).abs() < 1e-3 && (g.3 - w.3).abs() < 1e-3, "{g:?} != {w:?}");
     }
 }
