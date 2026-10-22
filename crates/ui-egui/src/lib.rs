@@ -1544,7 +1544,7 @@ impl WordApp {
             self.sync_document();
             return;
         }
-        log::info!("dropped a request for document {document}, which isn't shown: {req}");
+        log::warn!("dropped a request for document {document}, which isn't shown: {req}");
     }
 
     /// Follow the desktop's light/dark choice while the app runs (Linux, where winit reports no
