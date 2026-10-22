@@ -1100,6 +1100,7 @@
 	Submitting print job…	인쇄 작업 전송 중…
 	Print job submitted.	인쇄 작업을 전송했습니다.
 	Print job submitted: {receipt}	인쇄 작업을 전송했습니다: {receipt}
+	Print job submitted: spooled {count} sheet(s)	인쇄 작업을 보냈습니다: {count}장을 스풀했습니다
 	Print failed: the printing worker stopped.	인쇄 실패: 인쇄 작업자가 중지되었습니다.
 	Couldn't open {path}: {error}	{path}을(를) 열 수 없습니다: {error}
 	Column Selection	열 선택

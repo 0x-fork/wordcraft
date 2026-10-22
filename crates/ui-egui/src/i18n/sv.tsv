@@ -2538,6 +2538,7 @@ preview	Title	Titel
 	Submitting print job…	Skickar utskriften…
 	Print job submitted.	Utskriften har skickats.
 	Print job submitted: {receipt}	Utskriften har skickats: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Utskriftsjobbet skickades: {count} ark lades i utskriftskön
 	Print failed: the printing worker stopped.	Utskriften misslyckades: utskriftsprocessen avbröts.
 	Wait for the print job to finish submitting before closing.	Vänta tills utskriften har skickats innan du stänger.
 	Find “{text}” in the document	Sök efter ”{text}” i dokumentet

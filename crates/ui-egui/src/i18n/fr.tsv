@@ -2232,6 +2232,7 @@
 	Submitting print job…	Envoi du travail d'impression…
 	Print job submitted.	Travail d'impression envoyé.
 	Print job submitted: {receipt}	Travail d'impression envoyé : {receipt}
+	Print job submitted: spooled {count} sheet(s)	Travail d’impression envoyé : {count} feuille(s) mise(s) en file d’attente
 	Print failed: the printing worker stopped.	L'impression a échoué : le processus d'impression s'est arrêté.
 	Print settings	Paramètres d'impression
 	Submit print job	Envoyer le travail d'impression

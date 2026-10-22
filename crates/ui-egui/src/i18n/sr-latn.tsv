@@ -2235,6 +2235,7 @@
 	Submitting print job…	Slanje zadatka za štampanje…
 	Print job submitted.	Zadatak za štampanje je poslat.
 	Print job submitted: {receipt}	Zadatak za štampanje je poslat: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Zadatak za štampu je poslat: u red za štampu poslato listova: {count}
 	Print failed: the printing worker stopped.	Štampanje nije uspelo: proces štampanja je zaustavljen.
 	Print settings	Podešavanja štampanja
 	Submit print job	Pošalji zadatak za štampanje

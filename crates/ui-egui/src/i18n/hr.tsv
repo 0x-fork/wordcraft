@@ -1681,6 +1681,7 @@ template	Letter	Pismo
 	Print failed: {error}	Ispis nije uspio: {error}
 	Print job submitted.	Zadatak ispisa je poslan.
 	Print job submitted: {receipt}	Zadatak ispisa je poslan: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Zadatak ispisa je poslan: u red za ispis poslano listova: {count}
 	Print the page color	Ispiši boju stranice
 	Print to PDF	Ispiši u PDF
 	Print\nLayout	Izgled\nispisa

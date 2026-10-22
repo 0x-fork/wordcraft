@@ -1560,3 +1560,11 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
     }
     assert!(!lang("vi").uses_cjk());
 }
+
+/// #3317: the spooler's English receipt is not spliced into a translated sentence.
+#[test]
+fn spooled_print_receipt_is_translated() {
+    let german = lang("de");
+    let msg = crate::printing::feedback(&crate::printing::Feedback::Submitted("spooled 2 sheet(s)".into()), |s| tr(german, s).to_owned());
+    assert_eq!(msg, "Druckauftrag gesendet: 2 Blatt an den Spooler übergeben");
+}

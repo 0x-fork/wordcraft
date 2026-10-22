@@ -2614,6 +2614,7 @@
 	Submitting print job…	Nyomtatási feladat küldése…
 	Print job submitted.	Nyomtatási feladat elküldve.
 	Print job submitted: {receipt}	Nyomtatási feladat elküldve: {receipt}
+	Print job submitted: spooled {count} sheet(s)	A nyomtatási feladat elküldve: {count} lap a nyomtatási sorba került
 	Print failed: the printing worker stopped.	A nyomtatás sikertelen: a nyomtatási folyamat leállt.
 	Print settings	Nyomtatási beállítások
 	Submit print job	Nyomtatási feladat küldése
