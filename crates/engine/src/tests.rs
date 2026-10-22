@@ -8712,3 +8712,36 @@ fn rtf_list_round_trip_keeps_text() {
         assert_eq!(d.plain_text(StoryRef::Body), "first\nsecond", "{cmd}");
     }
 }
+
+/// #3490: `table.cellMargins` preserves existing margins for any sides not passed.
+#[test]
+fn table_cell_margins_preserves_unpassed_sides() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+    let (tp, _, _) = s.sel.focus.path.cell().unwrap();
+
+    // 1. Updating 'top' only retains default left (5.4), bottom (0.0), and right (5.4).
+    run(&mut s, "table.cellMargins", json!({"top": 20.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 5.4, 0.0, 5.4]);
+
+    // 2. Updating 'left' subsequently retains previously set top (20.0), bottom (0.0), and right (5.4).
+    run(&mut s, "table.cellMargins", json!({"left": 10.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 10.0, 0.0, 5.4]);
+
+    // 3. Updating 'bottom' retains top (20.0), left (10.0), and right (5.4).
+    run(&mut s, "table.cellMargins", json!({"bottom": 8.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 10.0, 8.0, 5.4]);
+
+    // 4. Updating 'right' retains top (20.0), left (10.0), and bottom (8.0).
+    run(&mut s, "table.cellMargins", json!({"right": 15.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [20.0, 10.0, 8.0, 15.0]);
+
+    // 5. Updating multiple sides at once retains unpassed sides.
+    run(&mut s, "table.cellMargins", json!({"top": 0.0, "bottom": 0.0}));
+    let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
+    assert_eq!(margins, [0.0, 10.0, 0.0, 15.0]);
+}
