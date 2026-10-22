@@ -584,30 +584,80 @@ fn finish_field(pb: &mut ParaBuild, f: FieldBuild) {
 /// `HYPERLINK "url"` / `HYPERLINK url \l "bookmark"` → the model link target
 /// (`#bookmark` for internal links); `None` when not a hyperlink.
 fn hyperlink_target(instr: &str) -> Option<String> {
-    let rest = instr.strip_prefix("HYPERLINK").or_else(|| instr.strip_prefix("hyperlink"))?;
-    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+    let t = instr.trim();
+    let rest = if t.get(..9).is_some_and(|h| h.eq_ignore_ascii_case("hyperlink")) {
+        t.get(9..).filter(|r| r.is_empty() || r.starts_with(char::is_whitespace))?.trim()
+    } else {
+        return None;
+    };
     if rest.is_empty() {
         return None;
     }
-    let mut quoted = None;
-    let mut local = None;
-    let mut tokens = rest.split_whitespace().peekable();
-    while let Some(tok) = tokens.next() {
-        match tok {
-            "\\l" => {
-                local = Some(tokens.next().unwrap_or_default().trim_matches('"').to_string());
+
+    let mut url: Option<String> = None;
+    let mut local: Option<String> = None;
+    let mut switch: Option<&str> = None;
+
+    let mut i = 0;
+    let bytes = rest.as_bytes();
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        if bytes[i] == b'\\' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'*') {
+                i += 1;
             }
-            "\\o" | "\\m" | "\\n" | "\\t" => {
-                let _ = tokens.next();
+            switch = Some(rest.get(start..i).unwrap_or(""));
+            continue;
+        }
+        let arg = if bytes[i] == b'"' {
+            i += 1;
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
             }
-            _ if quoted.is_none() => quoted = Some(tok.trim_matches('"').to_string()),
-            _ => {}
+            let val = rest.get(start..i).unwrap_or("");
+            if i < bytes.len() && bytes[i] == b'"' {
+                i += 1;
+            }
+            val.to_string()
+        } else {
+            let start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            rest.get(start..i).unwrap_or("").to_string()
+        };
+        let clean_arg = arg.replace("%22", "\"");
+        match switch.take() {
+            Some("\\l") => local = Some(clean_arg),
+            Some(_) => {}
+            None => {
+                if url.is_none() {
+                    url = Some(clean_arg);
+                }
+            }
         }
     }
-    Some(match local {
-        Some(name) if !name.is_empty() => format!("#{name}"),
-        _ => quoted.unwrap_or_default(),
-    })
+
+    match (url, local) {
+        (Some(u), Some(l)) if !u.is_empty() && !l.is_empty() => {
+            let frag = l.trim_start_matches('#');
+            if u.contains('#') { Some(u) } else { Some(format!("{u}#{frag}")) }
+        }
+        (Some(u), _) if !u.is_empty() => Some(u),
+        (None, Some(l)) if !l.is_empty() => {
+            let frag = l.trim_start_matches('#');
+            Some(format!("#{frag}"))
+        }
+        _ => None,
+    }
 }
 
 /// `sprmCPicLocation` from a CHPX grpprl: the fc of the picture in the Data stream.

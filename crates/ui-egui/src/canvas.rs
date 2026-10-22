@@ -3474,10 +3474,19 @@ fn link_under(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32, po
     let at = wordcraft_geom::Point::new(x, y);
     // The caret falls between characters: the one under the point is on either side of it.
     [(pos.off, para.next_boundary(pos.off)), (para.prev_boundary(pos.off), pos.off)].into_iter().filter(|(a, b)| a < b).find_map(|(a, b)| {
-        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty())?;
+        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty()).or_else(|| field_link(para.object_at(a)?))?;
         let (from, to) = (Pos { off: a, ..pos.clone() }, Pos { off: b, ..pos.clone() });
         layout.selection_rects(doc, &from, &to, page).into_iter().any(|(pi, r)| pi == page && r.contains(at)).then_some(link)
     })
+}
+
+/// The link a cross-reference field makes: `REF name \h` and `PAGEREF name \h` lead to the
+/// bookmark `name` (`#name`), as in Word; without `\h` the result is plain text (#2945).
+fn field_link(obj: &wordcraft_doc::InlineObject) -> Option<String> {
+    let wordcraft_doc::InlineObject::Field { instr, .. } = obj else { return None };
+    let code = wordcraft_engine::cmd::references::FieldCode::parse(instr);
+    let name = code.args.first().filter(|n| !n.is_empty())?;
+    (matches!(code.name.as_str(), "REF" | "PAGEREF") && code.has('h')).then(|| format!("#{name}"))
 }
 
 /// A link to a hidden bookmark (`#_Toc…`, `#_Ref…`): a name the program made, which nobody
@@ -5166,6 +5175,38 @@ mod tests {
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brown fox");
     }
 
+    /// #3340: review.spelling (the Review tab's Spelling & Grammar button and the Home tab's
+    /// Editor button both run it) only moved the selection to the next issue — with no way to see
+    /// or apply a suggestion from there, just the generic selection toolbar, it looked broken.
+    /// Running it now also opens the same suggestions menu Shift+F10 and a Control-click already
+    /// open for the word at the caret.
+    #[test]
+    fn spelling_and_grammar_opens_suggestions_for_the_issue_it_selects() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "The quick brwn fox"})).unwrap();
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        a.run("review.spelling", json!({})).unwrap();
+        assert!(a.canvas.context_menu_from_keys, "queues the open the context menu already uses for Shift+F10");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.context_menu_open, "Spelling & Grammar opens the suggestions menu");
+        h.get_by_label("brown").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brown fox");
+    }
+
     #[test]
     fn floating_picture_can_be_dragged_in_front_of_or_behind_text() {
         for wrap in ["inFrontOfText", "behindText"] {
@@ -5318,6 +5359,64 @@ mod tests {
         let (start, _) = wordcraft_engine::cmd::insert::bookmark_range(&s.doc, "Spot").unwrap();
         assert!(s.sel.is_collapsed(), "a caret, not a selection: {:?}", s.sel);
         assert_eq!(s.sel.focus, start, "at the bookmark's start");
+    }
+
+    /// #2945: only a `REF` or `PAGEREF` with `\h` and a bookmark makes a link.
+    #[test]
+    fn only_hyperlinked_reference_fields_make_links() {
+        let field = |instr: &str| wordcraft_doc::InlineObject::Field {
+            instr: instr.into(),
+            result: "x".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        };
+        assert_eq!(field_link(&field(r"REF _Ref000000001 \h")).as_deref(), Some("#_Ref000000001"));
+        assert_eq!(field_link(&field(r"PAGEREF Spot \h")).as_deref(), Some("#Spot"));
+        assert_eq!(field_link(&field(r"ref Spot \* MERGEFORMAT \H")).as_deref(), Some("#Spot"));
+        for plain in [r"REF Spot", r"REF \h", "REF", "", r"PAGE \h", r"TOC \h", r"SEQ Figure \h"] {
+            assert_eq!(field_link(&field(plain)), None, "{plain:?}");
+        }
+    }
+
+    /// #2945: a cross-reference (`REF … \h`) is a link to its target: Ctrl+click on it goes there,
+    /// and its hover tip names no bookmark.
+    #[test]
+    fn ctrl_click_on_a_cross_reference_goes_to_its_target() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Rock\nSee ")), Default::default());
+        a.run("select.text", json!({"text": "Rock"})).unwrap();
+        a.run("references.caption", json!({"label": "Figure", "text": "A rock"})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("insert.crossReference", json!({"to": "figure", "target": "Figure 1", "show": "number"})).unwrap();
+        let caption = a.session.doc.body.iter().position(|b| b.as_para().is_some_and(|p| p.props.style.as_deref() == Some("Caption"))).unwrap();
+        let last = a.session.doc.body.len() - 1;
+        assert_ne!(caption, last);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        // The field sits after "See ": click between its two edges.
+        let obj = wordcraft_doc::para::OBJ.len_utf8();
+        let (before, after) = {
+            let l = h.state_mut().session.layout();
+            let pos = |off| Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(last), off };
+            (l.caret(&pos(4)).unwrap(), l.caret(&pos(4 + obj)).unwrap())
+        };
+        let at = screen(&mut h, (before.x + after.x) / 2.0, before.top + before.height / 2.0);
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        let press = egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::COMMAND };
+        h.event_modifiers(press, egui::Modifiers::COMMAND);
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+        steps(&mut h, 3);
+        let s = &h.state().session;
+        assert_eq!(s.sel.focus.path.last(), caption, "the caret went to the caption: {:?}", s.sel);
     }
 
     /// #688: the drag auto-scroll waits in the middle, ramps in from both edges and never leaves

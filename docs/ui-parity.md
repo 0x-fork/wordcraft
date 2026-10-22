@@ -75,6 +75,7 @@ Footnote and endnote editing keeps body and note text at normal opacity, on ligh
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | trivial | Insert Caption picks the label used last, as Word does, and keeps it between runs (#3120) |
 | 2026-10-21 | trivial | File › Recover uses the same fills and text colours as the other Backstage pages; it no longer draws black with forced white text in the light theme (#3243, part of #2348) |
 | 2026-10-21 | trivial | The ribbon's font name and size boxes, and the dropdown arrows beside them, say what they are to a screen reader (#3172) |
 | 2026-10-20 | trivial | Tables on the page: the move and resize handles show while the caret is in the table, not only under the pointer (#2428) |

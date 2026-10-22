@@ -2940,6 +2940,60 @@ fn toc_menu_offers_update_field_after_save_and_reopen() {
     }
 }
 
+/// Word's own TOC layout (#2427): its Table of Contents control around a `TOCHeading`, the entries
+/// with the field opening in the first, and the field's end alone in a paragraph after them. Update
+/// Table and a save keep one control around the heading and the new entries, and repeating them
+/// doesn't grow the document.
+#[test]
+fn word_toc_control_with_the_field_end_after_the_entries_survives_update_and_save() {
+    use std::io::{Read, Write};
+    let style = |st: &str, inner: &str| format!(r#"<w:p><w:pPr><w:pStyle w:val="{st}"/></w:pPr>{inner}</w:p>"#);
+    let t = |s: &str| format!(r#"<w:r><w:t xml:space="preserve">{s}</w:t></w:r>"#);
+    let begin = r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>"#;
+    let toc = format!(
+        "{}{}{}<w:p><w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>",
+        style("TOCHeading", &t("Contents")),
+        style("TOC1", &format!("{begin}{}", t("Chapter One\t1"))),
+        style("TOC2", &t("Section\t1")),
+    );
+    let gallery = format!(
+        r#"<w:sdt><w:sdtPr><w:id w:val="-1234567"/><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>{toc}</w:sdtContent></w:sdt>"#
+    );
+    let xml = format!(
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{gallery}{}{}</w:body></w:document>"#,
+        style("Heading1", &t("Chapter One")),
+        style("Heading2", &t("Section"))
+    );
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, value) in [
+        ("word/document.xml", xml.as_str()),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(value.as_bytes()).unwrap();
+    }
+    let mut s = Session::new(wordcraft_docx::read(&zip.finish().unwrap().into_inner()).unwrap());
+    let mut blocks = None;
+    for round in 0..3 {
+        run(&mut s, "references.updateToc", json!({}));
+        let bytes = wordcraft_docx::write(&s.doc).unwrap();
+        let mut xml = String::new();
+        zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap().by_name("word/document.xml").unwrap().read_to_string(&mut xml).unwrap();
+        assert_eq!(xml.matches("<w:sdt>").count(), 1, "round {round}: {xml}");
+        let (open, close) = (xml.find("<w:sdt>").unwrap(), xml.find("</w:sdt>").unwrap());
+        assert!(open < xml.find(">Contents<").unwrap(), "round {round}: the heading is in the control: {xml}");
+        let entries = xml.find(r#"<w:pStyle w:val="TOC1"/>"#).unwrap();
+        assert!(open < entries && xml.rfind(r#"<w:pStyle w:val="TOC2"/>"#).unwrap() < close, "round {round}: {xml}");
+        assert!(close < xml.rfind(">Chapter One<").unwrap(), "round {round}: {xml}");
+        s = Session::new(wordcraft_docx::read(&bytes).unwrap());
+        assert!(blocks.is_none_or(|n| n == s.doc.body.len()), "round {round}: the document grew: {}", text(&s));
+        blocks = Some(s.doc.body.len());
+    }
+}
+
 /// #2182: with two TOCs only the one Update Table would refresh is offered Update Field; the other
 /// range TOC doesn't claim the menu, so it never refreshes a different table.
 #[test]
@@ -6654,6 +6708,11 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
         ("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC),
         ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC),
         ("id_ID", INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC),
+        // #3252: set_dictionaries_folder() now reloads Czech too (it used to leave its cache
+        // alone), so a run of this test overlapping czech_proofing_through_the_review_commands
+        // would otherwise force a reload that finds no cs_CZ here and empties it mid-test. Same
+        // fixture content either way keeps such a race harmless, as it already does for Polish.
+        ("cs_CZ", czech_test_dict::AFF, czech_test_dict::DIC),
     ] {
         std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
         std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
@@ -7063,6 +7122,85 @@ fn new_documents_follow_the_editing_language() {
     // Malformed tags fall back to US English.
     s.set_editing_language(Some("not a tag"));
     assert_eq!(s.editing_lang, None);
+}
+
+/// #2882: Set As Default survives preference serialization and overrides the interface language.
+#[test]
+fn default_proofing_language_survives_a_restart() {
+    let mut first = s();
+    first.set_editing_language(Some("en-US"));
+    run(&mut first, "review.language", json!({"lang": "FR_fr", "default": true}));
+    let saved = serde_json::to_vec(&first.prefs).unwrap();
+    run(&mut first, "review.language", json!({"lang": "en-GB"}));
+    run(&mut first, "edit.undo", json!({}));
+    run(&mut first, "file.new", json!({}));
+    assert_eq!(first.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+
+    let mut second = s();
+    second.prefs = serde_json::from_slice(&saved).unwrap();
+    second.set_editing_language(Some("pl-PL"));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+    assert!(!second.dirty && !second.can_undo());
+    run(&mut second, "file.new", json!({}));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+    let data = crate::cmd::insert::base64_encode(b"Bonjour");
+    run(&mut second, "file.open", json!({"path": "note.txt", "data": data}));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+
+    let mut english = wordcraft_doc::Document::from_text("English document");
+    english.styles.default_chr.lang = Some("en-GB".into());
+    let bytes = crate::io::save_bytes("english.docx", &english).unwrap();
+    let data = crate::cmd::insert::base64_encode(&bytes);
+    run(&mut second, "file.open", json!({"path": "english.docx", "data": data}));
+    second.set_editing_language(Some("ru-RU"));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("en-GB"));
+    run(&mut second, "file.new", json!({"template": "letter"}));
+    assert_eq!(second.doc.styles.default_chr.lang.as_deref(), Some("en-US"));
+}
+
+/// Older or malformed settings retain the interface fallback and unrelated preferences.
+#[test]
+fn default_proofing_language_ignores_damaged_preferences() {
+    for value in [json!(null), json!("not a tag"), json!(17), json!([])] {
+        let mut session = s();
+        session.prefs = serde_json::from_value(json!({"defaultLanguage": value, "detectLanguage": false})).unwrap();
+        session.set_editing_language(Some("pl-PL"));
+        assert_eq!(session.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"));
+        assert!(!session.prefs.detect_language);
+    }
+    let mut old = s();
+    old.prefs = serde_json::from_str("{}").unwrap();
+    old.set_editing_language(Some("ru-RU"));
+    assert_eq!(old.doc.styles.default_chr.lang.as_deref(), Some("ru-RU"));
+}
+
+/// #2882: a final protection rejection rolls back the saved default as well as the document.
+#[test]
+fn rejected_default_proofing_language_does_not_survive_a_restart() {
+    for saved in [None, Some("pl-PL")] {
+        let mut session = Session::new(wordcraft_doc::Document::from_text("Locked intro.\nEditable text.\nLocked end."));
+        session.prefs.default_language = saved.map(str::to_string);
+        session.set_editing_language(Some("en-US"));
+        run(&mut session, "select.text", json!({"text": "Editable text."}));
+        run(&mut session, "review.restrict", json!({"exception": "add"}));
+        run(&mut session, "review.restrict", json!({"mode": "readOnly"}));
+        run(&mut session, "select.text", json!({"text": "Editable"}));
+        // Selection-only language formatting is allowed inside the exception.
+        run(&mut session, "review.language", json!({"lang": "en-GB"}));
+        let before = session.doc.clone();
+        let prefs = serde_json::to_value(&session.prefs).unwrap();
+        let undo = session.undo_labels();
+        let error = session.run("review.language", &json!({"lang": "fr-FR", "default": true})).unwrap_err();
+        assert!(error.to_string().contains("only the editable regions"), "{error}");
+        assert_eq!(session.doc, before);
+        assert_eq!(session.undo_labels(), undo);
+        assert_eq!(serde_json::to_value(&session.prefs).unwrap(), prefs);
+        let mut restarted = s();
+        restarted.prefs = serde_json::from_value(prefs).unwrap();
+        restarted.set_editing_language(Some("en-US"));
+        run(&mut restarted, "file.new", json!({}));
+        assert_eq!(restarted.doc.styles.default_chr.lang.as_deref(), Some(saved.unwrap_or("en-US")));
+    }
 }
 
 /// A Polish document keeps its languages through .docx: the default (`w:docDefaults`) and an

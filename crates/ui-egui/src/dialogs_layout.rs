@@ -1601,6 +1601,36 @@ mod tests {
         assert_eq!(h.state().session.doc, before, "one undo restores the inherited formatting");
     }
 
+    /// Set As Default and OK persist the chosen proofing language in a fresh app.
+    #[test]
+    fn language_dialog_default_survives_a_restart() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.ui.language = "en".into();
+        a.dialog = Some(Dialog::Layout(Box::new(LayoutDialog::Language(LanguageForm { lang: "fr-FR".into(), no_proof: false, detect: false }))));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                app.logic(&ui.ctx().clone());
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(3);
+        h.get_by_label("Set As Default").click();
+        h.run_steps(3);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        let saved = serde_json::to_vec(&h.state().prefs()).unwrap();
+        let mut b = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        b.apply_prefs(serde_json::from_slice(&saved).unwrap());
+        b.logic(&egui::Context::default());
+        assert_eq!(LanguageForm::read(&b).lang, "fr-FR");
+        assert!(!b.session.prefs.detect_language);
+        assert!(!b.session.dirty && !b.session.can_undo());
+        b.run("file.new", json!({})).unwrap();
+        assert_eq!(LanguageForm::read(&b).lang, "fr-FR");
+    }
+
     /// #407: Envelopes starts from the selected address; Add to Document puts an envelope
     /// section before the letter without asking to save (nothing is replaced).
     #[test]

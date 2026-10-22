@@ -469,9 +469,11 @@ fn link(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// Whether `name` can name a bookmark: no spaces, at most 40 characters, not starting with a digit.
+/// Whether `name` can name a bookmark: starts with a letter or underscore, contains only alphanumeric characters
+/// or underscores, and is at most 40 characters (#3491). Word allows leading underscores for hidden bookmarks (_Toc, _Ref).
 pub fn bookmark_name_ok(name: &str) -> bool {
-    !name.is_empty() && !name.contains(' ') && name.len() <= 40 && !name.chars().next().is_some_and(|c| c.is_ascii_digit())
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_') && chars.all(|c| c.is_alphanumeric() || c == '_') && name.chars().count() <= 40
 }
 
 /// Where bookmark `name` is: see [`bookmark_span`]. `None` when there is no such bookmark.
@@ -855,18 +857,19 @@ pub fn format_date_parts(fmt: &str, y: i64, m: usize, d: u32, (hh, mm, ss): (u32
             n += 1;
         }
         match (c, n) {
-            ('y', 4..) => out.push_str(&format!("{y:04}")),
-            ('y', _) => out.push_str(&format!("{:02}", y % 100)),
+            ('y' | 'Y', 4..) => out.push_str(&format!("{y:04}")),
+            ('y' | 'Y', _) => out.push_str(&format!("{:02}", y % 100)),
             ('M', 4..) => out.push_str(month),
             ('M', 3) => out.push_str(month.get(..3).unwrap_or(month)),
             ('M', 2) => out.push_str(&format!("{m:02}")),
             ('M', 1) => out.push_str(&m.to_string()),
-            ('d', 4..) => out.push_str(day),
-            ('d', 3) => out.push_str(day.get(..3).unwrap_or(day)),
-            ('d', 2) => out.push_str(&format!("{d:02}")),
-            ('d', 1) => out.push_str(&d.to_string()),
+            ('d' | 'D', 4..) => out.push_str(day),
+            ('d' | 'D', 3) => out.push_str(day.get(..3).unwrap_or(day)),
+            ('d' | 'D', 2) => out.push_str(&format!("{d:02}")),
+            ('d' | 'D', 1) => out.push_str(&d.to_string()),
             ('H', 2..) => out.push_str(&format!("{hh:02}")),
             ('H', _) => out.push_str(&hh.to_string()),
+            ('h', 2..) => out.push_str(&format!("{:02}", if hh.is_multiple_of(12) { 12 } else { hh % 12 })),
             ('h', _) => out.push_str(&(if hh.is_multiple_of(12) { 12 } else { hh % 12 }).to_string()),
             ('m', 2..) => out.push_str(&format!("{mm:02}")),
             ('m', _) => out.push_str(&mm.to_string()),
@@ -1208,6 +1211,47 @@ mod tests {
         assert_eq!(crate::cmd::references::bookmark_text(&s.doc, "Spot").as_deref(), Some("delta"));
     }
 
+    /// #3491: Bookmark names are validated by Unicode character count and character classes.
+    #[test]
+    fn bookmark_name_validation_rules() {
+        // Valid names:
+        assert!(bookmark_name_ok("Mark1"));
+        assert!(bookmark_name_ok("A"));
+        assert!(bookmark_name_ok("Alpha_Beta_123"));
+        // Valid leading underscore (Word hidden bookmarks, e.g. _Toc, _Ref, _Hidden):
+        assert!(bookmark_name_ok("_Hidden"));
+        assert!(bookmark_name_ok("_foo"));
+        // Valid 27-character Unicode Cyrillic name (51 UTF-8 bytes):
+        assert!(bookmark_name_ok("быстрый_доступ_к_документам"));
+        // Valid 40-character name:
+        let exactly_40 = "a".repeat(40);
+        assert!(bookmark_name_ok(&exactly_40));
+        let exactly_40_unicode = "я".repeat(40);
+        assert!(bookmark_name_ok(&exactly_40_unicode));
+
+        // Invalid: empty
+        assert!(!bookmark_name_ok(""));
+        // Invalid: leading digit
+        assert!(!bookmark_name_ok("1mark"));
+        // Invalid: symbols / punctuation
+        assert!(!bookmark_name_ok("a&b"));
+        assert!(!bookmark_name_ok("a!b"));
+        assert!(!bookmark_name_ok("a-b"));
+        assert!(!bookmark_name_ok("a.b"));
+        assert!(!bookmark_name_ok("foo bar"));
+        // Invalid: more than 40 characters
+        assert!(!bookmark_name_ok(&"a".repeat(41)));
+        assert!(!bookmark_name_ok(&"я".repeat(41)));
+
+        // Verification through `insert.bookmark` command
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Test content"));
+        assert!(s.run("insert.bookmark", &json!({"name": "быстрый_доступ_к_документам"})).is_ok());
+        assert!(s.run("insert.bookmark", &json!({"name": "_Hidden"})).is_ok());
+        assert!(s.run("insert.bookmark", &json!({"name": "1mark"})).is_err());
+        assert!(s.run("insert.bookmark", &json!({"name": "a&b"})).is_err());
+        assert!(s.run("insert.bookmark", &json!({"name": "a!b"})).is_err());
+    }
+
     /// Insert › Symbol with a font: only the symbol takes it, the caret's font carries on after.
     #[test]
     fn a_mixed_symbol_string_keeps_symbols_and_text_apart() {
@@ -1245,6 +1289,13 @@ mod tests {
 
     #[test]
     fn date_pictures() {
+        // Word accepts either case for the day and year instructions.
+        assert_eq!(format_date_parts("MM/DD/YYYY", 2026, 10, 21, (17, 27, 3), 0), "10/21/2026");
+        assert_eq!(format_date_parts("D MMMM YYYY", 2026, 10, 21, (17, 27, 3), 0), "21 October 2026");
+        // Both 12-hour instructions pad a single-digit hour; only the 12-hour one wraps at noon.
+        assert_eq!(format_date_parts("hh:mm", 2026, 10, 21, (17, 27, 3), 0), "05:27");
+        assert_eq!(format_date_parts("h:mm", 2026, 10, 21, (17, 27, 3), 0), "5:27");
+        assert_eq!(format_date_parts("HH:mm", 2026, 10, 21, (5, 7, 3), 0), "05:07");
         let d = format_date("yyyy-MM-dd");
         assert_eq!(d.len(), 10);
         assert!(format_date("MMMM d, yyyy").contains(", "));
