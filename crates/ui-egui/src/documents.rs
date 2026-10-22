@@ -1,8 +1,10 @@
 //! Several open documents in one window. The window shows the session's active document; what
-//! it keeps about a document (AutoSave's file, comment drafts, the page's drags, menus and
-//! composition…) follows the active one ([`WordApp::sync_document`]). View › Window › Switch
-//! Windows lists the open documents, File › Close closes the shown one and shows the next, and
-//! quitting asks about every document with unsaved changes, one after another.
+//! it keeps about a document (AutoSave's file, comment drafts) follows the active one, and the
+//! window's own state about the page (drags, menus, the composition…) starts afresh when the
+//! document changes ([`WordApp::sync_document`]; per-window state is listed in
+//! [`crate::window_ui`]). View › Window › Switch Windows lists the open documents, File › Close
+//! closes the shown one and shows the next, and quitting asks about every document with unsaved
+//! changes, one after another.
 
 use serde_json::{Value, json};
 use wordcraft_engine::DocInfo;
@@ -21,7 +23,8 @@ pub(crate) struct Parked {
 impl WordApp {
     /// Follow the session's active document. When it isn't the one the window last showed, the
     /// shown document's own state is put aside (or dropped, if it was closed or replaced), the
-    /// new one's comes back, and everything about the page that was shown starts afresh: open
+    /// new one's comes back, and the window's state about the page that was shown starts afresh
+    /// (all of it per-window state, [`crate::window_ui::WindowUi`]): open
     /// dialogs and menus, drags, the input method's composition, the status message, caches
     /// keyed by revision. Its scroll position and zoom come back with it (the scroll area is per
     /// document; the zoom is in the session's view). Runs after every command and every frame.
@@ -60,7 +63,7 @@ impl WordApp {
         self.read_aloud_at = None;
         self.info_editing = None;
         // Caches keyed by the revision alone: another document's revision can be the same number.
-        self.word_count = (u64::MAX, 0);
+        self.word_count = crate::window_ui::NOT_COUNTED;
         self.find_fonts_for = None;
         self.previews.document_changed();
         // The Start screen's placeholder (#1129) goes once a document is open beside it.
