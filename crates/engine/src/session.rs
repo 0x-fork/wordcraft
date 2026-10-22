@@ -26,8 +26,10 @@ use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewM
 use crate::{CmdError, Registry};
 
 mod documents;
+mod views;
 pub use documents::{DocInfo, DocState};
 use documents::{document_id_mark, next_document_id, untitled_name};
+pub use views::WindowView;
 
 /// A selection: anchor (where it started) and focus (where the caret is).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -363,14 +365,15 @@ impl EditSnapshot {
     }
 }
 
-/// The layout last made and what it was made for: (revision, width, read height, view, read line
-/// spacing, layout, proofing, outline, (deletions left out, deletions marked Hidden, body
-/// deletions in balloons), numeral display, the word being typed).
 /// What `run` keeps to take a failed mutating command back: the document, the selection, the
 /// undo and redo stacks, the open typing group, the undo steps dropped so far and the column
 /// block.
 type RunSnapshot = (Document, Selection, Vec<Arc<Undo>>, Vec<Arc<Undo>>, bool, u64, Option<ColumnBlock>);
 
+/// A layout made and what it was made for: (revision, width, read height, view, read line
+/// spacing, layout, proofing, outline, (deletions left out, deletions marked Hidden, body
+/// deletions in balloons), numeral display, the word being typed, (hidden text shown, field
+/// codes shown)).
 type LayoutEntry = (
     u64,
     f32,
@@ -383,7 +386,12 @@ type LayoutEntry = (
     (bool, wordcraft_layout::HideDeleted, bool),
     NumeralMode,
     Option<wordcraft_layout::TypingWord>,
+    (bool, bool),
 );
+
+/// The layouts last made, newest first. Two, so two windows on one document with different
+/// views ([`WindowView`]) each find theirs as they draw in turn.
+type LayoutSlots = [Option<LayoutEntry>; 2];
 
 /// An editing session: the app-wide state (clipboard, preferences, macros, the command registry…)
 /// and the open documents. The active document's state is in the session's own fields, which
@@ -457,7 +465,7 @@ pub struct Session {
     /// `rev` when the document was made, for [`Session::is_untouched_blank`].
     made_rev: u64,
     cache: LayoutCache,
-    layout: Option<LayoutEntry>,
+    layout: LayoutSlots,
     /// The word being typed, left without a spelling squiggle ([`TypedWord`]).
     typing: Option<TypedWord>,
     /// Picture edits: edited media key → original media key (Reset Picture).
@@ -953,19 +961,30 @@ impl Session {
         let deleted = (hide_deleted, self.prefs.markup.hidden_deletions(), self.revisions_in_balloons());
         let outline = (mode == ViewMode::Outline).then(|| self.view.outline.view());
         let typing = self.typing_word();
-        if let Some((r, w, h, m, sp, l, pf, o, hd, n, t)) = &self.layout
-            && *r == self.rev
-            && (*w == width || mode == ViewMode::Print)
-            && *h == height
-            && *m == mode
-            && *sp == spacing
-            && *pf == self.view.proofing
-            && *n == self.view.numeral
-            && *hd == deleted
-            && *o == outline
-            && *t == typing
+        let shown = (self.view.marks || self.prefs.marks.hidden, self.view.field_codes);
+        let (rev, proofing, numeral) = (self.rev, self.view.proofing, self.view.numeral);
+        let fits = |e: &Option<LayoutEntry>| {
+            e.as_ref().is_some_and(|(r, w, h, m, sp, _, pf, o, hd, n, t, sh)| {
+                *r == rev
+                    && (*w == width || mode == ViewMode::Print)
+                    && *h == height
+                    && *m == mode
+                    && *sp == spacing
+                    && *pf == proofing
+                    && *n == numeral
+                    && *hd == deleted
+                    && *o == outline
+                    && *t == typing
+                    && *sh == shown
+            })
+        };
+        if !fits(&self.layout[0]) && fits(&self.layout[1]) {
+            self.layout.swap(0, 1);
+        }
+        if fits(&self.layout[0])
+            && let Some(e) = &self.layout[0]
         {
-            return l.clone();
+            return e.5.clone();
         }
         let (fn_name, fn_path) = self.resolved_filenames();
         let (filename, filepath): (Option<Arc<str>>, Option<Arc<str>>) = (Some(Arc::from(fn_name.as_str())), Some(Arc::from(fn_path.as_str())));
@@ -974,14 +993,14 @@ impl Session {
             web_width: width,
             read_height: height,
             read_line_spacing: spacing.map(f32::from_bits),
-            show_hidden: self.view.marks || self.prefs.marks.hidden,
+            show_hidden: shown.0,
             hide_deleted,
             hide_marked: deleted.1,
             deletions_in_balloons: deleted.2,
             proofing: self.view.proofing,
             numeral: self.view.numeral.resolve(SYSTEM_LOCALE.get().map(String::as_str)),
             comment_balloons: false,
-            field_codes: self.view.field_codes,
+            field_codes: shown.1,
             outline: outline.clone(),
             proof: wordcraft_layout::ProofOptions { grammar: self.prefs.mark_grammar, spelling: self.prefs.spelling() },
             typing_word: typing,
@@ -989,7 +1008,11 @@ impl Session {
             filepath: filepath.clone(),
         };
         let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
-        self.layout = Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing));
+        let [newest, _] = std::mem::take(&mut self.layout);
+        self.layout = [
+            Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing, shown)),
+            newest,
+        ];
         l
     }
 
@@ -1050,7 +1073,7 @@ impl Session {
 
     /// Invalidate the cached layout (fonts changed etc.).
     pub fn relayout(&mut self) {
-        self.layout = None;
+        self.layout = Default::default();
         self.cache.clear();
     }
 

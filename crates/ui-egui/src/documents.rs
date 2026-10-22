@@ -179,16 +179,21 @@ pub(crate) fn untitled_title(english: &str) -> Option<String> {
 
 /// View › Window › Switch Windows: the open windows (in one window, the open documents) in the
 /// order they were opened, this one marked, unsaved ones with the title bar's dot. Choosing one
-/// brings its window to the front (in one window, shows the document).
+/// brings that window to the front (in one window, shows the document).
 pub(crate) fn switch_windows_menu(ui: &mut egui::Ui, app: &mut WordApp) {
-    let entries: Vec<(u64, String, bool)> = if app.windows.native() {
+    let native = app.windows.native();
+    let entries: Vec<(u64, String, bool)> = if native {
         app.switch_windows_entries()
     } else {
         app.session.documents().into_iter().map(|d| (d.id, format!("{}{}", display_title(&d), if d.dirty { " •" } else { "" }), d.active)).collect()
     };
-    for (doc, label, current) in entries {
+    for (key, label, current) in entries {
         if ui.add(egui::Button::selectable(current, label).min_size(egui::vec2(220.0, 0.0))).clicked() {
-            let _ = app.run("view.switchWindows", json!({"id": doc}));
+            if native {
+                app.show_window(key);
+            } else {
+                let _ = app.run("view.switchWindows", json!({"id": key}));
+            }
             ui.close();
         }
     }

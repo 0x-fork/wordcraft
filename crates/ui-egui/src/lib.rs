@@ -986,7 +986,10 @@ impl WordApp {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
         }
-        if (self.session.dirty || self.save_unconfirmed() || refused.is_some()) && discards_document(id, &params) {
+        if (self.session.dirty || self.save_unconfirmed() || refused.is_some())
+            && discards_document(id, &params)
+            && !self.closes_only_its_window(id, &params)
+        {
             let name = self.prompt_name();
             self.dialog = Some(dialogs::Dialog::SaveChanges {
                 name,
@@ -1454,7 +1457,8 @@ impl WordApp {
         self.quit_requested
     }
 
-    /// File › Close (Mod+W, Mod+F4) closes the shown document. Its window closes too while other
+    /// File › Close (Mod+W, Mod+F4) closes the shown document, or only its window while other
+    /// windows show the document (View › New Window), asking nothing then. Its window closes too while other
     /// windows are open, and the one focused before it comes forward (in the web app's one window,
     /// the next document shows). The last window stays, as Word's does (#1712), with no page, as
     /// after Esc on the Start screen (#1129), and File › New or Open goes on from there. `{"quit": true}`,
@@ -1464,6 +1468,9 @@ impl WordApp {
     /// changes are never discarded unasked: a dirty document closes only with `{"force": true}`
     /// (Don't Save in the prompt passes it).
     fn close_document(&mut self, params: &Value) -> Result<Value, String> {
+        if self.closes_only_its_window("file.close", params) && self.close_window_only() {
+            return Ok(json!({"closed": true, "window": true}));
+        }
         if let Some(e) = control::close_refused(self, "file.close", params) {
             return Err(e.into());
         }
@@ -1592,6 +1599,7 @@ impl WordApp {
                     }
                 }
                 "pasteSpecial" => self.dialog = Some(dialogs::Dialog::paste_special(self, req)),
+                "newWindow" => self.new_window(),
                 other => self.dialog = dialogs::Dialog::open(other, self),
             }
         }

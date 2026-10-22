@@ -273,3 +273,59 @@ fn a_stand_in_document_gives_back_its_untitled_name() {
     run(&mut s, "file.new", json!({}));
     assert_eq!(s.documents()[2].title, "Document3");
 }
+
+/// Two windows on one document: each keeps its own caret and zoom; a caret inside text another
+/// window deleted is clamped, so typing there lands at the end of what is left; Undo in either
+/// window undoes the document's last edit, and typing in one window never joins the other's
+/// undo step.
+#[test]
+fn two_views_of_one_document_keep_their_own_caret_and_share_undo() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello world"}));
+    let mut b = s.copy_view();
+    let a_caret = s.sel.focus.clone();
+
+    // Window B: zoom in; its caret is after "world".
+    let mut a = s.take_view();
+    s.put_view(b);
+    run(&mut s, "view.zoom", json!({"value": 150}));
+    b = s.take_view();
+    s.put_view(a);
+    assert_eq!(s.view.zoom, 1.0, "window A keeps its zoom");
+
+    // Window A deletes " world", where B's caret is.
+    run(&mut s, "select.text", json!({"text": " world"}));
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(text(&s).trim(), "Hello");
+    a = s.take_view();
+    s.put_view(b);
+    assert!((s.view.zoom - 1.5).abs() < 1e-6, "window B keeps its zoom");
+    assert_eq!(s.sel.focus.off, 5, "B's caret is clamped into what is left");
+    run(&mut s, "text.insert", json!({"text": "!"}));
+    assert_eq!(text(&s).trim(), "Hello!");
+
+    // Undo in A undoes B's typing; Undo in B then undoes A's delete.
+    b = s.take_view();
+    s.put_view(a);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s).trim(), "Hello");
+    a = s.take_view();
+    s.put_view(b);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s).trim(), "Hello world");
+
+    // Typing in A, then B, then A again: three undo steps.
+    b = s.take_view();
+    s.put_view(a);
+    s.sel = crate::Selection::caret(a_caret);
+    run(&mut s, "text.insert", json!({"text": "x"}));
+    a = s.take_view();
+    s.put_view(b);
+    run(&mut s, "text.insert", json!({"text": "y"}));
+    b = s.take_view();
+    s.put_view(a);
+    run(&mut s, "text.insert", json!({"text": "z"}));
+    run(&mut s, "edit.undo", json!({}));
+    assert!(!text(&s).contains('z') && text(&s).contains('x') && text(&s).contains('y'), "{}", text(&s));
+    drop(b);
+}

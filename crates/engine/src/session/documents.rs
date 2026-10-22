@@ -13,7 +13,7 @@ use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Document, Pos, StoryRef};
 use wordcraft_layout::LayoutCache;
 
-use super::{ColumnBlock, FindState, LayoutEntry, MathEdit, Selection, Session, TypedWord, Undo, ViewState, Widened, doc_bib_style};
+use super::{ColumnBlock, FindState, LayoutSlots, MathEdit, Selection, Session, TypedWord, Undo, ViewState, Widened, doc_bib_style};
 use crate::CmdError;
 
 /// Document ids are unique in the process, so an id an agent or a window holds never names
@@ -63,7 +63,7 @@ pub struct DocState {
     pub(super) untitled: u32,
     pub(super) made_rev: u64,
     pub(super) cache: LayoutCache,
-    pub(super) layout: Option<LayoutEntry>,
+    pub(super) layout: LayoutSlots,
     pub(super) typing: Option<TypedWord>,
     pub(super) originals: std::collections::HashMap<String, String>,
     pub(super) picture_looks: std::collections::HashMap<String, crate::cmd::objects::PictureLook>,
@@ -113,7 +113,7 @@ impl DocState {
             untitled,
             made_rev: 1,
             cache: LayoutCache::new(),
-            layout: None,
+            layout: Default::default(),
             typing: None,
             originals: Default::default(),
             picture_looks: Default::default(),

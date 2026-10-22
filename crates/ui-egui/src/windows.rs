@@ -19,12 +19,20 @@
 //! document nobody used in its own window, and the last window stays open with no document (the
 //! empty window the Start screen also leaves). The web app has one window and switches documents
 //! in it ([`crate::documents`]).
+//!
+//! View › New Window opens another window on a document. Each window on it has its own view of
+//! it (selection, zoom, view mode, panes: [`WindowView`]); the session holds the drawn window's,
+//! and the others keep theirs in their [`Window`]. What the app keeps per document
+//! (AutoSave's file, comment drafts) stays in one place, shared by its windows. Closing one of a
+//! document's windows leaves the document open and asks nothing; closing its last window closes
+//! it.
 
 use std::collections::HashMap;
 
 use craft_window::{Document, Frame, Viewports, WindowEvent, WindowId, WindowList, WindowMenu};
 use egui::{ViewportCommand, ViewportId};
 use serde_json::{Value, json};
+use wordcraft_engine::WindowView;
 
 use crate::{WordApp, documents, window_ui::WindowUi};
 
@@ -48,6 +56,10 @@ pub(crate) struct Window {
     requests: Vec<Value>,
     /// The title it last drew, for its viewport.
     title: String,
+    /// Its view of the document (caret, zoom, view mode…) while another window on the same
+    /// document is drawn. `None` while the session holds it: for the drawn window, and for the
+    /// window on each other document whose view is parked with that document.
+    view: Option<WindowView>,
 }
 
 /// The app's windows. See the module documentation.
@@ -91,7 +103,7 @@ impl Windows {
             native: cfg!(not(target_arch = "wasm32")),
             list,
             viewports: Some(viewports),
-            open: vec![Window { key: 1, id: Some(id), doc, ui: None, requests: Vec::new(), title: String::new() }],
+            open: vec![Window { key: 1, id: Some(id), doc, ui: None, requests: Vec::new(), title: String::new(), view: None }],
             shown: 1,
             next_key: 2,
             showing: false,
@@ -306,6 +318,7 @@ impl WordApp {
             return false;
         };
         let Some(mut state) = w.ui.take() else { return false };
+        let view = w.view.take();
         let from = self.shown_document;
         self.swap_window(&mut state);
         let left = std::mem::replace(&mut self.windows.shown, key);
@@ -315,21 +328,74 @@ impl WordApp {
         }
         let to = self.shown_document;
         self.carry_document_state(from, to);
+        if let Some(view) = view {
+            self.swap_view_in(key, to, view);
+        }
         true
     }
 
+    /// Window `key`, on document `doc` (now the session's active one), brings its own view of the
+    /// document: the view the session holds goes to the window on `doc` it belongs to (the one
+    /// without a view of its own), and `view` takes its place, made valid for edits made since.
+    fn swap_view_in(&mut self, key: u64, doc: u64, view: WindowView) {
+        let held = self.session.take_view();
+        if let Some(owner) = self.windows.open.iter_mut().find(|w| w.key != key && w.doc == doc && w.view.is_none()) {
+            owner.view = Some(held);
+        }
+        self.session.put_view(view);
+    }
+
     /// Open a new window for open document `doc`, focused, and draw it. The window that was drawn
-    /// leaves the File page: whatever it was opening is open.
-    fn open_window(&mut self, doc: u64) {
+    /// leaves the File page: whatever it was opening is open. `view` is the new window's view of
+    /// a document another window shows (View › New Window); `None` for a document no window
+    /// shows yet.
+    fn open_window(&mut self, doc: u64, view: Option<WindowView>) {
         let key = self.windows.next_key;
         self.windows.next_key = self.windows.next_key.saturating_add(1);
         let mut state = Box::new(WindowUi::new(doc));
         // Faces borrowed for the interface (non-Latin file names) stay installed.
         state.canvas.ime_faces = self.canvas.ime_faces.clone();
         self.ui.backstage = false;
-        self.windows.open.push(Window { key, id: None, doc, ui: Some(state), requests: Vec::new(), title: String::new() });
+        self.windows.open.push(Window { key, id: None, doc, ui: Some(state), requests: Vec::new(), title: String::new(), view });
         self.enter_window(key);
         self.focus_window(key);
+    }
+
+    /// View › New Window: another window on the drawn window's document, with the same caret,
+    /// zoom and view, focused and cascaded from the others. Each window then has its own caret
+    /// and view; the document, its undo history and its save state are shared. In one window
+    /// (the web app) and with no document open, nothing happens.
+    pub(crate) fn new_window(&mut self) {
+        if !self.windows.native || !self.has_document() {
+            return;
+        }
+        let view = self.session.copy_view();
+        self.open_window(self.shown_document, Some(view));
+    }
+
+    /// The window that comes forward when the drawn window closes and other windows show its
+    /// document, which then stays open: the one of all the others focused last. `None` when the
+    /// drawn window is its document's only one.
+    pub(crate) fn other_window_on_document(&self) -> Option<u64> {
+        let shown = self.windows.shown;
+        let doc = self.windows.get(shown)?.doc;
+        if !self.windows.native || !self.windows.open.iter().any(|w| w.key != shown && w.doc == doc) {
+            return None;
+        }
+        self.windows.recent_keys().into_iter().find(|&k| k != shown)
+    }
+
+    /// Whether command `id` (File › Close) closes the drawn window alone, asking nothing: other
+    /// windows show its document. Quitting closes documents, not windows.
+    pub(crate) fn closes_only_its_window(&self, id: &str, params: &Value) -> bool {
+        id == "file.close" && params.get("quit").and_then(Value::as_bool) != Some(true) && self.other_window_on_document().is_some()
+    }
+
+    /// Close the drawn window alone: other windows show its document, which stays open as it is.
+    pub(crate) fn close_window_only(&mut self) -> bool {
+        let Some(next) = self.other_window_on_document() else { return false };
+        self.close_shown_window(next);
+        true
     }
 
     /// The drawn window's document has closed: draw window `to` and close this one.
@@ -364,7 +430,7 @@ impl WordApp {
         }
     }
 
-    /// Keep one window per open document: windows whose document closed (an agent closed it)
+    /// Keep a window for every open document: windows whose document closed (an agent closed it)
     /// close, and documents with no window (an agent made one while another was active) get one
     /// behind the others. The active document is left to [`WordApp::sync_document`].
     pub(crate) fn prune_windows(&mut self) {
@@ -382,7 +448,7 @@ impl WordApp {
             self.windows.next_key = self.windows.next_key.saturating_add(1);
             let mut state = Box::new(WindowUi::new(d.id));
             state.canvas.ime_faces = self.canvas.ime_faces.clone();
-            self.windows.open.push(Window { key, id: None, doc: d.id, ui: Some(state), requests: Vec::new(), title: String::new() });
+            self.windows.open.push(Window { key, id: None, doc: d.id, ui: Some(state), requests: Vec::new(), title: String::new(), view: None });
             changed = true;
         }
         if changed {
@@ -404,7 +470,7 @@ impl WordApp {
             match other {
                 Some(key) if self.enter_window(key) => self.focus_window(key),
                 _ if stand_in => return false,
-                _ => self.open_window(id),
+                _ => self.open_window(id, None),
             }
             return true;
         }
@@ -458,8 +524,10 @@ impl WordApp {
         true
     }
 
-    /// View › Window › Switch Windows with native windows: every window by its title, the active
-    /// one marked, unsaved ones with the title bar's dot. Choosing one brings it to the front.
+    /// View › Window › Switch Windows with native windows: every window by its title (two
+    /// windows on one document as `Name:1`, `Name:2`) with its key, the active one marked,
+    /// unsaved ones with the title bar's dot. Choosing one brings it to the front
+    /// ([`WordApp::show_window`]).
     pub(crate) fn switch_windows_entries(&self) -> Vec<(u64, String, bool)> {
         self.windows
             .menu
@@ -467,9 +535,16 @@ impl WordApp {
             .iter()
             .filter_map(|e| {
                 let w = self.windows.open.iter().find(|w| w.id == Some(e.id))?;
-                Some((w.doc, format!("{}{}", e.title, if e.dirty { " •" } else { "" }), w.key == self.windows.shown))
+                Some((w.key, format!("{}{}", e.title, if e.dirty { " •" } else { "" }), w.key == self.windows.shown))
             })
             .collect()
+    }
+
+    /// Bring window `key` to the front and make it the active one, with its document.
+    pub(crate) fn show_window(&mut self, key: u64) {
+        if self.enter_window(key) {
+            self.focus_window(key);
+        }
     }
 
     /// The drawn window's title: its document's name as View › Window › Switch Windows gives it.
@@ -1095,5 +1170,85 @@ mod tests {
         assert!(!DRAWN.with(|d| d.borrow().contains(&child)));
         a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
         assert!(a.quit_requested);
+    }
+
+    fn window_labels(a: &WordApp) -> Vec<String> {
+        let mut l: Vec<String> = a.switch_windows_entries().into_iter().map(|(_, label, _)| label).collect();
+        l.sort();
+        l
+    }
+
+    /// View › New Window opens a second window on the document, titled `Name:1` / `Name:2`. Text
+    /// typed in one shows in the other; each keeps its own caret and zoom. Typing in a window
+    /// whose caret was in text the other window deleted lands at the end of what is left, and
+    /// Undo in that window undoes its own typing, then the other window's delete.
+    #[test]
+    fn new_window_shows_the_document_twice_each_with_its_own_caret_and_zoom() {
+        let ctx = backend();
+        let mut a = app("Hello world");
+        let doc = a.session.document_id();
+        frames(&ctx, &mut a, 2);
+        a.run("view.newWindow", json!({})).unwrap();
+        assert_eq!((a.window_count(), a.session.document_id()), (2, doc));
+        frames(&ctx, &mut a, 3);
+        let b = a.active_viewport();
+        assert_ne!(b, ViewportId::ROOT);
+        assert_eq!(window_labels(&a), ["Document1:1 •", "Document1:2 •"]);
+        assert_eq!(a.window_title(), super::title("Document1:2", true));
+
+        a.run("view.zoom", json!({"value": 150})).unwrap();
+        a.run("text.insert", json!({"text": "!"})).unwrap();
+        focus(ViewportId::ROOT);
+        frames(&ctx, &mut a, 2);
+        assert_eq!(a.active_viewport(), ViewportId::ROOT);
+        assert_eq!(text(&a), "Hello world!", "the edit shows in the other window");
+        assert_eq!((a.session.view.zoom, a.session.sel.focus.off), (1.0, 11), "window A keeps its zoom and caret");
+
+        a.run("select.text", json!({"text": " world!"})).unwrap();
+        a.run("text.delete", json!({})).unwrap();
+        focus(b);
+        frames(&ctx, &mut a, 2);
+        assert_eq!(a.active_viewport(), b);
+        assert!((a.session.view.zoom - 1.5).abs() < 1e-6, "window B keeps its zoom");
+        a.run("text.insert", json!({"text": "?"})).unwrap();
+        assert_eq!(text(&a), "Hello?", "B's caret was clamped into what is left");
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(text(&a), "Hello");
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(text(&a), "Hello world!", "Undo in B undoes A's delete");
+        frames(&ctx, &mut a, 2);
+        assert_eq!(a.session.documents().len(), 1);
+    }
+
+    /// Closing one of two windows on a document asks nothing, even with unsaved changes, and the
+    /// other window goes back to the plain name; closing the last one asks. Quitting with a
+    /// document in two windows asks once.
+    #[test]
+    fn closing_one_of_two_windows_on_a_document_asks_nothing() {
+        let ctx = backend();
+        let mut a = app("Kept");
+        let doc = a.session.document_id();
+        frames(&ctx, &mut a, 2);
+        a.run("view.newWindow", json!({})).unwrap();
+        frames(&ctx, &mut a, 2);
+        let child = a.active_viewport();
+        INFOS.with(|i| i.borrow_mut().entry(child).or_default().events.push(ViewportEvent::Close));
+        frame(&ctx, &mut a);
+        assert_eq!(prompt(&a), None, "no prompt while another window shows the document");
+        assert_eq!((a.window_count(), a.session.document_id(), text(&a).as_str()), (1, doc, "Kept"));
+        assert!(a.session.dirty);
+        frames(&ctx, &mut a, 2);
+        assert_eq!(a.window_title(), super::title("Document1", true));
+        a.run("file.close", json!({})).unwrap();
+        assert_eq!(prompt(&a), Some("saveChanges"), "the last window asks");
+        a.run("ui.saveChanges", json!({"answer": "cancel"})).unwrap();
+
+        a.run("view.newWindow", json!({})).unwrap();
+        frames(&ctx, &mut a, 2);
+        assert_eq!(a.window_count(), 2);
+        assert!(!a.quit());
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert!(a.quit_requested, "one prompt for the document");
     }
 }
