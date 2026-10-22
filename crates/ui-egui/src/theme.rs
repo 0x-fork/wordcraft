@@ -680,6 +680,35 @@ pub fn text_width(painter: &egui::Painter, text: &str, font: &FontId, tracking: 
     painter.layout_job(tracked_job(text, font, tracking, color)).size().x
 }
 
+/// The text as it fits in `width`: shortened with an ellipsis when it is too long, and empty
+/// when not even the ellipsis fits (#2402). The beginning of the text is kept, so the reader
+/// still sees what the message is about.
+pub fn fit_text(painter: &egui::Painter, text: &str, font: &FontId, tracking: f32, color: Color32, width: f32) -> String {
+    if text.is_empty() || width <= 0.0 {
+        return String::new();
+    }
+    let full = text_width(painter, text, font, tracking, color);
+    if full <= width {
+        return text.to_string();
+    }
+    let count = text.chars().count();
+    // A rough cut first, so a long text doesn't need a layout for every character.
+    let per_char = (full / count as f32).max(0.5);
+    let mut shown: String = text.chars().take((width / per_char) as usize).collect();
+    while !shown.is_empty() && text_width(painter, &format!("{shown}…"), font, tracking, color) > width {
+        shown.pop();
+    }
+    if shown.is_empty() {
+        // Only the ellipsis is left: it stands for the whole text when it fits.
+        if text_width(painter, "…", font, tracking, color) <= width {
+            return "…".to_string();
+        }
+        return String::new();
+    }
+    shown.push('…');
+    shown
+}
+
 /// Paint one line of tracked text with the given anchor and return its rect.
 pub fn paint_text(painter: &egui::Painter, pos: egui::Pos2, anchor: Align2, text: &str, font: &FontId, tracking: f32, color: Color32) -> Rect {
     if tracking.abs() <= 1e-6 {
@@ -929,6 +958,28 @@ mod tests {
                 assert!(!src.contains(b), "{name} hard-codes {b}; use theme::Tokens");
             }
         }
+    }
+
+    /// #2402: text that is too long for the room it has is shortened with an ellipsis, keeping
+    /// its beginning; text that fits is left alone.
+    #[test]
+    fn fit_text_shortens_text_that_does_not_fit() {
+        let long = "C:\\Test\\Documents\\Reports\\Final individual test folder\\Second level folder\\Project - Gadgets and sleep of teenagers.docx: The system cannot find the path specified. (os error 3)";
+        let font = super::TypeRung::Caption.regular();
+        let track = super::TypeRung::Caption.tracking();
+        let ctx = egui::Context::default();
+        let (mut whole, mut short, mut short_width, mut fitted) = (0.0, String::new(), 0.0, String::new());
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            whole = super::text_width(ui.painter(), long, &font, track, egui::Color32::BLACK);
+            short = super::fit_text(ui.painter(), long, &font, track, egui::Color32::BLACK, whole / 2.0);
+            short_width = super::text_width(ui.painter(), &short, &font, track, egui::Color32::BLACK);
+            fitted = super::fit_text(ui.painter(), long, &font, track, egui::Color32::BLACK, whole);
+        })
+        .drop_without_applying_deltas();
+        assert!(short.ends_with('…'), "{short}");
+        assert!(long.starts_with(short.trim_end_matches('…')), "{short}");
+        assert!(short_width <= whole / 2.0, "{short}");
+        assert_eq!(fitted, long, "text that fits is left as it is");
     }
 
     /// Symbols written as text in the interface code must exist in the interface fonts (Inter and
