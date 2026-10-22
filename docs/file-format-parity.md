@@ -12,6 +12,13 @@ gives ~64%; we discount it to ~60% because DOCX fidelity has never been checked 
 files. DOCX dominates the weight: a Word user sends and receives .docx; everything else is
 occasional.
 
+## Drawing payloads
+
+DOCX textboxes retain their own frame and story when they contain an inline picture.
+The direct WPS payload takes precedence over picture blips inside its text. Textbox fitting
+and floating-child paint require separate qualification. A shape's own picture fill retains
+its existing image fallback.
+
 ## Legacy DOC/DOT document properties
 
 The binary Word reader imports SummaryInformation text properties: title, subject, author,
@@ -233,6 +240,7 @@ Imported text fields use the first nonempty cached result run's formatting on th
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
 | 2026-10-18 | trivial | A Word 2003 XML or Flat OPC document, or a web page, saved under a `.doc`, `.docx` or `.rtf` name opens by what it holds, as in Word, instead of going to the Word 97-2003 reader and showing a blank page (#2853) |
@@ -261,6 +269,7 @@ Imported text fields use the first nonempty cached result run's formatting on th
 | 2026-10-16 | trivial | Positional tabs (`w:ptab`) keep their alignment, base and leader through DOCX saves instead of becoming plain tabs (#2367) |
 | 2026-10-16 | trivial | PDF outline destinations point to heading text after leading page breaks, including selected-page exports |
 | 2026-10-16 | trivial | `w:eastAsianLayout` (two lines in one, horizontal in vertical) is read and written; not laid out yet |
+| 2026-10-16 | trivial | Drawing dispatch uses the direct graphic-data child so nested pictures keep their text boxes. Synthetic regressions. |
 | 2026-10-15 | trivial | A group holding Word ink can't be ungrouped (its ink would be lost on save) |
 | 2026-10-15 | trivial | Native ink nested in groups and drawing canvases kept on save, in its place, drawn from its fallback picture |
 | 2026-10-18 | trivial | DOCX: every VML shape anchored in a header table cell is placed on the page whatever `o:allowincell` says (user-checked in Word for Mac, #1775) |

@@ -181,6 +181,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-15 | Image size limits are checked before allocating (#1321): a picture whose header declares more RGBA bytes than the 512 MiB budget is refused before decoding (render and PDF share one helper in `wordcraft-geom`), and page rasters are capped at 100 million pixels in total, scaled down rather than only per side. |
 | 2026-10-15 | Saved DOCX files keep the order of mixed right-to-left and left-to-right text in Word: Hebrew around a Latin name, numbers, brackets or an e-mail address no longer changes places, and Word reports the Hebrew as Hebrew rather than Arabic (#1543). |
 | 2026-10-15 | Web: typing in Cyrillic or another non-Latin script no longer repeats text. WordCraft now honours the input method's request to erase around the caret before retyping (#1480). Chrome can still move the hidden text field's caret, so later letters may still land out of order. That cause is still open |
+| 2026-10-16 | Drawing dispatch uses the direct graphic-data child so nested pictures keep their text boxes. |
 | 2026-10-15 | Equations: typing `V_dd` or `x^ab` and pressing Space keeps `dd` and `ab` whole in the subscript or superscript, like `V_(dd)`, as Word for Mac does; Linear format shows the bare form |
 | 2026-10-15 | Plain text pasted from another program keeps the formatting of the paragraph it lands in: Paste inserts it as Keep Text Only does, so every pasted line, empty lines too, becomes a paragraph with that paragraph's direction, style, alignment, indents and list, and the text after the caret keeps them. The lines after the first had default formatting, so pasting several lines into a right-to-left paragraph turned all but the first left-to-right |
 | 2026-10-14 | Add Font… imports every file selected in the file chooser (#1789), not just the first: the desktop dialog and the web picker are multi-select, each file is added, a bad file is reported ("Added 11 fonts; 1 couldn't be read: X.ttf") without stopping the rest, and one pick adds at most 2,000 (the status line counts the skipped). On the web each font is added and reported on its own, with no single summary line. The built-in file browser still picks one file. |
@@ -521,6 +522,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-21 | trivial | Progress log: File › Recover follows the app theme (#3243) |
+| 2026-10-20 | trivial | Nested-picture textboxes retain their frames; WPS picture fills keep their existing image fallback. |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
 | 2026-10-17 | trivial | Progress log: #2048 entry covers anchors pushed onto the next page |
@@ -582,6 +584,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-16 | trivial | Progress log: Hebrew field results and smart quotes (#1670) |
 | 2026-10-16 | trivial | Progress log: Ctrl+wheel zoom no longer scrolls the document (#1743) |
 | 2026-10-16 | trivial | Hint-reliant CJK fonts execute TrueType contour assembly; Windows DFKai-SB no longer loses strokes. Synthetic local-font regression; no font binaries bundled. |
+| 2026-10-16 | trivial | Drawing dispatch uses the direct graphic-data child so nested pictures keep their text boxes. Synthetic regressions. |
 | 2026-10-14 | trivial | Progress log: RTF export writes sections (gap 19) |
 | 2026-10-15 | trivial | Progress log: multi-letter equation scripts (#1609) |
 | 2026-10-15 | trivial | Progress log: plain-text paste keeps the paragraph formatting where it lands |
