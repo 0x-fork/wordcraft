@@ -238,9 +238,7 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
                 let t = t.replace("\r\n", "\n").replace('\r', "\n");
                 let lines = t.split(['\n', '\u{2029}']).count();
                 if lines > MAX_TYPED_PARAGRAPHS {
-                    return ToolResult::error(format!(
-                        "`text` has {lines} lines; type at most {MAX_TYPED_PARAGRAPHS} paragraphs per call"
-                    ));
+                    return ToolResult::error(format!("`text` has {lines} lines; type at most {MAX_TYPED_PARAGRAPHS} paragraphs per call"));
                 }
                 wrap(exec(b, "text.insert", json!({"text": t.replace('\n', "\r"), "raw": true})))
             } else {
