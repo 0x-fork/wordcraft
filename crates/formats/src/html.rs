@@ -1266,14 +1266,14 @@ impl<'r> Builder<'r> {
                 });
                 if let Some(st) = attr(attrs, "style") {
                     for decl in st.split(';') {
-                        if let Some((k, v)) = decl.split_once(':') {
-                            if k.trim().eq_ignore_ascii_case("vertical-align") {
-                                match v.trim().to_ascii_lowercase().as_str() {
-                                    "top" => valign = Some(VAlign::Top),
-                                    "middle" | "center" => valign = Some(VAlign::Center),
-                                    "bottom" => valign = Some(VAlign::Bottom),
-                                    _ => {}
-                                }
+                        if let Some((k, v)) = decl.split_once(':')
+                            && k.trim().eq_ignore_ascii_case("vertical-align")
+                        {
+                            match v.trim().to_ascii_lowercase().as_str() {
+                                "top" => valign = Some(VAlign::Top),
+                                "middle" | "center" => valign = Some(VAlign::Center),
+                                "bottom" => valign = Some(VAlign::Bottom),
+                                _ => {}
                             }
                         }
                     }
