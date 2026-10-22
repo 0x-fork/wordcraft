@@ -132,6 +132,11 @@ fn dispatch(app: &mut WordApp, key: Key, m: Modifiers) -> bool {
         return true;
     }
     if let Some(spec) = bound {
+        // Option+Shift+- types an em dash on macOS; Word's Alt+Shift+- (Collapse) only works in
+        // Outline view, so elsewhere the key stays typing (#1933).
+        if m.alt && !crate::widgets::enabled(app, spec.id) {
+            return false;
+        }
         let _ = app.run(spec.id, json!({}));
         return true;
     }
@@ -338,7 +343,8 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             match &e {
                 egui::Event::Text(t) => {
                     let m = ctx.input(|i| i.modifiers);
-                    if !(m.command || t.is_empty() || (m.ctrl && !cfg!(target_os = "macos"))) && t.chars().all(|c| !c.is_control()) {
+                    let is_cmd = if cfg!(target_os = "macos") { m.command } else { (m.command || m.ctrl) && !m.alt };
+                    if !is_cmd && !t.is_empty() && t.chars().all(|c| !c.is_control()) {
                         let _ = app.run("equation.type", json!({"text": t}));
                     }
                     continue;
@@ -361,7 +367,8 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         match e {
             egui::Event::Text(t) => {
                 let m = ctx.input(|i| i.modifiers);
-                if m.command || (m.ctrl && !cfg!(target_os = "macos")) {
+                let is_cmd = if cfg!(target_os = "macos") { m.command } else { (m.command || m.ctrl) && !m.alt };
+                if is_cmd {
                     continue;
                 }
                 if t.chars().all(|c| !c.is_control()) && !t.is_empty() {
@@ -973,6 +980,58 @@ mod tests {
         assert_eq!(a.ui.keytips, crate::keytips::Phase::Tabs);
     }
 
+    /// #2388: AltGr (Right Alt on a Polish layout under Wayland) arrives as the Right Alt key
+    /// followed by a modifiers event without Alt (it's Level 3 Shift). That event read as Alt
+    /// let go opened keytips while AltGr was still held, and the next letter went to them
+    /// instead of typing ś, ł, ż. A bare AltGr tap doesn't open keytips either; a Right Alt
+    /// that is Alt (US layout) still does.
+    #[test]
+    fn altgr_types_its_characters_without_keytips() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        let doc_text = |a: &WordApp| a.session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        let ctx = egui::Context::default();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let none = Modifiers::NONE;
+        let key = |key, pressed, modifiers| egui::Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers };
+        let frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                crate::keytips::logic(a, ui.ctx());
+                canvas_events(a, ui.ctx());
+            })
+            .drop_without_applying_deltas();
+        };
+        let altgr_down = || vec![key(Key::AltRight, true, none), egui::Event::ModifiersChanged(none)];
+        let altgr_up = || vec![key(Key::AltRight, false, none), egui::Event::ModifiersChanged(none)];
+        // Held through three letters, one frame per event batch.
+        frame(&mut a, altgr_down());
+        assert_eq!(a.ui.keytips, crate::keytips::Phase::Off, "AltGr down doesn't open keytips");
+        for (k, t) in [(Key::S, "ś"), (Key::L, "ł"), (Key::Z, "ż")] {
+            frame(&mut a, vec![key(k, true, none), egui::Event::Text(t.into())]);
+            frame(&mut a, vec![key(k, false, none)]);
+            assert_eq!(a.ui.keytips, crate::keytips::Phase::Off, "{t}");
+        }
+        frame(&mut a, altgr_up());
+        assert_eq!(doc_text(&a).trim_end(), "śłż");
+        assert_eq!(a.ui.keytips, crate::keytips::Phase::Off);
+        // All in one frame.
+        frame(&mut a, [altgr_down(), vec![key(Key::A, true, none), egui::Event::Text("ą".into()), key(Key::A, false, none)], altgr_up()].concat());
+        assert_eq!(doc_text(&a).trim_end(), "śłżą");
+        assert_eq!(a.ui.keytips, crate::keytips::Phase::Off);
+        // A bare AltGr tap, in two frames or one.
+        frame(&mut a, altgr_down());
+        frame(&mut a, altgr_up());
+        assert_eq!(a.ui.keytips, crate::keytips::Phase::Off, "an AltGr tap isn't an Alt tap");
+        frame(&mut a, [altgr_down(), altgr_up()].concat());
+        assert_eq!(a.ui.keytips, crate::keytips::Phase::Off);
+        // Right Alt that is Alt still opens keytips.
+        let alt = Modifiers { alt: true, ..Default::default() };
+        frame(&mut a, vec![key(Key::AltRight, true, none), egui::Event::ModifiersChanged(alt)]);
+        frame(&mut a, vec![key(Key::AltRight, false, alt), egui::Event::ModifiersChanged(none)]);
+        assert_eq!(a.ui.keytips, crate::keytips::Phase::Tabs);
+    }
+
     fn alt_frame_app() -> (egui::Context, WordApp) {
         let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
         (egui::Context::default(), a)
@@ -984,6 +1043,17 @@ mod tests {
 
     fn alt_key(key: Key, pressed: bool, repeat: bool) -> egui::Event {
         egui::Event::Key { key, physical_key: Some(key), pressed, repeat, modifiers: Modifiers { alt: true, ..Default::default() } }
+    }
+
+    /// Option+Shift+- types an em dash outside Outline view, where Word's Alt+Shift+- (Collapse)
+    /// can't run, so its shortcut doesn't swallow the character (#1933).
+    #[test]
+    fn disabled_alt_shortcut_leaves_the_typed_character() {
+        let (ctx, mut a) = alt_frame_app();
+        let alt_shift = Modifiers { alt: true, shift: true, ..Default::default() };
+        let key = |pressed| egui::Event::Key { key: Key::Minus, physical_key: Some(Key::Minus), pressed, repeat: false, modifiers: alt_shift };
+        alt_frame(&ctx, &mut a, vec![key(true), egui::Event::Text("\u{2014}".into()), key(false)]);
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "\u{2014}");
     }
 
     /// Holding a digit with Alt adds it once: its auto-repeat presses don't (#961).

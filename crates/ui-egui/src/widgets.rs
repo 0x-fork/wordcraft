@@ -136,7 +136,7 @@ fn tooltip(app: &WordApp, resp: Response, label: &str, id: &str) -> Response {
     } else if !app.has_document() && !crate::works_without_document(id) {
         Some(tl!("Open a document first"))
     } else {
-        Some(spec.and_then(|s| (s.enabled)(&app.session)).unwrap_or(""))
+        Some(app.session.why_disabled(id).unwrap_or(""))
     };
     let (title, notes) = tooltip_lines(label, &shortcut_text(app, id), &desc, reason);
     show_hint(&resp, &title, &notes);
@@ -178,7 +178,7 @@ pub fn enabled(app: &WordApp, id: &str) -> bool {
         return false;
     }
     match app.session.registry.get(id) {
-        Some(s) => (s.enabled)(&app.session).is_none(),
+        Some(_) => app.session.why_disabled(id).is_none(),
         // Zotero: one command at a time, and only in the desktop app.
         None if id.starts_with("ui.zotero.") => app.zotero.busy.is_none() && !cfg!(target_arch = "wasm32"),
         None if id == "ui.linkTextBox" => enabled(app, "shape.link"),
@@ -396,7 +396,7 @@ pub fn menu_button(
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 6.0, r.center().y), vec2(DROPDOWN, DROPDOWN)), "dropdown", c, c);
         resp
     };
-    let reason = if on { None } else { Some(app.session.registry.get(id).and_then(|s| (s.enabled)(&app.session)).unwrap_or("")) };
+    let reason = if on { None } else { Some(app.session.why_disabled(id).unwrap_or("")) };
     let (title, notes) = tooltip_lines(tip, &shortcut_text(app, id), "", reason);
     show_hint(&resp, &title, &notes);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));

@@ -19,6 +19,10 @@ The direct WPS payload takes precedence over picture blips inside its text. Text
 and floating-child paint require separate qualification. A shape's own picture fill retains
 its existing image fallback.
 
+> **Comment command update:** 2026-10-14 · malformed explicit IDs rejected; synthetic refusal, undo/redo and DOCX save/reopen checks (#1690 finding 3). Readiness estimates unchanged.
+
+Comment commands reject explicit negative, floating-point and wrong-type IDs before editing or using the caret. Valid Delete, Resolve, Reply and Edit operations, including omitted caret IDs for Delete/Resolve, have undo/redo and two synthetic DOCX save/reopen checks preserving body and comment data (`crates/engine/tests/comment_ids.rs`). This does not extend the modern-comment format coverage listed below.
+
 ## Legacy DOC/DOT document properties
 
 The binary Word reader imports SummaryInformation text properties: title, subject, author,
@@ -311,6 +315,7 @@ Imported text fields use the first nonempty cached result run's formatting on th
 | 2026-10-13 | trivial | DOCX: the document's watermark is written as a VML text shape in every header, adding a header where pages had none (#1290) |
 | 2026-10-13 | trivial | DOCX: Word's VML text watermark in headers is read as the document's watermark (#1290) |
 | 2026-10-13 | trivial | Rounded rectangles keep their own corner radius: `roundRect` `adj` read, written back and drawn (#1476) |
+| 2026-10-14 | trivial | Comment commands reject malformed explicit IDs instead of truncating floats or targeting the caret (#1690, finding 3); synthetic command, undo/redo and DOCX save/reopen coverage; readiness estimates unchanged |
 | 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |
 | 2026-10-14 | trivial | VML preset shapes (`o:spt`, `_x0000_tNN` shapetypes) drawn like the DrawingML preset of the same shape (the nearest shape when WordCraft has none) and kept on save, e.g. Word's right arrow `_x0000_t13` (#1377) |
 | 2026-10-14 | trivial | RTF import (#1653): Mac OS Roman (code page 10000) for `\mac` documents, `\fcharset77` fonts and `\cpg`/`\ansicpg` 10000, and DOS text: `\pc` (437), `\pca` (850), the OEM pages through `\cpg` and `\fcharset254` (was read as Windows-1252); a code page number out of range is ignored instead of truncated to another; East Asian double-byte code pages still to do |

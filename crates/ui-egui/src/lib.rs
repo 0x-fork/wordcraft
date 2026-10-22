@@ -307,6 +307,14 @@ pub struct UiState {
     /// that follows ends a chord (Alt+click, Alt+drag column selection), not a keytip tap.
     #[serde(skip)]
     pub alt_chord_used: bool,
+    /// An Alt key is down according to key events. Its modifier can go before the key does:
+    /// AltGr on Linux reports the Right Alt key with Level 3 Shift, not Alt (#2388).
+    #[serde(skip)]
+    pub alt_key_down: bool,
+    /// Since the last Alt press the Alt modifier was on, or the key was Left Alt: a Right Alt
+    /// that never turns it on is AltGr, which types characters and never opens keytips (#2388).
+    #[serde(skip)]
+    pub alt_modifier_seen: bool,
     /// View › Switch Modes: show pages dark (white text on black), kept between runs. Only the
     /// pages: the interface follows [`UiState::theme`] (#312).
     pub dark_page: bool,
@@ -399,6 +407,8 @@ impl Default for UiState {
             keytips: crate::keytips::Phase::Off,
             alt_pressed: false,
             alt_chord_used: false,
+            alt_key_down: false,
+            alt_modifier_seen: false,
             dark_page: false,
             check_spelling: true,
             caret_animation: true,
@@ -1393,8 +1403,10 @@ impl WordApp {
             self.canvas.read_first_visible = None;
         }
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
-        // A mouse drag on a table (`run_keep_view`) does the same (#1738).
-        if self.session.selects_whole_story() || id == "select.all" || self.canvas.keep_view {
+        // A mouse drag on a table (`run_keep_view`) does the same (#1738). A caret in an empty
+        // story (a footer just made) also spans the whole story: it isn't a selection of it, and
+        // the view follows it.
+        if (self.session.selects_whole_story() && !self.session.sel.is_collapsed()) || id == "select.all" || self.canvas.keep_view {
             self.canvas.scroll_to_caret = false;
         } else if !["ui.", "view.", "document.", "format.state", "draw."].iter().any(|p| id.starts_with(p)) {
             self.canvas.scroll_to_caret = true;
@@ -2355,9 +2367,10 @@ impl WordApp {
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
-        // A failed Recent open is news only until File closes (#2938).
+        // A failed Recent open, or a failed Save As, is news only until File closes (#2938).
         if !self.ui.backstage {
             backstage::forget_open_error(&ctx);
+            backstage::forget_save_as_error(&ctx);
         }
         if self.ui.backstage {
             backstage::show(self, ui);
@@ -6492,6 +6505,36 @@ mod tests {
         assert!(closes(&h), "⌘Q still quits on the Mac");
     }
 
+    /// #3424: Pressing Ctrl+Alt+Q (German shortcut for @, or AltGr+Q) types '@' and does not
+    /// close the window.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ctrl_alt_q_types_at_symbol_without_closing() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let closes = |h: &egui_kittest::Harness<WordApp>| {
+            h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Close))
+        };
+        let german_mods = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: true };
+        h.event(egui::Event::Key { key: egui::Key::Q, physical_key: None, pressed: true, repeat: false, modifiers: german_mods });
+        h.step();
+        assert!(!closes(&h), "Ctrl+Alt+Q does not close the window");
+
+        h.event(egui::Event::ModifiersChanged(german_mods));
+        h.event(egui::Event::Text("@".into()));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "@", "Ctrl+Alt+Q types the @ character");
+    }
+
     /// #819: Alt+Q opens Search with its box focused, as in Word: the Q isn't typed into the
     /// document, and what is typed next goes into the search box.
     #[cfg(not(target_os = "macos"))]
@@ -7602,6 +7645,124 @@ mod tests {
         assert!(h.state().session.view.full_screen, "and only that");
     }
 
+    /// #2864: the View tab's Full Screen button toggles out of full screen as well as in.
+    #[test]
+    fn the_full_screen_button_toggles_out() {
+        use egui::ViewportCommand::Fullscreen;
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.state_mut().run("ui.tab", json!({ "tab": "View" })).unwrap();
+        for _ in 0..3 {
+            h.step();
+        }
+        // The View tab's Window group folds into a drop-down when the window is narrow (#662),
+        // and the button then lives in that menu: open the group when it is folded.
+        fn full_screen<'a>(h: &'a egui_kittest::Harness<'a, WordApp>) -> Option<egui_kittest::Node<'a>> {
+            h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::Button))
+                .into_iter()
+                .find(|n| n.accesskit_node().label().as_deref().is_some_and(|l| l.replace('\n', " ").contains("Full Screen")))
+        }
+        if full_screen(&h).is_none() {
+            h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::Button))
+                .into_iter()
+                .find(|n| n.accesskit_node().label().as_deref() == Some("Window"))
+                .unwrap_or_else(|| panic!("the View tab has a Window group"))
+                .click();
+            for _ in 0..2 {
+                h.step();
+            }
+        }
+        // The click's frames carry the viewport command, so collect while clicking.
+        let click_full_screen = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            full_screen(h).unwrap_or_else(|| panic!("the Full Screen button is on the View tab")).click();
+            for _ in 0..2 {
+                h.step();
+                out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
+            }
+            out
+        };
+        let clicked = click_full_screen(&mut h);
+        assert_eq!(clicked, vec![Fullscreen(true)], "the button enters full screen");
+        assert!(h.state().session.view.full_screen);
+        let clicked = click_full_screen(&mut h);
+        assert_eq!(clicked, vec![Fullscreen(false)], "the button leaves full screen again");
+        assert!(!h.state().session.view.full_screen);
+    }
+
+    /// The Full Screen button tells assistive technology what the command can do: it is enabled
+    /// exactly when the command is, so the browser build (which keeps full screen to itself)
+    /// does not announce a control that cannot be activated.
+    #[test]
+    fn the_full_screen_button_reports_the_commands_own_enabled_state() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        use wordcraft_engine::{CommandSpec, Registry};
+
+        // The browser build's reason for refusing full screen, forced here so the test says
+        /// something on every platform.
+        fn unavailable(_: &wordcraft_engine::Session) -> Option<&'static str> {
+            Some("Use the browser's full screen (F11)")
+        }
+
+        let mut a = app();
+        let specs: Vec<CommandSpec> = a
+            .session
+            .registry
+            .all()
+            .iter()
+            .map(|s| {
+                if s.id == "view.fullScreen" {
+                    CommandSpec {
+                        id: s.id,
+                        label: s.label,
+                        location: s.location,
+                        shortcut: s.shortcut,
+                        params: s.params,
+                        mutates: s.mutates,
+                        enabled: unavailable,
+                        run: s.run,
+                    }
+                } else {
+                    s.clone()
+                }
+            })
+            .collect();
+        a.session.registry = std::sync::Arc::new(Registry::new(specs));
+
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1920.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.state_mut().run("ui.tab", json!({ "tab": "View" })).unwrap();
+        for _ in 0..3 {
+            h.step();
+        }
+        let node = h
+            .query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::Button))
+            .into_iter()
+            .find(|n| n.accesskit_node().label().as_deref().is_some_and(|l| l.replace('\n', " ").contains("Full Screen")))
+            .expect("the Full Screen button is on the View tab");
+        assert!(!crate::widgets::enabled(h.state(), "view.fullScreen"), "the command is unavailable, as the test arranged it",);
+        assert!(node.accesskit_node().is_disabled(), "a control the command refuses is announced as disabled",);
+    }
+
     /// #980: in full screen, Escape with text selected collapses the selection (as in a normal
     /// window) and leaves full screen alone; the next Escape, with nothing selected, leaves it.
     #[test]
@@ -8424,6 +8585,19 @@ mod tests {
         assert!(!a.canvas.scroll_to_caret, "switching tabs left the view alone");
         a.run("text.insert", json!({"text": "x"})).unwrap();
         assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
+    }
+
+    /// Go to Footer into a footer just made — empty, so the caret at its start also "selects the
+    /// whole story" — brings the footer into view (it stayed at the header).
+    #[test]
+    fn go_to_footer_into_an_empty_footer_scrolls_to_it() {
+        let mut a = typed();
+        a.run("insert.editHeader", json!({})).unwrap();
+        a.run("text.insert", json!({"text": "Umowa nr 7/2026"})).unwrap();
+        a.canvas.scroll_to_caret = false;
+        a.run("insert.editFooter", json!({})).unwrap();
+        assert!(a.session.sel.is_collapsed() && a.session.selects_whole_story(), "the footer is empty");
+        assert!(a.canvas.scroll_to_caret, "the view follows the caret into the footer");
     }
 
     #[test]

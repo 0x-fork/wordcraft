@@ -2330,7 +2330,8 @@ fn scrollbar_page_tip(app: &mut WordApp, ui: &Ui, scroll: egui::Id, rects: &[Rec
         .fixed_pos(at - vec2(16.0, 0.0))
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.label(text);
+                // Unwrapped: the area keeps last frame's width, too narrow once the number grows (#3341).
+                ui.add(egui::Label::new(text).extend());
             });
         });
 }
@@ -2678,9 +2679,13 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             let _ = app.run("edit.pasteFormat", json!({}));
         }
     }
-    // Hover a link: show its target.
+    // Hover a link: show its target, unless the context menu is opening or open: a tooltip draws
+    // above the menu and would cover its first items (#3368).
     if resp.hovered()
         && !app.canvas.dragging
+        && !app.canvas.context_menu_open
+        && !resp.secondary_clicked()
+        && !ui.input(|i| i.pointer.secondary_down())
         && let Some(pos) = layout.hit(page, x, y, story)
         && let Some(link) = link_under(app, layout, page, x, y, &pos)
     {
@@ -3092,7 +3097,7 @@ pub fn in_text_box(app: &WordApp) -> bool {
     part_kind(app, app.session.sel.focus.story) == Some(PartKind::TextBox)
 }
 
-fn part_kind(app: &WordApp, s: StoryRef) -> Option<PartKind> {
+pub(crate) fn part_kind(app: &WordApp, s: StoryRef) -> Option<PartKind> {
     match s {
         StoryRef::Part(id) => app.session.doc.parts.get(&id).map(|p| p.kind),
         StoryRef::Body => None,
@@ -3977,7 +3982,8 @@ mod tests {
     }
 
     /// #2551: dragging the vertical scrollbar shows the page at the top of the window beside the
-    /// pointer ("Page 7 of 10"), and the tip goes when the button is let go.
+    /// pointer ("Page 7 of 12"), on one line as the number grows (#3341), and the tip goes when the
+    /// button is let go.
     #[test]
     fn dragging_the_scrollbar_names_the_page_at_the_top() {
         use egui::accesskit::Role;
@@ -3985,7 +3991,7 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         for hide_white_space in [false, true] {
             let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
-            for _ in 0..9 {
+            for _ in 0..11 {
                 a.run("text.insert", json!({"text": "Page text"})).unwrap();
                 a.run("layout.break", json!({"kind": "page"})).unwrap();
             }
@@ -4003,7 +4009,7 @@ mod tests {
             for _ in 0..6 {
                 h.step();
             }
-            assert_eq!(h.state_mut().session.layout().pages.len(), 10);
+            assert_eq!(h.state_mut().session.layout().pages.len(), 12);
             let bar = h
                 .query_all_by_role(Role::ScrollBar)
                 .map(|n| n.rect())
@@ -4024,13 +4030,24 @@ mod tests {
                 h.step();
             }
             let page = h.state().canvas.scrollbar_page.expect("a tip while the scrollbar is dragged");
-            assert!((4..10).contains(&page), "a page well down the document: {page}");
-            assert!(h.query_by_label(&format!("Page {} of 10", page + 1)).is_some(), "the tip names page {}", page + 1);
-            h.event(button(to, false));
+            assert!((4..9).contains(&page), "a page well down the document: {page}");
+            assert!(h.query_by_label(&format!("Page {} of 12", page + 1)).is_some(), "the tip names page {}", page + 1);
+            let end = pos2(from.x, bar.bottom() - 4.0);
+            for k in 1..=6 {
+                h.event(Event::PointerMoved(to + (end - to) * (k as f32 / 6.0)));
+                h.step();
+            }
+            let last = h.state().canvas.scrollbar_page.expect("still dragging");
+            assert!(last >= 9, "a two-digit page: {last}");
+            let label = format!("Page {} of 12", last + 1);
+            let tip = h.query_by_label(&label).expect("the tip names the last page").rect();
+            let body = egui::TextStyle::Body.resolve(&h.ctx.global_style());
+            assert!(tip.height() < 1.5 * h.ctx.fonts_mut(|f| f.row_height(&body)), "one line as the number grows: {tip:?}");
+            h.event(button(end, false));
             h.step();
             h.step();
             assert_eq!(h.state().canvas.scrollbar_page, None, "the tip goes with the button");
-            assert!(h.query_by_label(&format!("Page {} of 10", page + 1)).is_none(), "and its text");
+            assert!(h.query_by_label(&label).is_none(), "and its text");
             assert_eq!((h.state().session.rev(), &h.state().session.sel), (rev, &sel), "scrolling changes neither the document nor the selection");
         }
     }
@@ -4669,6 +4686,24 @@ mod tests {
         leave_field(&mut h);
         let text = comment_text(h.state(), id);
         assert!(text.contains("Edited"), "the typed text survived the refusal: {text:?}");
+    }
+
+    /// #3268: clicking a balloon's Reply button, typing a reply and clicking away posts it as a
+    /// reply comment under the original, not a draft that silently disappears.
+    #[test]
+    fn replying_to_a_comment_from_its_balloon_posts_the_reply() {
+        use egui_kittest::kittest::Queryable;
+        let (mut h, id) = comment_harness();
+        click_balloon(&mut h, id);
+        h.get_by_label("Reply").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        type_in(&mut h, "A reply");
+        leave_field(&mut h);
+        let replies: Vec<u32> = h.state().session.doc.comments.iter().filter(|(_, c)| c.parent == Some(id)).map(|(k, _)| *k).collect();
+        assert_eq!(replies.len(), 1, "{:?}", h.state().session.doc.comments);
+        assert_eq!(comment_text(h.state(), replies[0]), "A reply");
     }
 
     /// #1348: a draft typed in one document never lands in another document's comment that happens
@@ -5417,6 +5452,40 @@ mod tests {
         steps(&mut h, 3);
         let s = &h.state().session;
         assert_eq!(s.sel.focus.path.last(), caption, "the caret went to the caption: {:?}", s.sel);
+    }
+
+    /// #3368: right-clicking a link dismisses the hover tooltip. A tooltip draws above the
+    /// context menu and covered its first items (Cut, Copy, Paste, Font…), so the menu looked
+    /// truncated; the tooltip must stand down while the menu owns the pointer.
+    #[test]
+    fn right_clicking_a_link_hides_the_hover_tooltip() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("See here")), Default::default());
+        a.run("select.text", json!({"text": "here"})).unwrap();
+        a.run("insert.link", json!({"url": "https://example.com/very/long/tracking/url?with=parameters&and=still-more"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        // Between the link's "h" and "e".
+        let c = h.state_mut().session.layout().caret(&Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 5 }).unwrap();
+        let at = screen(&mut h, c.x, c.top + c.height / 2.0);
+        h.event(egui::Event::PointerMoved(at));
+        steps(&mut h, 2);
+        let tips = |h: &egui_kittest::Harness<'_, WordApp>| h.query_all_by_label_contains("Click to follow link").count();
+        assert!(tips(&h) > 0, "hovering the link shows its target");
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        steps(&mut h, 2);
+        assert!(h.state().canvas.context_menu_open, "the context menu is open");
+        assert_eq!(tips(&h), 0, "the link tooltip is gone, so it can't cover the menu");
     }
 
     /// #688: the drag auto-scroll waits in the middle, ramps in from both edges and never leaves

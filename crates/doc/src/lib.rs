@@ -1110,10 +1110,48 @@ impl Document {
     /// The body, then the text boxes, footnotes and endnotes it shows (nested ones too), in
     /// document order. Headers, footers, comments and stories nothing points at aren't included.
     pub fn counted_stories(&self) -> Vec<StoryRef> {
-        self.reachable(vec![StoryRef::Body], &|o| match o {
-            InlineObject::NoteRef { id, .. } => vec![(*id, &[PartKind::Footnote, PartKind::Endnote][..])],
-            o => o.text_boxes().into_iter().map(|id| (id, &[PartKind::TextBox][..])).collect(),
-        })
+        self.reachable(vec![StoryRef::Body], &notes_and_boxes)
+    }
+
+    /// The stories a reader sees, in reading order: the body, then the headers and footers in
+    /// use, each followed by the notes and text boxes it shows. Hidden stories (a removed header,
+    /// a first-page or even-page header whose option is off, a linked text box's own text) and
+    /// comment text aren't included.
+    pub fn shown_stories(&self) -> Vec<StoryRef> {
+        let followers: std::collections::BTreeSet<u32> = self.text_box_chains().into_iter().flat_map(|c| c.into_iter().skip(1)).collect();
+        let follow = |o: &InlineObject| {
+            let mut v = notes_and_boxes(o);
+            v.retain(|(id, _)| !followers.contains(id));
+            v
+        };
+        let mut out = self.reachable(vec![StoryRef::Body], &follow);
+        let mut seen: std::collections::BTreeSet<StoryRef> = out.iter().copied().collect();
+        let mut roots = Vec::new();
+        let mut root_seen = std::collections::BTreeSet::new();
+        let (mut headers, mut footers) = (section::HeaderSet::default(), section::HeaderSet::default());
+        for (_, sec) in self.sections() {
+            // Unset versions are inherited from the previous section.
+            for (set, own) in [(&mut headers, &sec.headers), (&mut footers, &sec.footers)] {
+                set.default = own.default.or(set.default);
+                set.first = own.first.or(set.first);
+                set.even = own.even.or(set.even);
+                let first = set.first.filter(|_| sec.title_page);
+                let even = set.even.filter(|_| self.settings.even_odd_headers);
+                // By the first page each one shows on: page 1, then page 2 (even), then page 3.
+                let order = if sec.title_page { [first, even, set.default] } else { [set.default, even, None] };
+                for id in order.into_iter().flatten() {
+                    if self.parts.get(&id).is_some_and(|p| matches!(p.kind, PartKind::Header | PartKind::Footer)) && root_seen.insert(id) {
+                        roots.push(StoryRef::Part(id));
+                    }
+                }
+            }
+        }
+        for st in self.reachable(roots, &follow) {
+            if seen.insert(st) {
+                out.push(st);
+            }
+        }
+        out
     }
 
     /// Drop the text box stories no box shows any more (a deleted or cut box's text), nested
@@ -1482,6 +1520,14 @@ pub fn count_words(s: &str) -> usize {
 
 /// How deep in nested tables [`Document::para_paths`] goes: cells below this are skipped.
 pub(crate) const PARA_WALK_DEPTH: usize = 16;
+
+/// The note and text box stories an object shows, for `Document::reachable`.
+fn notes_and_boxes(o: &InlineObject) -> Vec<(u32, &'static [PartKind])> {
+    match o {
+        InlineObject::NoteRef { id, .. } => vec![(*id, &[PartKind::Footnote, PartKind::Endnote][..])],
+        o => o.text_boxes().into_iter().map(|id| (id, &[PartKind::TextBox][..])).collect(),
+    }
+}
 
 fn walk(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, depth: usize) {
     if depth > PARA_WALK_DEPTH {

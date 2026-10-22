@@ -1710,6 +1710,34 @@ fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
 }
 
 #[test]
+fn tracked_table_changes_are_kept_as_formatting_changes() {
+    // Word records a table property change made while Track Changes and Track Formatting are
+    // on (`w:tblPrChange`): Reject All puts the properties back, Accept All keeps the change.
+    // The model, OOXML I/O and both answers already existed; only the recording was missing.
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "review.trackingOptions", json!({"trackFormatting": true}));
+    run(&mut s, "table.borders", json!({"kind": "all"}));
+    let at = |s: &Session| -> (bool, bool) {
+        let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+        (t.props.borders.unwrap_or_default().top.is_some(), t.props.fmt_change.is_some())
+    };
+    let (b, ch) = at(&s);
+    assert!(b, "the borders were set");
+    assert!(ch, "the border change was recorded as a formatting change");
+    run(&mut s, "review.rejectAll", json!({}));
+    let (b, ch) = at(&s);
+    assert!(!b, "Reject All restores the table's formatting before the change");
+    assert!(!ch, "the change is answered");
+    run(&mut s, "table.borders", json!({"kind": "all"}));
+    assert!(at(&s).1, "the second change records again");
+    run(&mut s, "review.acceptAll", json!({}));
+    let (b, ch) = at(&s);
+    assert!(b && !ch, "Accept All keeps it");
+}
+
+#[test]
 fn select_all_grows_cell_then_row_then_table_then_document() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "Before"}));
@@ -3879,6 +3907,33 @@ fn saving_a_text_file_over_itself_saves_the_document() {
         assert_eq!(s.path.as_deref(), Some(path.as_path()));
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A save that fails to write (no permission, disk full, a bad path) leaves the document's own
+/// save stamps untouched: `stamp_save` runs before the fallible write, so a prior version of this
+/// left `modified`/`created`/`last_modified_by`/`revision`/`zoom` changed for a save that never
+/// actually happened, which a later successful save would then persist.
+#[test]
+fn a_failed_save_leaves_the_save_stamps_untouched() {
+    // pid + nanos (not pid alone): a name no other test or run could already own, so there's
+    // nothing to pre-clean and nothing of anyone else's this test could delete by mistake. `dir`
+    // itself is deliberately never created: that's what makes the write below fail.
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-save-stamps-{}-{nanos}", std::process::id()));
+    assert!(!dir.exists(), "a fresh name");
+    let bogus = dir.join("does-not-exist").join("out.docx");
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "draft"}));
+    let core_before = s.doc.core.clone();
+    let zoom_before = s.doc.settings.zoom;
+
+    let error = s.run("file.save", &json!({"path": bogus.to_string_lossy()}));
+    assert!(error.is_err(), "the write fails: its parent directory doesn't exist");
+    assert!(!bogus.exists());
+    assert_eq!(s.doc.core, core_before, "modified/created/author/revision are unchanged");
+    assert_eq!(s.doc.settings.zoom, zoom_before);
+    assert!(s.path.is_none(), "the failed write never takes the document's path");
+    assert!(s.dirty, "still unsaved");
 }
 
 #[cfg(not(target_arch = "wasm32"))]

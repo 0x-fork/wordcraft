@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 use egui::{Stroke, Ui, vec2};
 use serde_json::{Value, json};
-use wordcraft_doc::{Pos, StoryRef};
+use wordcraft_doc::numbering::{Counters, LevelSuffix};
+use wordcraft_doc::section::NumFormat;
+use wordcraft_doc::{Document, Path, Pos, StoryRef};
 
 use crate::WordApp;
 use crate::theme::{Tokens, regular, semibold};
@@ -191,22 +193,8 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
         }
         _ => {
             let caret = app.session.sel.focus.clone();
-            let mut current: Option<usize> = None;
-            let mut items = Vec::new();
-            for path in app.session.doc.para_paths(StoryRef::Body) {
-                let Some(p) = app.session.doc.para(StoryRef::Body, &path) else { continue };
-                let rp = app.session.doc.styles.resolve_para(&p.props);
-                if let Some(lv) = rp.outline_level {
-                    let txt = p.plain_text().trim().to_string();
-                    if txt.is_empty() || rp.style.starts_with("TOC") {
-                        continue;
-                    }
-                    if path <= caret.path {
-                        current = Some(items.len());
-                    }
-                    items.push((path, lv, txt));
-                }
-            }
+            let items = nav_headings(&app.session.doc);
+            let current = items.iter().rposition(|(path, ..)| *path <= caret.path);
             if items.is_empty() {
                 ui.label(egui::RichText::new(tl!("Create an interactive outline of your document.\n\nIt's a great way to keep track of where you are or quickly move your content around.\n\nTo get started, go to the Home tab and apply Heading styles to the headings in your document.")).weak());
             }
@@ -253,6 +241,38 @@ fn visible_headings(levels: &[u8], collapsed: &[bool]) -> Vec<bool> {
             true
         })
         .collect()
+}
+
+/// The body's headings (paragraphs with an outline level) in document order, as (path, level,
+/// text). A numbered heading starts with the number it shows (`2.1 Method`), as in Word.
+fn nav_headings(doc: &Document) -> Vec<(Path, u8, String)> {
+    // Every numbered paragraph advances the list counters, headings or not.
+    let mut counters = Counters::default();
+    let mut items = Vec::new();
+    for path in doc.para_paths(StoryRef::Body) {
+        let Some(p) = doc.para(StoryRef::Body, &path) else { continue };
+        let rp = doc.styles.resolve_para(&p.props);
+        let number = p
+            .props
+            .numbering
+            .or(rp.numbering)
+            .filter(|n| n.num != 0)
+            .and_then(|n| counters.next_label(&doc.numbering, n.num, n.level))
+            .filter(|(label, def)| !label.is_empty() && !matches!(def.format, NumFormat::Bullet | NumFormat::None));
+        if let Some(lv) = rp.outline_level {
+            let txt = p.plain_text().trim().to_string();
+            if txt.is_empty() || rp.style.starts_with("TOC") {
+                continue;
+            }
+            let txt = match number {
+                Some((label, def)) if def.suffix == LevelSuffix::Nothing => format!("{label}{txt}"),
+                Some((label, _)) => format!("{label} {txt}"),
+                None => txt,
+            };
+            items.push((path, lv, txt));
+        }
+    }
+    items
 }
 
 /// Constrain each heading to the available pane width so long document text cannot
@@ -971,6 +991,31 @@ mod tests {
 #[cfg(test)]
 mod navigation_tests {
     use super::*;
+
+    /// Numbered headings are listed with the number they show, and numbered body paragraphs in
+    /// the same list still count (#3418).
+    #[test]
+    fn headings_show_their_list_numbers() {
+        use wordcraft_doc::props::NumRef;
+        use wordcraft_doc::{CharProps, ListKind, Paragraph, para_block};
+        let mut doc = Document::new();
+        let num = doc.numbering.add_list(ListKind::Legal);
+        let para = |text: &str, style: &str, level: Option<u8>| {
+            let mut p = Paragraph::with_text(text, CharProps::default()).styled(style);
+            p.props.numbering = level.map(|level| NumRef { num, level });
+            para_block(p)
+        };
+        doc.body = vec![
+            para("Intro", "Heading1", Some(0)),
+            para("Scope", "Heading2", Some(1)),
+            para("A numbered body paragraph", "Normal", Some(1)),
+            para("Terms", "Heading2", Some(1)),
+            para("Method", "Heading1", Some(0)),
+            para("Appendix", "Heading1", None),
+        ];
+        let texts: Vec<String> = nav_headings(&doc).into_iter().map(|(_, _, t)| t).collect();
+        assert_eq!(texts, ["1. Intro", "1.1. Scope", "1.3. Terms", "2. Method", "Appendix"]);
+    }
 
     #[test]
     fn long_headings_wrap_without_stretching_navigation() {

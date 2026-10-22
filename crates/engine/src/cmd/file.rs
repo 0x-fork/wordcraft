@@ -309,11 +309,19 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
             return Err(CmdError::Params(format!("`format` is \"{FORMAT_WORD_2003}\" or \"{FORMAT_FLAT_OPC}\", and only for an .xml file")));
         }
     }
+    // Undone below if the write fails: a failed save (no permission, disk full, a bad path)
+    // must not leave the document's own save stamps — zoom, modified/created, author, revision —
+    // changed, or a later save would persist them for a write that never actually happened.
+    let before_stamp =
+        (s.doc.settings.zoom, s.doc.core.last_modified_by.clone(), s.doc.core.created.clone(), s.doc.core.modified.clone(), s.doc.core.revision);
     s.stamp_save();
     let password = s.password.as_ref().map(crate::io::Password::as_str);
     // A header/footer just made and left empty isn't saved (#960).
     let copy = super::insert::saved_copy(s);
-    crate::io::save_path_with(&path, copy.as_ref().unwrap_or(&s.doc), password, &opts).map_err(CmdError::Failed)?;
+    if let Err(e) = crate::io::save_path_with(&path, copy.as_ref().unwrap_or(&s.doc), password, &opts) {
+        (s.doc.settings.zoom, s.doc.core.last_modified_by, s.doc.core.created, s.doc.core.modified, s.doc.core.revision) = before_stamp;
+        return Err(CmdError::Failed(e));
+    }
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     // A save in a format that doesn't keep everything (plain text, Markdown, a page image) is a
     // copy, except over the document's own file: a note.txt opened and saved is saved (#2376).
