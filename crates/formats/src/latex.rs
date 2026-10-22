@@ -1673,7 +1673,9 @@ fn length_pt(s: &str) -> Option<f32> {
     let split = s.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-')).unwrap_or(s.len());
     let (n, unit) = s.split_at(split);
     let n: f32 = if n.is_empty() { 1.0 } else { n.parse().ok()? };
-    let unit = unit.trim().to_ascii_lowercase();
+    let unit = unit.trim();
+    // Macro names are case-sensitive (`\TEXTWIDTH` is not `\textwidth`); unit keywords are not.
+    let unit = if unit.starts_with('\\') { unit.to_owned() } else { unit.to_ascii_lowercase() };
     let k = match unit.as_str() {
         "pt" => 1.0,
         "bp" => 72.27 / 72.0,
@@ -2812,7 +2814,6 @@ mod tests {
         assert_eq!(length_pt("+12pt"), Some(12.0));
         assert_eq!(length_pt("1IN"), Some(72.27));
         assert_eq!(length_pt("+2cm"), Some(56.9));
-        assert_eq!(length_pt("0.5\\TEXTWIDTH"), Some(LINE_WIDTH * 0.5));
     }
 
     const ARTICLE: &str = r#"\documentclass[11pt]{article}
