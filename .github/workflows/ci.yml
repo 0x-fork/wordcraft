@@ -19,7 +19,7 @@ concurrency:
 env:
   # Same craft-fonts commit as release.yml and freebsd.yml, so layout tests see the fonts a
   # release build embeds (the checkout is an optional build input, see crates/fonts/build.rs).
-  CRAFT_FONTS_REF: 8dcdacd5153e64560d109541a47d806f26f048c0
+  CRAFT_FONTS_REF: a71c20e30af613287c504f7e685ca8fad77752bc
 
 jobs:
   gate:
