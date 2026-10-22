@@ -120,17 +120,16 @@ fn headless_sessions_keep_the_dictionary_in_memory() {
     assert!(h.session.user_dict_path.is_none());
 }
 
-/// A backend whose paragraph break is refused while text insertion would succeed.
+/// A backend that keeps every command it is sent and refuses text with a paragraph break.
 struct RefusesParagraph {
-    calls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
 }
 
 impl crate::backend::Backend for RefusesParagraph {
     fn call(&mut self, _method: &str, params: Value) -> Result<Value, String> {
-        let command = params["command"].as_str().unwrap_or("").to_string();
-        self.calls.lock().unwrap().push(command.clone());
-        match command.as_str() {
-            "text.newParagraph" => Err("paragraph break refused".into()),
+        self.calls.lock().unwrap().push(params.clone());
+        match params["params"]["text"].as_str() {
+            Some(t) if t.contains('\r') => Err("paragraph break refused".into()),
             _ => Ok(json!({"ok": true})),
         }
     }
@@ -142,7 +141,8 @@ impl crate::backend::Backend for RefusesParagraph {
     }
 }
 
-/// #1356: a refused paragraph break is reported and the next line is not typed after it.
+/// #1356: a refused paragraph break is reported, and nothing of the text goes in without it: the
+/// lines are one command, all or nothing.
 #[test]
 fn type_text_stops_at_a_refused_paragraph_break() {
     let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -150,5 +150,32 @@ fn type_text_stops_at_a_refused_paragraph_break() {
     let r = call(&mut s, 11, "tools/call", json!({"name": "type_text", "arguments": {"text": "one\ntwo", "paragraphs": true}}));
     assert_eq!(r["result"]["isError"], true, "{r}");
     assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("paragraph break refused"), "{r}");
-    assert_eq!(*calls.lock().unwrap(), vec!["text.insert", "text.newParagraph"]);
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0]["command"], "text.insert");
+    assert_eq!(calls[0]["params"]["text"], "one\rtwo");
+}
+
+/// #3692: typed paragraphs are one edit and one undo step, not a command (and a whole-document
+/// undo snapshot) per line; too many lines are refused before anything is typed.
+#[test]
+fn type_text_paragraphs_are_one_undo_step_with_a_line_cap() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    let lines: Vec<String> = (0..2000).map(|i| format!("Line {i}")).collect();
+    tool(&mut s, "type_text", json!({"text": lines.join("\r\n"), "paragraphs": true}));
+    let text = tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().to_string();
+    assert!(text.contains("Line 0") && text.contains("Line 1999"), "{}", text.len());
+    let paras = |s: &mut Server| tool(s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len();
+    assert_eq!(paras(&mut s), 2000);
+    tool(&mut s, "execute", json!({"command": "edit.undo"}));
+    assert_eq!(paras(&mut s), 1, "one Undo takes all the lines back out");
+    assert!(!tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().contains("Line"));
+
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut s = Server::new(Box::new(RefusesParagraph { calls: calls.clone() }));
+    let many = "x\n".repeat(crate::tools::MAX_TYPED_PARAGRAPHS);
+    let r = call(&mut s, 12, "tools/call", json!({"name": "type_text", "arguments": {"text": many, "paragraphs": true}}));
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    assert!(calls.lock().unwrap().is_empty(), "refused before any command");
 }
