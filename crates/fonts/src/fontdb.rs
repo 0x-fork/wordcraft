@@ -2005,6 +2005,8 @@ mod tests {
         let latin = bundled.face(FALLBACK_FAMILY, "Regular");
         if bundled.fallback_for('น', 0).is_none() {
             assert!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_none());
+        } else {
+            assert!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_some());
         }
     }
 
