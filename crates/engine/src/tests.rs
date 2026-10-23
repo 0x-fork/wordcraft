@@ -7082,6 +7082,37 @@ fn spanish_proofing_through_the_review_commands() {
     assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
 }
 
+/// #3562 review: Add to Dictionary and Ignore All get the issue's own text, decomposed (NFD) as
+/// typed; the word is then accepted decomposed and composed, and its issue range was the typed
+/// bytes.
+#[test]
+fn add_and_ignore_all_accept_both_normalization_forms() {
+    spanish_test_dictionaries();
+    let mut s = s();
+    let text = "esto zqanade\u{301}do y zqignora\u{301}do";
+    run(&mut s, "document.setText", json!({"text": text}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "es-ES"}));
+    let issues = run(&mut s, "review.issues", json!({}));
+    let words: Vec<(String, u64)> = issues
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| i["kind"] == "spelling")
+        .map(|i| (i["text"].as_str().unwrap().to_string(), i["start"]["off"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(words, [("zqanade\u{301}do".to_string(), 5), ("zqignora\u{301}do".to_string(), text.find("zqign").unwrap() as u64)], "{issues}");
+    run(&mut s, "review.addToDictionary", json!({"word": words[0].0}));
+    run(&mut s, "review.ignoreAll", json!({"word": words[1].0}));
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().is_empty());
+    // The composed spellings are the same words.
+    run(&mut s, "document.setText", json!({"text": "esto zqanadédo y zqignorádo"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "es-ES"}));
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().is_empty());
+    wordcraft_proof::remove_word("zqanadédo");
+}
+
 /// Uruguayan Spanish accepts the `vos` forms, imperatives included, that Spain's flags.
 #[test]
 fn uruguayan_spanish_accepts_vos_forms() {
