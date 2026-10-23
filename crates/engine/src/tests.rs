@@ -8349,6 +8349,42 @@ fn a_version_snapshot_does_not_survive_a_comparison() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Compare's new and revised results are untitled documents even without an `original` path.
+#[test]
+fn a_version_snapshot_does_not_survive_an_untitled_comparison() {
+    for show_in in ["new", "revised"] {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Current document."));
+        s.run("file.versions", &json!({"save": "snapshot"})).unwrap();
+        s.run("review.compare", &json!({"text": "Revised document.", "showIn": show_in})).unwrap();
+        assert!(s.versions.is_empty(), "old snapshots survived a {show_in} comparison");
+        assert!(s.run("file.versions", &json!({"restore": 0})).is_err());
+        assert!(s.path.is_none() && s.file_name.is_none());
+    }
+}
+
+/// A rejected comparison leaves the current document and its snapshots together.
+#[test]
+fn a_rejected_comparison_keeps_the_current_versions() {
+    use wordcraft_doc::{CharProps, InlineObject};
+
+    let mut s = Session::new(wordcraft_doc::Document::from_text("Editable. Locked."));
+    s.path = Some(std::path::PathBuf::from("original.docx"));
+    s.file_name = Some("original.docx".into());
+    s.run("file.versions", &json!({"save": "snapshot"})).unwrap();
+    let end = s.doc.end_of(StoryRef::Body);
+    s.doc.insert_object(&end, InlineObject::PermEnd { id: 1 }, &CharProps::default()).unwrap();
+    let start = s.doc.start_of(StoryRef::Body);
+    s.doc.insert_object(&start, InlineObject::PermStart { id: 1, group: String::new(), editor: s.author.clone() }, &CharProps::default()).unwrap();
+    s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+    let before = s.doc.clone();
+
+    assert!(s.run("review.compare", &json!({"text": "Different document.", "showIn": "new"})).is_err());
+    assert_eq!(s.doc, before);
+    assert_eq!(s.versions.len(), 1, "a rejected comparison discarded the current document's snapshot");
+    assert_eq!(s.path.as_deref(), Some(std::path::Path::new("original.docx")));
+    assert_eq!(s.file_name.as_deref(), Some("original.docx"));
+}
+
 /// #1344: File › Info › Inspect Document finds hidden text by its effective formatting (direct,
 /// character style, paragraph style) in every story — body, header, footer, footnote, comment,
 /// text box — and Remove All deletes exactly that text, in one undo step, through a DOCX save.

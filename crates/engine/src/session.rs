@@ -1442,6 +1442,12 @@ impl Session {
         } else {
             None
         };
+        // These mutating commands can replace the open document and discard its saved versions.
+        // Keep the versions until the command and the protected-region post-check have both
+        // succeeded; rejected commands must leave the old document and its snapshots together.
+        let versions_before = matches!(id, "review.compare" | "review.combine" | "mailings.finish" | "mailings.envelopes" | "mailings.labels")
+            .then(|| self.versions.clone());
+        let comparison_file_before = matches!(id, "review.compare" | "review.combine").then(|| (self.path.clone(), self.file_name.clone()));
         let typing = spec.id == "text.insert" || spec.id == "equation.type";
         if spec.mutates && !typing {
             self.typing_open = false;
@@ -1523,6 +1529,13 @@ impl Session {
             Err(e) => {
                 self.autocap = None;
                 self.prefs.default_language = default_language_before;
+                if let Some(versions) = versions_before {
+                    self.versions = versions;
+                }
+                if let Some((path, file_name)) = comparison_file_before {
+                    self.path = path;
+                    self.file_name = file_name;
+                }
                 if let Some((d, s, h, r, t, ev, c)) = before_doc {
                     self.doc = d;
                     self.sel = s;

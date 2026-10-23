@@ -1205,10 +1205,6 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
         let doc = crate::io::open_path(std::path::Path::new(path)).map_err(CmdError::Failed)?;
         s.doc = doc;
         s.doc.ensure_nonempty();
-        // The comparison replaces the document, so the version snapshots of the one it
-        // replaces go with it: a restore must not put the previous document back over the
-        // comparison result (#1327 follow-up).
-        s.clear_versions();
     }
     let level = p::str(v, "level").unwrap_or("word");
     let opts = CompareOptions {
@@ -1293,6 +1289,9 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
         // The result is a new, untitled document: saving it never overwrites either file.
         s.path = None;
         s.file_name = None;
+        // Version snapshots belong to the document they were taken from, including when
+        // Compare creates an untitled result from the current document.
+        s.clear_versions();
     }
     s.sel = Selection::caret(s.doc.start_of(StoryRef::Body));
     Ok(json!({"changes": changes, "author": author, "notHonoured": not_honoured}))
