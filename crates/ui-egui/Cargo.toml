@@ -34,6 +34,10 @@ sys-locale = { version = "0.3", features = ["js"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "=5.19.0"
 
+# Comment times in the user's own time zone (`local_time.rs`); the web app asks the browser.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # The browser clock (`SystemTime::now()`/`Instant::now()` panic on wasm32).
 js-sys = "0.3"
