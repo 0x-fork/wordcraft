@@ -2275,7 +2275,9 @@ preview	Title	Ukázka
 	Show the mini toolbar when text is selected	Při výběru textu zobrazit miniaturní panel nástrojů
 	Spaces	Mezery
 	Spelling	Pravopis
-	Spelling and grammar are checked in English (United States).	Pravopis a mluvnice se kontrolují v angličtině (Spojené státy).
+	Spelling and grammar are checked in {language}.	Jazyk kontroly pravopisu a mluvnice: {language}.
+	The text at the insertion point is marked Do not check spelling or grammar.	Text v místě vkládání je označen: Nekontrolovat pravopis ani mluvnici.
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft v tomto jazyce zatím nekontroluje pravopis ani mluvnici.
 	Tab characters	Znaky tabulátoru
 	These marks show even when Show/Hide ¶ is off.	Tyto značky se zobrazují, i když je vypnuto Zobrazit/skrýt ¶.
 	Typing replaces selected text	Psaný text nahrazuje vybraný text

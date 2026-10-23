@@ -161,7 +161,9 @@
 	Show the mini toolbar when text is selected	텍스트를 선택할 때 미니 도구 모음 표시
 	Spaces	공백
 	Spelling	맞춤법
-	Spelling and grammar are checked in English (United States).	맞춤법과 문법은 영어(미국)로 검사합니다.
+	Spelling and grammar are checked in {language}.	맞춤법 및 문법 검사 언어: {language}
+	The text at the insertion point is marked Do not check spelling or grammar.	삽입 위치의 텍스트 설정: 맞춤법 및 문법 검사 안 함
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft는 아직 이 언어의 맞춤법 및 문법을 검사하지 않습니다.
 	Tab characters	탭 문자
 	Tab stop position:	탭 위치:
 	Default tab stops:	기본 탭 위치:

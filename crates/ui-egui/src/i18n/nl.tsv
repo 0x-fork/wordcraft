@@ -1988,7 +1988,9 @@
 	Spaces	Spaties
 	Special	Speciaal
 	Spelling	Spelling
-	Spelling and grammar are checked in English (United States).	Spelling en grammatica worden gecontroleerd in het Engels (Verenigde Staten).
+	Spelling and grammar are checked in {language}.	Controletaal voor spelling en grammatica: {language}.
+	The text at the insertion point is marked Do not check spelling or grammar.	De tekst bij de invoegpositie is gemarkeerd: Spelling of grammatica niet controleren.
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft controleert in deze taal nog geen spelling of grammatica.
 	Stacked Bar	Gestapeld staafdiagram
 	Stacked Column	Gestapeld kolomdiagram
 	Standard	Standaard

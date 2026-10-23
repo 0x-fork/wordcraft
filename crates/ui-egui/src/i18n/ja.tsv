@@ -197,7 +197,9 @@
 	Show the mini toolbar when text is selected	テキストを選択したときにミニ ツール バーを表示する
 	Spaces	スペース
 	Spelling	スペル チェック
-	Spelling and grammar are checked in English (United States).	スペルと文法は英語 (米国) でチェックされます。
+	Spelling and grammar are checked in {language}.	スペルと文法のチェック言語: {language}
+	The text at the insertion point is marked Do not check spelling or grammar.	挿入ポイントのテキストの設定: スペルチェックと文章校正を行わない
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft はこの言語のスペルと文法をまだチェックしません。
 	Tab characters	タブ
 	Tab stop position:	タブ位置:
 	Default tab stops:	既定のタブ間隔:
