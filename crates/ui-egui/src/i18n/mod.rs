@@ -486,6 +486,14 @@ pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
     out
 }
 
+/// A test language whose catalog is `source` (catalog format), so tests of lookup code don't
+/// depend on the bundled catalogs' wording. `code` selects code-specific rules such as Turkish
+/// casing.
+#[cfg(test)]
+pub(crate) fn fixture_lang(code: &'static str, source: &'static str) -> Lang {
+    Lang(Box::leak(Box::new(LangInfo { code, name: "Fixture", source, prefer_hans: false, editing_lang: None, catalog: OnceLock::new() })))
+}
+
 #[cfg(test)]
 mod audit;
 #[cfg(test)]
