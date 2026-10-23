@@ -3022,6 +3022,168 @@ fn word_toc_control_with_the_field_end_after_the_entries_survives_update_and_sav
     }
 }
 
+/// A paragraph style `id` named `name`, based on Normal.
+fn style_xml(id: &str, name: &str, ppr: &str, rpr: &str) -> String {
+    format!(
+        r#"<w:style w:type="paragraph" w:styleId="{id}"><w:name w:val="{name}"/><w:basedOn w:val="Normal"/><w:pPr>{ppr}</w:pPr><w:rPr>{rpr}</w:rPr></w:style>"#
+    )
+}
+
+/// A DOCX package with `body` and the paragraph `styles` after a default Normal style.
+fn docx_with_styles(body: &str, styles: &str) -> Vec<u8> {
+    use std::io::Write;
+    const W: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
+    const RELS: &str = r#"xmlns="http://schemas.openxmlformats.org/package/2006/relationships""#;
+    const TYPE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, value) in [
+        ("word/document.xml", format!(r#"<w:document {W}><w:body>{body}</w:body></w:document>"#)),
+        (
+            "word/styles.xml",
+            format!(
+                r#"<w:styles {W}><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>{styles}</w:styles>"#
+            ),
+        ),
+        (
+            "word/_rels/document.xml.rels",
+            format!(r#"<Relationships {RELS}><Relationship Id="rId1" Type="{TYPE}/styles" Target="styles.xml"/></Relationships>"#),
+        ),
+        (
+            "_rels/.rels",
+            format!(r#"<Relationships {RELS}><Relationship Id="main" Type="{TYPE}/officeDocument" Target="word/document.xml"/></Relationships>"#),
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(value.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+/// #3891: Update Table on a TOC Word wrote in Portuguese keeps the formatting of its TOC styles,
+/// stored under the ids `Sumrio1`/`Sumrio3` (`toc 1`/`toc 3`): bold Arial at level 1, italic and
+/// indented at level 3.
+#[test]
+fn update_table_keeps_the_formatting_of_localized_toc_styles() {
+    let t = |s: &str| format!(r#"<w:r><w:t xml:space="preserve">{s}</w:t></w:r>"#);
+    let p = |st: &str, inner: &str| format!(r#"<w:p><w:pPr><w:pStyle w:val="{st}"/></w:pPr>{inner}</w:p>"#);
+    let begin = r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>"#;
+    let body = [
+        p("CabealhodoSumrio", &t("Contents")),
+        p("Sumrio1", &format!("{begin}{}", t("Chapter\t1"))),
+        p("Sumrio3", &t("Detail\t1")),
+        r#"<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>"#.to_string(),
+        p("Ttulo1", &t("Chapter")),
+        p("Ttulo3", &t("Detail")),
+    ]
+    .concat();
+    let styles = [
+        style_xml("Ttulo1", "heading 1", r#"<w:outlineLvl w:val="0"/>"#, ""),
+        style_xml("Ttulo3", "heading 3", r#"<w:outlineLvl w:val="2"/>"#, ""),
+        style_xml("CabealhodoSumrio", "TOC Heading", "", ""),
+        style_xml("Sumrio1", "toc 1", "", r#"<w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/>"#),
+        style_xml("Sumrio3", "toc 3", r#"<w:ind w:left="220"/>"#, "<w:i/>"),
+    ]
+    .concat();
+    let mut s = Session::new(wordcraft_docx::read(&docx_with_styles(&body, &styles)).unwrap());
+    run(&mut s, "references.updateToc", json!({}));
+    let entries: Vec<(String, bool, bool, f32)> = s
+        .doc
+        .body
+        .iter()
+        .filter_map(|b| b.as_para())
+        .filter(|p| p.props.style.as_deref().is_some_and(|st| st.starts_with("TOC") && st != "TOCHeading"))
+        .map(|p| {
+            let c = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(0));
+            (c.font, c.bold, c.italic, s.doc.styles.resolve_para(&p.props).indent_left)
+        })
+        .collect();
+    let level3 = entries.get(1).map(|e| e.0.clone()).unwrap_or_default();
+    assert_eq!(entries, [("Arial".to_string(), true, false, 0.0), (level3, false, true, 11.0)], "{}", text(&s));
+}
+
+/// #3889: Word's TOC in two columns, written by Word in Portuguese. The TOC heading ends a
+/// one-column section; the entries, styled `Sumrio1`/`Sumrio2` (`toc 1`/`toc 2`), fill a continuous
+/// two-column one, and the field's end and the control's end share a paragraph after them. Update
+/// Table keeps the entries' styles, puts the page numbers at the first column's right edge (3888
+/// twips, as Word's own entries have them) and adds no blank line above the first column; update,
+/// save and reopen keeps it so.
+#[test]
+fn toc_in_columns_with_localized_styles_keeps_its_layout_through_update_table() {
+    let t = |s: &str| format!(r#"<w:r><w:t xml:space="preserve">{s}</w:t></w:r>"#);
+    let p = |st: &str, inner: &str| format!(r#"<w:p><w:pPr><w:pStyle w:val="{st}"/></w:pPr>{inner}</w:p>"#);
+    let tab = r#"<w:tabs><w:tab w:val="right" w:leader="dot" w:pos="3888"/></w:tabs>"#;
+    let entry = |st: &str, inner: &str| format!(r#"<w:p><w:pPr><w:pStyle w:val="{st}"/>{tab}</w:pPr>{inner}</w:p>"#);
+    let sect = |cols: &str, kind: &str| {
+        format!(
+            r#"<w:sectPr>{kind}<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1701" w:bottom="1417" w:left="1701" w:header="708" w:footer="708" w:gutter="0"/><w:cols {cols} w:space="708"/></w:sectPr>"#
+        )
+    };
+    let continuous = r#"<w:type w:val="continuous"/>"#;
+    let begin = r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \o "1-2" \h \z \u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>"#;
+    let toc = [
+        p("CabealhodoSumrio", &t("Contents")),
+        format!("<w:p><w:pPr>{}</w:pPr></w:p>", sect("", "")),
+        entry("Sumrio1", &format!("{begin}{}", t("Chapter One\t1"))),
+        entry("Sumrio2", &t("Section\t1")),
+        r#"<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>"#.to_string(),
+    ]
+    .concat();
+    let body = [
+        format!(
+            r#"<w:sdt><w:sdtPr><w:id w:val="-1360965913"/><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>{toc}</w:sdtContent></w:sdt>"#
+        ),
+        format!(r#"<w:p><w:pPr>{}</w:pPr></w:p>"#, sect(r#"w:num="2""#, continuous)),
+        p("Ttulo1", &t("Chapter One")),
+        p("Ttulo2", &t("Section")),
+        sect("", ""),
+    ]
+    .concat();
+    let styles = [
+        style_xml("Ttulo1", "heading 1", r#"<w:outlineLvl w:val="0"/>"#, ""),
+        style_xml("Ttulo2", "heading 2", r#"<w:outlineLvl w:val="1"/>"#, ""),
+        style_xml("CabealhodoSumrio", "TOC Heading", "", ""),
+        style_xml("Sumrio1", "toc 1", r#"<w:spacing w:after="100"/>"#, ""),
+        style_xml("Sumrio2", "toc 2", r#"<w:spacing w:after="100"/><w:ind w:left="220"/>"#, ""),
+    ]
+    .concat();
+    let mut s = Session::new(wordcraft_docx::read(&docx_with_styles(&body, &styles)).unwrap());
+    let mut blocks = None;
+    for round in 0..3 {
+        run(&mut s, "references.updateToc", json!({}));
+        let entries: Vec<(usize, &wordcraft_doc::Paragraph)> = s
+            .doc
+            .body
+            .iter()
+            .enumerate()
+            .filter_map(|(i, b)| b.as_para().map(|p| (i, p)))
+            .filter(|(_, p)| p.props.style.as_deref().is_some_and(|st| st.starts_with("TOC") && st != "TOCHeading"))
+            .collect();
+        // The chapters' section starts a new page.
+        let found: Vec<(Option<&str>, String)> = entries.iter().map(|(_, p)| (p.props.style.as_deref(), p.plain_text())).collect();
+        assert_eq!(found, [(Some("TOC1"), "Chapter One\t2".to_string()), (Some("TOC2"), "Section\t2".to_string())], "round {round}: {}", text(&s));
+        assert_eq!(s.doc.styles.get("TOC2").and_then(|st| st.para.indent_left), Some(11.0), "round {round}: the document's own TOC 2");
+        for (_, e) in &entries {
+            let right = e.props.tabs.as_ref().and_then(|t| t.iter().find(|t| t.align == wordcraft_doc::props::TabAlign::Right)).unwrap();
+            assert!((right.pos - 194.4).abs() < 0.1, "round {round}: page numbers at the first column's edge, not the page's: {}", right.pos);
+        }
+        // The paragraph above the first entry ends the one-column section: no blank line tops the
+        // first column.
+        let above = entries[0].0 - 1;
+        assert!(s.doc.body[above].as_para().unwrap().section.is_some(), "round {round}: a blank line above the entries: {}", text(&s));
+        let bytes = wordcraft_docx::write(&s.doc).unwrap();
+        s = Session::new(wordcraft_docx::read(&bytes).unwrap());
+        assert!(blocks.is_none_or(|n| n == s.doc.body.len()), "round {round}: the document grew: {}", text(&s));
+        blocks = Some(s.doc.body.len());
+    }
+    // The field's paragraph ends the one-column section: replacing or removing the TOC keeps it.
+    let columns = |s: &Session| s.doc.sections().iter().map(|(_, x)| x.columns.count).collect::<Vec<_>>();
+    assert_eq!(columns(&s), [1, 2, 1]);
+    run(&mut s, "references.toc", json!({"levels": 2}));
+    assert_eq!(columns(&s), [1, 2, 1], "{}", text(&s));
+    run(&mut s, "references.removeToc", json!({}));
+    assert_eq!(columns(&s), [1, 2, 1], "{}", text(&s));
+}
+
 /// #2182: with two TOCs only the one Update Table would refresh is offered Update Field; the other
 /// range TOC doesn't claim the menu, so it never refreshes a different table.
 #[test]
