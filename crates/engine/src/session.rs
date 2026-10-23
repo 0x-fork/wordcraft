@@ -1445,9 +1445,19 @@ impl Session {
         // These mutating commands can replace the open document and discard its saved versions.
         // Keep the versions until the command and the protected-region post-check have both
         // succeeded; rejected commands must leave the old document and its snapshots together.
-        let versions_before = matches!(id, "review.compare" | "review.combine" | "mailings.finish" | "mailings.envelopes" | "mailings.labels")
-            .then(|| self.versions.clone());
-        let comparison_file_before = matches!(id, "review.compare" | "review.combine").then(|| (self.path.clone(), self.file_name.clone()));
+        let replaces_document = matches!(id, "review.compare" | "review.combine" | "mailings.finish" | "mailings.envelopes" | "mailings.labels");
+        let versions_before = replaces_document.then(|| self.versions.clone());
+        let identity_before = replaces_document.then(|| {
+            (
+                self.path.clone(),
+                self.file_name.clone(),
+                self.document_id,
+                self.password.clone(),
+                self.dirty,
+                self.bib_style.clone(),
+                self.merge.preview,
+            )
+        });
         let typing = spec.id == "text.insert" || spec.id == "equation.type";
         if spec.mutates && !typing {
             self.typing_open = false;
@@ -1532,9 +1542,14 @@ impl Session {
                 if let Some(versions) = versions_before {
                     self.versions = versions;
                 }
-                if let Some((path, file_name)) = comparison_file_before {
+                if let Some((path, file_name, document_id, password, dirty, bib_style, merge_preview)) = identity_before {
                     self.path = path;
                     self.file_name = file_name;
+                    self.document_id = document_id;
+                    self.password = password;
+                    self.dirty = dirty;
+                    self.bib_style = bib_style;
+                    self.merge.preview = merge_preview;
                 }
                 if let Some((d, s, h, r, t, ev, c)) = before_doc {
                     self.doc = d;

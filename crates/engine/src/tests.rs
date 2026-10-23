@@ -8385,6 +8385,37 @@ fn a_rejected_comparison_keeps_the_current_versions() {
     assert_eq!(s.file_name.as_deref(), Some("original.docx"));
 }
 
+/// A rejected mailing result must keep the source document's save target and versions.
+#[test]
+fn a_rejected_mailing_result_keeps_the_current_file_identity() {
+    use wordcraft_doc::{CharProps, InlineObject};
+
+    let mut s = Session::new(wordcraft_doc::Document::from_text("Protected source."));
+    s.path = Some(std::path::PathBuf::from("source.docx"));
+    s.file_name = Some("source.docx".into());
+    s.run("file.versions", &json!({"save": "snapshot"})).unwrap();
+    let end = s.doc.end_of(StoryRef::Body);
+    s.doc.insert_object(&end, InlineObject::PermEnd { id: 1 }, &CharProps::default()).unwrap();
+    let start = s.doc.start_of(StoryRef::Body);
+    s.doc.insert_object(&start, InlineObject::PermStart { id: 1, group: String::new(), editor: s.author.clone() }, &CharProps::default()).unwrap();
+    s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+    let before = s.doc.clone();
+    let before_id = s.document_id();
+    let before_dirty = s.dirty;
+    s.password = Some(crate::io::Password::new("synthetic file password"));
+    s.bib_style = "Chicago".into();
+
+    assert!(s.run("mailings.envelopes", &json!({"delivery": "Recipient"})).is_err());
+    assert_eq!(s.doc, before);
+    assert_eq!(s.versions.len(), 1);
+    assert_eq!(s.path.as_deref(), Some(std::path::Path::new("source.docx")));
+    assert_eq!(s.file_name.as_deref(), Some("source.docx"));
+    assert_eq!(s.document_id(), before_id);
+    assert_eq!(s.dirty, before_dirty);
+    assert_eq!(s.password.as_ref().map(crate::io::Password::as_str), Some("synthetic file password"));
+    assert_eq!(s.bib_style, "Chicago");
+}
+
 /// #1344: File › Info › Inspect Document finds hidden text by its effective formatting (direct,
 /// character style, paragraph style) in every story — body, header, footer, footnote, comment,
 /// text box — and Remove All deletes exactly that text, in one undo step, through a DOCX save.
