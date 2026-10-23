@@ -908,11 +908,27 @@ pub(crate) fn caret_language(app: &WordApp) -> String {
     tl!(&language_name(caret_lang_tag(app).as_deref())).to_string()
 }
 
-/// The language tag at the caret, resolved through the styles and the document default.
-fn caret_lang_tag(app: &WordApp) -> Option<String> {
+/// The formatting at the caret, resolved through the styles and the document default.
+fn caret_char(app: &WordApp) -> wordcraft_doc::resolve::ResolvedChar {
     let s = &app.session;
     let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.clone());
-    s.doc.styles.resolve_char(style.as_deref(), &s.typing_props()).lang
+    s.doc.styles.resolve_char(style.as_deref(), &s.typing_props())
+}
+
+/// The language tag at the caret, resolved through the styles and the document default.
+fn caret_lang_tag(app: &WordApp) -> Option<String> {
+    caret_char(app).lang
+}
+
+/// Is the text at the caret itself marked Do not check spelling or grammar? (`format.state`
+/// looks at the whole word around a caret, so a partly marked word would read as checked.)
+pub(crate) fn caret_no_proof(app: &WordApp) -> bool {
+    caret_char(app).no_proof
+}
+
+/// Does WordCraft check spelling and grammar in the caret's language at all (Bulgarian: no)?
+pub(crate) fn caret_language_proofed(app: &WordApp) -> bool {
+    wordcraft_engine::proof::has_dictionary(caret_lang_tag(app).as_deref())
 }
 
 /// The Hunspell dictionary the caret's language needs but doesn't have (`pl_PL`), if any (#1167).
