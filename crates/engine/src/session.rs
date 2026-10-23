@@ -1454,6 +1454,10 @@ impl Session {
         // The formatting waiting at the caret (⌘B with nothing selected): an undo step restores
         // it, so a command that only changes it is an edit.
         let pending_before = spec.mutates.then(|| self.pending.clone());
+        // Which document is open. A command that replaces the document (a mail merge) opens a
+        // new one, with a new undo history: it is not an edit of this document, whatever the
+        // new document holds.
+        let document_id_before = self.document_id;
         // These mutating commands can replace the open document and discard its saved versions.
         // Keep the versions until the command and the protected-region post-check have both
         // succeeded; rejected commands must leave the old document and its snapshots together.
@@ -1522,9 +1526,11 @@ impl Session {
                     self.doc.ensure_nonempty();
                     self.doc.prune_text_boxes();
                     // Whether the command left the document, the selection and the formatting
-                    // waiting at the caret as they were.
+                    // waiting at the caret as they were — and the same document open.
                     let unchanged = |s: &Session| match (&before_doc, &pending_before) {
-                        (Some((doc, sel, _, _, _, _, column)), Some(pending)) => s.unchanged(doc, sel, column, pending),
+                        (Some((doc, sel, _, _, _, _, column)), Some(pending)) => {
+                            s.document_id == document_id_before && s.unchanged(doc, sel, column, pending)
+                        }
                         _ => false,
                     };
                     let changed = !unchanged(self);

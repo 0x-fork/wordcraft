@@ -1440,6 +1440,26 @@ mod tests {
         assert_eq!(parse_csv("a;b\n1;2")[1], vec!["1", "2"]);
     }
 
+    /// #4001: finishing a merge opens a new document, with a new undo history. It is not an
+    /// edit of the open document, even when the merged document holds the same content.
+    #[test]
+    fn finishing_a_merge_opens_a_new_document_with_a_new_history() {
+        let mut s = Session::new(Document::from_text("Hello"));
+        s.run("text.insert", &json!({"text": "!"})).unwrap();
+        assert_eq!(s.undo_depth(), 1);
+        s.run("caret.docStart", &json!({})).unwrap();
+        // One recipient and no merge fields: the merged document holds the same content.
+        s.run("mailings.recipients", &json!({"rows": [{"Name": "Ada"}]})).unwrap();
+        let id = s.document_id();
+        s.run("mailings.finish", &json!({})).unwrap();
+        assert_ne!(s.document_id(), id, "the document was replaced");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "!Hello");
+        assert_eq!(s.undo_depth(), 0, "the new document starts with an empty undo history");
+        // Undo cannot bring the old document's text back.
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "!Hello", "the old text does not come back");
+    }
+
     #[test]
     fn merge_end_to_end() {
         let mut s = Session::new(Document::new());
