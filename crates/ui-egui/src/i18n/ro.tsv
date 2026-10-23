@@ -2222,7 +2222,9 @@
 	Spelling & Grammar	Ortografie și gramatică
 	Spelling &\nGrammar	Ortografie și\ngramatică
 	Spelling Suggestions	Sugestii de ortografie
-	Spelling and grammar are checked in English (United States).	Ortografia și gramatica se verifică în engleză (Statele Unite).
+	Spelling and grammar are checked in {language}.	Limba de verificare a ortografiei și gramaticii: {language}.
+	The text at the insertion point is marked Do not check spelling or grammar.	Textul de la punctul de inserare este marcat: Nu verifica ortografia și gramatica.
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft nu verifică încă ortografia și gramatica în această limbă.
 	Spike	Spike
 	Split	Împărțire
 	Split Cells	Împărțire celule

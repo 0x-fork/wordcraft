@@ -2194,7 +2194,9 @@
 	Spelling	Črkovanje
 	Spelling & Grammar	Črkovanje in slovnica
 	Spelling &\nGrammar	Črkovanje\nin slovnica
-	Spelling and grammar are checked in English (United States).	Črkovanje in slovnica se preverjata v angleščini (Združene države).
+	Spelling and grammar are checked in {language}.	Jezik preverjanja črkovanja in slovnice: {language}.
+	The text at the insertion point is marked Do not check spelling or grammar.	Besedilo na mestu vstavljanja je označeno: Ne preverjaj črkovanja ali slovnice.
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft v tem jeziku še ne preverja črkovanja ali slovnice.
 	Spelling Suggestions	Predlogi za črkovanje
 	Split	Razdeli
 	Split Cells	Razdeli celice

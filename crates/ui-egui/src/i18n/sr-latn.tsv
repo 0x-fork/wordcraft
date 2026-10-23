@@ -254,7 +254,9 @@
 	Show the mini toolbar when text is selected	Prikaži mini traku sa alatkama pri izboru teksta
 	Spaces	Razmaci
 	Spelling	Pravopis
-	Spelling and grammar are checked in English (United States).	Pravopis i gramatika se proveravaju na engleskom (Sjedinjene Države).
+	Spelling and grammar are checked in {language}.	Jezik provere pravopisa i gramatike: {language}.
+	The text at the insertion point is marked Do not check spelling or grammar.	Tekst na mestu umetanja je označen: Ne proveravaj pravopis ni gramatiku.
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft još ne proverava pravopis ni gramatiku na ovom jeziku.
 	Tab characters	Znakovi tabulatora
 	Tab stop position:	Položaj tabulatora:
 	Default tab stops:	Podrazumevani tabulatori:

@@ -1,6 +1,6 @@
 # Installing spelling dictionaries
 
-> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-22 · **Change:** minor (Spanish: `es_ES`, `es_MX`, `es_419` and `es_UY` with their fallbacks, #3360, #3553; previously trivial: ISO 8859-1 dictionaries are read, #2824; previously major: first version)
+> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-23 · **Change:** minor (Spanish: `es_ES`, `es_MX`, `es_419` and `es_UY` with their fallbacks, #3360, #3553; previously trivial: every Hunspell language shows (no dictionary), not only Polish and Portuguese, and Indonesian is listed, #3150; previously trivial: ISO 8859-1 dictionaries are read, #2824)
 
 English spelling works out of the box. Polish, Russian, Portuguese, Czech, Italian, Croatian,
 Turkish, Indonesian and Spanish spelling use a standard **Hunspell** dictionary (an `.aff` and a `.dic` file) that
@@ -29,6 +29,7 @@ WordCraft looks for the first of these file names (each name means a `<name>.aff
 | Italian | `it_IT`, `it_CH`, `it-IT`, `it` | LibreOffice `dict-it` |
 | Croatian | `hr_HR`, `hr-HR`, `hr` | LibreOffice `dict-hr` |
 | Turkish | `tr_TR`, `tr-TR`, `tr` | LibreOffice `dict-tr` |
+| Indonesian | `id_ID`, `id-ID`, `id`, `in_ID` | LibreOffice `dict-id` |
 | Spanish (Spain) | `es_ES`, `es-ES`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
 | Spanish (Mexico) | `es_MX`, `es-MX`, `es_419`, `es-419`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
 | Spanish (Latin America, and the other Spanish regions of the Americas) | `es_419`, `es-419`, `es_ANY`, `es`, `es_US`, `es_MX`, `es_AR`, `es-AR` | LibreOffice `dict-es` (RLA-ES) |
@@ -139,6 +140,7 @@ Never commit dictionary files to this repository: they stay on the user's system
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-22 | minor | Spanish (#3360, #3553): the file names for Spain, Mexico, Latin America and Uruguay and their fallbacks |
+| 2026-10-22 | trivial | Italian, Croatian, Turkish, Russian, Czech and Indonesian without a dictionary now show **(no dictionary)** (or **(dictionary unreadable)**) too, as this page already said; before, only Polish and Portuguese did. Indonesian is listed with its file names (#3150) |
 | 2026-10-18 | trivial | ISO 8859-1 (`SET ISO8859-1`) dictionaries are read, so the original VERO `pt_BR` works without converting it to UTF-8 (#2824) |
 | 2026-10-18 | minor | An installed dictionary that can't be read shows **(dictionary unreadable)** in the status bar, with the file and reason in its tooltip and in File › Options › Proofing (#2830) |
 | 2026-10-16 | major | First version: the file names per language, the search order and folders on Windows, macOS and Linux, installing `pt_BR` on each, and how to check it works |

@@ -464,9 +464,17 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     // #414 (detect the document's language) goes here.
     ui.add_space(8.0);
     section(ui, "Proofing language");
-    // The document's default language (Review › Language › Set As Default changes it).
-    let tag = app.session.doc.styles.default_chr.lang.clone();
-    note(ui, &crate::ribbon::language_name(tag.as_deref()));
+    let lang = crate::ribbon::caret_language(app);
+    let text = if crate::ribbon::caret_no_proof(app) {
+        tl!("The text at the insertion point is marked Do not check spelling or grammar.").to_string()
+    } else if !crate::ribbon::caret_language_proofed(app) {
+        crate::i18n::fmt(tl!("{language}: WordCraft doesn't check spelling or grammar in this language yet."), &[("language", &lang)])
+    } else {
+        let unreadable = crate::ribbon::caret_unreadable_dictionary(app);
+        crate::chrome::dictionary_problem(&lang, &unreadable, crate::ribbon::caret_missing_dictionary(app))
+            .unwrap_or_else(|| crate::i18n::fmt(tl!("Spelling and grammar are checked in {language}."), &[("language", &lang)]))
+    };
+    ui.label(RichText::new(text).small().weak());
 }
 
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {
