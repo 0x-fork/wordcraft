@@ -14,6 +14,9 @@ pub(crate) struct PageBuilder<'a> {
     pub(crate) cols: Vec<(f32, f32)>,
     pub(crate) y: f32,
     pub(crate) top: f32,
+    /// The body's top on this page: `top` moves down below the text when a continuous section
+    /// starts mid-page.
+    pub(crate) page_top: f32,
     pub(crate) bottom: f32,
     pub(crate) number: u32,
     pub(crate) web: bool,
@@ -317,6 +320,7 @@ impl PageBuilder<'_> {
         self.col = 0;
         self.cols = s.column_boxes();
         self.top = body_top;
+        self.page_top = body_top;
         self.bottom = if self.web { f32::MAX / 8.0 } else { bottom };
         self.orig_bottom = self.bottom;
         self.y = self.top;
@@ -355,6 +359,12 @@ impl PageBuilder<'_> {
     }
     pub(crate) fn at_top(&self) -> bool {
         self.y <= self.top + 0.01
+    }
+    /// At the top with nothing above on this page, so moving on gains no room. A continuous
+    /// section starting mid-page is at its top but not fresh: what doesn't fit there goes to the
+    /// next page (#3907).
+    pub(crate) fn fresh(&self) -> bool {
+        self.at_top() && self.top <= self.page_top + 0.01
     }
     /// Move to the next column or page.
     pub(crate) fn advance(&mut self, block: usize, body_top: f32) {

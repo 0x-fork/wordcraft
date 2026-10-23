@@ -36,6 +36,19 @@ pub(crate) fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, blo
         }
         return;
     }
+    if !pb.web && ctx.stacked_marks.binary_search(&block).is_ok() {
+        // Measured in Word (#3907): each takes its line while it fits; past the bottom it stays
+        // there instead of starting a page, so the text after a long run starts the next page.
+        let (y, prev, bottom, content_bottom, at) = (pb.y, pb.prev.clone(), pb.bottom, pb.content_bottom, (pb.pages.len(), pb.col));
+        pb.bottom = f32::MAX / 4.0;
+        place_para_in_flow(ctx, pb, p, block, body_top);
+        pb.bottom = bottom;
+        if (pb.pages.len(), pb.col) == at && pb.y > bottom + 0.01 {
+            // At the bottom: nothing more fits on the page, even a line smaller than the mark's.
+            (pb.y, pb.prev, pb.content_bottom) = (bottom.max(y), prev, content_bottom);
+        }
+        return;
+    }
     place_para_in_flow(ctx, pb, p, block, body_top);
 }
 
@@ -164,7 +177,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         let need = height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0, &mut ctx.counters.clone()) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
         // With the 0.01 pt of slack the other fit checks take.
-        if pb.y + need > pb.bottom + 0.01 && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
+        if pb.y + need > pb.bottom + 0.01 && !pb.fresh() && need <= pb.uncapped_bottom() - pb.top {
             pb.advance(block, body_top);
             pb.y += pl.rp.space_before.min(0.0);
             applied_before = pl.rp.space_before.min(0.0);
@@ -324,7 +337,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             // An empty paragraph closing a section before a new page: measured in Word, it stays
             // on a full page instead of starting one of its own.
             let closing_mark = pb.next_starts_page && p.section.is_some() && p.text.is_empty();
-            if over && l1 == l0 && !pb.at_top() && !split && !only_break && !closing_mark {
+            if over && l1 == l0 && !pb.fresh() && !split && !only_break && !closing_mark {
                 break;
             }
             new_notes.extend(line_notes);
@@ -343,11 +356,11 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         }
         // Widow/orphan control (2-line minimum at either end).
         if forced_break.is_none() && l1 < n && pl.rp.widow_control && n >= 2 {
-            if l1 - l0 == 1 && l0 == 0 && !pb.at_top() {
+            if l1 - l0 == 1 && l0 == 0 && !pb.fresh() {
                 l1 = l0; // orphan: move the first line to the next page
             } else if n - l1 == 1 && (l1 - l0 >= 3 || (l0 > 0 && l1 - l0 >= 2)) {
                 l1 -= 1; // widow: take one more line along
-            } else if n - l1 == 1 && l0 == 0 && l1 - l0 == 2 && !pb.at_top() {
+            } else if n - l1 == 1 && l0 == 0 && l1 - l0 == 2 && !pb.fresh() {
                 // Neither split of a three-line paragraph is allowed (two and a widow, or an
                 // orphan and two): it moves whole, as in Word.
                 l1 = l0;
@@ -358,7 +371,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             l1 -= 1;
         }
         if l1 == l0 {
-            if pb.at_top() {
+            if pb.fresh() {
                 l1 = l0 + 1; // can't fit even one line on an empty page: overflow
             } else {
                 pb.advance(block, body_top);
