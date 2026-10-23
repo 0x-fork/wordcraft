@@ -346,6 +346,9 @@ fn parse_with(bytes: &[u8], extra: &[(&'static str, &str)], strict: bool) -> Res
         };
         match ev {
             Event::Start(ref e) | Event::Empty(ref e) => {
+                if strict && root.is_some() && stack.is_empty() {
+                    return Err(DocxError::Xml("more than one root element".into()));
+                }
                 count += 1;
                 if count > MAX_ELEMENTS {
                     return Err(DocxError::Limit("too many XML elements".into()));
@@ -433,15 +436,17 @@ fn parse_with(bytes: &[u8], extra: &[(&'static str, &str)], strict: bool) -> Res
                         }
                         Err(_) => None,
                     };
-                    if let Some(c) = ch {
-                        push_text(top, &c);
+                    match ch {
+                        Some(c) => push_text(top, &c),
+                        None if strict => return Err(DocxError::Xml("an entity is not defined".into())),
+                        None => {}
                     }
                 }
             }
             Event::Eof => break,
             _ => {}
         }
-        if root.is_some() && stack.is_empty() {
+        if !strict && root.is_some() && stack.is_empty() {
             break;
         }
     }
@@ -566,6 +571,22 @@ pub fn body_ns() -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strict_parsing_rejects_a_dropped_entity_and_trailing_markup() {
+        let bad = [&b"<w:t>before &unknown; after</w:t>"[..], b"<a></a><b></b>", b"<a></a><b>"];
+        for xml in bad {
+            assert!(parse_strict(xml).is_err(), "{}", String::from_utf8_lossy(xml));
+        }
+        assert!(
+            parse_strict(
+                b"<a>x &amp; y</a>
+"
+            )
+            .is_ok()
+        );
+        assert!(parse(b"<a></a><b></b>").is_ok(), "lenient parsing still stops at the root");
+    }
 
     #[test]
     fn a_relationship_attribute_is_the_namespaced_one_or_the_alias_of_one() {
