@@ -1663,6 +1663,12 @@ fn design(app: &mut WordApp, ui: &mut Ui) {
                     ("Relaxed", "relaxed"),
                     ("Double", "double"),
                 ] {
+                    // "Open" here is roomy spacing, not the file verb: only a `spacing` row
+                    // translates it, else it stays English.
+                    if l == "Open" {
+                        mi_text(ui, app, crate::i18n::get("spacing", l).unwrap_or(l), "design.paragraphSpacing", json!({"value": v}));
+                        continue;
+                    }
                     mi(ui, app, l, "design.paragraphSpacing", json!({"value": v}));
                 }
             });
@@ -3450,6 +3456,9 @@ mod tests {
     /// in Polish the table tabs were out of reach. They stay on the strip and a click opens them.
     #[test]
     fn table_tabs_stay_clickable_when_the_tab_strip_overflows() {
+        if !crate::i18n::catalogs_embedded() {
+            return;
+        }
         use egui_kittest::kittest::Queryable;
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
         app.run("insert.table", json!({"rows": 3, "cols": 3})).unwrap();
@@ -3477,6 +3486,9 @@ mod tests {
     /// Editing / Share, the tabs stay inside the window, and the buttons keep their room.
     #[test]
     fn tab_strip_never_overlaps_the_right_buttons() {
+        if !crate::i18n::catalogs_embedded() {
+            return;
+        }
         use egui_kittest::kittest::Queryable;
         for lang in ["en", "pl", "de"] {
             for width in [300.0, 420.0, 520.0, 640.0, 765.0, 1280.0] {
