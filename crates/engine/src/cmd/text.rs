@@ -8,6 +8,7 @@ use wordcraft_doc::{Block, ListKind, Path, Pos, StoryRef, Table};
 use super::{delete_selection, non_mac, sel_result, split_para, type_text};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
+/// The text-entry commands: typing, Enter, breaks, Tab, deleting and typed symbols.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("text.insert", "Type Text", "Editing", insert).params(r#"{"text": string, "raw"?: bool, "paragraphs"?: bool}"#),
@@ -96,6 +97,8 @@ fn typing_options(s: &mut Session, text: &str) {
     }
 }
 
+/// `text.insert`: type `text` at the selection as the keyboard does (AutoCorrect and
+/// AutoFormat unless `raw`), or, with `paragraphs`, line by line with Enter between.
 fn insert(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::req_str(v, "text")?;
     let raw = p::bool(v, "raw").unwrap_or(false);
@@ -574,6 +577,7 @@ fn sample_text(s: &Session) -> Option<String> {
     Some(text)
 }
 
+/// `text.newParagraph`: Enter, unless the selection is in a control that takes no paragraph break.
 fn new_paragraph(s: &mut Session, _: &Value) -> CmdResult {
     // Enter in a one-line plain text control (or a check box or list) does nothing, as in Word.
     if super::controls::refuses_paragraph(s) {

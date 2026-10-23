@@ -112,6 +112,7 @@ impl Remote {
         Ok(r)
     }
 
+    /// The address the app is reached at, as given.
     pub fn addr(&self) -> &str {
         &self.addr
     }
@@ -127,6 +128,8 @@ impl Remote {
         })
     }
 
+    /// Drop the connection and connect again to the first of the address's targets that answers,
+    /// deciding afresh whether the control key may go to it.
     fn reconnect(&mut self) -> std::io::Result<()> {
         self.conn = None;
         self.key = None;

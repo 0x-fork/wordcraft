@@ -637,6 +637,7 @@ fn typed_range(text: &str, off: usize) -> Option<(usize, usize)> {
     text.get(start..off)?.chars().any(char::is_alphanumeric).then_some((start, end))
 }
 
+/// The name of `doc`'s bibliography style, APA when it names none we know.
 fn doc_bib_style(doc: &Document) -> String {
     doc.settings.bib_style.as_deref().and_then(crate::cmd::citations::find_style).map_or("APA", |st| st.name).to_string()
 }

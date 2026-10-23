@@ -52,6 +52,7 @@ fn tool(name: &str, title: &str, desc: &str, schema: Value, ro: bool) -> Value {
     json!({"name": name, "title": title, "description": desc, "inputSchema": schema, "annotations": {"title": title, "readOnlyHint": ro, "openWorldHint": false}})
 }
 
+/// Every MCP tool with its title, description, input schema and annotations (`tools/list`).
 pub fn tool_definitions() -> Value {
     json!([
         tool(
@@ -168,6 +169,8 @@ fn wrap(r: Result<Value, String>) -> ToolResult {
     }
 }
 
+/// Run tool `name` with arguments `a` through backend `b` (`tools/call`); unknown tools and
+/// failed calls are error results, never panics.
 pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
     let st = |k: &str| a.get(k).and_then(Value::as_str);
     match name {
