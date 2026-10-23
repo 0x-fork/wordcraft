@@ -103,7 +103,10 @@ pub fn tool_definitions() -> Value {
         tool(
             "type_text",
             "Type text",
-            "Type at the caret (replacing the selection). Use \\n... for line breaks inside text; use execute text.newParagraph for new paragraphs, or `paragraphs: true` to split lines into paragraphs (one undo step, at most 10000 lines).",
+            &format!(
+                "Type at the caret (replacing the selection). Use \\n... for line breaks inside text; use execute text.newParagraph for new paragraphs, or `paragraphs: true` to split lines into paragraphs (one undo step, at most {} lines).",
+                wordcraft_engine::cmd::text::MAX_TYPED_PARAGRAPHS
+            ),
             obj(json!({"text": s("Text"), "paragraphs": {"type": "boolean"}}), &["text"]),
             false
         ),
@@ -154,9 +157,6 @@ pub fn tool_definitions() -> Value {
         ),
     ])
 }
-
-/// Most paragraphs `type_text` with `paragraphs: true` types in one call.
-pub const MAX_TYPED_PARAGRAPHS: usize = 10_000;
 
 fn exec(b: &mut dyn Backend, id: &str, params: Value) -> Result<Value, String> {
     b.call("engine.execute", json!({"command": id, "params": params}))
@@ -238,12 +238,8 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
                 // One `text.insert` with `paragraphs`: each break is Enter's own (its AutoFormat,
                 // and its refusal in a one-line control), but the lines go in as one edit and one
                 // undo step, all or nothing, instead of a command (and a whole-document undo
-                // snapshot) per line.
-                let t = t.replace("\r\n", "\n").replace('\r', "\n");
-                let lines = t.split(['\n', '\u{2029}']).count();
-                if lines > MAX_TYPED_PARAGRAPHS {
-                    return ToolResult::error(format!("`text` has {lines} lines; type at most {MAX_TYPED_PARAGRAPHS} paragraphs per call"));
-                }
+                // snapshot) per line. The engine splits the lines and holds them to its cap
+                // (`MAX_TYPED_PARAGRAPHS`), for this tool and every other caller alike.
                 wrap(exec(b, "text.insert", json!({"text": t, "raw": true, "paragraphs": true})))
             } else {
                 wrap(exec(b, "text.insert", json!({"text": t, "raw": true})))

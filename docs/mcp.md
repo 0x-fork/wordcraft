@@ -112,7 +112,7 @@ files it was given rather than guarding against other software on the computer.
 | `batch` | run several commands in order |
 | `new_document` | blank, sample, letter, resume, report |
 | `open_document` / `save_document` | docx, doc (open only), odt, rtf, html, md, tex, txt, json; save also pdf, png |
-| `type_text` | type at the caret (`paragraphs: true` splits lines into paragraphs: one undo step, at most 10,000 lines) |
+| `type_text` | type at the caret (`paragraphs: true` splits lines into paragraphs: one undo step, at most 10,000 lines — the cap is `text.insert`'s own, so a control-channel or CLI call is held to it too) |
 | `select_text` | select the n-th occurrence of some text |
 | `get_text` / `inspect_document` | read the document back (verify without screenshots) |
 | `render_page` | a page as PNG |

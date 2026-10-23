@@ -158,7 +158,7 @@ fn type_text_stops_at_a_refused_paragraph_break() {
 }
 
 /// #3692: typed paragraphs are one edit and one undo step, not a command (and a whole-document
-/// undo snapshot) per line; too many lines are refused before anything is typed.
+/// undo snapshot) per line; too many lines are refused by the engine before anything is typed.
 #[test]
 fn type_text_paragraphs_are_one_undo_step_with_a_line_cap() {
     let mut s = Server::new(Box::new(Headless::default()));
@@ -173,12 +173,13 @@ fn type_text_paragraphs_are_one_undo_step_with_a_line_cap() {
     assert_eq!(paras(&mut s), 1, "one Undo takes all the lines back out");
     assert!(!tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().contains("Line"));
 
-    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let mut s = Server::new(Box::new(RefusesParagraph { calls: calls.clone() }));
-    let many = "x\n".repeat(crate::tools::MAX_TYPED_PARAGRAPHS);
+    // One line over the engine's cap ("x\n" repeated gives a last, empty line): refused, nothing typed.
+    let many = "x\n".repeat(wordcraft_engine::cmd::text::MAX_TYPED_PARAGRAPHS);
     let r = call(&mut s, 12, "tools/call", json!({"name": "type_text", "arguments": {"text": many, "paragraphs": true}}));
     assert_eq!(r["result"]["isError"], true, "{r}");
-    assert!(calls.lock().unwrap().is_empty(), "refused before any command");
+    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("at most 10000 paragraphs"), "{r}");
+    assert_eq!(paras(&mut s), 1, "nothing typed");
+    assert!(!tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().contains('x'));
 }
 
 /// Ultrareview of #3692: each typed paragraph break is Enter's own (text.newParagraph's

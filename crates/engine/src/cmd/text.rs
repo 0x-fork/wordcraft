@@ -11,7 +11,7 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 /// The text-entry commands: typing, Enter, breaks, Tab, deleting and typed symbols.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("text.insert", "Type Text", "Editing", insert).params(r#"{"text": string, "raw"?: bool, "paragraphs"?: bool}"#),
+        CommandSpec::new("text.insert", "Type Text", "Editing", insert).params(r#"{"text": string, "raw"?: bool, "paragraphs"?: bool} (paragraphs: each line a paragraph, one undo step, at most 10000 lines)"#),
         CommandSpec::new("text.newParagraph", "New Paragraph", "Editing", new_paragraph).key("Enter"),
         CommandSpec::new("text.lineBreak", "Line Break", "Editing", |s, _| ins_char(s, '\n')).key("Shift+Enter"),
         CommandSpec::new("text.pageBreak", "Page Break", "Insert › Pages", |s, _| ins_char(s, PAGE_BREAK)).key("Mod+Enter"),
@@ -587,14 +587,24 @@ fn new_paragraph(s: &mut Session, _: &Value) -> CmdResult {
     sel_result(s)
 }
 
+/// Most lines `text.insert` with `paragraphs` types in one call, for every caller (control
+/// channel, CLI, MCP): each line is an Enter, with its AutoFormat and AutoCorrect, so the work
+/// grows with the line count. More is refused before anything is typed (#3692).
+pub const MAX_TYPED_PARAGRAPHS: usize = 10_000;
+
 /// `text.insert` with `paragraphs`: each line typed as it is (`raw`), and between lines the
 /// paragraph break Enter makes ([`enter`]: its AutoFormat and AutoCorrect), all in one command, so
 /// one undo step instead of a command and a whole-document snapshot per line (#3692). Where
 /// Enter would do nothing (a one-line control, a check box, a list) the text is refused and,
-/// like any failed command, nothing of it stays.
+/// like any failed command, nothing of it stays. More than [`MAX_TYPED_PARAGRAPHS`] lines are
+/// refused before anything is typed.
 fn insert_paragraphs(s: &mut Session, text: &str) -> CmdResult {
-    typing_options(s, text);
     let text = text.replace("\r\n", "\n");
+    let lines = text.split(['\n', '\r', '\u{2029}']).count();
+    if lines > MAX_TYPED_PARAGRAPHS {
+        return Err(CmdError::Params(format!("text.insert: `text` has {lines} lines; type at most {MAX_TYPED_PARAGRAPHS} paragraphs per call")));
+    }
+    typing_options(s, &text);
     for (i, line) in text.split(['\n', '\r', '\u{2029}']).enumerate() {
         if i > 0 {
             if super::controls::refuses_paragraph(s) {
