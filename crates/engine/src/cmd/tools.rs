@@ -2106,7 +2106,9 @@ mod tests {
         let mut s = Session::new(Document::from_text("Visible text.\nHidden text."));
         s.run("select.text", &json!({"text": "Hidden"})).unwrap();
         s.run("format.hidden", &json!({"value": true})).unwrap();
-        s.run("review.restrict", &json!({"mode": "trackedChanges"})).unwrap();
+        // Tracking without Restrict Editing isolates the Inspector guard from the protected
+        // document check added separately in #3285.
+        s.run("review.trackChanges", &json!({"value": true})).unwrap();
         assert!(s.doc.settings.track_changes, "the document doesn't track changes");
         let before = s.doc.clone();
         let err = s.run("file.inspect", &json!({"remove": ["hidden"]})).unwrap_err();
