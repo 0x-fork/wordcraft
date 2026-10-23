@@ -1521,13 +1521,27 @@ impl Session {
                     }
                     self.doc.ensure_nonempty();
                     self.doc.prune_text_boxes();
-                    // A command that changed nothing is not an edit (#23): it adds no undo
-                    // step, marks no unsaved changes, forces no relayout and leaves the redo
-                    // stack alone. What it left behind is compared with what it started from.
-                    no_op = match (&before_doc, &pending_before) {
-                        (Some((doc, sel, _, _, _, _, column)), Some(pending)) => self.unchanged(doc, sel, column, pending),
+                    // Whether the command left the document, the selection and the formatting
+                    // waiting at the caret as they were.
+                    let unchanged = |s: &Session| match (&before_doc, &pending_before) {
+                        (Some((doc, sel, _, _, _, _, column)), Some(pending)) => s.unchanged(doc, sel, column, pending),
                         _ => false,
                     };
+                    let changed = !unchanged(self);
+                    if changed {
+                        // The layout the connectors are rerouted against is the new one.
+                        self.touch();
+                    }
+                    // Glued connectors follow the shapes they join.
+                    let rerouted = crate::cmd::connectors::reroutes_after(id) && crate::cmd::connectors::reroute(self);
+                    if rerouted {
+                        self.touch();
+                    }
+                    // A command that changed nothing is not an edit (#23): it adds no undo
+                    // step, marks no unsaved changes, forces no relayout and leaves the redo
+                    // stack alone. What it left behind is compared with what it started from,
+                    // after the reroute: a reroute that moved a connector is an edit of its own.
+                    no_op = !changed && !rerouted && unchanged(self);
                     if no_op {
                         // The step the dispatch pushed is not an edit: put the stacks back as
                         // they were, so the redo stack survives and no step is evicted.
@@ -1537,13 +1551,6 @@ impl Session {
                             self.typing_open = *typing_open;
                             self.undo_evicted = *evicted;
                         }
-                    } else {
-                        // The layout the connectors are rerouted against is the new one.
-                        self.touch();
-                    }
-                    // Glued connectors follow the shapes they join.
-                    if crate::cmd::connectors::reroutes_after(id) && crate::cmd::connectors::reroute(self) {
-                        self.touch();
                     }
                 }
                 self.clamp_selection();

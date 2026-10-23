@@ -57,7 +57,7 @@ Bullets and Numbering decide whether to toggle off from the selected paragraphs'
 |---|---|---|
 | type, select some of it, type over it | two undo steps: the first ⌘Z brings the selected text back (still selected), the second removes the typing. Uninterrupted typing stays one step | `typing_then_selecting_then_typing_are_two_undo_steps` |
 | ⌘B with nothing selected, ⌘Z, type | the text isn't bold (Undo takes the waiting caret formatting back too); ⌘Y brings it back | `undoing_bold_at_the_caret_turns_bold_typing_off_again` |
-| ⌫ at the start of the document, or typing nothing | nothing happens: no undo step is added, the document is not marked edited, and the redo stack survives ³ | `a_command_that_changes_nothing_is_not_an_edit`, `a_no_op_command_keeps_the_redo_stack` |
+| ⌫ at the start of the document, or typing nothing | nothing happens: no undo step is added, the document is not marked edited, and the redo stack survives ³ | `backspace_at_the_start_of_the_document_is_not_an_edit`, `a_command_that_changes_nothing_is_not_an_edit`, `a_no_op_command_keeps_the_redo_stack` |
 
 ³ Not re-observed side by side in Word for this change: Word's undo list does not grow when a
 key changes nothing, and the document is not marked edited. The gap was found by the read-only
