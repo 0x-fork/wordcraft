@@ -2003,11 +2003,10 @@ mod tests {
         let bundled = FontDb::with_font_dirs(Vec::new());
         bundled.set_system_fallback(false);
         let latin = bundled.face(FALLBACK_FAMILY, "Regular");
-        if bundled.fallback_for('น', 0).is_none() {
-            assert!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_none());
-        } else {
-            assert!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_some());
-        }
+        // Expected from the embedded font list, not from the database under test.
+        let thai_bundled = crate::CRAFT_FONTS.iter().any(|f| f.scripts.contains(&"Thai"));
+        assert_eq!(bundled.fallback_for('น', 0).is_some(), thai_bundled);
+        assert_eq!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_some(), thai_bundled);
     }
 
     #[test]
