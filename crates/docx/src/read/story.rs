@@ -1142,13 +1142,16 @@ impl Reader<'_> {
             let wsp = direct_shape.or_else(|| gd.find("wps:wsp"))?;
             let mut obj = self.read_wsp(sc, wsp, rels, w, h, float);
             // A freeform: whether it's ink WordCraft wrote.
-            if let InlineObject::Shape { freeform: Some(f), .. } = &mut obj
+            if let InlineObject::Shape { freeform: Some(f), extra, .. } = &mut obj
                 && let Some(name) = c.child("wp:docPr").and_then(|p| p.attr("name"))
                 && let Some(tool) = super::freeform::ink_tool(name)
             {
                 let f = Arc::make_mut(f);
                 f.ink = Some(tool);
                 f.order = super::freeform::ink_order(name);
+                // Ink's round ends belong to its tool, not the optional shape outline. Keep
+                // its canonical model unchanged when reading the round cap the writer adds.
+                extra.cap = Default::default();
             }
             obj
         };
@@ -1533,7 +1536,12 @@ impl Reader<'_> {
         {
             part.body.auto_color = Some(rgb);
         }
-        let mut extra = ShapeExtra { dash: super::shape_style::line_dash(ln), outline_fill: paint.outline_fill, ..ShapeExtra::default() };
+        let mut extra = ShapeExtra {
+            dash: super::shape_style::line_dash(ln),
+            cap: wordcraft_doc::connector::LineCap::from_ooxml(ln.and_then(|e| e.attr("cap")).unwrap_or("flat")),
+            outline_fill: paint.outline_fill,
+            ..ShapeExtra::default()
+        };
         // A rounded rectangle's own corner (`adj`, ECMA-376 §20.1.10.56); other presets drawn as
         // rounded rectangles keep the default.
         if prst == "roundRect" {
@@ -1728,6 +1736,15 @@ impl Reader<'_> {
         let stroke = on("stroked").then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
         let stroke_width = attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
         let fill = vml_fill(shape, shapetype);
+        let endcap = shape
+            .child("v:stroke")
+            .and_then(|s| s.attr("endcap"))
+            .or_else(|| shapetype.and_then(|t| t.child("v:stroke")).and_then(|s| s.attr("endcap")));
+        let cap = match endcap {
+            Some("square") => wordcraft_doc::connector::LineCap::Square,
+            Some("round") => wordcraft_doc::connector::LineCap::Round,
+            _ => wordcraft_doc::connector::LineCap::Flat,
+        };
         let kind = match shape.local() {
             "line" => Some(ShapeKind::Line),
             "rect" => Some(ShapeKind::Rectangle),
@@ -1830,7 +1847,7 @@ impl Reader<'_> {
                 story,
                 freeform: None,
                 effects: Default::default(),
-                extra: Default::default(),
+                extra: ShapeExtra { cap, ..Default::default() },
             });
         }
         // A freeform: its `path`, in its `coordsize` space; a `v:fill` with no opacity
@@ -1859,11 +1876,11 @@ impl Reader<'_> {
                 story: None,
                 freeform: Some(Arc::new(f)),
                 effects: Default::default(),
-                extra: Default::default(),
+                extra: ShapeExtra { cap, ..Default::default() },
             });
         }
         let kind = kind?;
-        let mut extra = ShapeExtra::default();
+        let mut extra = ShapeExtra { cap, ..Default::default() };
         if kind == ShapeKind::Line {
             // Arrowheads (`v:stroke` startarrow / endarrow): any but `none` is drawn.
             let arrow = |name: &str| shape.child("v:stroke").and_then(|s| s.attr(name)).is_some_and(|v| v != "none");

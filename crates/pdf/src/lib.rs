@@ -1087,7 +1087,7 @@ impl Exporter<'_> {
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
             Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
-            Draw::Path { segs, fill: f, stroke, stroke_width, dash } => {
+            Draw::Path { segs, fill: f, stroke, stroke_width, dash, cap } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
                 let Some(p) = pb.finish() else { return };
@@ -1097,6 +1097,7 @@ impl Exporter<'_> {
                     // Width 0 (or none) is a hairline.
                     width: if stroke_width.is_finite() && *stroke_width > 0.0 { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
                     dash: (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: 0.0 }),
+                    line_cap: pdf_line_cap(*cap),
                     ..Default::default()
                 }));
                 if f.is_some() || stroke.is_some() {
@@ -1135,7 +1136,7 @@ impl Exporter<'_> {
                 s.draw_path(&p);
                 s.set_stroke(None);
             }
-            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner, dash } => {
+            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner, dash, cap } => {
                 let Some(p) = shape_path(*kind, rect, *corner) else { return };
                 let can_fill = *kind != ShapeKind::Line;
                 let fx = effects.sanitized();
@@ -1160,6 +1161,7 @@ impl Exporter<'_> {
                     paint: rgb::Color::new(c.0, c.1, c.2).into(),
                     width: if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
                     dash: (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: 0.0 }),
+                    line_cap: pdf_line_cap(*cap),
                     ..Default::default()
                 }));
                 if f.is_some() && can_fill || stroke.is_some() {
@@ -1925,6 +1927,14 @@ fn load_image_within(data: &Arc<Vec<u8>>, budget: u64) -> Option<Image> {
         return Image::from_jpeg(data.clone().into(), true).ok();
     }
     Some(Image::from_rgba8(dec.into_rgba8().into_raw(), w, h))
+}
+
+fn pdf_line_cap(cap: wordcraft_doc::connector::LineCap) -> LineCap {
+    match cap {
+        wordcraft_doc::connector::LineCap::Flat => LineCap::Butt,
+        wordcraft_doc::connector::LineCap::Square => LineCap::Square,
+        wordcraft_doc::connector::LineCap::Round => LineCap::Round,
+    }
 }
 
 #[cfg(test)]
