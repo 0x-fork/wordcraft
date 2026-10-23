@@ -1385,6 +1385,15 @@ impl Session {
         (spec.enabled)(self).or_else(|| if spec.mutates { crate::cmd::protect::greyed_out(self, id) } else { None })
     }
 
+    /// Whether the command changed nothing: the document, the selection, the formatting
+    /// waiting at the caret and the column selection are as they were before it ran.
+    ///
+    /// A command that changes nothing is not an edit: it adds no undo step, marks no
+    /// unsaved changes, forces no relayout and leaves the redo stack alone (#23).
+    fn unchanged(&self, doc: &Document, sel: &Selection, column: &Option<ColumnBlock>, pending: &Option<CharProps>) -> bool {
+        doc.same_content(&self.doc) && *sel == self.sel && *column == self.column && *pending == self.pending
+    }
+
     /// Run a command by id with JSON params (the single entry point for the UI, CLI, MCP and
     /// control channel). Mutating commands are undoable; a failed command leaves the document as
     /// it was; a panic inside a command becomes an error.
@@ -1442,6 +1451,9 @@ impl Session {
         } else {
             None
         };
+        // The formatting waiting at the caret (⌘B with nothing selected): an undo step restores
+        // it, so a command that only changes it is an edit.
+        let pending_before = spec.mutates.then(|| self.pending.clone());
         // These mutating commands can replace the open document and discard its saved versions.
         // Keep the versions until the command and the protected-region post-check have both
         // succeeded; rejected commands must leave the old document and its snapshots together.
@@ -1501,14 +1513,34 @@ impl Session {
         }
         match &result {
             Ok(_) => {
+                let mut no_op = false;
                 if spec.mutates {
                     // Formatting changed while tracking becomes a formatting revision.
                     if let Some((before, ..)) = &before_doc {
                         crate::cmd::fmt_revisions::record(self, id, before);
                     }
-                    self.touch();
                     self.doc.ensure_nonempty();
                     self.doc.prune_text_boxes();
+                    // A command that changed nothing is not an edit (#23): it adds no undo
+                    // step, marks no unsaved changes, forces no relayout and leaves the redo
+                    // stack alone. What it left behind is compared with what it started from.
+                    no_op = match (&before_doc, &pending_before) {
+                        (Some((doc, sel, _, _, _, _, column)), Some(pending)) => self.unchanged(doc, sel, column, pending),
+                        _ => false,
+                    };
+                    if no_op {
+                        // The step the dispatch pushed is not an edit: put the stacks back as
+                        // they were, so the redo stack survives and no step is evicted.
+                        if let Some((_, _, history, redo, typing_open, evicted, _)) = &before_doc {
+                            self.history = history.clone();
+                            self.redo = redo.clone();
+                            self.typing_open = *typing_open;
+                            self.undo_evicted = *evicted;
+                        }
+                    } else {
+                        // The layout the connectors are rerouted against is the new one.
+                        self.touch();
+                    }
                     // Glued connectors follow the shapes they join.
                     if crate::cmd::connectors::reroutes_after(id) && crate::cmd::connectors::reroute(self) {
                         self.touch();
@@ -1523,7 +1555,7 @@ impl Session {
                 if !spec.mutates && self.sel != sel_before {
                     self.typing_open = false;
                 }
-                if spec.mutates && !matches!(id, "edit.undo" | "edit.redo") {
+                if spec.mutates && !no_op && !matches!(id, "edit.undo" | "edit.redo") {
                     self.note_edit();
                 }
                 // Outline view: collapsed headings follow edits; the caret stays where it shows.
