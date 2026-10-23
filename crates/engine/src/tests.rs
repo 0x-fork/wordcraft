@@ -7026,6 +7026,10 @@ fn new_documents_follow_the_regions_spanish() {
     let mut s = s();
     s.system_region = wordcraft_geom::Region::from_tag("es_UY.UTF-8");
     assert_eq!(s.region_spanish(), "es-UY");
+    // The ISO 639-2 code is Spanish too (CodeRabbit review on #3562).
+    s.system_region = wordcraft_geom::Region::from_tag("spa_MX.UTF-8");
+    assert_eq!(s.region_spanish(), "es-MX");
+    s.system_region = wordcraft_geom::Region::from_tag("es_UY.UTF-8");
     s.set_editing_language(Some(&s.region_spanish()));
     assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("es-UY"), "the untouched document follows");
     for (tag, spanish) in [("es-MX", "es-MX"), ("es-419", "es-419"), ("es-ES", "es-ES"), ("en-US", "es-ES"), ("fr-FR", "es-ES"), ("auto", "es-UY")] {

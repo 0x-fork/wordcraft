@@ -1185,12 +1185,12 @@ impl Session {
     }
 
     /// The Spanish of the region in effect (`es-MX` on a Mexican system, `es-UY` on a Uruguayan
-    /// one), or Spain's (`es-ES`) when the region's language isn't Spanish or it names no
-    /// territory. A Spanish interface writes new documents in it, so they are proofed in the
+    /// one; the ISO 639-2 `spa` counts as Spanish), or Spain's (`es-ES`) when the region's
+    /// language isn't Spanish or it names no territory. A Spanish interface writes new documents in it, so they are proofed in the
     /// writer's Spanish from the first word (#3360).
     pub fn region_spanish(&self) -> String {
         let r = self.region();
-        (r.language == "es" && !r.territory.is_empty())
+        (matches!(r.language.as_str(), "es" | "spa") && !r.territory.is_empty())
             .then(|| format!("es-{}", r.territory))
             .and_then(|t| wordcraft_proof::lang::normalize_tag(&t))
             .unwrap_or_else(|| "es-ES".into())
