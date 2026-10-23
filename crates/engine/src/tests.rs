@@ -301,6 +301,14 @@ fn a_command_that_changes_nothing_is_not_an_edit() {
     let depth = s.undo_depth();
     run(&mut s, "para.align", json!({"value": "center"}));
     assert_eq!(s.undo_depth(), depth, "no undo step");
+    // A command that changes nothing leaves the unsaved-changes flag as it was, even when it
+    // calls `touch` itself: a saved document is not marked edited for nothing.
+    let mut clean = Session::new(wordcraft_doc::Document::new());
+    run(&mut clean, "para.align", json!({"value": "left"}));
+    clean.dirty = false;
+    run(&mut clean, "para.align", json!({"value": "left"}));
+    assert!(!clean.dirty, "no unsaved changes");
+    assert_eq!(clean.undo_depth(), 1, "only the first align is a step");
 }
 
 /// Five hundred commands that change nothing used to fill the whole undo stack and push the
@@ -328,6 +336,35 @@ fn a_no_op_command_keeps_the_redo_stack() {
     run(&mut s, "text.backspace", json!({}));
     assert!(s.can_redo(), "the redo stack survives a command that changed nothing");
     run(&mut s, "edit.redo", json!({}));
+    assert_eq!(text(&s), "Hello");
+}
+
+/// Commands that run as one undo step (`join_next_undo`: a dialog's OK, the frames of a drag):
+/// a group whose first command changes nothing has no step to merge into, so the next command
+/// in it starts the group's step instead of merging into an older edit (#23 follow-up).
+#[test]
+fn a_joined_command_starts_its_group_when_the_first_changed_nothing() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    let (depth, margins) = (s.undo_depth(), (s.doc.last_section.margin_left, s.doc.last_section.margin_top));
+    // Portrait on a portrait page changes nothing.
+    run(&mut s, "layout.orientation", json!({"value": "portrait"}));
+    assert_eq!(s.undo_depth(), depth, "the first command of the group is no edit");
+    // The next command of the group starts the step the group needs.
+    s.join_next_undo();
+    run(&mut s, "layout.margins", json!({"left": 100.0}));
+    assert_eq!(s.doc.last_section.margin_left, 100.0);
+    assert_eq!(s.undo_depth(), depth + 1, "the group's one step");
+    // A command that changes nothing in the middle of the group leaves that step alone, and
+    // the next one merges into it.
+    s.join_next_undo();
+    run(&mut s, "layout.orientation", json!({"value": "portrait"}));
+    s.join_next_undo();
+    run(&mut s, "layout.margins", json!({"top": 60.0}));
+    assert_eq!(s.undo_depth(), depth + 1, "still the group's one step");
+    // Undo takes the whole group back and no more: the typing is still there.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!((s.doc.last_section.margin_left, s.doc.last_section.margin_top), margins, "the margins the group started from");
     assert_eq!(text(&s), "Hello");
 }
 
@@ -8432,6 +8469,29 @@ fn a_version_snapshot_does_not_survive_an_untitled_comparison() {
         assert!(s.run("file.versions", &json!({"restore": 0})).is_err());
         assert!(s.path.is_none() && s.file_name.is_none());
     }
+}
+
+/// A comparison with an `original` replaces the open document in place — the handler loads the
+/// original into `s.doc` without `set_document` — so `document_id` does not move and two
+/// identical comparisons produce identical documents. A comparison is an edit of its own all
+/// the same: the `replaces_document` guard keeps its undo step (#4004 review).
+#[test]
+fn a_repeated_comparison_is_still_an_edit() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-compare-twice-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.docx");
+    let mut other = Session::new(wordcraft_doc::Document::from_text("Original document."));
+    other.run("file.save", &json!({"path": original.to_string_lossy()})).unwrap();
+
+    let mut s = Session::new(wordcraft_doc::Document::from_text("Current document."));
+    let compare = json!({"original": original.to_string_lossy(), "text": "Revised document."});
+    s.run("review.compare", &compare).unwrap();
+    let depth = s.undo_depth();
+    assert!(s.dirty);
+    s.run("review.compare", &compare).unwrap();
+    assert_eq!(s.undo_depth(), depth + 1, "the second comparison is an edit of its own");
+    assert!(s.dirty, "the comparison result is unsaved");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A rejected comparison leaves the current document and its snapshots together.
