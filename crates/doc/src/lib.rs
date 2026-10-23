@@ -186,10 +186,17 @@ fn same_blocks(a: &Blocks, b: &Blocks) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| Arc::ptr_eq(x, y) || **x == **y)
 }
 
-/// The same parts: the same kinds, the same text bodies and the same blocks.
+/// The same parts: the same keys, and each part the same.
 fn same_parts(a: &BTreeMap<u32, Part>, b: &BTreeMap<u32, Part>) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|((k1, p1), (k2, p2))| k1 == k2 && p1.kind == p2.kind && p1.body == p2.body && same_blocks(&p1.blocks, &p2.blocks))
+    a.len() == b.len() && a.iter().zip(b).all(|((k1, p1), (k2, p2))| k1 == k2 && same_part(p1, p2))
+}
+
+/// The same part: the same kind, text body and blocks. Every field is listed, so a new one
+/// does not build until someone decides whether a change to it counts.
+fn same_part(a: &Part, b: &Part) -> bool {
+    let Part { kind, blocks, body } = a;
+    let Part { kind: other_kind, blocks: other_blocks, body: other_body } = b;
+    kind == other_kind && body == other_body && same_blocks(blocks, other_blocks)
 }
 
 /// The same bytes: the same content. The bytes are compared by address first — a changed
