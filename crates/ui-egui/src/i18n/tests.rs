@@ -1,14 +1,39 @@
 //! Interface language tests (#8).
 
-use super::catalog::{Catalog, parse_entries, placeholders};
 use super::*;
 
 fn lang(code: &str) -> Lang {
     Lang::from_code(code).unwrap_or_else(|| panic!("{code} registered"))
 }
 
+/// Skips a test that needs the embedded catalogs when none were embedded (`CRAFT_I18N_DIR`
+/// unset): the interface is then English only.
+macro_rules! needs_catalogs {
+    () => {
+        if !catalogs_embedded() {
+            return;
+        }
+    };
+}
+
+/// The translations in `code`'s embedded WordCraft catalog, plural forms apart: the fonts must
+/// cover WordCraft's own wording. (The shared catalog holds every app's; the CJK checks read it too.)
+fn translations(code: &str) -> Vec<String> {
+    let code = lang(code).code();
+    CRAFT_I18N
+        .iter()
+        .filter(|(c, ..)| *c == code)
+        .flat_map(|(_, _, app)| app.lines())
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.split('\t').nth(2))
+        .flat_map(|t| t.split('|'))
+        .map(String::from)
+        .collect()
+}
+
 #[test]
 fn system_locales_map_to_languages() {
+    needs_catalogs!();
     assert_eq!(lang_from_tag("zh_CN.UTF-8"), Some(lang("zh-hans")));
     assert_eq!(lang_from_tag("zh-CN"), Some(lang("zh-hans")));
     assert_eq!(lang_from_tag("zh"), Some(lang("zh-hans")));
@@ -46,6 +71,7 @@ const UNSUPPORTED: &str = "qaa-QM";
 
 #[test]
 fn the_first_supported_preferred_language_wins() {
+    needs_catalogs!();
     // Windows and macOS list several preferred languages in order.
     assert_eq!(first_supported([UNSUPPORTED, "zh-Hant-TW", "en-US"]), Some(lang("zh-hant")));
     assert_eq!(first_supported(["en-US", "ja-JP"]), Some(Lang::EN));
@@ -58,6 +84,7 @@ fn the_first_supported_preferred_language_wins() {
 
 #[test]
 fn settings_resolve_with_fallback() {
+    needs_catalogs!();
     assert_eq!(Lang::from_pref("ja"), lang("ja"));
     assert_eq!(Lang::from_pref("ZH-HANS"), lang("zh-hans"));
     assert_eq!(Lang::from_pref("en"), Lang::EN);
@@ -77,16 +104,6 @@ fn lookups_fall_back_to_english() {
     assert_eq!(tr(fx, "no such label"), "no such label");
     assert_eq!(tr(Lang::EN, "File"), "File");
     assert!(has(fx, "File") && !has(fx, "Save") && !has(Lang::EN, "File"));
-}
-
-/// Each registered language looks strings up in its own catalog file.
-#[test]
-fn each_language_reads_its_own_catalog() {
-    for l in Lang::all() {
-        for e in parse_entries(l.0.source).0.iter().filter(|e| e.context.is_empty()) {
-            assert_eq!(tr(l, &e.source), e.translation, "{}", l.code());
-        }
-    }
 }
 
 #[test]
@@ -118,34 +135,8 @@ fn placeholders_fill_without_reinterpreting_values() {
 }
 
 #[test]
-fn malformed_catalog_lines_are_skipped_not_fatal() {
-    let (c, errors) =
-        Catalog::parse("# c\n\tHello\t你好\nctx\tA\tB\n\tOpen…\t打开\n\tPage {n}\t第 {m} 页\nno tabs\n\tHello\t重复\n\tLine\\nTwo\t一\\n二\n");
-    assert_eq!(errors.len(), 5, "{errors:?}");
-    assert_eq!(c.plain("Hello"), Some("你好"), "the first entry wins");
-    assert_eq!(c.plain("Line\nTwo"), Some("一\n二"));
-    assert_eq!(c.plain("Open…"), None);
-}
-
-/// Every bundled catalog parses without errors, and its entries keep the English placeholders.
-#[test]
-fn bundled_catalogs_are_well_formed() {
-    let mut codes = std::collections::HashSet::new();
-    for l in &LANGUAGES {
-        assert!(codes.insert(l.code), "duplicate code {}", l.code);
-        assert_eq!(l.code, l.code.to_ascii_lowercase());
-        let (entries, errors) = parse_entries(l.source);
-        assert!(errors.is_empty(), "{}: {errors:?}", l.code);
-        for e in &entries {
-            assert_eq!(placeholders(&e.source), placeholders(&e.translation), "{}: {:?}", l.code, e.source);
-            assert_eq!(e.translation.trim(), e.translation, "{}: stray whitespace in {:?}", l.code, e.translation);
-            assert!(!e.translation.contains("..."), "{}: use … rather than three dots: {:?}", l.code, e.translation);
-        }
-    }
-}
-
-#[test]
 fn the_language_setting_is_a_ui_command_and_persists() {
+    needs_catalogs!();
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
     assert_eq!(app.ui.language, AUTO);
     let r = app.run("ui.language", serde_json::json!({"value": "ZH-HANT"})).unwrap();
@@ -168,6 +159,7 @@ fn the_language_setting_is_a_ui_command_and_persists() {
 
 #[test]
 fn ukrainian_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let uk = lang("uk");
     for tag in ["uk", "uk-UA", "UK_ua.UTF-8", "uk-Cyrl-UA", "uk_UA.UTF-8@euro"] {
         assert_eq!(lang_from_tag(tag), Some(uk), "{tag}");
@@ -188,10 +180,10 @@ fn ukrainian_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_ukrainian_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("uk").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("uk");
     let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| ('\u{0400}'..='\u{04ff}').contains(c)).chain("ҐґЄєІіЇї".chars()).collect();
+        entries.iter().flat_map(|e| e.chars()).filter(|c| ('\u{0400}'..='\u{04ff}').contains(c)).chain("ҐґЄєІіЇї".chars()).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -204,10 +196,9 @@ fn bundled_interface_fonts_cover_ukrainian_without_system_fallbacks() {
 #[test]
 fn bundled_interface_fonts_cover_serbian_cyrillic_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("sr").0.source);
-    assert!(errors.is_empty());
-    let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| ('\u{0400}'..='\u{04ff}').contains(c)).collect();
+    needs_catalogs!();
+    let entries = translations("sr");
+    let chars: std::collections::HashSet<char> = entries.iter().flat_map(|e| e.chars()).filter(|c| ('\u{0400}'..='\u{04ff}').contains(c)).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -220,12 +211,11 @@ fn bundled_interface_fonts_cover_serbian_cyrillic_without_system_fallbacks() {
 #[test]
 fn bundled_interface_fonts_cover_serbian_latin_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("sr-latn").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("sr-latn");
     // Serbian Latin's letters beyond plain ASCII: š č ć ž đ (and their capitals).
     let extra = ['š', 'č', 'ć', 'ž', 'đ', 'Š', 'Č', 'Ć', 'Ž', 'Đ'];
-    let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| extra.contains(c)).chain(extra).collect();
+    let chars: std::collections::HashSet<char> = entries.iter().flat_map(|e| e.chars()).filter(|c| extra.contains(c)).chain(extra).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -237,6 +227,7 @@ fn bundled_interface_fonts_cover_serbian_latin_without_system_fallbacks() {
 
 #[test]
 fn serbian_locales_resolve_by_script() {
+    needs_catalogs!();
     let cyr = lang("sr");
     let lat = lang("sr-latn");
     for tag in ["sr", "sr-RS", "sr_RS.UTF-8", "SR", "sr-Cyrl", "sr-Cyrl-RS"] {
@@ -250,13 +241,17 @@ fn serbian_locales_resolve_by_script() {
 
 #[test]
 fn brazilian_portuguese_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let pt = lang("pt-br");
     for tag in ["pt-BR", "pt_BR.UTF-8", "PT-BR", "pt-BR-latn", "pt_BR.UTF-8@euro"] {
         assert_eq!(lang_from_tag(tag), Some(pt), "{tag}");
     }
-    // European Portuguese and a bare `pt` have no catalog yet, so they follow the fallback.
-    assert_eq!(lang_from_tag("pt-PT"), None);
-    assert_eq!(lang_from_tag("pt"), None);
+    // European Portuguese and a bare `pt` have no catalog yet, so they follow the fallback
+    // rather than the crate's `pt-br` match.
+    for tag in ["pt-PT", "pt", "pt_PT.UTF-8", "pt-AO", "PT_pt"] {
+        assert_eq!(lang_from_tag(tag), None, "{tag}");
+    }
+    assert_eq!(first_supported(["pt-PT", "fr-FR"]), Some(lang("fr")));
     assert_eq!(first_supported([UNSUPPORTED, "pt-BR", "en-US"]), Some(pt));
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
     let before = serde_json::to_value(&app.session.doc).unwrap();
@@ -273,11 +268,11 @@ fn brazilian_portuguese_locales_and_saved_preference_work_without_changing_the_d
 #[test]
 fn bundled_interface_fonts_cover_brazilian_portuguese_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("pt-br").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("pt-br");
     let chars: std::collections::HashSet<char> = entries
         .iter()
-        .flat_map(|e| e.translation.chars())
+        .flat_map(|e| e.chars())
         // The accented Latin letters Portuguese adds on top of ASCII; symbols such as ¶, ⌘ or 📂
         // come from the English sources and render as they already do.
         .filter(|c| ('\u{00C0}'..='\u{017F}').contains(c))
@@ -294,6 +289,7 @@ fn bundled_interface_fonts_cover_brazilian_portuguese_without_system_fallbacks()
 
 #[test]
 fn czech_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let cs = lang("cs");
     for tag in ["cs", "cs-CZ", "cs_CZ.UTF-8", "CS", "cs-Latn-CZ", "cs_CZ.UTF-8@euro"] {
         assert_eq!(lang_from_tag(tag), Some(cs), "{tag}");
@@ -314,11 +310,11 @@ fn czech_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_czech_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("cs").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("cs");
     let chars: std::collections::HashSet<char> = entries
         .iter()
-        .flat_map(|e| e.translation.chars())
+        .flat_map(|e| e.chars())
         .filter(|c| ('\u{00C0}'..='\u{017F}').contains(c))
         .chain("ÁáČčĎďÉéĚěÍíŇňÓóŘřŠšŤťÚúŮůÝýŽž".chars())
         .collect();
@@ -333,6 +329,7 @@ fn bundled_interface_fonts_cover_czech_without_system_fallbacks() {
 
 #[test]
 fn chinese_interface_fonts_load_and_cover_simplified_hanzi() {
+    needs_catalogs!();
     // #241: without an embedded Chinese face the interface adds an installed CJK font; egui must
     // accept it (it panics on font data it can't parse) and draw simplified-only hanzi with it.
     let ctx = egui::Context::default();
@@ -348,6 +345,7 @@ fn chinese_interface_fonts_load_and_cover_simplified_hanzi() {
 
 #[test]
 fn korean_interface_fonts_load_and_cover_hangul() {
+    needs_catalogs!();
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::font_definitions_language(false, true, true));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
@@ -372,24 +370,26 @@ fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
         eprintln!("skipped: built without craft-fonts (CRAFT_FONTS_DIR)");
         return;
     }
+    needs_catalogs!();
     let names: String = Lang::all().map(Lang::name).collect();
     for code in ["zh-hans", "zh-hant", "ja", "ko"] {
         let l = lang(code);
         let ctx = egui::Context::default();
         ctx.set_fonts(crate::theme::font_definitions_language(l.prefers_hans(), l.prefers_korean(), false));
         ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
-        let (entries, errors) = parse_entries(l.0.source);
-        assert!(errors.is_empty(), "{code}: {errors:?}");
+        let entries = translations(code);
         let chars: std::collections::BTreeSet<char> =
-            entries.iter().flat_map(|e| e.translation.chars()).chain(names.chars()).filter(|c| wordcraft_fonts::is_cjk(*c)).collect();
+            entries.iter().flat_map(|e| e.chars()).chain(names.chars()).filter(|c| wordcraft_fonts::is_cjk(*c)).collect();
         assert!(chars.len() > 300, "{code}: {} CJK characters", chars.len());
         for font in [crate::theme::regular(14.0), crate::theme::medium(14.0), crate::theme::semibold(14.0)] {
             let missing: String = ctx.fonts_mut(|f| chars.iter().filter(|c| !f.has_glyph(&font, **c)).collect());
             assert!(missing.is_empty(), "{code}: no glyph in {font:?} for {missing}");
         }
         // So the interface reads no installed CJK font for these languages.
+        let mut texts: Vec<&str> = l.catalog_texts().collect();
+        texts.push(&names);
         assert_eq!(
-            wordcraft_fonts::ui_uncovered_cjk(&[l.0.source, &names], &wordcraft_fonts::ui_cjk_fonts_for(l.prefers_hans(), l.prefers_korean())),
+            wordcraft_fonts::ui_uncovered_cjk(&texts, &wordcraft_fonts::ui_cjk_fonts_for(l.prefers_hans(), l.prefers_korean())),
             Vec::<char>::new()
         );
     }
@@ -397,6 +397,7 @@ fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
 
 #[test]
 fn only_cjk_languages_ask_for_an_installed_cjk_font() {
+    needs_catalogs!();
     // #241 follow-up: an English interface must not read a large system CJK font on startup.
     let cjk: Vec<&str> = Lang::all().filter(|l| l.uses_cjk()).map(Lang::code).collect();
     assert_eq!(cjk, ["zh-hans", "zh-hant", "ja", "ko"]);
@@ -404,6 +405,7 @@ fn only_cjk_languages_ask_for_an_installed_cjk_font() {
 
 #[test]
 fn russian_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let ru = lang("ru");
     for tag in ["ru", "ru-RU", "ru_RU.UTF-8", "RU-ru", "ru_UA.UTF-8", "ru-Cyrl-RU"] {
         assert_eq!(lang_from_tag(tag), Some(ru), "{tag}");
@@ -424,11 +426,11 @@ fn russian_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_russian_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("ru").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("ru");
     let chars: std::collections::HashSet<char> = entries
         .iter()
-        .flat_map(|e| e.translation.chars())
+        .flat_map(|e| e.chars())
         // Cyrillic letters plus the Russian quotes and dash; symbols such as ¶, ⌘ or 📂 come from
         // the English sources and render as they already do.
         .filter(|c| ('\u{0400}'..='\u{04FF}').contains(c) || matches!(c, '«' | '»' | '—'))
@@ -471,15 +473,7 @@ fn built_in_style_names_are_translated_for_display_and_user_styles_are_not() {
 }
 
 #[test]
-fn context_entries_override_only_their_context_and_unknown_contexts_are_rejected() {
-    let (c, errors) = Catalog::parse("\tTitle\tЗаголовок\npreview\tTitle\tТитул\n\tFont\tШрифт\nnope\tFont\tX\n");
-    assert_eq!(errors.len(), 1, "{errors:?}");
-    assert!(errors[0].contains("unknown context"));
-    assert_eq!(c.plain("Title"), Some("Заголовок"));
-    assert_eq!(c.in_context("preview", "Title"), Some("Титул"));
-    // Without a context entry, a context lookup uses the plain one.
-    assert_eq!(c.in_context("preview", "Font"), Some("Шрифт"));
-    assert_eq!(c.in_context("preview", "Missing"), None);
+fn context_entries_override_only_their_context() {
     let fx = fixture_lang("x-fixture", "\tTitle\tTitle-FX\npreview\tTitle\tSample-FX\n");
     assert_eq!(tr(fx, "Title"), "Title-FX");
     assert_eq!(trc(fx, "preview", "Title"), "Sample-FX");
@@ -490,6 +484,7 @@ fn context_entries_override_only_their_context_and_unknown_contexts_are_rejected
 
 #[test]
 fn estonian_locales_and_saved_preference_keep_document_content() {
+    needs_catalogs!();
     let et = lang("et");
     for tag in ["et", "et-EE", "ET_ee.UTF-8", "et-Latn-EE", "et_EE.UTF-8@euro"] {
         assert_eq!(lang_from_tag(tag), Some(et), "{tag}");
@@ -522,6 +517,7 @@ fn bundled_interface_fonts_cover_estonian_letters() {
 
 #[test]
 fn turkish_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let tr = lang("tr");
     for tag in ["tr", "tr-TR", "TR_tr.UTF-8", "tr-CY", "tr-Latn-TR", "tr_TR.UTF-8@euro"] {
         assert_eq!(lang_from_tag(tag), Some(tr), "{tag}");
@@ -548,11 +544,10 @@ fn turkish_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_turkish_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("tr").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("tr");
     let extra = "ÇçĞğİıÖöŞşÜü";
-    let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| extra.contains(*c)).chain(extra.chars()).collect();
+    let chars: std::collections::HashSet<char> = entries.iter().flat_map(|e| e.chars()).filter(|c| extra.contains(*c)).chain(extra.chars()).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -565,6 +560,7 @@ fn bundled_interface_fonts_cover_turkish_without_system_fallbacks() {
 
 #[test]
 fn hungarian_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let hu = lang("hu");
     for tag in ["hu", "hu-HU", "hu_HU.UTF-8", "HU_hu.UTF-8@euro", "hu-Latn-HU"] {
         assert_eq!(lang_from_tag(tag), Some(hu), "{tag}");
@@ -587,11 +583,10 @@ fn hungarian_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_hungarian_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("hu").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("hu");
     let extra = "ÁáÉéÍíÓóÖöŐőÚúÜüŰű";
-    let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| extra.contains(*c)).chain(extra.chars()).collect();
+    let chars: std::collections::HashSet<char> = entries.iter().flat_map(|e| e.chars()).filter(|c| extra.contains(*c)).chain(extra.chars()).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -604,6 +599,7 @@ fn bundled_interface_fonts_cover_hungarian_without_system_fallbacks() {
 
 #[test]
 fn french_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let fr = lang("fr");
     for tag in ["fr", "fr-FR", "FR_fr.UTF-8", "fr-CA", "fr_BE.UTF-8@euro", "fr-CH", "fr-Latn-FR"] {
         assert_eq!(lang_from_tag(tag), Some(fr), "{tag}");
@@ -630,12 +626,12 @@ fn french_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_french_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("fr").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("fr");
     // French letters and punctuation: accents, ligatures, guillemets and the typographic apostrophe.
     let extra = "ÀàÂâÆæÇçÉéÈèÊêËëÎîÏïÔôŒœÙùÛûÜüŸÿ«»’";
     let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| ('\u{00C0}'..='\u{017F}').contains(c)).chain(extra.chars()).collect();
+        entries.iter().flat_map(|e| e.chars()).filter(|c| ('\u{00C0}'..='\u{017F}').contains(c)).chain(extra.chars()).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -656,6 +652,7 @@ fn bundled_interface_fonts_cover_french_without_system_fallbacks() {
 
 #[test]
 fn polish_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let pl = lang("pl");
     for tag in ["pl", "pl-PL", "pl_PL.UTF-8", "PL-pl", "pl_PL.UTF-8@euro", "pl-Latn-PL"] {
         assert_eq!(lang_from_tag(tag), Some(pl), "{tag}");
@@ -676,12 +673,12 @@ fn polish_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_polish_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("pl").0.source);
-    assert!(errors.is_empty(), "{errors:?}");
+    needs_catalogs!();
+    let entries = translations("pl");
     // Polish letters beyond ASCII, both cases, and the Polish quotation marks.
     let polish = "ĄąĆćĘęŁłŃńÓóŚśŹźŻż„”";
     let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| polish.contains(*c)).chain(polish.chars()).collect();
+        entries.iter().flat_map(|e| e.chars()).filter(|c| polish.contains(*c)).chain(polish.chars()).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -693,6 +690,7 @@ fn bundled_interface_fonts_cover_polish_without_system_fallbacks() {
 
 #[test]
 fn a_polish_interface_writes_new_documents_in_polish() {
+    needs_catalogs!();
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
     let ctx = egui::Context::default();
     let frame = |app: &mut crate::WordApp| ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
@@ -724,6 +722,7 @@ fn a_polish_interface_writes_new_documents_in_polish() {
 
 #[test]
 fn a_czech_interface_writes_new_documents_and_plain_text_in_czech() {
+    needs_catalogs!();
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
     let ctx = egui::Context::default();
     let frame = |app: &mut crate::WordApp| ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
@@ -753,6 +752,7 @@ fn a_czech_interface_writes_new_documents_and_plain_text_in_czech() {
 
 #[test]
 fn an_italian_interface_writes_new_documents_in_italian() {
+    needs_catalogs!();
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
     let ctx = egui::Context::default();
     let frame = |app: &mut crate::WordApp| ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
@@ -775,12 +775,13 @@ fn an_italian_interface_writes_new_documents_in_italian() {
 
 #[test]
 fn the_editing_languages_are_the_ones_wordcraft_can_proof() {
-    let with: Vec<(&str, &str)> = Lang::all().filter_map(|l| l.editing_lang().map(|e| (l.code(), e))).collect();
+    let with: Vec<(&str, &str)> = LANGUAGES.iter().filter_map(|l| l.editing_lang.map(|e| (l.code, e))).collect();
     assert_eq!(with, [("pt-br", "pt-BR"), ("pl", "pl-PL"), ("cs", "cs-CZ"), ("tr", "tr-TR"), ("it", "it-IT")]);
 }
 
 #[test]
 fn german_locales_and_saved_preference_keep_document_content() {
+    needs_catalogs!();
     let de = lang("de");
     for tag in ["de", "de-DE", "de-AT", "de-CH", "DE_de.UTF-8", "de_DE.UTF-8@euro", "de-Latn-DE"] {
         assert_eq!(lang_from_tag(tag), Some(de), "{tag}");
@@ -813,6 +814,7 @@ fn bundled_interface_fonts_cover_german_letters() {
 
 #[test]
 fn italian_locales_and_saved_preference_keep_document_content() {
+    needs_catalogs!();
     let it = lang("it");
     for tag in ["it", "it-IT", "it_IT.UTF-8", "it-CH", "it_IT.UTF-8@euro"] {
         assert_eq!(lang_from_tag(tag), Some(it), "{tag}");
@@ -845,6 +847,7 @@ fn bundled_interface_fonts_cover_italian_letters() {
 
 #[test]
 fn bulgarian_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let bg = lang("bg");
     for tag in ["bg", "bg-BG", "bg_BG.UTF-8", "BG-bg", "bg-Cyrl-BG"] {
         assert_eq!(lang_from_tag(tag), Some(bg), "{tag}");
@@ -866,11 +869,11 @@ fn bulgarian_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_bulgarian_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("bg").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("bg");
     let chars: std::collections::HashSet<char> = entries
         .iter()
-        .flat_map(|e| e.translation.chars())
+        .flat_map(|e| e.chars())
         // Cyrillic letters plus the Bulgarian quotes and dash; symbols come from the English sources.
         .filter(|c| ('\u{0400}'..='\u{04FF}').contains(c) || matches!(c, '„' | '“' | '—' | '–'))
         .chain("АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЬЮЯабвгдежзийклмнопрстуфхцчшщъьюя".chars())
@@ -887,6 +890,7 @@ fn bundled_interface_fonts_cover_bulgarian_without_system_fallbacks() {
 
 #[test]
 fn croatian_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let hr = lang("hr");
     for tag in ["hr", "hr-HR", "hr_HR.UTF-8", "HR-hr", "hr-Latn-HR", "hr-BA"] {
         assert_eq!(lang_from_tag(tag), Some(hr), "{tag}");
@@ -908,11 +912,11 @@ fn croatian_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_croatian_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("hr").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("hr");
     let chars: std::collections::HashSet<char> = entries
         .iter()
-        .flat_map(|e| e.translation.chars())
+        .flat_map(|e| e.chars())
         // Croatian letters plus its quotes and dashes; symbols come from the English sources.
         .filter(|c| matches!(c, '„' | '”' | '–'))
         .chain("ČčĆćĐđŠšŽž".chars())
@@ -929,6 +933,7 @@ fn bundled_interface_fonts_cover_croatian_without_system_fallbacks() {
 
 #[test]
 fn swedish_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let sv = lang("sv");
     for tag in ["sv", "sv-SE", "sv_SE.UTF-8", "SV-se", "sv-FI"] {
         assert_eq!(lang_from_tag(tag), Some(sv), "{tag}");
@@ -950,11 +955,11 @@ fn swedish_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_swedish_letters() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("sv").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("sv");
     let chars: std::collections::HashSet<char> = entries
         .iter()
-        .flat_map(|e| e.translation.chars())
+        .flat_map(|e| e.chars())
         // Latin letters with diacritics plus the Swedish quote and dash; symbols come from the English sources.
         .filter(|c| ('\u{00C0}'..='\u{00FF}').contains(c) || matches!(c, '”' | '–'))
         .chain("ÅÄÖåäöÉé".chars())
@@ -971,6 +976,7 @@ fn bundled_interface_fonts_cover_swedish_letters() {
 
 #[test]
 fn vietnamese_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let vi = lang("vi");
     for tag in ["vi", "vi-VN", "vi_VN.UTF-8", "VI-vi", "vi-Latn-VN", "vi-US"] {
         assert_eq!(lang_from_tag(tag), Some(vi), "{tag}");
@@ -993,15 +999,15 @@ fn vietnamese_locales_and_saved_preference_work_without_changing_the_document() 
 #[test]
 fn bundled_interface_fonts_cover_vietnamese_letters() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("vi").0.source);
-    assert!(errors.is_empty(), "{errors:?}");
+    needs_catalogs!();
+    let entries = translations("vi");
     // Cover the catalog's Latin letters and combining marks, and all 134 non-ASCII Vietnamese
     // letters even when a letter is not used by the current translations. U+1EA0..U+1EF9 contains
     // the Vietnamese vowel/tone combinations; the other forms are in earlier Latin blocks.
     let extra = "ÀàÁáÃãÈèÉéÌìÍíÒòÓóÕõÙùÚúÝýÂâĂăĐđÊêÔôƠơƯưĨĩŨũ";
     let chars: std::collections::HashSet<char> = entries
         .iter()
-        .flat_map(|e| e.translation.chars())
+        .flat_map(|e| e.chars())
         .filter(|c| ('\u{00C0}'..='\u{024F}').contains(c) || ('\u{0300}'..='\u{036F}').contains(c) || ('\u{1E00}'..='\u{1EFF}').contains(c))
         .chain(extra.chars())
         .chain('\u{1EA0}'..='\u{1EF9}')
@@ -1020,17 +1026,18 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
 #[test]
 fn spooled_print_receipt_is_translated() {
     use crate::printing::{Feedback, feedback};
-    let (c, errors) = Catalog::parse(
+    let fx = fixture_lang(
+        "x-fixture",
         "\tPrint job submitted: spooled {count} sheet(s)\tSpooled-FX: {count}\n\tPrint job submitted: {receipt}\tSubmitted-FX: {receipt}\n",
     );
-    assert!(errors.is_empty(), "{errors:?}");
     let receipt = || Feedback::Submitted("spooled 2 sheet(s)".into());
-    assert_eq!(feedback(&receipt(), |s| c.plain(s).unwrap_or(s).to_owned()), "Spooled-FX: 2");
+    assert_eq!(feedback(&receipt(), |s| tr(fx, s).to_owned()), "Spooled-FX: 2");
     assert_eq!(feedback(&receipt(), str::to_owned), "Print job submitted: spooled 2 sheet(s)");
 }
 
 #[test]
 fn romanian_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let ro = lang("ro");
     for tag in ["ro", "ro-RO", "ro_RO.UTF-8", "RO-ro", "ro-Latn-RO", "ro-MD"] {
         assert_eq!(lang_from_tag(tag), Some(ro), "{tag}");
@@ -1053,12 +1060,11 @@ fn romanian_locales_and_saved_preference_work_without_changing_the_document() {
 #[test]
 fn bundled_interface_fonts_cover_romanian_without_system_fallbacks() {
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
-    let (entries, errors) = parse_entries(lang("ro").0.source);
-    assert!(errors.is_empty());
+    needs_catalogs!();
+    let entries = translations("ro");
     // Romanian's letters beyond plain ASCII (comma-below ș ț) and its quotation marks.
     let extra = ['ă', 'â', 'î', 'ș', 'ț', 'Ă', 'Â', 'Î', 'Ș', 'Ț', '„', '”'];
-    let chars: std::collections::HashSet<char> =
-        entries.iter().flat_map(|e| e.translation.chars()).filter(|c| extra.contains(c)).chain(extra).collect();
+    let chars: std::collections::HashSet<char> = entries.iter().flat_map(|e| e.chars()).filter(|c| extra.contains(c)).chain(extra).collect();
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
         assert_eq!(face.family, family, "must use the bundled interface face");
@@ -1070,6 +1076,7 @@ fn bundled_interface_fonts_cover_romanian_without_system_fallbacks() {
 
 #[test]
 fn slovenian_locales_and_saved_preference_work_without_changing_the_document() {
+    needs_catalogs!();
     let sl = lang("sl");
     for tag in ["sl", "sl-SI", "sl_SI.UTF-8", "SL-si", "sl-Latn-SI"] {
         assert_eq!(lang_from_tag(tag), Some(sl), "{tag}");
@@ -1089,6 +1096,7 @@ fn slovenian_locales_and_saved_preference_work_without_changing_the_document() {
 
 #[test]
 fn bundled_interface_fonts_cover_slovenian_letters() {
+    needs_catalogs!();
     let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
     for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
         let face = db.face(family, style);
@@ -1098,4 +1106,51 @@ fn bundled_interface_fonts_cover_slovenian_letters() {
         }
     }
     assert!(!lang("sl").uses_cjk());
+}
+
+/// The "Open" paragraph-spacing preset is roomy spacing, not the file verb: only a `spacing` row
+/// translates it.
+#[test]
+fn a_context_lookup_never_borrows_the_plain_translation() {
+    set_current(fixture_lang("x-fixture", "\tOpen\tOpen-file-FX\n"));
+    assert_eq!(t("Open"), "Open-file-FX");
+    assert_eq!(get("spacing", "Open"), None);
+    set_current(fixture_lang("x-fixture", "\tOpen\tOpen-file-FX\nspacing\tOpen\tRoomy-FX\n"));
+    assert_eq!(get("spacing", "Open"), Some("Roomy-FX"));
+    set_current(Lang::EN);
+    assert_eq!(get("spacing", "Open"), None);
+}
+
+/// WordCraft offers exactly the languages in `LANGUAGES` when craft-i18n is embedded, and English
+/// alone when it isn't: a missing catalog never fails, it shows English.
+#[test]
+fn the_languages_offered_are_the_embedded_ones_of_the_list() {
+    let all: Vec<&str> = Lang::all().map(Lang::code).collect();
+    if CRAFT_I18N.is_empty() {
+        assert_eq!(all, ["en"]);
+        assert_eq!(Lang::from_code("fr"), None);
+        assert_eq!(Lang::from_pref("fr"), Lang::EN, "a saved language without a catalog shows English");
+        assert_eq!(normalize_pref("fr"), None);
+        assert_eq!(tr(Lang::EN, "File"), "File");
+        return;
+    }
+    let listed: Vec<&str> = LANGUAGES.iter().map(|l| l.code).collect();
+    assert_eq!(all, listed, "every language WordCraft lists has its catalog in craft-i18n");
+    assert!(Lang::from_code("pseudo").is_none(), "the pseudo locale is never a setting");
+}
+
+/// The flatpak manifest builds with the craft-i18n commit `craft-i18n.rev` pins (CI and releases
+/// read the file; the manifest has to name it itself).
+#[test]
+fn the_flatpak_manifest_pins_the_craft_i18n_rev() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let rev = std::fs::read_to_string(root.join("craft-i18n.rev")).unwrap();
+    let rev = rev.trim();
+    assert!(rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()), "craft-i18n.rev holds one full SHA: {rev:?}");
+    let manifest = std::fs::read_to_string(root.join("packaging/linux/flatpak/ai.storyteller.wordcraft.yml")).unwrap();
+    let source = manifest.split("url: https://github.com/storytold/craft-i18n").nth(1).expect("a craft-i18n git source");
+    let source = source.split("- type:").next().unwrap_or(source);
+    let commit = source.lines().find_map(|l| l.trim().strip_prefix("commit:")).expect("the craft-i18n source pins a commit");
+    assert_eq!(commit.trim().trim_matches(['\'', '"']), rev);
+    assert!(manifest.contains("CRAFT_I18N_DIR: /run/build/wordcraft/craft-i18n"), "the build embeds the catalogs");
 }

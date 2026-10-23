@@ -1294,7 +1294,10 @@ fn layout_box(
                         pinned.insert(oi, float_rect(Some(page), (0.0, width), para_top, w, h, float));
                         continue;
                     }
-                    let r = float_rect(frame, (0.0, width), para_top, w, h, float);
+                    // Only paragraph-relative placement excludes space-before. Line anchors
+                    // and frameless page/margin fallbacks retain the text-top origin.
+                    let float_y = if float.v_rel == Anchor::Paragraph { para_top } else { y };
+                    let r = float_rect(frame, (0.0, width), float_y, w, h, float);
                     let outline = ctx.wrap_outline(o);
                     excl.extend(wrap_area(r, float, outline.as_deref().map(|v| v.as_slice())));
                     floats.insert(oi, r);

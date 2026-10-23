@@ -24,6 +24,7 @@ pub enum LineCap {
 }
 
 impl LineCap {
+    /// Read an ST_LineCap value; absent or unrecognized values use the flat default.
     pub fn from_ooxml(value: &str) -> Self {
         match value {
             "sq" => Self::Square,
@@ -32,6 +33,7 @@ impl LineCap {
         }
     }
 
+    /// Return the canonical DrawingML spelling used when saving the outline.
     pub fn ooxml(self) -> &'static str {
         match self {
             Self::Flat => "flat",
@@ -40,6 +42,7 @@ impl LineCap {
         }
     }
 
+    /// Whether the cap can be omitted from older-compatible serialized shape properties.
     pub fn is_flat(&self) -> bool {
         *self == Self::Flat
     }
@@ -307,6 +310,7 @@ mod tests {
     use super::*;
     use crate::para::{Float, GroupChild};
 
+    /// Older JSON retains flat ends without adding a property; non-flat values round-trip.
     #[test]
     fn older_shape_json_defaults_to_flat_caps() {
         let extra: ShapeExtra = serde_json::from_str("{}").unwrap();

@@ -1140,6 +1140,7 @@ fn ink_path(pts: &[(f32, f32)]) -> Option<BezPath> {
     Some(p)
 }
 
+/// Map the document cap to the raster backend without changing ink-tool stroke styles.
 fn screen_cap(cap: wordcraft_doc::connector::LineCap) -> kurbo::Cap {
     match cap {
         wordcraft_doc::connector::LineCap::Flat => kurbo::Cap::Butt,
@@ -2244,6 +2245,7 @@ mod tests {
         assert!(dashed.pixel(406, 400)[1] < 80);
     }
 
+    /// Distinguish flat, square and round endpoints for both preset lines and connector paths.
     #[test]
     fn shape_line_caps_reach_the_screen() {
         use wordcraft_doc::{

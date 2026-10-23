@@ -3668,6 +3668,7 @@ fn shape_dashes_import_and_save() {
     }
 }
 
+/// Preserve explicit caps, default missing/unknown caps, and retain caps on unpainted outlines.
 #[test]
 fn shape_caps_import_and_round_trip() {
     use wordcraft_doc::connector::LineCap;
@@ -3689,6 +3690,7 @@ fn shape_caps_import_and_round_trip() {
     }
 }
 
+/// Preserve direct and shapetype-inherited VML end caps through a DrawingML save.
 #[test]
 fn vml_line_caps_import_and_round_trip() {
     use wordcraft_doc::connector::LineCap;

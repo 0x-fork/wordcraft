@@ -1929,6 +1929,7 @@ fn load_image_within(data: &Arc<Vec<u8>>, budget: u64) -> Option<Image> {
     Some(Image::from_rgba8(dec.into_rgba8().into_raw(), w, h))
 }
 
+/// Map the document cap to the PDF backend for both shape and path outlines.
 fn pdf_line_cap(cap: wordcraft_doc::connector::LineCap) -> LineCap {
     match cap {
         wordcraft_doc::connector::LineCap::Flat => LineCap::Butt,

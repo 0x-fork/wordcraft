@@ -6,6 +6,7 @@ use wordcraft_doc::{Block, CharProps, Document, ListKind, Paragraph, Table, Wate
 
 use crate::*;
 
+/// Verify preset lines and connectors emit the requested PDF line-cap operator.
 #[test]
 fn shape_line_caps_reach_pdf_content() {
     use wordcraft_doc::{
