@@ -125,6 +125,8 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | minor | Compare's new and revised untitled results clear the previous document's version snapshots; a rejected protected comparison or mailing result preserves the snapshots and file identity. No gap row; estimates unchanged. |
+| 2026-10-20 | minor | The Document Inspector's removals are refused while the document tracks changes (they aren't tracked), and a version snapshot belongs to the document it was taken from. No gap row (enforcement fix); estimates unchanged |
 | 2026-10-18 | trivial | Explicit New/Open is not interrupted by startup recovery discovery; older copies stay available and Recover follows the interface theme. |
 | 2026-10-21 | trivial | Bullets and Numbering toggle off style-inherited lists at their effective level, including basedOn chains and numbered ListParagraph styles; other paragraphs and list definitions stay unchanged (related to #3459) |
 | 2026-10-21 | trivial | #3172: the ribbon's font name and size boxes, and the dropdown arrows beside them, say what they are to a screen reader |
