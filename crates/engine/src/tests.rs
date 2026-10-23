@@ -9329,3 +9329,16 @@ fn table_cell_margins_preserves_unpassed_sides() {
     let margins = s.doc.table(StoryRef::Body, &tp).unwrap().props.cell_margins.unwrap();
     assert_eq!(margins, [0.0, 10.0, 0.0, 15.0]);
 }
+
+#[test]
+fn headless_ui_requests_stay_bounded() {
+    let mut s = s();
+    let big = "x".repeat(1 << 20);
+    for _ in 0..200 {
+        run(&mut s, "edit.pasteSpecial", json!({"text": big}));
+        run(&mut s, "edit.goto", json!({}));
+    }
+    assert!(s.ui_requests.len() <= 64, "len = {}", s.ui_requests.len());
+    let size: usize = s.ui_requests.iter().map(|r| r.to_string().len()).sum();
+    assert!(size < 4 << 20, "queued {size} bytes");
+}
