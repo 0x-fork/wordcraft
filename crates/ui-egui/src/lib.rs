@@ -5080,6 +5080,50 @@ mod tests {
         assert!((a.canvas.scroll_offset.y - before.y).abs() < 1.0, "the view stays put: {before:?} -> {:?}", a.canvas.scroll_offset);
     }
 
+    /// #3734: `ui.resize` refuses sizes that aren't positive and clamps the rest to a window the
+    /// GPU can draw, replying with the size it asked for.
+    #[test]
+    fn control_resize_rejects_bad_sizes_and_clamps_huge_ones() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        let mut resize = |params: Value| {
+            let (req, _reply) = ControlRequest::new("ui.resize", params);
+            let mut reply = Value::Null;
+            let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let control::Outcome::Done(v) = control::handle(&mut a, ui.ctx(), &req) else { panic!("ui.resize replies at once") };
+                reply = v;
+            });
+            let sent: Vec<egui::Vec2> = out
+                .viewport_output
+                .values()
+                .flat_map(|v| v.commands.iter())
+                .filter_map(|c| if let egui::ViewportCommand::InnerSize(s) = c { Some(*s) } else { None })
+                .collect();
+            out.drop_without_applying_deltas();
+            (reply, sent)
+        };
+        // 1e300 is past f32: infinite once read, so refused too.
+        for bad in [
+            json!({"width": -5, "height": 600}),
+            json!({"width": 0, "height": 0}),
+            json!({"width": 1200, "height": -1}),
+            json!({"width": 1e300, "height": 600}),
+        ] {
+            let (v, sent) = resize(bad.clone());
+            assert_eq!(v["ok"], false, "{bad} is refused: {v}");
+            assert!(sent.is_empty(), "{bad} sends no size: {sent:?}");
+        }
+        let max = ctx.input(|i| i.max_texture_side) as f32 / ctx.pixels_per_point();
+        let (v, sent) = resize(json!({"width": 1e9, "height": 600}));
+        assert_eq!(sent, [egui::vec2(max, 600.0)], "{v}");
+        assert_eq!(v["result"], json!({"width": max, "height": 600.0}));
+        let (v, sent) = resize(json!({"width": 10, "height": 10}));
+        assert_eq!(sent, [window_geometry::MIN_SIZE], "{v}");
+        let (v, sent) = resize(json!({"width": 1200, "height": 800}));
+        assert_eq!(sent, [egui::vec2(1200.0, 800.0)]);
+        assert_eq!(v["result"], json!({"width": 1200.0, "height": 800.0}));
+    }
+
     /// The control channel's `ui.wheel` scrolls the canvas like a mouse wheel over it.
     #[test]
     fn control_wheel_scrolls_the_canvas() {
