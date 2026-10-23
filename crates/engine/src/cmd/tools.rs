@@ -465,7 +465,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let mode = p::str(v, "mode").unwrap_or("readOnly");
             s.run("review.restrict", &json!({"mode": mode}))
         })
-        .params(r#"{"mode": "none|readOnly|comments|trackedChanges"}"#),
+        .params(r#"{"mode": "none|readOnly|comments|trackedChanges"} (starting enforcement; "none" doesn't stop a protected document — use review.restrict {"stop": true})"#),
         CommandSpec::new("file.versions", "Version History", "File › Info", |s, v| {
             if let Some(label) = p::str(v, "save") {
                 s.versions.push((label.to_string(), super::now_iso(), s.doc.clone()));
@@ -475,8 +475,21 @@ pub fn specs() -> Vec<CommandSpec> {
             }
             if let Some(i) = p::u64(v, "restore") {
                 let (_, _, d) = s.versions.get(i as usize).cloned().ok_or_else(|| CmdError::Params("no such version".into()))?;
+                // The restore replaces the whole document, including the content the protection
+                // kept read-only, so the protection is stopped first (with its password, when it
+                // has one) — a restore must not go around it.
+                super::protect::check_version_restore(s)?;
                 s.checkpoint("Restore Version");
+                // A snapshot's own protection is stale: it was taken at some earlier moment, and
+                // restoring it must not bring a protection back that the live document doesn't
+                // have (#1327 follow-up).
+                let protection = s.doc.settings.protection.clone();
+                let protect_hash = s.doc.settings.protect_hash.clone();
+                let protect_formatting = s.doc.settings.protect_formatting;
                 s.doc = d;
+                s.doc.settings.protection = protection;
+                s.doc.settings.protect_hash = protect_hash;
+                s.doc.settings.protect_formatting = protect_formatting;
                 s.touch();
                 s.clamp_selection();
             }
@@ -2038,7 +2051,11 @@ mod tests {
         let mut s = Session::new(Document::from_text("locked"));
         s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
         assert!(s.run("text.insert", &json!({"text": "x"})).is_err());
-        s.run("review.restrict", &json!({"mode": "none"})).unwrap();
+        // The "none" mode is the shorthand for stopping the protection, and it doesn't stop a
+        // protected document: only the explicit stop does (#1327 follow-up).
+        assert!(s.run("review.restrict", &json!({"mode": "none"})).is_err());
+        assert!(s.run("text.insert", &json!({"text": "x"})).is_err());
+        s.run("review.restrict", &json!({"stop": true})).unwrap();
         assert!(s.run("text.insert", &json!({"text": "x"})).is_ok());
     }
 
