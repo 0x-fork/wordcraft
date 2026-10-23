@@ -1501,6 +1501,25 @@ mod tests {
         assert_eq!(s.doc.plain_text(StoryRef::Body), "!Hello", "the old text does not come back");
     }
 
+    /// #4004: finishing a merge to a file saves the merged copy there and leaves the open
+    /// document alone: it changes nothing, so it is not an edit.
+    #[test]
+    fn finishing_a_merge_to_a_file_is_not_an_edit() {
+        let dir = std::env::temp_dir().join(format!("wordcraft-merge-to-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("merged.docx");
+        let mut s = Session::new(Document::from_text("Hello"));
+        s.run("text.insert", &json!({"text": "!"})).unwrap();
+        s.run("mailings.recipients", &json!({"rows": [{"Name": "Ada"}]})).unwrap();
+        let (depth, dirty, text) = (s.undo_depth(), s.dirty, s.doc.plain_text(StoryRef::Body));
+        s.run("mailings.finish", &json!({"path": out.to_string_lossy()})).unwrap();
+        assert!(out.exists(), "the merged copy was written");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), text, "the open document is unchanged");
+        assert_eq!(s.undo_depth(), depth, "no undo step");
+        assert_eq!(s.dirty, dirty, "the unsaved-changes flag is unchanged");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn merge_end_to_end() {
         let mut s = Session::new(Document::new());

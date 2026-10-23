@@ -424,6 +424,10 @@ pub struct Session {
     /// The newest automatic capitalisation, for Word's "Automatically add words to list" (#1857).
     pub(crate) autocap: Option<crate::cmd::tools::AutoCap>,
     rev: u64,
+    /// What Restrict Editing's outright refusals depend on, for greying out commands
+    /// ([`Session::why_disabled`]): computed once per document, revision and author instead of
+    /// for every button on every frame.
+    protect_facts: std::sync::Mutex<Option<((u64, u64, String), crate::cmd::protect::Facts)>>,
     /// Which document this is: changes when [`Session::set_document`] replaces it (open, new,
     /// mail merge, recover), never on an edit.
     document_id: u64,
@@ -642,12 +646,23 @@ fn doc_bib_style(doc: &Document) -> String {
     doc.settings.bib_style.as_deref().and_then(crate::cmd::citations::find_style).map_or("APA", |st| st.name).to_string()
 }
 
+/// Most pending front-end requests a session keeps.
+pub const MAX_UI_REQUESTS: usize = 64;
 /// Maximum undo depth.
 const MAX_UNDO: usize = 500;
 /// How many steps the Undo button's list shows (#701); `edit.undoTo` reaches no further.
 pub const UNDO_LIST_MAX: usize = 100;
 
 impl Session {
+    /// Queue a request for the front end. A headless session never drains the queue, so only
+    /// the newest [`MAX_UI_REQUESTS`] are kept.
+    pub fn push_ui_request(&mut self, req: Value) {
+        if self.ui_requests.len() >= MAX_UI_REQUESTS {
+            self.ui_requests.remove(0);
+        }
+        self.ui_requests.push(req);
+    }
+
     /// File name of the persisted custom dictionary inside the settings folder.
     pub const USER_DICT_FILE: &str = "custom-dictionary.txt";
 
@@ -697,6 +712,7 @@ impl Session {
             join_anchor: false,
             autocap: None,
             rev: 1,
+            protect_facts: std::sync::Mutex::new(None),
             document_id: 1,
             cache: LayoutCache::new(),
             layout: None,
@@ -968,6 +984,7 @@ impl Session {
         let opts = LayoutOptions {
             view: ViewMode::Print,
             comment_balloons: markup && self.prefs.markup.comments,
+            numeral: self.view.numeral.resolve(SYSTEM_LOCALE.get().map(String::as_str)),
             filename: Some(Arc::from(fn_name.as_str())),
             filepath: Some(Arc::from(fn_path.as_str())),
             ..Default::default()
@@ -1293,6 +1310,7 @@ impl Session {
             join_anchor,
             autocap: _,
             rev: _,
+            protect_facts: _,
             cache: _,
             layout: _,
             // The word being typed, like `column`: valid only while `sel` is where typing left it.
@@ -1398,7 +1416,21 @@ impl Session {
     /// Restrict Editing refuses outright. `None` when it can run (or doesn't exist).
     pub fn why_disabled(&self, id: &str) -> Option<&'static str> {
         let spec = self.registry.get(id)?;
-        (spec.enabled)(self).or_else(|| if spec.mutates { crate::cmd::protect::greyed_out(self, id) } else { None })
+        (spec.enabled)(self).or_else(|| if spec.mutates { crate::cmd::protect::greyed_out(self, id, || self.protect_facts()) } else { None })
+    }
+
+    /// [`crate::cmd::protect::Facts`] for the document as it is now, cached per revision.
+    fn protect_facts(&self) -> crate::cmd::protect::Facts {
+        let key = (self.document_id, self.rev, self.author.clone());
+        let mut cache = self.protect_facts.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((k, f)) = cache.as_ref()
+            && *k == key
+        {
+            return *f;
+        }
+        let f = crate::cmd::protect::Facts::of(self);
+        *cache = Some((key, f));
+        f
     }
 
     /// Whether the command changed nothing: the document, the selection, the formatting
@@ -1482,7 +1514,10 @@ impl Session {
         // These mutating commands can replace the open document and discard its saved versions.
         // Keep the versions until the command and the protected-region post-check have both
         // succeeded; rejected commands must leave the old document and its snapshots together.
-        let replaces_document = matches!(id, "review.compare" | "review.combine" | "mailings.finish" | "mailings.envelopes" | "mailings.labels");
+        // `mailings.finish` with a path saves the merged copy there and leaves the open
+        // document alone, so it replaces nothing.
+        let replaces_document = matches!(id, "review.compare" | "review.combine" | "mailings.envelopes" | "mailings.labels")
+            || (id == "mailings.finish" && crate::p::str(params, "path").is_none());
         let versions_before = replaces_document.then(|| self.versions.clone());
         let identity_before = replaces_document.then(|| {
             (
