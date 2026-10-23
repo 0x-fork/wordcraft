@@ -183,10 +183,11 @@ impl Exempt {
     }
 }
 
-/// Lists untranslated interface text per UI state. `cargo test -p wordcraft-ui-egui
-/// untranslated_interface_text -- --nocapture` prints the report. It runs with the other tests:
-/// input is synthetic and timed by `TIME`, Read Aloud never starts a speech thread, and
-/// process-wide names other tests change are gathered every frame.
+/// Fails on interface text drawn without going through the catalog, listed per UI state, and
+/// prints the missing-translation report (`report_catalog_gaps`). `cargo xtask i18n-report` runs it
+/// with `--nocapture`; `cargo xtask test` and `ci` run it that way instead of in the main test run.
+/// It can also run with the other tests: input is synthetic and timed by `TIME`, Read Aloud never
+/// starts a speech thread, and process-wide names other tests change are gathered every frame.
 #[test]
 fn untranslated_interface_text() {
     pseudo::set(true);
@@ -338,16 +339,31 @@ fn untranslated_interface_text() {
         states.dedup();
         report.push_str(&format!("{:?}  [{}]\n", pseudo::unmarked(text), states.join(", ")));
     }
-    assert!(found.is_empty(), "{} interface texts skip translation (wrap them in tl!):\n{report}", found.len());
     report_catalog_gaps(pseudo::looked_up());
+    assert!(found.is_empty(), "{} interface texts skip translation (wrap them in tl!):\n{report}", found.len());
 }
 
-/// Prints, per language, the strings the audit saw looked up (plus the equation gallery's labels,
-/// shown in menus the audit doesn't open one by one) that its catalog has no entry for. A missing
-/// translation falls back to English, so it never fails the test; `--nocapture` shows the list.
-/// Numbered style names go through a template.
+/// The missing-translation report (`cargo xtask i18n-report`, part of `cargo xtask ci`): prints, per
+/// language, the interface strings its catalog has no entry for. A missing translation falls back
+/// to English, so the report never fails. The strings are the ones the audit saw looked up, the
+/// ribbon tabs, every command's label and ribbon location, the File › Home greetings, every reason
+/// a command gives for being off (#2678) and the equation gallery's labels (shown in menus the
+/// audit doesn't open one by one). Numbered style names go through a template.
 fn report_catalog_gaps(mut keys: std::collections::BTreeSet<String>) {
     use wordcraft_engine::math_gallery::{BUILT_INS, STRUCTURES, SYMBOL_SETS};
+    let tabs = crate::ribbon::TABS.iter().chain(&["Table Design", "Table Layout"]);
+    keys.extend(tabs.map(|t| t.to_string()));
+    keys.extend(["Good morning", "Good afternoon", "Good evening"].map(String::from));
+    keys.extend(disabled_reasons());
+    // Reasons the UI itself gives (`widgets.rs::tooltip`), which the engine's checks never reach.
+    keys.insert("Open a document first".to_string());
+    for doc in [wordcraft_doc::Document::new(), wordcraft_engine::sample::sample_document()] {
+        let session = wordcraft_engine::Session::new(doc);
+        for spec in session.registry.all() {
+            keys.extend(std::iter::once(spec.label).chain(spec.location.split(" › ")).filter(|s| !s.is_empty()).map(String::from));
+            keys.extend((spec.enabled)(&session).map(String::from));
+        }
+    }
     keys.extend(BUILT_INS.iter().map(|(_, label, _)| label.to_string()));
     keys.extend(SYMBOL_SETS.iter().map(|(name, _)| name.to_string()));
     for g in STRUCTURES {
@@ -510,29 +526,4 @@ fn disabled_reasons() -> std::collections::BTreeSet<String> {
         }
     }
     reasons
-}
-
-/// Ribbon tooltips show why a control is off in the interface's language: every reason has an
-/// entry in every catalog (#2678).
-#[test]
-fn every_disabled_reason_is_translated() {
-    let reasons = disabled_reasons();
-    // The source scan finds every reason the registry gives in a blank and the sample document.
-    for doc in [wordcraft_doc::Document::new(), wordcraft_engine::sample::sample_document()] {
-        let session = wordcraft_engine::Session::new(doc);
-        for spec in session.registry.all() {
-            if let Some(r) = (spec.enabled)(&session) {
-                assert!(reasons.contains(r), "{}: the source scan missed its reason {r:?}", spec.id);
-            }
-        }
-    }
-    assert!(reasons.len() > 20, "the source scan found only {reasons:#?}");
-    // Reasons the UI itself gives (`widgets.rs::tooltip`), which the engine's checks never reach.
-    let mut reasons = reasons;
-    reasons.insert("Open a document first".to_string());
-    let mut missing = Vec::new();
-    for l in super::Lang::all().filter(|l| *l != super::Lang::EN) {
-        missing.extend(reasons.iter().filter(|r| !super::has(l, r)).map(|r| format!("{}: {r:?}", l.code())));
-    }
-    assert!(missing.is_empty(), "{} disabled reasons are untranslated:\n{missing:#?}", missing.len());
 }

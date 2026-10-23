@@ -912,10 +912,6 @@ mod tests {
                             .expect("navigation label is painted");
                         let bounds = text.visual_bounding_rect();
                         assert!(row.contains_rect(bounds.intersect(clip)), "{language} {percent}% {selected}: {label} paints outside {row:?}");
-                        if language == "ru" && id == "accessibility" {
-                            assert_eq!(label, "Доступность");
-                            assert!(clip.contains_rect(bounds), "{language} {percent}% {selected}: {label} must fit its row");
-                        }
                         if language == "en" && ["general", "display", "save"].contains(&id) {
                             assert!(clip.contains_rect(bounds), "short labels must remain fully visible");
                         }

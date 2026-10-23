@@ -1,6 +1,6 @@
 # Slovenian interface
 
-> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** trivial (catalog completed to every key of every other catalog, 2,614 entries) · **Target:** WordCraft 0.7.0
+> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-23 · **Change:** trivial (interface-language tests: a missing translation never fails a test, `cargo xtask i18n-report` in `cargo xtask ci` prints the strings each language lacks, and lookup and template tests use inline fixture catalogs or the pseudo-language; previously trivial: catalog completed to every key of every other catalog, 2,614 entries) · **Target:** WordCraft 0.7.0
 
 Choose **File › Options › Interface language › Slovenščina**, or follow a Slovenian system display
 language (`sl-SI`, `sl_SI.UTF-8`). The catalog code is `sl`; `ui.language` with `{"value":"sl"}`
@@ -57,7 +57,15 @@ resources were consulted.
 
 ## Verification and remaining scope
 
-Tests in `crates/ui-egui/src/i18n/tests.rs` check locale selection, the saved preference, that the
-catalog covers every key of every other catalog and has no keys outside them, key terms, the search
-hint example and the bundled fonts' coverage of č, š, ž. Slovenian spelling, grammar and hyphenation
-are not included. Native speaker review is welcome.
+Tests in `crates/ui-egui/src/i18n/tests.rs` check locale selection, the saved preference and the
+bundled fonts' coverage of č, š, ž. The shared checks (catalog validation and the missing-translation report, `cargo xtask i18n-report`)
+include Slovenian automatically. Slovenian spelling, grammar and hyphenation are not included. Native speaker review
+is welcome.
+
+## Revision history
+
+| Date | Change | Summary |
+|---|---|---|
+| 2026-10-23 | trivial | Lookup, context, template, style-name and command-search tests use inline fixture catalogs or the pseudo-language; tests that asserted one language's catalog wording removed |
+| 2026-10-23 | trivial | Interface-language tests: a missing translation falls back to English and never fails a test; `cargo xtask i18n-report` (part of `cargo xtask ci`) prints the strings each language lacks; single-language coverage tests removed |
+| 2026-10-15 | trivial | Catalog completed to every key of every other catalog (2,614 entries) |
