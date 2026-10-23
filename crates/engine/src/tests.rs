@@ -301,13 +301,16 @@ fn a_command_that_changes_nothing_is_not_an_edit() {
     let depth = s.undo_depth();
     run(&mut s, "para.align", json!({"value": "center"}));
     assert_eq!(s.undo_depth(), depth, "no undo step");
-    // A command that changes nothing leaves the unsaved-changes flag as it was, even when it
-    // calls `touch` itself: a saved document is not marked edited for nothing.
+    // A command that changes nothing leaves the unsaved-changes flag and the layout revision as
+    // they were, even when it calls `touch` itself: a saved document is not marked edited for
+    // nothing, and its layout is not laid out again.
     let mut clean = Session::new(wordcraft_doc::Document::new());
     run(&mut clean, "para.align", json!({"value": "left"}));
     clean.dirty = false;
+    let rev = clean.rev();
     run(&mut clean, "para.align", json!({"value": "left"}));
     assert!(!clean.dirty, "no unsaved changes");
+    assert_eq!(clean.rev(), rev, "no relayout");
     assert_eq!(clean.undo_depth(), 1, "only the first align is a step");
 }
 
