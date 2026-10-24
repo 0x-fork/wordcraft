@@ -191,17 +191,17 @@ fn headless_sessions_keep_the_dictionary_in_memory() {
     assert!(h.session.user_dict_path.is_none());
 }
 
-/// A backend whose paragraph break is refused while text insertion would succeed.
-struct RefusesParagraph {
-    calls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+/// A backend that refuses every text insertion (a protected document, say).
+struct RefusesInsert {
+    calls: std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>,
 }
 
-impl crate::backend::Backend for RefusesParagraph {
+impl crate::backend::Backend for RefusesInsert {
     fn call(&mut self, _method: &str, params: Value) -> Result<Value, String> {
         let command = params["command"].as_str().unwrap_or("").to_string();
-        self.calls.lock().unwrap().push(command.clone());
+        self.calls.lock().unwrap().push((command.clone(), params["params"].clone()));
         match command.as_str() {
-            "text.newParagraph" => Err("paragraph break refused".into()),
+            "text.insert" => Err("editing refused".into()),
             _ => Ok(json!({"ok": true})),
         }
     }
@@ -209,17 +209,22 @@ impl crate::backend::Backend for RefusesParagraph {
         false
     }
     fn describe(&self) -> String {
-        "refuses paragraphs".into()
+        "refuses edits".into()
     }
 }
 
-/// #1356: a refused paragraph break is reported and the next line is not typed after it.
+/// #1356: a refused edit is reported and nothing is typed after it. The lines are one
+/// `text.insert` now (#3973), so a protected document refuses all of them at once, never a
+/// line at a time with the next one typed after the break that failed.
 #[test]
-fn type_text_stops_at_a_refused_paragraph_break() {
+fn type_text_paragraphs_reports_a_refusal_and_types_nothing_after_it() {
     let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let mut s = Server::new(Box::new(RefusesParagraph { calls: calls.clone() }));
+    let mut s = Server::new(Box::new(RefusesInsert { calls: calls.clone() }));
     let r = call(&mut s, 11, "tools/call", json!({"name": "type_text", "arguments": {"text": "one\ntwo", "paragraphs": true}}));
     assert_eq!(r["result"]["isError"], true, "{r}");
-    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("paragraph break refused"), "{r}");
-    assert_eq!(*calls.lock().unwrap(), vec!["text.insert", "text.newParagraph"]);
+    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("editing refused"), "{r}");
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 1, "one command for all the lines: {calls:?}");
+    assert_eq!(calls[0].0, "text.insert");
+    assert_eq!(calls[0].1["text"], "one\rtwo", "the line break is a paragraph break");
 }
