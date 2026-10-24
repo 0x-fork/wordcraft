@@ -130,10 +130,11 @@ pub struct Services {
     pub async_saves: Option<async_saves::AsyncSaves>,
     /// Web, framed by a page that keeps the files (`?host=parent`): set alongside `download`,
     /// Save, Save As and Export hand the bytes to that page instead, with whether it was Save As
-    /// ([`HostSaveFn`]: true for `file.saveAs`, which File › Export to a document format runs
-    /// too; false for Save and for the PDF and PNG exports, which are copies). Save then writes the opened file under its own name and format, as on
-    /// the desktop, and a Save or Save As that keeps everything makes that name the document's
-    /// file, so the next Save goes to it.
+    /// ([`HostSaveFn`]: true for a `file.saveAs` in a format that keeps everything, which File ›
+    /// Export to such a format runs too; false for Save and for copies: the PDF and PNG exports
+    /// and Save As in a format that doesn't keep everything). Save then writes the opened file
+    /// under its own name and format, as on the desktop, and a Save or Save As that keeps
+    /// everything makes that name the document's file, so the next Save goes to it.
     pub host_save: Option<HostSaveFn>,
     /// Web: told whether the document has unsaved changes after each pass, for the browser's
     /// leave-page guard (`beforeunload` runs between frames and can't ask the app).
@@ -1044,8 +1045,13 @@ impl WordApp {
             if let Some(saves) = &saves {
                 let _ = saves.take_started();
             }
+            // An export is a copy, and so is a save in a format that doesn't keep everything (a
+            // page image, plain text): the document itself still has unsaved changes.
+            let marked_saved = matches!(id, "file.save" | "file.saveAs") && keeps_everything(&name);
             let delivered = match (&self.services.host_save, &self.services.download) {
-                (Some(host), _) => host(&name, &bytes, id == "file.saveAs"),
+                // Save As tells the host page the document is now this file, which it only is when
+                // the save marks it saved.
+                (Some(host), _) => host(&name, &bytes, id == "file.saveAs" && marked_saved),
                 (None, Some(download)) => download(&name, &bytes),
                 (None, None) => Ok(()),
             };
@@ -1055,9 +1061,6 @@ impl WordApp {
                 self.status(msg.clone());
                 return Err(msg);
             }
-            // An export is a copy, and so is a save in a format that doesn't keep everything (a
-            // page image, plain text): the document itself still has unsaved changes.
-            let marked_saved = matches!(id, "file.save" | "file.saveAs") && keeps_everything(&name);
             if marked_saved {
                 self.session.dirty = false;
                 // The host page keeps the file under this name now, as a desktop save would.
@@ -1974,8 +1977,6 @@ impl WordApp {
             .is_some_and(|e| e.eq_ignore_ascii_case("doc") || e.eq_ignore_ascii_case("dot"))
     }
 
-    /// The name Save suggests: the open file's own Word format (so a .docm keeps its macros),
-    /// otherwise .docx.
     /// The name a browser Save or Export without a name uses. An export is named after the
     /// document (`report.pdf`, not `report.docx.pdf`). A host page that keeps the files
     /// ([`Services::host_save`]) gets Save back under the opened file's own name and format, as
@@ -1996,6 +1997,8 @@ impl WordApp {
         self.default_save_name()
     }
 
+    /// The name Save suggests: the open file's own Word format (so a .docm keeps its macros),
+    /// otherwise .docx.
     fn default_save_name(&self) -> String {
         let ext = self.session.path.as_ref().and_then(|p| p.extension()).map(|e| e.to_string_lossy().to_string());
         match ext {
@@ -7022,6 +7025,19 @@ mod tests {
         let names: Vec<(String, bool)> = got.borrow().iter().map(|(n, s, _)| (n.clone(), *s)).collect();
         assert_eq!(names, [("report.pdf".to_string(), false), ("report.png".to_string(), false)]);
         assert!(a.session.dirty, "an export is a copy");
+    }
+
+    /// Save As in a format that doesn't keep everything (File › Export to PDF or Markdown) is a
+    /// copy: the host page isn't told the document is now that file.
+    #[test]
+    fn host_save_as_a_copy_format_is_not_save_as() {
+        let (mut a, got) = host_app(false);
+        host_open(&mut a, "report.docx");
+        a.execute("file.saveAs", json!({"path": "report.pdf"})).unwrap();
+        a.execute("file.saveAs", json!({"path": "report.md"})).unwrap();
+        let calls: Vec<(String, bool)> = got.borrow().iter().map(|(n, s, _)| (n.clone(), *s)).collect();
+        assert_eq!(calls, [("report.pdf".to_string(), false), ("report.md".to_string(), false)]);
+        assert_eq!(a.session.path.as_deref(), Some(std::path::Path::new("report.docx")));
     }
 
     /// The page not getting the file is a failed save: the document keeps its changes.

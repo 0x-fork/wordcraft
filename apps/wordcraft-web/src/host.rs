@@ -11,10 +11,11 @@
 //!   itself. `saveAs` says whether the file becomes the document's file:
 //!   - Save: `false`. It writes the opened file under its own name and format, as the desktop
 //!     app does.
-//!   - Save As, and File › Export to another document format (which runs Save As): `true`. The
-//!     document is now that file; the next Save sends its name with `false`.
-//!   - Export as PDF and Export Page as PNG: `false`, with a name of their own (`report.pdf`).
-//!     They are copies; the document's file stays the same.
+//!   - Save As, and File › Export to another document format (which runs Save As): `true` for a
+//!     format that keeps everything (.docx and the other Word packages, .odt, .rtf). The document
+//!     is now that file; the next Save sends its name with `false`.
+//!   - Save As or Export to a format that doesn't (PDF, Markdown, plain text), Export as PDF and
+//!     Export Page as PNG: `false`. They are copies; the document's file stays the same.
 //! - `wordcraft:dirty` (to the parent): `{ dirty }` whenever unsaved changes appear or go away.
 //! - `wordcraft:failed` (to the parent): `{ error }` when the app couldn't start.
 //!
@@ -50,6 +51,10 @@ impl Bridge {
             return None;
         }
         let origin = window.location().origin().ok()?;
+        // An opaque origin (a `file://` page in some browsers) can't be a `postMessage` target.
+        if origin == "null" {
+            return None;
+        }
         // Reading another origin's location throws, which is `None` too.
         if parent.location().origin().ok()? != origin {
             return None;
