@@ -959,6 +959,7 @@ pub(crate) fn observe_ime(app: &mut WordApp, ctx: &egui::Context, geometry: Opti
                 rect,
                 cursor_rect,
                 should_interrupt_composition: interrupt,
+                reset_request: None,
                 change_cause: update.change_cause,
                 surrounding_text: update.surrounding_text,
             });

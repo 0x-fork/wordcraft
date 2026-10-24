@@ -1,14 +1,24 @@
 # WordCraft: egui 0.37 migration plan
 
-**Status:** local candidate qualified, 2026-10-24. The complete reviewed migration and
-current-main PDF dependency overlay passed parent-managed `cargo xtask ci` job
-`egui037-wordcraft-candidate-20261024-current-main-full-ci-07` at 06:24:33 UTC: all eight
-stages passed. Runtime/configuration bytes and the canonical lock match the reviewed 616-file
-source snapshot. Only this status document changed after that run. Native GUI/IME/capture and
-save/reopen traces, bundled egui font notice completion, paired performance, platform/installer execution and publication approval
-remain separate gates. Historical implementation/run notes below are retained as history;
-this status and the latest qualification section supersede their pending-check statements.
-This document records local qualification, not publication or complete platform acceptance.
+**Status:** current-main reconciliation, shared text-bounds followup and regenerated lock
+passed all eight mandatory CI stages on 2026-10-24: 4,133 tests passed, none failed and four
+were ignored (`egui037-wordcraft-ruby-final-ci-20261024-2100`). The frozen upstream
+observation is `254351c01bc6e498eaede5c1bd79050d3f2d5c23`. The table-hover preview
+accessibility mismatch was reproduced, fixed and independently reviewed; all four focused
+accessibility tests passed before full CI. The phonetic-label regression also passed review
+and full CI.
+Read-only comment balloons now consume the explicit `AlignedGalley` result from craft-ui at
+`25da1314d443171b4adeaad2cd9454b273f35c6f`: height comes from the requested reading area,
+and painting retains the existing reading origin and card clip while preserving overwide
+right-to-left rows through an explicit offset. Added geometry/ink and actual card/body/reply
+regressions use bundled Latin fonts and require exact embedded Arabic/Hebrew faces in the
+canonical `CRAFT_FONTS_REQUIRED=1` lane. Optional-input builds still exercise Latin geometry.
+The earlier 616-file migration/current-main PDF overlay and its CI run remain historical
+baseline evidence. The current full CI qualifies the API/dependency followup, preview fix,
+phonetic labels and preserved notice/packaging source repair.
+Native GUI/IME/capture/save-reopen traces, package notice verification, paired performance,
+platform/installer execution and app publication remain separate gates. This records local
+work, not publication or complete platform acceptance. Historical notes below remain history.
 **Scope:** the WordCraft checkout at
 `/home/codex/work/CraftApps/egui037-migration-20261022/wordcraft-implementation`.
 **Baseline source:** `3a4770ef8ce037d2650c93e2d5764536549357c7` ("Merge pull request #3286 from
@@ -29,12 +39,16 @@ Baseline dependency identities in that lockfile:
 | toolchain | workspace MSRV 1.95; the planning host used rustc/cargo 1.99.0, which is not an acceptance toolchain by itself |
 
 **Target and current local pins:** egui family 0.37.0 at
-`173cc7375d35dc5fbc5b5d0994fdf787f547c5d1`, winit at
-`ae48c756a3b81125eb796c0cc6dccf60990d1181`, and craft-ui/craft-print at
-`c488caa9fbc2fb1a86e4674887e9b80b598ebbfa`. The current-main PDF security update uses
+`6d518fc799681571963842f95b55a6b68431b15a`, winit at
+`a517b3846ee8457d84ee4975110bfda6797c44dc`, and craft-ui/craft-print at
+`25da1314d443171b4adeaad2cd9454b273f35c6f`. The regenerated lock records these exact
+revisions and passed the dependency-source audit. The current-main PDF security update uses
 craft-pdf/krilla at `9f75d3dc19b4b514c4f3d4847ed1ec1b0e86b4ef`. These are immutable canonical
-Git URL pins qualified through local mirrors; clean remote reachability and publication still
-require explicit approval. Stock 0.37 is a measurement control, not the production target.
+Git URL pins. The new craft-ui edge and generated lock passed the current full CI.
+The translation catalog is pinned
+separately to the reviewed `9205108cfdced5177706264038848b68b2422d2b`; it is not a Cargo dependency.
+Publication observations and
+authority remain separate from this local status. Stock 0.37 is a measurement control, not the production target.
 Earlier baseline and research revisions below remain historical references.
 
 This plan follows the suite contract in
@@ -1400,14 +1414,17 @@ Revision 5: replace stale pending local checks with the actual reviewed-source f
 current immutable pins and bounded remaining acceptance gates; preserve earlier evidence/history.
 
 
-### Remaining bundled-font notice gate
+### Bundled-font notice completion — pending package verification
 
 Canonical egui0.37 default_fonts embeds `EGUI_ICONS` (the small emoji-icon-font subset), and
-WordCraft starts from `FontDefinitions::default()` in `theme.rs`. The exact upstream MIT text
-credits Copyright (c) 2014 John Slegers. WordCraft's existing NOTICE/ATTRIBUTION mention Rust
-dependencies but do not currently carry that font copyright/permission text or an explicit
-font attribution. Before distribution, complete and verify the font notice/attribution and
-actual package notice paths. This is an explicit release gate separate from the six new
-craft-fonts faces; the passing static asset check does not establish complete font-notice
-coverage. Exact canonical license bytes are preserved in the local commit evidence. No claim
-of a legal violation or complete bundled-font compliance follows from this scoped inspection.
+monochrome_emoji_fonts embeds its parent emoji-icon-font face. WordCraft starts from
+`FontDefinitions::default()` in `theme.rs`. NOTICE now carries the exact upstream MIT text,
+including Copyright (c) 2014 John Slegers, and ATTRIBUTION identifies both dependency assets.
+The PDF notice names the actual pinned9f75 revision. Shared Linux/web/CLI staging, macOS app
+resources, Windows portable ZIP and unconditional MSI notice components now include NOTICE
+and ATTRIBUTION independently of optional craft-fonts. The existing optional OFL rules remain.
+This documentation/packaging follow-up changes no runtime/font/manifests/lock bytes; its asset,
+staging and fresh review gates are pending. Final packages and platform execution remain
+unqualified. This scoped repair is separate from the six new craft-fonts faces and does not
+claim a complete historical bundled-font audit. Exact upstream license bytes are preserved in
+the local commit evidence.

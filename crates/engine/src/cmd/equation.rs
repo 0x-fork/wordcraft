@@ -40,7 +40,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(r#"{"dir": "left|right|up|down|home|end|next|prev"}"#),
         CommandSpec::new("equation.backspace", "Delete Back in Equation", "Equation", |s, _| delete(s, true)).when(editing),
         CommandSpec::new("equation.delete", "Delete in Equation", "Equation", |s, _| delete(s, false)).when(editing),
-        CommandSpec::new("equation.deleteSurrounding", "Delete Around in Equation", "Equation", delete_surrounding)
+        CommandSpec::new("equation.deleteSurrounding", "Delete Around Caret in Equation", "Equation", delete_surrounding)
             .when(editing)
             .params(r#"{"before": n, "after": n}"#),
         CommandSpec::new("equation.enter", "Enter in Equation", "Equation", enter).when(editing),

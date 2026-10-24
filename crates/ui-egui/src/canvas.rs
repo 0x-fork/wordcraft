@@ -213,7 +213,18 @@ pub struct CanvasState {
     pub(crate) tab_drag: Option<crate::ruler_tabs::TabDrag>,
     /// Whether the I-beam over the page is drawn rather than the system's (`ibeam`).
     pub(crate) drawn_ibeam: bool,
+    /// The rows and columns hovered in Insert › Table's grid this frame: the page shows that
+    /// table where it would go (#3931). Set by the grid each frame, taken by [`show`].
+    pub(crate) table_preview: Option<(usize, usize)>,
+    /// The last previewed table's layout, the copy of the document it was laid out from and the
+    /// copy's selection, with
+    /// what it was laid out for (rows, columns, document id, revision, selection, and the
+    /// document's own layout, which a view change replaces), so a still pointer doesn't lay the
+    /// document out every frame. Set only while the page shows the preview.
+    table_preview_layout: Option<(TablePreviewKey, wordcraft_doc::Document, wordcraft_engine::Selection, std::sync::Arc<DocLayout>)>,
 }
+
+type TablePreviewKey = ((usize, usize, u64, u64, wordcraft_engine::Selection), std::sync::Arc<DocLayout>);
 
 impl CanvasState {
     /// Stop a text-selection drag when the pointer gesture becomes an object drag.
@@ -329,6 +340,8 @@ impl Default for CanvasState {
             tab_kind: Default::default(),
             tab_drag: None,
             drawn_ibeam: crate::ibeam::DRAWN,
+            table_preview: None,
+            table_preview_layout: None,
         }
     }
 }
@@ -954,6 +967,47 @@ fn drawing_grid_step(spacing: f32, scale: f32) -> f32 {
 
 /// Draw the document canvas in the space `ui` has left, one frame: the pages, caret, selection
 /// and rulers, with the mouse editing and the pointer shape over them.
+/// The layout the page shows: the document's own, or with the table Insert › Table's grid is
+/// hovering over (#3931). The preview is laid out on a copy, so the document and its undo history
+/// change only when a square is clicked.
+fn shown_layout(app: &mut WordApp) -> std::sync::Arc<DocLayout> {
+    let Some((rows, cols)) = app.canvas.table_preview.take() else {
+        app.canvas.table_preview_layout = None;
+        return app.session.layout();
+    };
+    // The caret can move, or the view change, with the grid still hovered: the table then goes
+    // somewhere else, or the page is laid out to another width.
+    let key = ((rows, cols, app.session.document_id(), app.session.rev(), app.session.sel.clone()), app.session.layout());
+    if let Some((k, _, _, l)) = &app.canvas.table_preview_layout
+        && k.0 == key.0
+        && std::sync::Arc::ptr_eq(&k.1, &key.1)
+    {
+        return l.clone();
+    }
+    match app.session.preview_layout("insert.table", &json!({"rows": rows, "cols": cols})) {
+        Some((doc, sel, l)) => {
+            app.canvas.table_preview_layout = Some((key, doc, sel, l.clone()));
+            l
+        }
+        None => {
+            app.canvas.table_preview_layout = None;
+            app.session.layout()
+        }
+    }
+}
+
+/// The document the pages of [`shown_layout`] are drawn from: the previewed copy while the page
+/// shows Insert › Table's preview, whose paragraph paths are the layout's (#3931).
+pub(crate) fn page_doc(app: &WordApp) -> &wordcraft_doc::Document {
+    app.canvas.table_preview_layout.as_ref().map_or(&app.session.doc, |(_, doc, _, _)| doc)
+}
+
+/// The previewed copy's selection while the page shows Insert › Table's preview: the caret and
+/// selection are drawn from it, as the document's own name other places in the preview's layout.
+pub(crate) fn preview_sel(app: &WordApp) -> Option<&wordcraft_engine::Selection> {
+    app.canvas.table_preview_layout.as_ref().map(|(_, _, sel, _)| sel)
+}
+
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let full = ui.available_rect_before_wrap();
@@ -1015,7 +1069,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.alt_code.clear();
     }
     crate::ink::replay_tick(app, ui.ctx());
-    let layout = app.session.layout();
+    let layout = shown_layout(app);
     if let Some(anchor) = reflow_anchor
         && let Some(page) = reading_anchor_page(&layout, &anchor)
     {
@@ -1100,7 +1154,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
     }
     // Where the selection really ends, also when it took whole table cells.
-    let caret = layout.caret_on(&app.session.sel_ends().focus, app.session.page_hint);
+    let caret = layout.caret_on(&preview_sel(app).unwrap_or(app.session.sel_ends()).focus, app.session.page_hint);
     // Editing a header/footer (or a note) dims the body; once per frame, for every page.
     let dim_body = dims_body(app, &layout);
     if let Some(c) = caret
@@ -1290,7 +1344,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 let mut opts = page_render_options(app, dim_body);
                 // Only on the page it is on: the `Pos` can't match an object of another page.
                 opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
-                let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
+                let img = wordcraft_render::render_page(page_doc(app), page, scale_px, &opts);
                 let ci = page_image(&img);
                 match app.canvas.textures.get_mut(&i) {
                     Some((k, tex)) => {
@@ -1349,7 +1403,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         // The tiny subtraction avoids a 1px overshoot from round-tripping f32
                         // pixels through page points and render_area's ceil() conversion.
                         let img = wordcraft_render::render_area(
-                            &app.session.doc,
+                            page_doc(app),
                             page,
                             0.0,
                             start_px as f32 / scale_px,
@@ -1472,8 +1526,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         } else {
             balloons(app, ui, &painter, &rects, &layout, geo.scale, view_rect);
         }
-        // Find › Reading Highlight.
-        let marks: Vec<(Pos, Pos)> = app.session.find_highlights().iter().take(5000).cloned().collect();
+        // Find › Reading Highlight. Its places are the document's, not the preview's.
+        let marks: Vec<(Pos, Pos)> =
+            if preview_sel(app).is_some() { Vec::new() } else { app.session.find_highlights().iter().take(5000).cloned().collect() };
         for (a, b) in &marks {
             for (pi, r) in layout.selection_rects(&app.session.doc, a, b, app.session.page_hint) {
                 if let Some(pr) = rects.get(pi) {
@@ -1486,7 +1541,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // Selection (a selected object shows its frame instead): whole table cells shade the
         // cells (an empty one too), a column selection each row's piece, text running into or
         // across a table the whole cells of the rows it takes.
-        let selected: Vec<_> = if crate::objects::selected(app).is_some() {
+        let selected: Vec<_> = if let Some(sel) = preview_sel(app) {
+            let (a, b) = sel.ordered();
+            if a == b {
+                Vec::new()
+            } else {
+                wordcraft_engine::cmd::table_mouse::selection_rects(&layout, page_doc(app), &a, &b, app.session.page_hint)
+            }
+        } else if crate::objects::selected(app).is_some() {
             Vec::new()
         } else if let Some(range) = app.session.cell_range() {
             wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
@@ -1597,7 +1659,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         if !math_caret
-            && let Some(c) = layout.caret_on(&app.session.sel.focus, app.session.page_hint)
+            && let Some(c) = layout.caret_on(&preview_sel(app).unwrap_or(&app.session.sel).focus, app.session.page_hint)
             && let Some(pr) = rects.get(c.page)
         {
             let scale = layout.pages.get(c.page).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
@@ -1650,7 +1712,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 [pos2(x.round() + 0.5, y0), pos2(x.round() + 0.5, y1)]
             };
             // The caret glides and fades like Word's (`caret_glide`).
-            let shown = app.session.sel.is_collapsed() && focused;
+            let shown = preview_sel(app).unwrap_or(&app.session.sel).is_collapsed() && focused;
             let look = crate::caret_glide::look(app, ui, content_origin, &geo, bar, shown, since, on);
             if shown && look.opacity > 0.0 {
                 let color = preedit_color.unwrap_or_else(|| caret_color(app));
@@ -2084,7 +2146,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             let top = (anchor.y + if over_page { 4.0 } else { -12.0 }).max(next_y);
             let active = app.canvas.balloon == Some(*id);
             // Lay out a read-only balloon's text: the comment, then each reply under a rule.
-            let mut lines: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
+            let mut lines: Vec<(craft_ui::text::AlignedGalley, f32)> = Vec::new();
             let card = if active {
                 Rect::from_min_size(pos2(x0, top), vec2(w, app.canvas.balloon_h.max(24.0)))
             } else {
@@ -2098,7 +2160,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
                     let text = app.session.doc.plain_text(StoryRef::Part(r.part));
                     lines.push((balloon_text(painter, text.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0));
                 }
-                let h = lines.iter().map(|(g, gap)| g.size().y + gap).sum::<f32>() + 12.0;
+                let h = lines.iter().map(|(g, gap)| g.height() + gap).sum::<f32>() + 12.0;
                 Rect::from_min_size(pos2(x0, top), vec2(w, h))
             };
             if !card.intersects(clip) {
@@ -2128,8 +2190,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
                         // A reply starts: a hairline between it and what it answers.
                         painter.hline(card.min.x + 10.0..=card.max.x - 8.0, y - gap / 2.0, Stroke::new(1.0, t.border));
                     }
-                    let h = g.size().y;
-                    text_painter.galley(pos2(card.min.x + 10.0, y), g, t.text);
+                    let h = g.height();
+                    g.paint(&text_painter, pos2(card.min.x + 10.0, y), t.text);
                     y += h;
                 }
                 let r = ui.interact(card, ui.scope_id().with(("balloon", *id)), Sense::click());
@@ -2184,7 +2246,7 @@ fn card_shapes(painter: &egui::Painter, t: &Tokens, card: Rect, color: Color32, 
 /// mixed-direction paragraphs itself; `TextDirection::Auto` takes each paragraph's first strong
 /// character. Place each already-shaped row against the card's start edge, including neutral
 /// paragraphs inheriting their predecessor's direction. Logical text and glyph order stay intact.
-fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
+fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32) -> craft_ui::text::AlignedGalley {
     let mut job = egui::text::LayoutJob::simple(text, font, color, width);
     job.direction = egui::epaint::text::TextDirection::Auto;
     job.halign = egui::Align::Min;
@@ -3561,6 +3623,89 @@ mod tests {
     use super::*;
     use crate::table_resize::tests::{H, cell, screen, steps, table_window};
 
+    /// #3931: while Insert › Table's grid asks for a preview the page is laid out with that
+    /// table; the document, its revision and undo history stay as they were, and without a
+    /// request the page is the document's own again.
+    #[test]
+    fn the_page_shows_the_table_the_grid_previews() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Lanterns")), crate::Services::default());
+        let cells = |l: &DocLayout| l.index.keys().filter(|(st, p)| *st == StoryRef::Body && p.0.len() == 4).count();
+        let (doc, rev) = (app.session.doc.clone(), app.session.rev());
+        app.canvas.table_preview = Some((2, 3));
+        assert_eq!(cells(&shown_layout(&mut app)), 6);
+        assert_eq!(app.canvas.table_preview, None, "a request lasts one frame");
+        assert_eq!((&app.session.doc, app.session.rev(), app.session.can_undo()), (&doc, rev, false));
+        app.canvas.table_preview = Some((2, 3));
+        let again = shown_layout(&mut app);
+        app.canvas.table_preview = Some((2, 3));
+        assert!(std::sync::Arc::ptr_eq(&again, &shown_layout(&mut app)), "a still pointer reuses the preview");
+        assert_eq!(cells(&shown_layout(&mut app)), 0, "no request: the document's own page");
+    }
+
+    /// #3931 review: the preview's pages are drawn from the copy they were laid out from. The
+    /// table moves "Kites" down a block, so the document's own block there is not its paragraph.
+    #[test]
+    fn the_previewed_pages_are_drawn_from_the_previewed_document() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Lanterns\nKites")), crate::Services::default());
+        app.session.run("caret.end", &json!({})).unwrap();
+        app.canvas.table_preview = Some((2, 2));
+        let layout = shown_layout(&mut app);
+        let text = |doc: &wordcraft_doc::Document, story, path| doc.para(story, path).map(|p| p.text.clone());
+        let mut kites = 0;
+        for it in layout.pages.iter().flat_map(|p| &p.items) {
+            let Placed::Lines { story, path, .. } = it else { continue };
+            let shown = text(page_doc(&app), *story, path);
+            assert!(shown.is_some(), "{path:?} names a paragraph of the drawn document");
+            kites += usize::from(shown.as_deref() == Some("Kites"));
+        }
+        assert_eq!(kites, 1, "Kites is drawn as itself");
+        assert_eq!(shown_layout(&mut app).index, app.session.layout().index);
+        assert!(std::ptr::eq(page_doc(&app), &app.session.doc), "no preview: the document's own pages");
+    }
+
+    /// #3931 review: with a selection the table replaces it in the copy, so the page draws the
+    /// copy's caret, in the table, and no selection: the document's selection names text that has
+    /// moved in the preview's layout.
+    #[test]
+    fn the_preview_draws_the_copy_caret_and_selection() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Lanterns\nKites")), crate::Services::default());
+        app.session.sel = wordcraft_engine::Selection { anchor: Pos::body(0, 3), focus: Pos::body(1, 2) };
+        app.canvas.table_preview = Some((2, 2));
+        let layout = shown_layout(&mut app);
+        let sel = preview_sel(&app).expect("the preview's selection").clone();
+        assert!(sel.is_collapsed(), "the table took the selection's place");
+        assert_ne!(sel, app.session.sel);
+        let c = layout.caret_on(&sel.focus, 0).expect("the caret is on the preview's page");
+        assert!(layout.pages[c.page].items.iter().any(|it| matches!(it, Placed::Lines { path, .. } if path.0.len() == 4 && *path == sel.focus.path)));
+        assert!(sel.focus.path.cell().is_some(), "the caret is in the table");
+        assert_eq!(shown_layout(&mut app).index, app.session.layout().index);
+        assert!(preview_sel(&app).is_none(), "no preview: the document's own selection");
+    }
+
+    /// #3931 review: the preview is laid out again when the caret moves or the view changes with
+    /// the grid still hovered, so the page shows the table where a click would put it, at the
+    /// view's width.
+    #[test]
+    fn the_preview_follows_the_caret_and_the_view() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Lanterns\nKites")), crate::Services::default());
+        let tables =
+            |l: &DocLayout| l.index.keys().filter(|(st, p)| *st == StoryRef::Body && p.0.len() == 4).map(|(_, p)| p.0[0]).collect::<HashSet<u32>>();
+        app.session.run("caret.docEnd", &json!({})).unwrap();
+        app.canvas.table_preview = Some((2, 2));
+        let at_end = tables(&shown_layout(&mut app));
+        app.session.run("caret.docStart", &json!({})).unwrap();
+        app.canvas.table_preview = Some((2, 2));
+        let at_start = tables(&shown_layout(&mut app));
+        assert_ne!(at_start, at_end, "the caret moved: so did the table");
+        let (_, _, fresh) = app.session.preview_layout("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        assert_eq!(at_start, tables(&fresh));
+        app.session.view.mode = wordcraft_layout::ViewMode::Web;
+        app.session.view.web_width = 300.0;
+        app.canvas.table_preview = Some((2, 2));
+        let web = shown_layout(&mut app);
+        assert_eq!(web.pages[0].w, app.session.layout().pages[0].w, "laid out at the Web view's width");
+    }
+
     /// A window-following layout size (#1876, Read Mode): applied at once on entry or when forced,
     /// held while the window is dragged, applied once the size has been still for the settle time.
     #[test]
@@ -4582,17 +4727,18 @@ mod tests {
         let mut out = Vec::new();
         ctx.run_ui(egui::RawInput::default(), |ui| {
             let g = balloon_text(ui.painter(), text.to_string(), egui::FontId::proportional(14.0), Color32::BLACK, width);
+            let shape = g.text_shape(Pos2::ZERO, Color32::BLACK);
             let atlas = ui.fonts(|fonts| fonts.image());
-            for r in &g.rows {
-                out.extend(r.row.glyphs.iter().map(|gl| (gl.chr, r.pos.x + gl.pos.x)));
+            for r in &shape.galley.rows {
+                out.extend(r.row.glyphs.iter().map(|gl| (gl.chr, shape.pos.x + r.pos.x + gl.pos.x)));
                 for glyph in &r.row.glyphs {
                     // epaint rounds glyph origins individually while row advance stays fractional.
                     // The two edge roundings can differ by one physical pixel.
                     assert!(
-                        r.pos.x + glyph.max_x() <= width + 1.0 / ppp,
+                        shape.pos.x + r.pos.x + glyph.max_x() <= width + 1.0 / ppp,
                         "wrapped glyph {:?}: origin {}, max {}, row width {}, limit {} (text {:?})",
                         glyph.chr,
-                        r.pos.x,
+                        shape.pos.x + r.pos.x,
                         glyph.max_x(),
                         r.size.x,
                         width,
@@ -4650,6 +4796,308 @@ mod tests {
         // Alignment follows each paragraph, including a neutral paragraph's inherited direction.
         let g = balloon_glyphs("شركة\n123\nLatin", 400.0).unwrap();
         assert!(x(&g, 'ش') > 300.0 && x(&g, '1') > 300.0 && x(&g, 'L') < 1.0, "{g:?}");
+    }
+
+    struct BalloonFontFixture {
+        family: &'static str,
+        probe: &'static str,
+        text: &'static str,
+    }
+
+    /// Explicit embedded bytes only: no OS font discovery or implicit default-font fallback.
+    /// Optional-input builds always exercise Latin; qualification must exercise both RTL faces.
+    fn balloon_font_fixtures() -> (egui::FontDefinitions, Vec<BalloonFontFixture>) {
+        let mut fonts = egui::FontDefinitions::empty();
+        fonts.font_data.insert(
+            "Balloon Latin".into(),
+            std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../assets/fonts/Inter-Regular.ttf"))),
+        );
+        let mut names = vec!["Balloon Latin".to_string()];
+        let mut fixtures =
+            vec![BalloonFontFixture { family: "Balloon Latin", probe: "Reading", text: "Reading long_unbreakable_text\n123\nLatin\n" }];
+        for (family, script, probe, text) in [
+            ("Noto Sans Arabic", "Arab", "شركة", "شركة اي\n123\nالربط (APIs) هنا\nLatin\n"),
+            ("Noto Sans Hebrew", "Hebr", "שלום", "שלום עולם\n123\nשלום (APIs) עולם\nLatin\n"),
+        ] {
+            if let Some(face) = wordcraft_fonts::CRAFT_FONTS.iter().find(|face| face.family == family && face.style == "Regular") {
+                assert!(face.scripts.contains(&script));
+                assert!(!face.bytes.is_empty());
+                fonts.font_data.insert(family.into(), std::sync::Arc::new(egui::FontData::from_static(face.bytes)));
+                names.push(family.to_string());
+                fixtures.push(BalloonFontFixture { family, probe, text });
+            }
+        }
+        if option_env!("CRAFT_FONTS_REQUIRED").is_some() || std::env::var_os("CRAFT_FONTS_REQUIRED").is_some() {
+            assert_eq!(fixtures.len(), 3, "qualification requires both exact embedded Arabic and Hebrew faces");
+        }
+        for name in &names {
+            fonts.families.insert(egui::FontFamily::Name(name.clone().into()), vec![name.clone()]);
+        }
+        fonts.families.insert(egui::FontFamily::Proportional, names.clone());
+        fonts.families.insert(egui::FontFamily::Monospace, names);
+        (fonts, fixtures)
+    }
+
+    #[test]
+    fn balloon_wrapper_keeps_real_font_rows_ink_and_reading_origins() {
+        let (fonts, fixtures) = balloon_font_fixtures();
+        let mut rtl_cases = 0;
+        for ppp in [1.0, 1.25, 1.5, 2.0] {
+            let ctx = egui::Context::default();
+            ctx.set_pixels_per_point(ppp);
+            ctx.set_fonts(fonts.clone());
+            ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+            for fixture in &fixtures {
+                let probe_font = egui::FontId::new(14.0, egui::FontFamily::Name(fixture.family.into()));
+                assert!(
+                    ctx.fonts_mut(|fonts| fonts.has_glyphs(&probe_font, fixture.probe)),
+                    "the selected face must actually cover {}",
+                    fixture.family
+                );
+                for width in [0.0, 23.3, 200.0] {
+                    let font = egui::FontId::proportional(14.0);
+                    assert!(
+                        ctx.fonts_mut(|fonts| fixture.text.chars().filter(|c| !c.is_control()).all(|c| fonts.has_glyph(&font, c))),
+                        "no missing/tofu fixture characters"
+                    );
+                    let mut job = egui::text::LayoutJob::simple(fixture.text.into(), font.clone(), Color32::BLACK, width);
+                    job.direction = egui::epaint::text::TextDirection::Auto;
+                    job.halign = egui::Align::Min;
+                    job.halign_min_is_start = false;
+                    let original = ctx.fonts_mut(|fonts| fonts.layout_job(job));
+                    // Independent pre-normalization reading-space oracle: position the original
+                    // shaped rows using their paragraph direction, then recompute complete bounds.
+                    let mut reference = (*original).clone();
+                    reference.rect = Rect::from_min_size(Pos2::ZERO, vec2(width, original.rect.height()));
+                    reference.mesh_bounds = Rect::NOTHING;
+                    for row in &mut reference.rows {
+                        let factor = if row.rtl_paragraph { 1.0 } else { 0.0 };
+                        row.pos.x = ((f64::from(width) - f64::from(row.size.x)) * factor * f64::from(ppp)).floor() as f32 / ppp;
+                        reference.rect |= row.rect();
+                        reference.mesh_bounds |= row.visuals.mesh_bounds.translate(row.pos.to_vec2());
+                    }
+                    if fixture.family != "Balloon Latin" {
+                        assert!(original.rows.iter().any(|row| row.rtl_paragraph), "actual RTL shaping is required");
+                        if width == 0.0 {
+                            assert!(
+                                reference.rows.iter().any(|row| row.rtl_paragraph && row.pos.x < 0.0 && row.size.x > width),
+                                "actual negative reading-space overflow is required"
+                            );
+                        }
+                        if width == 200.0 {
+                            let row = &reference.rows[0];
+                            let (first, second) = if fixture.family == "Noto Sans Arabic" { ('ش', 'ي') } else { ('ש', 'ע') };
+                            let x = |c| row.glyphs.iter().find(|glyph| glyph.chr == c).unwrap().pos.x;
+                            assert!(x(first) > x(second), "the first RTL word is physically right of the next");
+                            assert!(reference.rows.iter().find(|row| row.text() == "123").unwrap().rtl_paragraph, "neutral paragraph inherits RTL");
+                            assert!(!reference.rows.iter().find(|row| row.text() == "Latin").unwrap().rtl_paragraph);
+                        }
+                        rtl_cases += 1;
+                    }
+                    let reference = std::sync::Arc::new(reference);
+                    for rounding in [false, true] {
+                        ctx.tessellation_options_mut(|options| options.round_text_to_pixels = rounding);
+                        for origin in [pos2(37.25, 19.375), pos2(0.5 / ppp - 1e-5, 0.5 / ppp)] {
+                            let mut clip = Rect::NOTHING;
+                            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                                let aligned = balloon_text(ui.painter(), fixture.text.into(), font.clone(), Color32::BLACK, width);
+                                let craft_ui::text::AlignedGalley::Aligned { galley, paint_offset, reading_rect } = &aligned else {
+                                    panic!("valid width must align")
+                                };
+                                assert_eq!(aligned.height(), original.rect.height());
+                                assert_eq!(*reading_rect, Rect::from_min_size(Pos2::ZERO, vec2(width, original.rect.height())));
+                                assert_eq!(galley.job.halign, egui::Align::Min);
+                                assert_eq!(galley.rect.left_top(), Pos2::ZERO);
+                                assert_eq!(galley.text(), fixture.text);
+                                assert_eq!(galley.rows.len(), original.rows.len());
+                                assert_eq!(galley.num_vertices, original.num_vertices);
+                                assert_eq!(galley.num_indices, original.num_indices);
+                                let case = format!("family={} ppp={ppp} width={width} rounding={rounding} origin={origin:?}", fixture.family);
+                                let (mut empty_mesh_rows, mut drawn_mesh_rows) = (0, 0);
+                                for (row_index, ((row, expected), old)) in galley.rows.iter().zip(&reference.rows).zip(&original.rows).enumerate() {
+                                    assert!(std::sync::Arc::ptr_eq(&row.row, &old.row), "glyph order/meshes remain shared: {case}, row={row_index}");
+                                    assert_eq!(row.pos.y, old.pos.y, "row Y: {case}, row={row_index}");
+                                    assert!((row.pos + *paint_offset - expected.pos).length() * ppp < 1e-4, "absolute row position: {case}, row={row_index}");
+                                    assert!(galley.rect.contains_rect(row.rect()), "logical row containment: {case}, row={row_index} text={:?} logical={:?} galley={:?}", row.text(), row.rect(), galley.rect);
+                                    if row.visuals.mesh.vertices.is_empty() {
+                                        // Empty/whitespace rows still have logical height, but no
+                                        // finite ink rectangle: translating NOTHING yields NaNs.
+                                        empty_mesh_rows += 1;
+                                        assert!(row.visuals.mesh.indices.is_empty(), "empty mesh indices: {case}, row={row_index} text={:?}", row.text());
+                                        assert_eq!(row.visuals.mesh_bounds, Rect::NOTHING, "empty ink sentinel: {case}, row={row_index} text={:?}", row.text());
+                                    } else {
+                                        drawn_mesh_rows += 1;
+                                        let ink = row.visuals.mesh_bounds.translate(row.pos.to_vec2());
+                                        assert!(ink.is_finite(), "finite row ink: {case}, row={row_index} text={:?} ink={ink:?}", row.text());
+                                        assert!(galley.mesh_bounds.is_finite(), "finite galley ink: {case}, row={row_index} bounds={:?}", galley.mesh_bounds);
+                                        assert!(galley.mesh_bounds.contains_rect(ink), "finite ink containment: {case}, row={row_index} text={:?} ink={ink:?} galley={:?}", row.text(), galley.mesh_bounds);
+                                        for (vertex_index, vertex) in row.visuals.mesh.vertices.iter().enumerate() {
+                                            let pos = row.pos + vertex.pos.to_vec2();
+                                            assert!(galley.mesh_bounds.contains(pos), "ink vertex containment: {case}, row={row_index} vertex={vertex_index} text={:?} pos={pos:?} galley={:?}", row.text(), galley.mesh_bounds);
+                                        }
+                                    }
+                                }
+                                assert!(empty_mesh_rows > 0 && drawn_mesh_rows > 0, "fixture must observe empty and nonempty meshes: {case}, empty={empty_mesh_rows} drawn={drawn_mesh_rows}");
+                                clip = ui.painter().clip_rect();
+                                aligned.paint(ui.painter(), origin, Color32::BLACK);
+                            });
+                            let shapes: Vec<_> = output
+                                .shapes
+                                .iter()
+                                .filter_map(|clipped| match &clipped.shape {
+                                    egui::Shape::Text(shape) => Some((clipped.clip_rect, shape)),
+                                    _ => None,
+                                })
+                                .collect();
+                            assert_eq!(shapes.len(), 1, "the actual helper paint emits one shape");
+                            assert_eq!(shapes[0].0, clip, "painting retains the caller's clip");
+                            let options = ctx.tessellation_options(|options| *options);
+                            let atlas_size = ctx.fonts(|fonts| fonts.image().size);
+                            let tessellate = |shape: &egui::epaint::TextShape| {
+                                let mut tessellator = egui::epaint::Tessellator::new(ppp, options, atlas_size, Vec::new());
+                                let mut mesh = egui::epaint::Mesh::default();
+                                tessellator.tessellate_text(shape, &mut mesh);
+                                mesh
+                            };
+                            let actual = tessellate(shapes[0].1);
+                            let expected = tessellate(&egui::epaint::TextShape::new(origin, reference.clone(), Color32::BLACK));
+                            assert!(!expected.vertices.is_empty(), "real font ink must be present");
+                            assert_eq!(actual.indices, expected.indices);
+                            assert_eq!(actual.vertices.len(), expected.vertices.len());
+                            for (actual, expected) in actual.vertices.iter().zip(&expected.vertices) {
+                                assert_eq!(actual.uv, expected.uv);
+                                assert_eq!(actual.color, expected.color);
+                                assert!((actual.pos - expected.pos).length() * ppp < 1e-4, "absolute physical ink must remain unchanged");
+                            }
+                            drop(shapes);
+                            output.drop_without_applying_deltas();
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(rtl_cases, (fixtures.len() - 1) * 12);
+        eprintln!("balloon fixture coverage: {} exact embedded faces, {rtl_cases} RTL geometry cases", fixtures.len());
+    }
+
+    #[test]
+    fn read_only_balloon_bodies_and_replies_keep_real_font_card_geometry() {
+        let (_, fixtures) = balloon_font_fixtures();
+        let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+        let mut rtl_cases = 0;
+        for fixture in &fixtures {
+            let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+            if fixture.family != "Balloon Latin" {
+                let face = db.face(fixture.family, "Regular");
+                assert_eq!(face.family, fixture.family, "do not accept a substitute fixture face");
+                let embedded = wordcraft_fonts::CRAFT_FONTS.iter().find(|font| font.family == fixture.family && font.style == "Regular").unwrap();
+                assert_eq!(face.data(), embedded.bytes);
+                assert!(fixture.probe.chars().all(|c| face.covers(c)));
+                app.canvas.ime_faces.push(face);
+                rtl_cases += 1;
+            }
+            app.session.author = "Balloon author".into();
+            app.run("text.insert", json!({"text": "Some text here"})).unwrap();
+            app.run("select.text", json!({"text": "text"})).unwrap();
+            let body = fixture.text.trim();
+            let id = app.run("review.newComment", json!({"text": body})).unwrap()["id"].as_u64().unwrap() as u32;
+            app.session.author = "Reply author".into();
+            let reply = format!("{} (reply)", fixture.probe);
+            let reply_id = app.run("review.reply", json!({"id": id, "text": reply})).unwrap()["id"].as_u64().unwrap() as u32;
+            app.run("view.commentsPane", json!({"value": false})).unwrap();
+            app.canvas.balloon = None;
+            let rev = app.session.rev();
+            let ctx = egui::Context::default();
+            ctx.tessellation_options_mut(|options| options.round_text_to_pixels = true);
+            let mut checked = false;
+            for frame in 0..6 {
+                let mut input = egui::RawInput {
+                    time: Some(f64::from(frame) / 60.0),
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1440.0, 900.0))),
+                    ..Default::default()
+                };
+                // Interface Auto follows the monitor scale; setting only the context's
+                // UI zoom would be reset by the real app before these settling frames.
+                input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(1.5);
+                let output = ctx.run_ui(input, |ui| {
+                    app.logic(ui.ctx());
+                    app.ui(ui);
+                });
+                if frame >= 3
+                    && let Some((_, card)) = app.canvas.balloon_rects.iter().find(|(i, _)| *i == id)
+                {
+                    assert_eq!(ctx.native_pixels_per_point(), Some(1.5), "the real app receives the fixture's monitor scale");
+                    assert_eq!(ctx.pixels_per_point(), 1.5, "Interface Auto retains the fixture's physical scale");
+                    assert_eq!(app.canvas.balloon_rects.len(), 1, "the reply stays in its parent's actual hit card");
+                    let mut y = card.min.y + 6.0;
+                    let mut line_geometry = Vec::new();
+                    for (text, gap) in [("Balloon author", 0.0), (body, 4.0), ("Reply author", 9.0), (reply.as_str(), 4.0)] {
+                        y += gap;
+                        let shapes: Vec<_> = output
+                            .shapes
+                            .iter()
+                            .filter_map(|clipped| match &clipped.shape {
+                                egui::Shape::Text(shape) if shape.galley.text() == text => Some((clipped.clip_rect, shape)),
+                                _ => None,
+                            })
+                            .collect();
+                        assert_eq!(shapes.len(), 1, "the actual read-only line must be painted: {text}");
+                        let (clip, shape) = shapes[0];
+                        assert_eq!(shape.galley.pixels_per_point, 1.5, "the actual card galley uses the fixture's physical scale: {text}");
+                        // Recreate the original shaping job independently of the wrapper.
+                        // Complete normalized bounds may exceed its preserved reading height.
+                        let original = ctx.fonts_mut(|fonts| fonts.layout_job((*shape.galley.job).clone()));
+                        assert_eq!(original.rows.len(), shape.galley.rows.len(), "the wrapper preserves original row count: {text}");
+                        for (row_index, (row, original_row)) in shape.galley.rows.iter().zip(&original.rows).enumerate() {
+                            assert_eq!(row.pos.y, original_row.pos.y, "the wrapper preserves original row Y: text={text:?} row={row_index}");
+                        }
+                        let reading_height = original.rect.height();
+                        line_geometry.push((text.to_string(), reading_height, shape.galley.rect.height(), shape.pos, y));
+                        assert!(card.contains_rect(clip) && clip.is_positive(), "body and reply keep the actual card clip");
+                        assert!((shape.pos.y - y).abs() * 1.5 <= 0.501, "same reading-origin Y and vertical gaps");
+                        assert!(shape.galley.rows.iter().any(|row| !row.visuals.mesh.vertices.is_empty()), "real glyph ink is painted");
+                        assert!(
+                            ctx.fonts_mut(|fonts| text
+                                .chars()
+                                .filter(|c| !c.is_control())
+                                .all(|c| fonts.has_glyph(&egui::FontId::proportional(14.0), c))),
+                            "actual app fonts cover text without tofu"
+                        );
+                        let width = card.width() - 16.0;
+                        let origin_x = ((card.min.x + 10.0) * 1.5).round() / 1.5;
+                        for (row_index, row) in shape.galley.rows.iter().enumerate() {
+                            let expected_x =
+                                if row.rtl_paragraph { ((f64::from(width) - f64::from(row.size.x)) * 1.5).floor() as f32 / 1.5 } else { 0.0 };
+                            assert!(
+                                (shape.pos.x + row.pos.x - origin_x - expected_x).abs() * 1.5 < 1e-3,
+                                "same absolute paragraph reading edge: family={} text={text:?} row={row_index} ppp={} card={card:?} shape_pos={:?} row_pos={:?} origin_x={origin_x} expected_x={expected_x}",
+                                fixture.family,
+                                shape.galley.pixels_per_point,
+                                shape.pos,
+                                row.pos
+                            );
+                            assert!(shape.galley.rect.contains_rect(row.rect()));
+                        }
+                        y += reading_height;
+                    }
+                    assert!(
+                        (y + 6.0 - card.bottom()).abs() < 1e-3,
+                        "card height still sums original text heights and gaps: family={} expected_bottom={} card={card:?} delta={} lines={line_geometry:?}",
+                        fixture.family,
+                        y + 6.0,
+                        y + 6.0 - card.bottom()
+                    );
+                    checked = true;
+                }
+                output.drop_without_applying_deltas();
+            }
+            assert!(checked, "actual body and reply shapes must be observed");
+            assert_eq!(app.session.rev(), rev, "painting never edits the document");
+            assert_eq!(app.session.doc.plain_text(StoryRef::Part(app.session.doc.comments[&id].part)), body);
+            assert_eq!(app.session.doc.plain_text(StoryRef::Part(app.session.doc.comments[&reply_id].part)), reply);
+        }
+        assert_eq!(rtl_cases, fixtures.len() - 1);
+        eprintln!("actual balloon card coverage: {} faces, {rtl_cases} RTL body/reply cases", fixtures.len());
     }
 
     #[test]
