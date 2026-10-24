@@ -414,10 +414,10 @@ const MAX_BACKGROUND_PIXELS: u64 = 64 * 1024 * 1024;
 fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view: Affine) {
     let Some(pic) = &doc.settings.page_picture else { return };
     let Some(bytes) = doc.media.get(&pic.media) else { return };
-    match image_size(bytes) {
-        Some((w, h)) if w > 0 && h > 0 && (w as u64) * (h as u64) <= MAX_BACKGROUND_PIXELS => {}
+    let (nw, nh) = match image_size(bytes) {
+        Some((w, h)) if w > 0 && h > 0 && (w as u64) * (h as u64) <= MAX_BACKGROUND_PIXELS => (w as f64, h as f64),
         _ => return,
-    }
+    };
     let Some(pm) = pixmap_for(doc, &pic.media) else { return };
     let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
     let (w, h) = (page.w as f64, (page.h as f64).min(1e6));
@@ -425,7 +425,8 @@ fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view:
         return;
     }
     let tile = pic.fill_type.eq_ignore_ascii_case("tile");
-    let (sx, sy) = if tile { (0.75, 0.75) } else { (w / pw, h / ph) };
+    // Tiles at the picture's natural size, whatever size its cached pixmap is kept at.
+    let (sx, sy) = if tile { (0.75 * nw / pw, 0.75 * nh / ph) } else { (w / pw, h / ph) };
     let extend = if tile { peniko::Extend::Repeat } else { peniko::Extend::Pad };
     ctx.set_transform(view);
     ctx.set_paint(vello_cpu::Image {
@@ -442,10 +443,59 @@ fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
     if let Some(v) = lock(images()).get(key, bytes) {
         return v;
     }
-    let pm = decode_pixmap(bytes).map(Arc::new);
+    let pm = decode_pixmap(bytes).map(|p| Arc::new(cacheable(p, bytes.len())));
     let size = pm.as_ref().map_or(0, |p| p.width() as usize * p.height() as usize * 4);
     lock(images()).insert(key, bytes, pm.clone(), size);
     pm
+}
+
+/// A decoded picture at a size the media cache keeps. One too large for the whole cache (an entry
+/// counts its source bytes too) is box-averaged down to half of it, so it is decoded once instead
+/// of on every render (#3665); pages draw it scaled to its frame either way.
+fn cacheable(pm: Pixmap, src_len: usize) -> Pixmap {
+    let bytes = pm.width() as usize * pm.height() as usize * 4;
+    if bytes.saturating_add(src_len) <= CACHE_BYTES {
+        return pm;
+    }
+    let room = (CACHE_BYTES / 2).saturating_sub(src_len) / 4;
+    shrink(&pm, room as u64).unwrap_or(pm)
+}
+
+/// `pm` averaged over square blocks, the smallest whole number of pixels a side that brings it to
+/// at most `max_pixels`; None when it already fits or none are allowed. Premultiplied pixels
+/// average without colour fringes.
+fn shrink(pm: &Pixmap, max_pixels: u64) -> Option<Pixmap> {
+    let (w, h) = (usize::from(pm.width()), usize::from(pm.height()));
+    if (w * h) as u64 <= max_pixels || max_pixels == 0 {
+        return None;
+    }
+    let mut k = (((w * h) as f64 / max_pixels as f64).sqrt().ceil() as usize).max(2);
+    while (w.div_ceil(k) * h.div_ceil(k)) as u64 > max_pixels {
+        k += 1;
+    }
+    let (nw, nh) = (w.div_ceil(k), h.div_ceil(k));
+    let mut out = Vec::with_capacity(nw * nh);
+    let mut sums = vec![[0u64; 4]; nw];
+    for (oy, band) in pm.data().chunks(w * k).enumerate() {
+        sums.fill([0; 4]);
+        for row in band.chunks(w) {
+            for (sum, block) in sums.iter_mut().zip(row.chunks(k)) {
+                for p in block {
+                    sum[0] += u64::from(p.r);
+                    sum[1] += u64::from(p.g);
+                    sum[2] += u64::from(p.b);
+                    sum[3] += u64::from(p.a);
+                }
+            }
+        }
+        let rows = (h - oy * k).min(k);
+        for (ox, sum) in sums.iter().enumerate() {
+            let n = (((w - ox * k).min(k)) * rows).max(1) as u64;
+            let [r, g, b, a] = sum.map(|s| (s / n) as u8);
+            out.push(vello_cpu::color::PremulRgba8 { r, g, b, a });
+        }
+    }
+    Some(Pixmap::from_parts(out, nw as u16, nh as u16))
 }
 
 /// Options for a page raster.
@@ -1662,6 +1712,36 @@ mod tests {
         let mut baseline = Vec::new();
         image::RgbImage::new(64, 64).write_to(&mut std::io::Cursor::new(&mut baseline), image::ImageFormat::Jpeg).unwrap();
         assert!(decode_pixmap(&baseline).is_some(), "other JPEGs still draw");
+    }
+
+    /// #3665: a picture too large for the whole cache is kept at half of it, so it is cached
+    /// instead of decoded again on every render.
+    #[test]
+    fn pictures_too_large_for_the_cache_are_kept_smaller() {
+        let px = vello_cpu::color::PremulRgba8 { r: 40, g: 80, b: 120, a: 200 };
+        // 6000 × 6000 is 144 MB of RGBA, past the 128 MB cache.
+        let big = Pixmap::from_parts(vec![px; 6000 * 6000], 6000, 6000);
+        let small = cacheable(big, 1000);
+        let bytes = small.width() as usize * small.height() as usize * 4;
+        assert!(bytes + 1000 <= CACHE_BYTES / 2, "{} x {}", small.width(), small.height());
+        assert!(small.width() >= 3000 && small.width() == small.height(), "aspect kept");
+        assert!(small.data().iter().all(|p| (p.r, p.g, p.b, p.a) == (40, 80, 120, 200)), "flat stays flat");
+        let mut cache = MediaCache { map: HashMap::new(), bytes: 0 };
+        let src = Arc::new(vec![0u8; 1000]);
+        cache.insert("big", &src, Some(Arc::new(small)), bytes);
+        assert!(cache.get("big", &src).is_some(), "cached");
+        // Pictures the cache holds as they are keep their size.
+        assert_eq!(cacheable(Pixmap::from_parts(vec![px; 100 * 50], 100, 50), 10).width(), 100);
+    }
+
+    #[test]
+    fn shrinking_averages_premultiplied_pixels() {
+        let p = |v: u8| vello_cpu::color::PremulRgba8 { r: v, g: v, b: v, a: 255 };
+        let pm = Pixmap::from_parts(vec![p(0), p(100), p(200), p(40)], 4, 1);
+        let out = shrink(&pm, 2).unwrap();
+        assert_eq!((out.width(), out.height()), (2, 1));
+        assert_eq!(out.data().iter().map(|q| q.r).collect::<Vec<_>>(), [50, 120]);
+        assert!(shrink(&pm, 4).is_none() && shrink(&pm, 0).is_none());
     }
 
     #[test]
