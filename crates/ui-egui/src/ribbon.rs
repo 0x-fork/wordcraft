@@ -1156,11 +1156,11 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     mi(ui, app, "Double Strikethrough", "format.doubleStrikethrough", json!({}));
                 });
                 let hl = app.canvas.last_highlight.clone();
-                let sw = crate::mini_toolbar::highlight_button_swatch(&hl);
+                let (icon, sw) = crate::mini_toolbar::highlight_button_appearance(&hl);
                 split(
                     ui,
                     app,
-                    "highlight",
+                    icon,
                     "Text Highlight Color",
                     "format.highlight",
                     json!({"color": hl}),

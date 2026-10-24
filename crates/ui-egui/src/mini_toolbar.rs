@@ -278,8 +278,8 @@ fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
         sep(ui, t);
 
         let hl = app.canvas.last_highlight.clone();
-        let sw = highlight_button_swatch(&hl);
-        widgets::split(ui, app, "highlight", "Text Highlight Color", "format.highlight", json!({"color": hl}), false, sw, |ui, app| {
+        let (icon, sw) = highlight_button_appearance(&hl);
+        widgets::split(ui, app, icon, "Text Highlight Color", "format.highlight", json!({"color": hl}), false, sw, |ui, app| {
             highlight_menu(ui, app);
         });
         let fc = app.canvas.last_font_color.clone();
@@ -304,13 +304,16 @@ fn sep(ui: &mut egui::Ui, t: &Tokens) {
     p.vline(r.center().x, r.y_range().shrink(4.0), egui::Stroke::new(1.0, t.border));
 }
 
+/// The split-button icon and colour bar for the remembered highlight choice.
+pub(crate) fn highlight_button_appearance(name: &str) -> (&'static str, Option<egui::Color32>) {
+    let highlight = wordcraft_doc::props::Highlight::from_ooxml(name);
+    let icon = if highlight == wordcraft_doc::props::Highlight::None { "highlightNoColor" } else { "highlight" };
+    (icon, highlight.rgb().map(crate::theme::c32))
+}
+
 /// Highlight colour grid and No Color, shared by the ribbon and the mini toolbar. The pick,
 /// No Color too, becomes the split button's colour, as in Word: after No Color a click on the
 /// button removes highlighting (#2105).
-pub(crate) fn highlight_button_swatch(name: &str) -> Option<egui::Color32> {
-    wordcraft_doc::props::Highlight::from_ooxml(name).rgb().map(crate::theme::c32)
-}
-
 pub(crate) fn highlight_menu(ui: &mut egui::Ui, app: &mut WordApp) {
     egui::Grid::new("mini_hl").spacing(Vec2::new(3.0, 3.0)).show(ui, |ui| {
         for (i, h) in wordcraft_doc::props::Highlight::ALL.iter().enumerate().skip(1) {
@@ -354,9 +357,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn highlight_button_swatch_follows_the_picked_colour() {
-        assert_eq!(highlight_button_swatch("cyan"), Some(egui::Color32::from_rgb(0, 255, 255)));
-        assert_eq!(highlight_button_swatch("none"), None);
+    fn highlight_button_appearance_follows_the_picked_colour() {
+        assert_eq!(highlight_button_appearance("cyan"), ("highlight", Some(egui::Color32::from_rgb(0, 255, 255))));
+        assert_eq!(highlight_button_appearance("none"), ("highlightNoColor", None));
+        assert_eq!(highlight_button_appearance("unknown"), ("highlightNoColor", None));
     }
 
     fn vp() -> Rect {
