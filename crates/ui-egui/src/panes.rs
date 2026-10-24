@@ -259,18 +259,23 @@ impl PaneContent<Pane> for Content<'_> {
 
 const HOST: &str = "task_panes";
 
-/// F6 and Shift+F6 move the keyboard through the panes and back to the document. The key stays
-/// with an open dialog, file browser, popup or keytips (Customize Keyboard records it), and an
-/// F6 the user bound to a command runs that command instead.
-fn route_f6(app: &WordApp, ctx: &egui::Context) {
-    let busy = app.dialog.is_some()
+/// Whether a dialog, file browser, colors dialog, content-control popup, Zotero alert, keytips
+/// or egui popup is open: the keyboard belongs to it, not to the panes or the document.
+pub(crate) fn overlay_open(app: &WordApp, ctx: &egui::Context) -> bool {
+    app.dialog.is_some()
         || app.file_dialog_open()
         || app.colors.is_some()
         || app.controls.popup_open()
         || app.zotero.alert_open()
         || app.ui.keytips != crate::keytips::Phase::Off
-        || egui::Popup::is_any_open(ctx);
-    if busy {
+        || egui::Popup::is_any_open(ctx)
+}
+
+/// F6 and Shift+F6 move the keyboard through the panes and back to the document. The key stays
+/// with an open dialog, file browser, popup or keytips (Customize Keyboard records it), and an
+/// F6 the user bound to a command runs that command instead.
+fn route_f6(app: &WordApp, ctx: &egui::Context) {
+    if overlay_open(app, ctx) {
         return;
     }
     let reg = &app.session.registry;
@@ -1245,6 +1250,28 @@ mod tests {
         assert!(h.ctx.text_edit_focused());
         press(&mut h, egui::Key::H, egui::Modifiers::COMMAND);
         assert!(h.state().dialog.is_none(), "the search field keeps Ctrl+H");
+    }
+
+    /// A dialog button with the keyboard keeps Ctrl+Z away from the document behind the dialog.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn shortcuts_stay_out_of_the_document_while_a_dialog_button_has_focus() {
+        use egui_kittest::kittest::Queryable;
+
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+        app.run("text.insert", serde_json::json!({"text": "kept"})).unwrap();
+        app.run("ui.dialog", serde_json::json!({"name": "wordCount"})).unwrap();
+        let mut h = pane_harness(app);
+        // Two buttons are labelled Close (the dialog's title bar and its own row); either will do.
+        if let Some(close) = h.query_all_by_label("Close").next() {
+            close.focus();
+        }
+        h.run_steps(2);
+        assert!(!h.state().canvas.focused, "the document gave up the keyboard");
+        assert!(!h.ctx.text_edit_focused() && h.ctx.memory(|m| m.focused()).is_some(), "Close has the keyboard");
+        press(&mut h, egui::Key::Z, egui::Modifiers::COMMAND);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim(), "kept", "Ctrl+Z left the document alone");
+        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("wordCount"));
     }
 
     /// An F6 the user bound runs its command; plain F6 still moves to the panes when only

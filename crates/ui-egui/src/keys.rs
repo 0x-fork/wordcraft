@@ -706,10 +706,15 @@ fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
 }
 
 /// Command shortcuts when the canvas isn't focused and no text field is: nothing has the
-/// keyboard, or a button or a pane's title bar does.
+/// keyboard, or a button or a pane's title bar does. A focused widget in an open dialog or popup
+/// keeps the keys, so Ctrl+Z on a dialog button can't undo the document behind it.
 pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
     // Customize Keyboard records the keys pressed; they never run commands meanwhile.
-    if app.canvas.focused || ctx.text_edit_focused() || matches!(app.dialog, Some(crate::dialogs::Dialog::CustomizeKeyboard { .. })) {
+    if app.canvas.focused
+        || ctx.text_edit_focused()
+        || (ctx.egui_wants_keyboard_input() && crate::panes::overlay_open(app, ctx))
+        || matches!(app.dialog, Some(crate::dialogs::Dialog::CustomizeKeyboard { .. }))
+    {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
