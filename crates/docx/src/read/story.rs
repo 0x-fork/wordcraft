@@ -1066,6 +1066,10 @@ impl Reader<'_> {
 
     // ---- drawings ----
 
+    /// Read a `w:drawing` frame and dispatch its payload to the picture, shape or graphic reader.
+    /// Frame dimensions are converted from EMUs to bounded point values; placement, alternative
+    /// text and drawing ids are carried into the object. Returns `None` when the frame or payload
+    /// cannot be read. Ink written by WordCraft keeps its tool's caps rather than an outline cap.
     fn read_drawing(&mut self, sc: &mut StoryCtx, d: &El, rels: &Rels) -> Option<InlineObject> {
         let (c, anchored) = match d.child("wp:inline") {
             Some(c) => (c, false),
@@ -1464,6 +1468,10 @@ impl Reader<'_> {
         }
     }
 
+    /// Build a shape from `wps:wsp`, using frame dimensions `w` and `h` in points and the caller's
+    /// placement. Reads geometry, paint, effects and connector ends, and creates a text-box story
+    /// when present within the nesting limit. Explicit outline caps are preserved; missing or
+    /// unknown caps use flat ends, without resolving theme-inherited caps.
     fn read_wsp(&mut self, sc: &mut StoryCtx, wsp: &El, rels: &Rels, w: f32, h: f32, mut float: Float) -> InlineObject {
         let sppr = wsp.child("wps:spPr");
         float.set_spin(xfrm_spin(sppr));
@@ -1768,7 +1776,7 @@ impl Reader<'_> {
             let font = tp
                 .attr("style")
                 .and_then(|s| vml_style(s, "font-family"))
-                .map(|f| f.trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()).chars().take(100).collect::<String>())
+                .map(|f| css_string(f).chars().take(100).collect::<String>())
                 .filter(|f| !f.is_empty());
             // The shapetype's WordArt shape (`o:spt` 136-175) bends the text like DrawingML's warp.
             let warp = vml_spt(shape, shapetype, type_id)
@@ -2248,6 +2256,49 @@ fn vml_style<'a>(style: &'a str, key: &str) -> Option<&'a str> {
     style.rsplit(';').filter_map(|d| d.split_once(':')).find(|(k, _)| k.trim().eq_ignore_ascii_case(key)).map(|(_, v)| v.trim())
 }
 
+/// A `v:textpath` style value with one pair of surrounding quotes removed and the writer's CSS
+/// escapes mapped back: `\` + up to six hex digits + one optional space is that character, and
+/// `\x` is `x` (#3994; `write::watermark::run` writes them). Only the surrounding pair goes, so a
+/// font name that starts or ends with an apostrophe keeps it. Word writes font names raw, and a
+/// lone trailing `\` none of CSS would accept stays literal.
+fn css_string(v: &str) -> String {
+    let v = v.trim();
+    let v = ['"', '\''].into_iter().find_map(|q| v.strip_prefix(q)?.strip_suffix(q)).unwrap_or(v).trim();
+    let mut out = String::with_capacity(v.len());
+    let mut chars = v.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let mut hex = String::new();
+        while hex.len() < 6 {
+            match chars.clone().next() {
+                Some(h) if h.is_ascii_hexdigit() => {
+                    hex.push(h);
+                    chars.next();
+                }
+                _ => break,
+            }
+        }
+        if hex.is_empty() {
+            match chars.next() {
+                Some(e) => out.push(e),
+                None => out.push('\\'),
+            }
+        } else {
+            if let Some(d) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                out.push(d);
+            }
+            // One whitespace after the escape is its terminator, not part of the value.
+            if chars.clone().next().is_some_and(|w| w.is_whitespace()) {
+                chars.next();
+            }
+        }
+    }
+    out
+}
+
 /// Placement of a VML shape (ECMA-376 Part 4, VML): `position:absolute` in its style makes it
 /// float, offset by `left`/`margin-left` and `top`/`margin-top` from the area named by
 /// `mso-position-horizontal-relative` / `mso-position-vertical-relative` (unless aligned with
@@ -2349,7 +2400,7 @@ fn vml_watermark(shape: &El) -> Option<wordcraft_doc::Watermark> {
     let font = tp
         .attr("style")
         .and_then(|s| vml_style(s, "font-family"))
-        .map(|f| f.trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()).chars().take(100).collect::<String>())
+        .map(|f| css_string(f).chars().take(100).collect::<String>())
         .filter(|f| !f.is_empty())
         .unwrap_or(default.font);
     let color = shape.attr("fillcolor").and_then(vml_color).unwrap_or(default.color);

@@ -837,6 +837,10 @@ fn item_in(doc: &Document, it: &Placed, opts: &DisplayOptions, alpha: f32, outer
     }
 }
 
+/// Append display items for the half-open line range `l0..l1` of a laid-out paragraph.
+/// `(x, y)` positions the paragraph's left origin and the first selected line's top; later lines
+/// retain their layout offsets. Includes glyphs, inline objects, decorations and requested markup.
+/// `down` keeps vertical East Asian glyphs upright before the caller turns the resulting draws.
 fn lines(
     doc: &Document,
     story: StoryRef,
@@ -1707,6 +1711,10 @@ fn path_stroke_width(width: f32) -> f32 {
     if width.is_finite() && width > 0.0 { width.clamp(0.25, 200.0) } else { 0.75 }
 }
 
+/// Make a filled triangular arrowhead at the last point, in the points' coordinate space.
+/// The last distinct segment supplies its direction and the bounded stroke width sets its size.
+/// Returns `None` if there is no usable final segment. The triangle has no outline, so the path's
+/// cap setting does not affect its appearance.
 fn path_arrowhead(points: &[(f32, f32)], color: Rgb, stroke_width: f32) -> Option<Draw> {
     let tip = *points.last()?;
     let (prev_x, prev_y) = points.iter().rev().skip(1).copied().find(|p| *p != tip)?;

@@ -692,20 +692,10 @@ fn shape_path(kind: ShapeKind, r: &Rect, corner: Option<u32>) -> Option<Path> {
             pb.move_to(x0, y0);
             pb.line_to(x1, y1);
         }
-        ShapeKind::Arrow => {
-            let h = r.h;
-            poly(
-                &mut pb,
-                &[
-                    (x0, cy - h * 0.2),
-                    (x1 - h * 0.5, cy - h * 0.2),
-                    (x1 - h * 0.5, y0),
-                    (x1, cy),
-                    (x1 - h * 0.5, y1),
-                    (x1 - h * 0.5, cy + h * 0.2),
-                    (x0, cy + h * 0.2),
-                ],
-            )
+        ShapeKind::Arrow | ShapeKind::ArrowLeft | ShapeKind::ArrowUp | ShapeKind::ArrowDown => {
+            let pts: Vec<(f32, f32)> =
+                wordcraft_doc::wrap::arrow_outline(kind, r.w, r.h).iter().map(|&(u, v)| (x0 + u * r.w, y0 + v * r.h)).collect();
+            poly(&mut pb, &pts)
         }
         ShapeKind::Star => {
             let pts: Vec<(f32, f32)> = (0..10)
@@ -1053,6 +1043,10 @@ impl Exporter<'_> {
         tree
     }
 
+    /// Paint one display item on the PDF surface in its current point-coordinate system.
+    /// Nested clips and turns are pushed and popped around their child items. Shape and path
+    /// outlines set their own dash and cap state, then clear their fill and stroke; ink retains
+    /// round caps independently of the optional shape-outline setting.
     fn draw(&mut self, s: &mut Surface, d: &Draw) {
         match d {
             Draw::Figure { draws, .. } => {
