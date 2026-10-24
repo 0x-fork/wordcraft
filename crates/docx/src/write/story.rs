@@ -1723,12 +1723,11 @@ pub(crate) fn written_toc_span(bl: &Blocks) -> Option<(usize, usize)> {
 
 /// The engine's TOC: a paragraph holding an empty `TOC` field, then its TOC-styled entries.
 /// Returns (heading, last entry) so the field can be written spanning the entries, as Word does.
+/// The heading may end a section: entries in columns follow a continuous break (#3889).
 fn toc_span(bl: &Blocks) -> Option<(usize, usize)> {
     let start = bl.iter().position(|b| {
-        b.as_para().is_some_and(|p| {
-            p.section.is_none()
-                && p.objects.iter().any(|o| matches!(o, InlineObject::Field { instr, result, .. } if is_toc(instr) && result.is_empty()))
-        })
+        b.as_para()
+            .is_some_and(|p| p.objects.iter().any(|o| matches!(o, InlineObject::Field { instr, result, .. } if is_toc(instr) && result.is_empty())))
     })?;
     let entries = bl[start + 1..]
         .iter()

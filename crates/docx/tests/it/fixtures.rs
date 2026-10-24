@@ -683,6 +683,32 @@ fn a_style_defined_twice_is_its_last_definition() {
     assert_eq!(h.para.align, None, "nothing kept from the first definition");
 }
 
+/// #3889: Word in another language writes the TOC styles under ids in that language (`toc 1` is
+/// `Sumrio1` in Portuguese). They take the engine's ids, which Update Table and the writer know
+/// the entries by, with their formatting and references; an id the file already uses stays.
+#[test]
+fn localized_toc_style_ids_take_the_engine_ids() {
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+<w:style w:type="paragraph" w:styleId="CabealhodoSumrio"><w:name w:val="TOC Heading"/><w:next w:val="Normal"/></w:style>
+<w:style w:type="paragraph" w:styleId="Sumrio1"><w:name w:val="toc 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:spacing w:after="100"/></w:pPr></w:style>
+<w:style w:type="paragraph" w:styleId="Sumrio2"><w:name w:val="toc 2"/><w:basedOn w:val="Sumrio1"/><w:pPr><w:ind w:left="220"/></w:pPr></w:style>
+<w:style w:type="paragraph" w:styleId="TOC3"><w:name w:val="toc 3"/></w:style>
+<w:style w:type="paragraph" w:styleId="Sumrio3"><w:name w:val="toc 3"/></w:style>
+</w:styles>"#
+    );
+    let p = |st: &str| format!(r#"<w:p><w:pPr><w:pStyle w:val="{st}"/></w:pPr><w:r><w:t>{st}</w:t></w:r></w:p>"#);
+    let body = ["CabealhodoSumrio", "Sumrio1", "Sumrio2", "Sumrio3"].map(p).concat();
+    let d = wordcraft_docx::read(&docx(&body, &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+    let ids: Vec<Option<&str>> = paras(&d).iter().map(|p| p.props.style.as_deref()).collect();
+    assert_eq!(ids, [Some("TOCHeading"), Some("TOC1"), Some("TOC2"), Some("Sumrio3")]);
+    let toc2 = d.styles.get("TOC2").unwrap();
+    assert_eq!((toc2.name.as_str(), toc2.based_on.as_deref(), toc2.para.indent_left), ("TOC 2", Some("TOC1"), Some(11.0)));
+    assert_eq!(d.styles.get("TOC1").unwrap().para.space_after, Some(5.0));
+    assert!(d.styles.get("Sumrio1").is_none() && d.styles.get("TOC3").is_some() && d.styles.get("Sumrio3").is_some());
+}
+
 #[test]
 fn vml_image_and_inline_drawing() {
     let png: &[u8] = b"\x89PNG\r\n\x1a\nnot really a png";
