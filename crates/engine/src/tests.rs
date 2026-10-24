@@ -3052,6 +3052,40 @@ fn toc_and_fields() {
     assert_eq!(s.doc.plain_text(StoryRef::Body).matches("Summary\t").count(), 1, "one TOC entry after update");
 }
 
+/// A comment or reply made here carries its UTC time as `date_utc` too, so it shows in local time
+/// and is saved as `dateUtc`.
+#[test]
+fn new_comments_and_replies_carry_their_utc_time() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Some text"}));
+    run(&mut s, "select.all", json!({}));
+    let id = run(&mut s, "review.newComment", json!({"text": "one"}))["id"].as_u64().unwrap();
+    run(&mut s, "review.reply", json!({"id": id, "text": "two"}));
+    assert_eq!(s.doc.comments.len(), 2);
+    for c in s.doc.comments.values() {
+        assert!(c.date.ends_with('Z'), "{}", c.date);
+        assert_eq!(c.date_utc.as_deref(), Some(c.date.as_str()));
+    }
+}
+
+/// Update Table with nothing to change lays the document out at the revisions it touches, then
+/// puts the revision back. The next edits reach those numbers again with a different document, so
+/// the layout must be the new one.
+#[test]
+fn a_command_that_changes_nothing_leaves_no_stale_layout() {
+    let mut s = Session::new(crate::sample::report());
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "references.toc", json!({}));
+    let (rev, steps) = (s.rev(), s.undo_depth());
+    let pages = s.layout().pages.len();
+    run(&mut s, "references.updateToc", json!({}));
+    assert_eq!((s.rev(), s.undo_depth()), (rev, steps), "Update Table changed nothing");
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "text.insert", json!({"text": "A"}));
+    run(&mut s, "text.insert", json!({"text": "word ".repeat(4000)}));
+    assert!(s.layout().pages.len() > pages, "the layout has the inserted text");
+}
+
 #[test]
 fn toc_refresh_after_save_and_reopen() {
     for extension in ["docx", "json"] {
