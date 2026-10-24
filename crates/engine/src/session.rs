@@ -674,6 +674,8 @@ impl Session {
         }
     }
 
+    /// Start an editing session at the document beginning with empty history and
+    /// default view, preferences and a yellow highlighter independent of document undo.
     pub fn new(doc: Document) -> Self {
         let start = doc.start_of(StoryRef::Body);
         let bib_style = doc_bib_style(&doc);
