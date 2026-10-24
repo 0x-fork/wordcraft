@@ -9,12 +9,12 @@ description = "WordCraft egui front end (Word-style ribbon UI); swappable: nothi
 workspace = true
 
 [dependencies]
-craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "16fb3d46e1eaa0d455465e4e66a3ac7b17b55bd3" }
+craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "6e7f28518dd1cb57e1624bdc269c3c14316b13ae" }
 # Interface translations: lookup, fallback, plurals and system-locale matching over the craft-i18n
 # catalogs that `build.rs` embeds from `CRAFT_I18N_DIR` (storytold/craft-i18n, pinned in
-# `craft-i18n.rev`). Its own rev, ahead of craft-ui's: lazy per-locale parsing
+# `craft-i18n.rev`). Same craft-libs rev as craft-ui; it brings lazy per-locale parsing
 # (storytold/craft-libs#247), ICU4X plural rules and bidi isolates around inserted values.
-craft-i18n = { git = "https://github.com/storytold/craft-libs", rev = "17744430be327d0257496a6a31c8d38fe20a6756" }
+craft-i18n = { git = "https://github.com/storytold/craft-libs", rev = "6e7f28518dd1cb57e1624bdc269c3c14316b13ae" }
 wordcraft-geom = { workspace = true }
 wordcraft-doc = { workspace = true }
 unicode-bidi = { workspace = true }
