@@ -1,9 +1,11 @@
-//! Decoding a picture within a memory budget. Every crate that decodes a document's pictures goes
-//! through [`probe`]: the header gives the format and size, and the decode is refused before
-//! anything is allocated when its peak would pass the budget. The peak counts what a decoder holds
-//! beside its output (a progressive JPEG's coefficients, #3644), and a picture whose decoder can't
-//! be held to a budget is not decoded at all (a TIFF with JPEG strips, #3645).
+//! Decoding a picture within a memory budget. Every crate that decodes a document's or the
+//! clipboard's pictures goes through [`probe`] (or [`probe_dib`]): the header gives the format and
+//! size, and the decode is refused before anything is allocated when its peak would pass the
+//! budget. The peak counts what a decoder holds beside its output (a progressive JPEG's
+//! coefficients, #3644), and a picture whose decoder can't be held to a budget is not decoded at
+//! all (a TIFF with JPEG strips, #3645).
 
+use std::borrow::Cow;
 use std::io::Cursor;
 
 use image::{DynamicImage, ImageDecoder, ImageFormat};
@@ -40,9 +42,11 @@ fn broken(e: image::ImageError) -> Refusal {
 
 /// What a picture's header says: its format, its size and the memory decoding it takes. Reading
 /// it allocates no pixels.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Probe<'a> {
-    bytes: &'a [u8],
+    bytes: Cow<'a, [u8]>,
+    /// A DIB: a BMP without its file header, as the Windows clipboard holds one.
+    dib: bool,
     pub format: ImageFormat,
     pub width: u32,
     pub height: u32,
@@ -70,7 +74,19 @@ pub fn probe(bytes: &[u8]) -> Result<Probe<'_>, Refusal> {
     };
     let decoder = image::ImageReader::with_format(Cursor::new(bytes), format).into_decoder().map_err(broken)?;
     let (width, height, peak) = measure(&decoder, held)?;
-    Ok(Probe { bytes, format, width, height, peak })
+    Ok(Probe { bytes: Cow::Borrowed(bytes), dib: false, format, width, height, peak })
+}
+
+/// Read a DIB's header: a BMP without its 14-byte file header, as the Windows clipboard holds
+/// one (`CF_DIB`, `CF_DIBV5`). Its layout is first made the one the decoder reads (see
+/// [`dib_layout`]).
+pub fn probe_dib(dib: Vec<u8>) -> Result<Probe<'static>, Refusal> {
+    let dib = dib_layout(dib);
+    let (width, height, peak) = {
+        let decoder = image::codecs::bmp::BmpDecoder::new_without_file_header(Cursor::new(dib.as_slice())).map_err(broken)?;
+        measure(&decoder, 0)?
+    };
+    Ok(Probe { bytes: Cow::Owned(dib), dib: true, format: ImageFormat::Bmp, width, height, peak })
 }
 
 /// A decoder's size and the peak bytes of decoding it, `held` bytes kept beside its output.
@@ -105,7 +121,12 @@ impl Probe<'_> {
         limits.max_image_width = Some(self.width);
         limits.max_image_height = Some(self.height);
         limits.max_alloc = Some(budget);
-        let mut reader = image::ImageReader::with_format(Cursor::new(self.bytes), self.format);
+        if self.dib {
+            let mut decoder = image::codecs::bmp::BmpDecoder::new_without_file_header(Cursor::new(&*self.bytes)).map_err(broken)?;
+            decoder.set_limits(limits).map_err(broken)?;
+            return DynamicImage::from_decoder(decoder).map_err(broken);
+        }
+        let mut reader = image::ImageReader::with_format(Cursor::new(&*self.bytes), self.format);
         reader.limits(limits);
         reader.decode().map_err(broken)
     }
@@ -217,6 +238,37 @@ fn tiff_compression(bytes: &[u8]) -> Option<u16> {
         };
     }
     Some(1)
+}
+
+/// A DIB with a V4 or V5 header in the layout the decoder reads. A 32-bit one whose alpha mask
+/// is set but whose compression says `BI_RGB` is marked `BI_BITFIELDS` (with the usual colour
+/// masks when it gives none), so its alpha is kept as Windows programs mean it; arboard makes the
+/// same change. Bit fields then need the colour masks after the header too, where Windows puts a
+/// copy and the decoder skips them; a DIB without that copy (arboard writes one) gets it.
+fn dib_layout(mut dib: Vec<u8>) -> Vec<u8> {
+    let u32_at = |d: &[u8], at: usize| d.get(at..at + 4).and_then(|b| b.try_into().ok()).map(u32::from_le_bytes);
+    let Some(size) = u32_at(&dib, 0).filter(|&s| s >= 108).and_then(|s| usize::try_from(s).ok()) else { return dib };
+    let put = |d: &mut Vec<u8>, at: usize, v: u32| {
+        if let Some(b) = d.get_mut(at..at + 4) {
+            b.copy_from_slice(&v.to_le_bytes());
+        }
+    };
+    if dib.get(14..16) == Some(&[32, 0]) && u32_at(&dib, 16) == Some(0) && u32_at(&dib, 52) == Some(0xFF00_0000) {
+        put(&mut dib, 16, 3);
+        if (40..52).step_by(4).all(|at| u32_at(&dib, at) == Some(0)) {
+            put(&mut dib, 40, 0x00FF_0000);
+            put(&mut dib, 44, 0x0000_FF00);
+            put(&mut dib, 48, 0x0000_00FF);
+        }
+    }
+    if u32_at(&dib, 16) == Some(3)
+        && size <= dib.len()
+        && let Some(masks) = dib.get(40..52).map(<[u8]>::to_vec)
+        && dib.get(size..size + 12) != Some(masks.as_slice())
+    {
+        dib.splice(size..size, masks);
+    }
+    dib
 }
 
 #[cfg(test)]
@@ -362,5 +414,66 @@ mod tests {
         let tiff = encode(image::RgbImage::from_pixel(5, 3, image::Rgb([9, 8, 7])), ImageFormat::Tiff);
         assert_eq!(tiff_compression(&tiff), Some(1));
         assert_eq!(decode(&tiff, 1 << 20).unwrap().to_rgb8().get_pixel(4, 2).0, [9, 8, 7]);
+    }
+
+    /// A BITMAPV5HEADER DIB of 32-bit pixels, bottom-up, with `alpha_mask`: `BI_RGB`, or with
+    /// `bitfields` the usual masks and `BI_BITFIELDS`, their copy after the header when `copy`.
+    fn dib(w: i32, h: i32, alpha_mask: u32, bitfields: bool, copy: bool, pixels: &[[u8; 4]]) -> Vec<u8> {
+        let mut d = vec![0u8; 124];
+        d[0..4].copy_from_slice(&124u32.to_le_bytes());
+        d[4..8].copy_from_slice(&w.to_le_bytes());
+        d[8..12].copy_from_slice(&h.to_le_bytes());
+        d[12..14].copy_from_slice(&1u16.to_le_bytes());
+        d[14..16].copy_from_slice(&32u16.to_le_bytes());
+        d[52..56].copy_from_slice(&alpha_mask.to_le_bytes());
+        if bitfields {
+            d[16..20].copy_from_slice(&3u32.to_le_bytes());
+            for (at, m) in [(40, 0x00FF_0000u32), (44, 0x0000_FF00), (48, 0x0000_00FF)] {
+                d[at..at + 4].copy_from_slice(&m.to_le_bytes());
+            }
+            if copy {
+                let masks = d[40..52].to_vec();
+                d.extend(masks);
+            }
+        }
+        for p in pixels {
+            d.extend(p);
+        }
+        d
+    }
+
+    #[test]
+    fn clipboard_dibs_keep_their_alpha_in_every_layout() {
+        // BGRA in memory: a half-transparent red pixel and an opaque blue one.
+        let px = [[0, 0, 255, 128], [255, 0, 0, 255]];
+        // `BI_RGB` with an alpha mask (Windows programs); bit fields without the masks' copy
+        // after the header (arboard), and with it (Windows).
+        for (bitfields, copy) in [(false, false), (true, false), (true, true)] {
+            let p = probe_dib(dib(2, 1, 0xFF00_0000, bitfields, copy, &px)).unwrap();
+            assert_eq!((p.format, p.width, p.height), (ImageFormat::Bmp, 2, 1));
+            let rgba = p.decode(1 << 20).unwrap().to_rgba8();
+            assert_eq!(rgba.get_pixel(0, 0).0, [255, 0, 0, 128], "{bitfields} {copy}");
+            assert_eq!(rgba.get_pixel(1, 0).0, [0, 0, 255, 255], "{bitfields} {copy}");
+        }
+        // Without an alpha mask, `BI_RGB` pixels are opaque.
+        let p = probe_dib(dib(2, 1, 0, false, false, &px)).unwrap();
+        assert_eq!(p.decode(1 << 20).unwrap().to_rgba8().get_pixel(0, 0).0, [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn huge_or_damaged_clipboard_dibs_are_refused() {
+        let p = probe_dib(dib(60_000, 60_000, 0xFF00_0000, false, false, &[])).unwrap();
+        assert_eq!((p.width, p.height), (60_000, 60_000));
+        assert!(!p.fits(crate::MAX_DECODED_BYTES));
+        assert!(matches!(p.decode(crate::MAX_DECODED_BYTES), Err(Refusal::TooLarge { .. })));
+        assert!(probe_dib(vec![0; 8]).is_err());
+        // Cut short or lying about its header: no pixels come out, and nothing panics.
+        let mut short = dib(2, 1, 0xFF00_0000, true, false, &[]);
+        short.truncate(100);
+        let mut lying = dib(2, 1, 0xFF00_0000, true, false, &[[0; 4], [0; 4]]);
+        lying[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        for d in [short, lying] {
+            assert!(probe_dib(d).and_then(|p| p.decode(1 << 20)).is_err());
+        }
     }
 }
