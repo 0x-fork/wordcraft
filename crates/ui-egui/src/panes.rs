@@ -336,17 +336,48 @@ pub(crate) fn apply(app: &mut WordApp, request: PaneRequest<Pane>) {
         PaneRequest::FloatRect(Pane::Styles, rect) => app.ui.styles_pane_float = Some(rect),
         PaneRequest::Place(pane, place) => {
             let dock = match place {
-                Place::Docked(Edge::Start) => SavedDock::Left,
-                Place::Docked(Edge::End) => SavedDock::Right,
-                Place::Floating => SavedDock::Float,
+                Place::Docked(Edge::Start) => "left",
+                Place::Docked(Edge::End) => "right",
+                Place::Floating => "float",
                 Place::Docked(Edge::Bottom) => return,
             };
-            app.ui.pane_places.entry(pane.key().into()).or_default().dock = Some(dock);
+            let _ = app.run("ui.paneDock", json!({"pane": pane.key(), "dock": dock}));
         }
         PaneRequest::Resize(pane, width) => app.ui.pane_places.entry(pane.key().into()).or_default().width = Some(width),
         PaneRequest::FloatRect(pane, rect) => app.ui.pane_places.entry(pane.key().into()).or_default().float = Some(rect),
         PaneRequest::Focus(_) => {}
     }
+}
+
+/// `ui.paneDock {"pane": key, "dock"?: "left" | "right" | "float"}` (#1756): docks or floats a
+/// task pane, as its menu's Dock Left, Dock Right and Float do; without `dock` it reads the
+/// pane's place. `pane` is the pane's `panePlaces` key; Styles goes through `view.stylesPaneDock`.
+pub(crate) fn dock_command(app: &mut WordApp, p: &Value) -> Result<Value, String> {
+    let key = p.get("pane").and_then(Value::as_str).ok_or("`pane` must be a task pane's key, such as \"navigation\"")?;
+    let pane = Pane::ALL.into_iter().find(|pane| pane.key() == key).ok_or_else(|| format!("unknown task pane `{key}`"))?;
+    let dock = match p.get("dock") {
+        None => None,
+        Some(v) => Some(match v.as_str() {
+            Some("left") => SavedDock::Left,
+            Some("right") => SavedDock::Right,
+            Some("float") => SavedDock::Float,
+            _ => return Err("`dock` must be left, right or float".into()),
+        }),
+    };
+    if pane == Pane::Styles {
+        let params = p.get("dock").map_or_else(|| json!({}), |d| json!({"dock": d}));
+        let result = app.run("view.stylesPaneDock", params)?;
+        return Ok(json!({"pane": key, "dock": result.get("dock")}));
+    }
+    if let Some(dock) = dock {
+        app.ui.pane_places.entry(key.into()).or_default().dock = Some(dock);
+    }
+    let name = match pane_state(app, pane).place {
+        Place::Docked(Edge::Start) => "left",
+        Place::Floating => "float",
+        Place::Docked(_) => "right",
+    };
+    Ok(json!({"pane": key, "dock": name}))
 }
 
 fn close(app: &mut WordApp, pane: Pane) {
@@ -1400,6 +1431,35 @@ mod tests {
         let mut odd = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
         odd.apply_prefs(serde_json::from_str(r#"{"panePlaces": [1, 2], "navPane": true}"#).unwrap());
         assert!(odd.ui.pane_places.is_empty() && odd.session.view.nav_pane);
+    }
+
+    /// `ui.paneDock` docks or floats any pane and reads its place, as the pane's menu does
+    /// (#1756); Styles goes through `view.stylesPaneDock`; junk is refused and changes nothing.
+    #[test]
+    fn pane_dock_command_docks_floats_and_reads_each_pane() {
+        use craft_ui::panes::{Edge, Place};
+        use serde_json::json;
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+        assert_eq!(app.run("ui.paneDock", json!({"pane": "navigation"})).unwrap(), json!({"pane": "navigation", "dock": "left"}));
+        assert_eq!(app.run("ui.paneDock", json!({"pane": "comments"})).unwrap(), json!({"pane": "comments", "dock": "right"}));
+        assert_eq!(app.run("ui.paneDock", json!({"pane": "navigation", "dock": "float"})).unwrap()["dock"], "float");
+        assert_eq!(super::pane_state(&app, Pane::Navigation).place, Place::Floating);
+        app.run("ui.paneDock", json!({"pane": "comments", "dock": "left"})).unwrap();
+        assert_eq!(super::pane_state(&app, Pane::Comments).place, Place::Docked(Edge::Start));
+        assert_eq!(app.run("ui.paneDock", json!({"pane": "styles", "dock": "float"})).unwrap(), json!({"pane": "styles", "dock": "float"}));
+        assert_eq!(app.session.view.styles_pane_dock, wordcraft_engine::StylesPaneDock::Floating);
+        assert!(!app.ui.pane_places.contains_key("styles"), "Styles keeps its place in the view state");
+        for junk in [
+            json!({}),
+            json!({"pane": "nope", "dock": "left"}),
+            json!({"pane": 3}),
+            json!({"pane": "navigation", "dock": "top"}),
+            json!({"pane": "navigation", "dock": 1}),
+            json!({"pane": "navigation", "dock": null}),
+        ] {
+            assert!(app.run("ui.paneDock", junk.clone()).is_err(), "{junk}");
+        }
+        assert_eq!(super::pane_state(&app, Pane::Navigation).place, Place::Floating, "junk changed nothing");
     }
 
     /// #3032: Delete is greyed out for built-in styles in the Styles pane (the engine refuses

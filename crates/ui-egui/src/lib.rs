@@ -1660,6 +1660,7 @@ impl WordApp {
                 self.canvas.want_focus = true;
                 json!({"pending": "contextMenu"})
             }
+            "ui.paneDock" => return Some(panes::dock_command(self, p)),
             "ui.collapseRibbon" => {
                 self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed;
                 json!({"collapsed": self.ui.ribbon_collapsed})
