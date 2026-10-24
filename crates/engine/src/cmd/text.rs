@@ -667,13 +667,12 @@ fn tab_indent_on(s: &Session) -> bool {
 }
 
 /// Does Tab at `f` indent instead of typing a tab? Only at the start of a line of a paragraph
-/// with text.
+/// with text. Not before the first line of a list item numbered by its style, where Tab types a
+/// tab character as with the option off.
 fn tab_indents(s: &mut Session, f: &Pos) -> bool {
-    if s.doc.para_at(f).is_none_or(|p| p.is_empty()) {
-        return false;
-    }
+    let Some(para) = s.doc.para_at(f).filter(|p| !p.is_empty()) else { return false };
     if f.off == 0 {
-        return true;
+        return !s.doc.styles.resolve_para(&para.props).numbering.is_some_and(|n| n.num != 0);
     }
     let l = s.layout();
     l.line_bounds(f, s.page_hint).is_some_and(|(a, _)| a == *f)

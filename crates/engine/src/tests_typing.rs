@@ -665,6 +665,14 @@ fn tab_and_backspace_at_a_paragraph_start_set_its_indents() {
     typ(&mut s, "\tText");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "\tText");
     assert_eq!(indents(&s), (None, None));
+    // At the start of a list item numbered by its style, Tab types a tab character, as with the
+    // option off.
+    let mut s = style_inherited_list(wordcraft_doc::numbering::ListKind::Numbered, false);
+    run(&mut s, "tools.autocorrect", json!({"tabIndent": true}));
+    run(&mut s, "caret.docStart", json!({}));
+    typ(&mut s, "\t");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "\tAlpha\nBeta");
+    assert_eq!(indents(&s), (None, None));
     // With the option off (the default), Tab types a tab character.
     let mut s = self::s();
     typ(&mut s, "Some text");
