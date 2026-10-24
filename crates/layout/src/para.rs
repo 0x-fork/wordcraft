@@ -588,6 +588,16 @@ pub struct Exclusion {
     pub contour: Option<Arc<crate::contour::Contour>>,
     /// The sides of the object text may go on (Square, Tight, Through).
     pub side: WrapText,
+    /// A floating table counts a line touching its top as overlapping; shapes do not (#3977).
+    pub table: bool,
+}
+
+impl Exclusion {
+    /// Whether this area keeps text out of the row, including exact top contact for tables.
+    fn intersects_row(&self, top: f32, h: f32, lo: f32, hi: f32) -> bool {
+        let reaches = if self.table { self.top <= top + h } else { self.top < top + h };
+        self.bottom > top && reaches && self.right > lo && self.left < hi
+    }
 }
 
 struct Builder<'a> {
@@ -2403,7 +2413,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     // Nothing on this row: go below the first object that ends, as when no span is wide enough.
                     exclusions
                         .iter()
-                        .filter(|e| e.bottom > top && e.top < top + est_h && e.right > row_lo && e.left < base_right)
+                        .filter(|e| e.intersects_row(top, est_h, row_lo, base_right))
                         .map(|e| e.bottom)
                         .reduce(f32::min)
                         .unwrap_or(top + est_h)
@@ -2804,7 +2814,7 @@ fn baseline_offset(spacing: LineSpacing, asc: f32, height: f32, desc: f32) -> f3
 /// the exclusions, left to right (Square wrapping uses both sides of an object). `Err(y)`: none
 /// here, try again at `y` (below what's in the way).
 fn row_spans(exclusions: &[Exclusion], top: f32, h: f32, lo: f32, hi: f32) -> Result<VecDeque<(f32, f32)>, f32> {
-    let here: Vec<&Exclusion> = exclusions.iter().filter(|e| e.bottom > top && e.top < top + h && e.right > lo && e.left < hi).collect();
+    let here: Vec<&Exclusion> = exclusions.iter().filter(|e| e.intersects_row(top, h, lo, hi)).collect();
     if let Some(below) = here.iter().filter(|e| e.top_bottom).map(|e| e.bottom).reduce(f32::max) {
         return Err(below);
     }
