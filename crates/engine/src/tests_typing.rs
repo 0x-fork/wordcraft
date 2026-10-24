@@ -706,6 +706,37 @@ fn tab_before_a_later_line_of_a_paragraph_indents_the_whole_paragraph() {
     run(&mut s, "caret.right", json!({}));
     typ(&mut s, "\t");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "One\nT\two");
+    // Before a later line of a list item numbered by its style, Tab takes it down a level, as
+    // for a list item numbered directly.
+    let mut s = style_inherited_list(wordcraft_doc::numbering::ListKind::Numbered, false);
+    run(&mut s, "tools.autocorrect", json!({"tabIndent": true}));
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "caret.end", json!({}));
+    run(&mut s, "text.lineBreak", json!({}));
+    typ(&mut s, "More");
+    run(&mut s, "caret.home", json!({}));
+    typ(&mut s, "\t");
+    assert!(!s.doc.plain_text(StoryRef::Body).contains('\t'));
+    let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+    assert_eq!(p.props.numbering.map(|n| n.level), Some(1));
+    assert_eq!(indents(&s), (None, None));
+    // A list level past the last one, from a style or set directly, goes to the last level.
+    let mut s = style_inherited_list(wordcraft_doc::numbering::ListKind::Numbered, false);
+    let style = s.doc.styles.styles.iter_mut().find(|x| x.id == "ListBase").unwrap();
+    style.para.numbering = style.para.numbering.map(|n| wordcraft_doc::props::NumRef { level: u8::MAX, ..n });
+    run(&mut s, "tools.autocorrect", json!({"tabIndent": true}));
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "caret.end", json!({}));
+    run(&mut s, "text.lineBreak", json!({}));
+    typ(&mut s, "More");
+    run(&mut s, "caret.home", json!({}));
+    typ(&mut s, "\t");
+    assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.numbering.map(|n| n.level), Some(8));
+    let num = s.doc.para_at(&Pos::body(0, 0)).unwrap().props.numbering.unwrap().num;
+    s.doc.para_mut(StoryRef::Body, &Pos::body(1, 0).path).unwrap().props.numbering = Some(wordcraft_doc::props::NumRef { num, level: u8::MAX });
+    s.sel = crate::Selection::caret(Pos::body(1, 0));
+    typ(&mut s, "\t");
+    assert_eq!(s.doc.para_at(&Pos::body(1, 0)).unwrap().props.numbering.map(|n| n.level), Some(8));
 }
 
 #[test]

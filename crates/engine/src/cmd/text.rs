@@ -645,7 +645,7 @@ fn tab(s: &mut Session, _: &Value) -> CmdResult {
         && n.num != 0
     {
         let para = s.doc.para_mut(f.story, &f.path)?;
-        para.props.numbering = Some(NumRef { num: n.num, level: (n.level + 1).min(8) });
+        para.props.numbering = Some(NumRef { num: n.num, level: n.level.saturating_add(1).min(8) });
         para.touch();
         return sel_result(s);
     }
@@ -680,9 +680,20 @@ fn tab_indents(s: &mut Session, f: &Pos) -> bool {
 
 /// Tab before the first line indents the first line by one default tab stop; before any other
 /// line, or when the first line is indented or hanging already, it indents the whole paragraph.
+/// Before a later line of a list item, numbered directly or by its style, it takes the item down
+/// a level.
 fn indent_by_tab(s: &mut Session, f: &Pos) -> CmdResult {
     let Some(para) = s.doc.para_at(f) else { return sel_result(s) };
     let r = s.doc.styles.resolve_para(&para.props);
+    if f.off > 0
+        && para.props.numbering.is_none()
+        && let Some(n) = r.numbering.filter(|n| n.num != 0)
+    {
+        let p = s.doc.para_mut(f.story, &f.path)?;
+        p.props.numbering = Some(NumRef { num: n.num, level: n.level.saturating_add(1).min(8) });
+        p.touch();
+        return sel_result(s);
+    }
     if f.off == 0 && r.indent_first == 0.0 && r.indent_chars[2] == 0.0 {
         let tab = s.doc.settings.default_tab.max(1.0);
         let p = s.doc.para_mut(f.story, &f.path)?;
