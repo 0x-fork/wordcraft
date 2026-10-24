@@ -2315,3 +2315,28 @@ fn borders_are_dashed_with_words_patterns() {
     assert!(raw.contains("[6 2]0 d") || raw.contains("[6 2] 0 d"), "the dashed border");
     assert!(raw.contains("[3 1 1 1]0 d") || raw.contains("[3 1 1 1] 0 d"), "the dash-dot border");
 }
+
+#[test]
+fn only_safe_link_targets_become_annotations() {
+    use hayro_syntax::object::{Array, Dict, String as PdfString};
+
+    let mut d = Document::new();
+    d.body = ["https://example.com/", "mailto:ada@example.com", "javascript:alert(1)", "file:///etc/passwd"]
+        .into_iter()
+        .map(|url| para_block(Paragraph::with_text("Click here", CharProps { link: Some(url.into()), ..Default::default() })))
+        .collect();
+    let bytes = export(&d, &PdfOptions::default()).unwrap();
+    assert_eq!(squash(&extract_text(&bytes)[0]).matches("Click here").count(), 4, "unlinked text stays");
+    let pdf = hayro_syntax::Pdf::new(bytes).unwrap();
+    let uris: Vec<String> = pdf.pages()[0]
+        .raw()
+        .get::<Array>(b"Annots")
+        .into_iter()
+        .flat_map(|a| a.iter::<Dict>().collect::<Vec<_>>())
+        .map(|a| {
+            let uri = a.get::<Dict>(b"A").unwrap().get::<PdfString>(b"URI").unwrap();
+            String::from_utf8_lossy(uri.as_ref()).into_owned()
+        })
+        .collect();
+    assert_eq!(uris, ["https://example.com/", "mailto:ada@example.com"]);
+}
