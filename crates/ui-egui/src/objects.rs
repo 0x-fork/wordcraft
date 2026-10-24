@@ -709,7 +709,13 @@ pub fn cursor(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at:
     if connector_end_at(app, layout, pages, scale, at).is_some() {
         return Some(egui::CursorIcon::Crosshair);
     }
-    grab_at(app, layout, pages, scale, at).map(|(o, g)| if fixed(app, &o) { egui::CursorIcon::Default } else { g.cursor() })
+    grab_at(app, layout, pages, scale, at).map(|(o, g)| hover_cursor(app, &o, g))
+}
+
+/// The cursor over part `g` of object `o`: none of a drag for an object that won't move there (a
+/// fixed graphic, or the body of a chart or SmartArt, which only resizes).
+fn hover_cursor(app: &WordApp, o: &ObjectHit, g: Grab) -> egui::CursorIcon {
+    if fixed(app, o) || (g == Grab::Move && size_only(app, o)) { egui::CursorIcon::Default } else { g.cursor() }
 }
 
 /// Keys for a selected object: arrows nudge a floating one; typing or Enter goes into a text box.
@@ -791,6 +797,9 @@ mod tests {
         let hit = app.session.layout().object(&Pos::body(0, 0), 0).expect("laid out");
         assert!(!fixed(&app, &hit));
         assert!(size_only(&app, &hit));
+        // Its body shows no move cursor; its handles show theirs.
+        assert_eq!(hover_cursor(&app, &hit, Grab::Move), egui::CursorIcon::Default);
+        assert_ne!(hover_cursor(&app, &hit, Grab::Resize(frame::Handle { x: 1, y: 0 })), egui::CursorIcon::Default);
         let (w0, h0) = (hit.rect.w, hit.rect.h);
         assert!(app.run("arrange.bounds", json!({"width": w0 / 2.0, "height": h0 / 2.0})).is_err());
         app.run("picture.size", json!({"width": w0 / 2.0, "height": h0 / 2.0, "lockAspect": false})).unwrap();
