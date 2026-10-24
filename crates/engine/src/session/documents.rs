@@ -529,14 +529,26 @@ impl Session {
     /// changed, nothing to undo or redo and no text. Opening a file replaces such a document
     /// rather than opening beside it.
     pub fn is_untouched_blank(&self) -> bool {
-        self.path.is_none()
-            && self.file_name.is_none()
-            && !self.dirty
-            && self.history.is_empty()
-            && self.redo.is_empty()
-            && self.rev == self.made_rev
-            && self.doc.paragraph_count() <= 1
-            && self.doc.plain_text(StoryRef::Body).trim().is_empty()
+        self.used_because().is_none()
+    }
+
+    /// Why the active document doesn't count as an untouched blank one, if it doesn't.
+    pub(crate) fn used_because(&self) -> Option<&'static str> {
+        if self.path.is_some() {
+            Some("it has a file")
+        } else if self.file_name.is_some() {
+            Some("it has a name")
+        } else if self.dirty {
+            Some("it has unsaved changes")
+        } else if !self.history.is_empty() || !self.redo.is_empty() {
+            Some("it has undo or redo steps")
+        } else if self.rev != self.made_rev {
+            Some("it changed since it was made")
+        } else if self.doc.paragraph_count() > 1 || !self.doc.plain_text(StoryRef::Body).trim().is_empty() {
+            Some("it has text")
+        } else {
+            None
+        }
     }
 
     /// Run `f` with document `id` active, then make the document that was active before active

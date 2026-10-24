@@ -265,10 +265,12 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
     {
         doc.styles.default_chr.lang = Some(lang.clone());
     }
-    if s.is_untouched_blank() {
-        s.set_document(doc);
-    } else {
-        s.add_opened_document(doc);
+    match s.used_because() {
+        None => s.set_document(doc),
+        Some(why) => {
+            log::info!("file.open: opened beside document {}, not in its place: {why}", s.document_id());
+            s.add_opened_document(doc);
+        }
     }
     if let Some(z) = s.doc.settings.zoom {
         super::view::restore_zoom(s, z);
