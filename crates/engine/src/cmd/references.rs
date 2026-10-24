@@ -338,21 +338,31 @@ fn toc_range(s: &Session) -> Option<(usize, usize)> {
 }
 
 /// Removes the TOC blocks `start..=end` and returns where the TOC was. A field paragraph that ends
-/// a section stays, emptied, so its section break isn't lost (#3889).
+/// a section stays, emptied, so its section break isn't lost (#3889). A heading paragraph of its
+/// own just above the field's paragraph (Word's tables start the field after their heading) goes
+/// with the table.
 fn remove_toc(s: &mut Session, start: usize, end: usize) -> Result<usize, CmdError> {
     for i in (start + 1..=end).rev() {
         s.doc.remove_block(StoryRef::Body, &Path::top(i))?;
     }
-    match s.doc.para_mut(StoryRef::Body, &Path::top(start)) {
+    let at = match s.doc.para_mut(StoryRef::Body, &Path::top(start)) {
         Ok(p) if p.section.is_some() => {
             *p = Paragraph { section: p.section.take(), ..Paragraph::new() };
-            Ok(start + 1)
+            start + 1
         }
         _ => {
             s.doc.remove_block(StoryRef::Body, &Path::top(start))?;
-            Ok(start)
+            start
         }
+    };
+    let titled = start.checked_sub(1).and_then(|i| s.doc.body.get(i)).and_then(|b| b.as_para()).is_some_and(|p| {
+        p.props.style.as_deref() == Some("TOCHeading") && p.section.is_none() && toc_field(p).is_none()
+    });
+    if titled {
+        s.doc.remove_block(StoryRef::Body, &Path::top(start - 1))?;
+        return Ok(at - 1);
     }
+    Ok(at)
 }
 
 /// The caret is in the table of contents (its heading or an entry), where Word's context menu

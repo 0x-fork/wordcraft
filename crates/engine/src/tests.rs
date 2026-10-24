@@ -3421,10 +3421,14 @@ fn toc_in_columns_with_localized_styles_keeps_its_layout_through_update_table() 
     // The field's paragraph ends the one-column section: replacing or removing the TOC keeps it.
     let columns = |s: &Session| s.doc.sections().iter().map(|(_, x)| x.columns.count).collect::<Vec<_>>();
     assert_eq!(columns(&s), [1, 2, 1]);
+    // The heading goes with the table: one "Contents" after Replace, none after Remove.
+    let titles = |s: &Session| s.doc.body.iter().filter_map(|b| b.as_para()).filter(|p| p.plain_text() == "Contents").count();
     run(&mut s, "references.toc", json!({"levels": 2}));
     assert_eq!(columns(&s), [1, 2, 1], "{}", text(&s));
+    assert_eq!(titles(&s), 1, "{}", text(&s));
     run(&mut s, "references.removeToc", json!({}));
     assert_eq!(columns(&s), [1, 2, 1], "{}", text(&s));
+    assert_eq!(titles(&s), 0, "{}", text(&s));
 }
 
 /// #2182: with two TOCs only the one Update Table would refresh is offered Update Field; the other
