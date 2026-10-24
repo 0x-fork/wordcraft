@@ -1487,6 +1487,26 @@ impl Session {
         (spec.enabled)(self).or_else(|| if spec.mutates { crate::cmd::protect::greyed_out(self, id, || self.protect_facts()) } else { None })
     }
 
+    /// Put the revision back to `rev` after a command that changed nothing or failed. What the
+    /// command cached at the revision it touched to is dropped: that number comes round again
+    /// with the next edit, for a different document.
+    fn restore_rev(&mut self, rev: u64) {
+        if self.rev == rev {
+            return;
+        }
+        self.rev = rev;
+        if self.layout.as_ref().is_some_and(|l| l.0 != rev) {
+            self.layout = None;
+        }
+        if self.find.highlights.as_ref().is_some_and(|(r, _)| *r != rev) {
+            self.find.highlights = None;
+        }
+        let facts = self.protect_facts.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if facts.as_ref().is_some_and(|((_, r, _), _)| *r != rev) {
+            *facts = None;
+        }
+    }
+
     /// [`crate::cmd::protect::Facts`] for the document as it is now, cached per revision.
     fn protect_facts(&self) -> crate::cmd::protect::Facts {
         let key = (self.document_id, self.rev, self.author.clone());
@@ -1697,7 +1717,7 @@ impl Session {
                             self.dirty = dirty;
                         }
                         if let Some(rev) = rev_restore {
-                            self.rev = rev;
+                            self.restore_rev(rev);
                         }
                         if pushed {
                             self.join_anchor = false;
@@ -1759,7 +1779,7 @@ impl Session {
                     self.dirty = dirty;
                 }
                 if let Some(rev) = rev_restore {
-                    self.rev = rev;
+                    self.restore_rev(rev);
                 }
                 if let Some(b) = blocks_before {
                     self.building_blocks = b;
