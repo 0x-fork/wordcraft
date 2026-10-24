@@ -1,6 +1,6 @@
-//! Comment times in the user's own time zone. A document keeps a comment's time as written
-//! (WordCraft writes UTC, as `review.newComment` stamps it). The Comments pane and the balloons
-//! show it in local time, as Word does.
+//! Comment times in the user's own time zone. A document keeps a comment's time as written, and
+//! its UTC time beside it when it knows it (`w16cex:dateUtc`, which WordCraft writes for the
+//! comments it stamps). The Comments pane and the balloons show it in local time, as Word does.
 
 /// Minutes to add to UTC for local time at Unix time `secs` (east of Greenwich is positive).
 fn offset_minutes(secs: i64) -> i32 {
@@ -20,16 +20,19 @@ fn offset_minutes(secs: i64) -> i32 {
     minutes.clamp(-24 * 60, 24 * 60)
 }
 
-/// A comment's time for the pane and the balloons: `YYYY-MM-DD HH:MM` in local time. The file's
-/// UTC time (`date_utc`, Word's `w16cex:dateUtc`) wins, else `date`, converted when it names its
-/// zone (`Z` or `±HH:MM`) and shown as written when it doesn't. Empty when neither is a date.
+/// A comment's time for the pane and the balloons: `YYYY-MM-DD HH:MM` in local time. The UTC
+/// time (`date_utc`, Word's `w16cex:dateUtc`) wins, else `date`, converted when it names an
+/// offset (`±HH:MM`) and shown as written when it doesn't. A `Z` on `date` alone doesn't count:
+/// Word writes local time there with a `Z` it doesn't mean, and files from before `dateUtc` have
+/// nothing else. Empty when neither is a date.
 pub(crate) fn comment_time(c: &wordcraft_doc::Comment) -> String {
     stamp(&c.date, c.date_utc.as_deref(), offset_minutes)
 }
 
 fn stamp(date: &str, date_utc: Option<&str>, offset: impl Fn(i64) -> i32) -> String {
     let utc = date_utc.and_then(parse).filter(|t| t.timed).map(|t| Time { zone: Some(t.zone.unwrap_or(0)), ..t });
-    let Some(t) = utc.or_else(|| parse(date)) else { return String::new() };
+    let local_date = || parse(date).map(|t| if date.trim_end().ends_with(['Z', 'z']) { Time { zone: None, ..t } } else { t });
+    let Some(t) = utc.or_else(local_date) else { return String::new() };
     // A date without a time of day stays the date it says.
     let local = match t.zone.filter(|_| t.timed) {
         Some(zone) => {
@@ -65,7 +68,7 @@ fn parse(iso: &str) -> Option<Time> {
         if s.bytes().all(|c| c.is_ascii_digit()) { s.parse().ok() } else { None }
     };
     let (y, mo, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
-    if iso.get(4..5) != Some("-") || iso.get(7..8) != Some("-") || !(1..=12).contains(&mo) || !(1..=31).contains(&d) || y == 0 {
+    if iso.get(4..5) != Some("-") || iso.get(7..8) != Some("-") || !(1..=12).contains(&mo) || d == 0 || d > days_in_month(y, mo) || y == 0 {
         return None;
     }
     let mut secs = days_from_civil(i64::from(y), mo, d) * 86_400;
@@ -82,7 +85,7 @@ fn parse(iso: &str) -> Option<Time> {
         let mut end = 5;
         let mut s = 0;
         if time.get(5..6) == Some(":") {
-            s = part(6, 8)?.min(59);
+            s = part(6, 8).filter(|s| *s <= 59)?;
             end = 8;
             // Fractions of a second.
             if time.get(8..9) == Some(".") {
@@ -115,6 +118,16 @@ fn parse(iso: &str) -> Option<Time> {
     Some(Time { secs, zone, timed })
 }
 
+/// Days in month `m` (1–12) of year `y`, proleptic Gregorian.
+fn days_in_month(y: u32, m: u32) -> u32 {
+    match m {
+        2 if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
 /// Days since 1970-01-01 of a proleptic Gregorian date (the inverse of
 /// [`wordcraft_engine::cmd::civil_from_days`]).
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
@@ -140,19 +153,21 @@ mod tests {
         assert_eq!(days_from_civil(2026, 10, 12), 20_738);
     }
 
-    /// WordCraft's own comments are in UTC: shown in the user's zone, across a date line too.
+    /// WordCraft's own comments carry their UTC time: shown in the user's zone, across a date
+    /// line too.
     #[test]
     fn utc_times_show_in_local_time() {
         let toronto = |_: i64| -4 * 60;
         let tokyo = |_: i64| 9 * 60;
-        assert_eq!(stamp("2026-10-12T04:44:31Z", None, toronto), "2026-10-12 00:44");
-        assert_eq!(stamp("2026-10-12T02:05:00Z", None, toronto), "2026-10-11 22:05");
-        assert_eq!(stamp("2026-10-12T20:30:00Z", None, tokyo), "2026-10-13 05:30");
-        assert_eq!(stamp("2026-10-12T04:44:31Z", None, |_| 0), "2026-10-12 04:44");
+        let ours = |d: &str, offset: fn(i64) -> i32| stamp(d, Some(d), offset);
+        assert_eq!(ours("2026-10-12T04:44:31Z", toronto), "2026-10-12 00:44");
+        assert_eq!(ours("2026-10-12T02:05:00Z", toronto), "2026-10-11 22:05");
+        assert_eq!(ours("2026-10-12T20:30:00Z", tokyo), "2026-10-13 05:30");
+        assert_eq!(ours("2026-10-12T04:44:31Z", |_| 0), "2026-10-12 04:44");
         // A zone in the text is honoured, and fractions of a second are fine.
         assert_eq!(stamp("2026-10-12T09:00:00+05:30", None, |_| 0), "2026-10-12 03:30");
         assert_eq!(stamp("2026-10-12T09:00:00.125-0200", None, |_| 0), "2026-10-12 11:00");
-        assert_eq!(stamp("2026-10-12T04:44Z", None, toronto), "2026-10-12 00:44");
+        assert_eq!(ours("2026-10-12T04:44Z", toronto), "2026-10-12 00:44");
     }
 
     /// A Word file's `date` is local time (often with a Z it doesn't mean) and its `dateUtc` the real
@@ -161,6 +176,8 @@ mod tests {
     fn word_times_prefer_the_utc_one() {
         let berlin = |_: i64| 2 * 60;
         assert_eq!(stamp("2026-10-12T10:00:00Z", Some("2026-10-12T08:00:00Z"), berlin), "2026-10-12 10:00");
+        // Without `dateUtc` (older files), the local time shows as written, `Z` or not.
+        assert_eq!(stamp("2026-10-12T10:00:00Z", None, berlin), "2026-10-12 10:00");
         assert_eq!(stamp("2026-10-12T10:00:00", None, berlin), "2026-10-12 10:00");
         assert_eq!(stamp("2026-10-12T10:00:00", Some("not a date"), berlin), "2026-10-12 10:00");
         // A date alone stays a date.
@@ -185,11 +202,15 @@ mod tests {
             "2026-10-12T10:00:00ZZ",
             "2026-10-12T1",
             "+2026-10-12",
+            "2026-02-30T10:00:00Z",
+            "2026-02-29",
+            "2026-10-12T10:00:99Z",
         ] {
             assert_eq!(stamp(bad, None, |_| 0), "", "{bad:?}");
         }
-        assert_eq!(stamp("9999-12-31T23:59:59Z", None, |_| 24 * 60), "10000-01-01 23:59");
-        assert_eq!(stamp("0001-01-01T00:00:00Z", None, |_| -24 * 60), "0000-12-31 00:00");
+        assert_eq!(stamp("2024-02-29", None, |_| 0), "2024-02-29");
+        assert_eq!(stamp("9999-12-31T23:59:59Z", Some("9999-12-31T23:59:59Z"), |_| 24 * 60), "10000-01-01 23:59");
+        assert_eq!(stamp("0001-01-01T00:00:00Z", Some("0001-01-01T00:00:00Z"), |_| -24 * 60), "0000-12-31 00:00");
     }
 
     #[test]
