@@ -9,16 +9,16 @@ use crate::theme::{Tokens, semibold};
 
 /// egui ids the ribbon publishes its keytip state under (accessors, since `Id::new` isn't const).
 pub fn phase_id() -> egui::Id {
-    egui::Id::new("wc_keytips_phase")
+    egui::Id::unique("wc_keytips_phase")
 }
 pub fn tab_id() -> egui::Id {
-    egui::Id::new("wc_keytips_tab")
+    egui::Id::unique("wc_keytips_tab")
 }
 pub fn letters_id() -> egui::Id {
-    egui::Id::new("wc_keytips_letters")
+    egui::Id::unique("wc_keytips_letters")
 }
 pub fn rects_id() -> egui::Id {
-    egui::Id::new("wc_keytips_rects")
+    egui::Id::unique("wc_keytips_rects")
 }
 
 /// A bare Alt press (either Alt key) arms or cancels keytips.
@@ -863,7 +863,7 @@ fn legacy_hint(app: &WordApp, ui: &Ui, tabs: Option<Rect>) {
     let font = egui::FontId::proportional(12.0);
     let galley = ui.ctx().fonts_mut(|f| f.layout_no_wrap(text, font, t.text));
     let r = Rect::from_min_size(tabs.left_bottom() + Vec2::new(4.0, 2.0), galley.size() + Vec2::new(16.0, 10.0));
-    let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("wc_legacy_keys")));
+    let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("wc_legacy_keys")));
     p.rect_filled(r, CornerRadius::same(4), t.menu);
     p.rect_stroke(r, CornerRadius::same(4), Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
     p.galley(r.min + Vec2::new(8.0, 5.0), galley, t.text);

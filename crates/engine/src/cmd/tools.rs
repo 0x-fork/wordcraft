@@ -490,6 +490,10 @@ pub fn specs() -> Vec<CommandSpec> {
                 s.doc.settings.protection = protection;
                 s.doc.settings.protect_hash = protect_hash;
                 s.doc.settings.protect_formatting = protect_formatting;
+                // The restored document reuses the open document's id; the body and any equation
+                // editing session are replaced.
+                s.note_body_replaced();
+                s.math = None;
                 s.touch();
                 s.clamp_selection();
             }
@@ -1205,6 +1209,8 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
         let doc = crate::io::open_path(std::path::Path::new(path)).map_err(CmdError::Failed)?;
         s.doc = doc;
         s.doc.ensure_nonempty();
+        s.note_body_replaced();
+        s.math = None;
     }
     let level = p::str(v, "level").unwrap_or("word");
     let opts = CompareOptions {
@@ -1285,6 +1291,8 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
     }
     s.doc.body = out;
     s.doc.ensure_nonempty();
+    s.note_body_replaced();
+    s.math = None;
     if show_in != "original" || p::str(v, "original").is_some() {
         // The result is a new, untitled document: saving it never overwrites either file.
         s.path = None;

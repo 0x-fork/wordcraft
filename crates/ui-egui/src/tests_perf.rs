@@ -41,6 +41,7 @@ fn wheel(h: &mut egui_kittest::Harness<'static, WordApp>, dy: f32) {
         delta: egui::vec2(0.0, dy),
         phase: egui::TouchPhase::Move,
         modifiers: egui::Modifiers::NONE,
+        source: egui::MouseWheelSource::Unknown,
     });
 }
 

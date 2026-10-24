@@ -182,6 +182,20 @@ pub struct CanvasState {
     /// An automatic change (AutoCorrect, AutoFormat) altered the text around the caret: the
     /// input method is asked to start afresh (#1480).
     pub(crate) ime_reset: bool,
+    /// A replacement or an unsupported IME mutation means the next observation must interrupt
+    /// the live composition, whatever the surrounding text looks like. Unlike [`Self::ime_reset`]
+    /// this is not limited to the web text agent.
+    pub(crate) ime_interrupt_now: bool,
+    /// A nonempty preedit lost its body/equation target. The next canvas event batch must
+    /// reject that old composition's queued replacement before dispatching any mutation.
+    pub(crate) ime_interrupted_preedit: bool,
+    /// The last bounded surrounding window and the `(revision, cursor, anchor)` it was built
+    /// from. An idle pass reuses it instead of walking a long paragraph again.
+    pub(crate) ime_window_cache: Option<(u64, wordcraft_doc::Pos, wordcraft_doc::Pos, Option<wordcraft_doc::ime_text::ImeWindow>)>,
+    /// Per-viewport IME owner, generation and change-cause state.
+    pub(crate) ime_tracker: egui::ImeContextTracker,
+    /// The viewport whose IME state [`Self::ime_tracker`] holds, so closing one releases it.
+    pub(crate) ime_viewport: Option<egui::ViewportId>,
     /// Alt+numpad entry in progress: the digits typed while Alt is held (#961).
     pub(crate) alt_code: String,
     /// The character an Alt code just typed: if the platform also sends its own composed
@@ -287,6 +301,11 @@ impl Default for CanvasState {
             swallow_text: false,
             ime_join_text: None,
             ime_reset: false,
+            ime_interrupt_now: false,
+            ime_interrupted_preedit: false,
+            ime_window_cache: None,
+            ime_tracker: egui::ImeContextTracker::new(),
+            ime_viewport: None,
             alt_code: String::new(),
             alt_code_echo: None,
             wheel: Default::default(),
@@ -1215,6 +1234,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if app.canvas.wheel.is_animating() {
         ui.ctx().request_repaint();
     }
+    let mut ime_geometry: Option<(Rect, Rect)> = None;
+    let mut ime_interrupt = false;
     let out = scroll_area.show_viewport(&mut ui_area, |ui, viewport| {
         origin = ui.min_rect().min - viewport.min.to_vec2();
         let content = Rect::from_min_size(ui.min_rect().min, geo.size);
@@ -1223,7 +1244,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // and Escape did nothing in Read Mode until the reader clicked a page (#1772).
         // It also keeps the focus when Focus hides the rulers (#1678).
         ui.advance_cursor_after_rect(content);
-        let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), Sense::click_and_drag());
+        let resp = ui.interact(content, egui::Id::unique("wordcraft_canvas"), Sense::click_and_drag());
         if let Some(tr) = scroll_target {
             ui.scroll_to_rect(Rect::from_min_size(ui.min_rect().min + tr.min.to_vec2(), tr.size()), None);
         }
@@ -1440,7 +1461,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         if floating_comments(app) {
             // Its own layer, so presses on the card never reach the canvas under it.
             let ctx = ui.ctx().clone();
-            egui::Area::new(egui::Id::new("floating_comment")).order(egui::Order::Foreground).fixed_pos(Pos2::ZERO).sense(Sense::hover()).show(
+            egui::Area::new(egui::Id::unique("floating_comment")).order(egui::Order::Foreground).fixed_pos(Pos2::ZERO).sense(Sense::hover()).show(
                 &ctx,
                 |aui| {
                     aui.set_clip_rect(view_rect);
@@ -1509,9 +1530,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
         // Caret.
         let focused = resp.has_focus() || app.canvas.focused;
-        // After an automatic change, the web's text agent starts afresh (`keys::note_automatic_change`).
-        // Only there: on X11 an interrupt recreates the input context and fcitx drops later keys (#1169).
+        // After an automatic change the web's text agent starts afresh
+        // (`keys::note_automatic_change`) — only there, because on X11 an interrupt recreates the
+        // input context and fcitx drops later keys (#1169). A body replacement interrupts on every
+        // platform: the composition belonged to the text that was swapped out.
         let ime_reset = std::mem::take(&mut app.canvas.ime_reset) && cfg!(target_arch = "wasm32") && app.canvas.ime_preedit.is_empty();
+        let replaced = std::mem::take(&mut app.canvas.ime_interrupt_now);
+        ime_interrupt = ime_reset || replaced;
         // Editing an equation: frame it as Word does (a box as tall as its line, a grip at its
         // top left, an options strip at its right) and draw the caret inside it.
         let mut math_caret = false;
@@ -1567,14 +1592,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 if focused {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
                     let cr = Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1));
-                    ui.ctx().output_mut(|o| {
-                        o.ime = Some(egui::output::IMEOutput {
-                            rect: cr,
-                            cursor_rect: cr,
-                            purpose: Default::default(),
-                            should_interrupt_composition: ime_reset,
-                        });
-                    });
+                    ime_geometry = Some((cr, cr));
                 }
             }
         }
@@ -1595,7 +1613,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // window move to the input method's cursor inside it.
             let mut preedit_color = None;
             let mut ime_dx = 0.0;
-            if !app.canvas.ime_preedit.is_empty() {
+            if focused && !app.canvas.ime_preedit.is_empty() {
                 // The composition is interface text, but it may be in a script the interface fonts lack
                 // (Bangla, Thai ...): borrow the document fonts' fallback faces, or it draws as boxes (#565).
                 let new = crate::theme::faces_for_preedit(
@@ -1644,14 +1662,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // IME candidate window placement.
             let cr = Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1));
             if focused {
-                ui.ctx().output_mut(|o| {
-                    o.ime = Some(egui::output::IMEOutput {
-                        rect: cr,
-                        cursor_rect: cr,
-                        purpose: Default::default(),
-                        should_interrupt_composition: ime_reset,
-                    });
-                });
+                ime_geometry = Some((cr, cr));
             }
         }
         crate::objects::paint(app, &painter, &t, &layout, &rects, geo.scale);
@@ -1662,7 +1673,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         crate::table_mouse::paint(app, &painter, &t, &layout, &rects, geo.scale);
         (resp, rects)
     });
-    app.canvas.scroll_offset = out.state.offset;
+    app.canvas.scroll_offset = out.state.clamped_offset();
     scrollbar_page_tip(app, ui, out.id, &geo.rects, &geo.bands, layout.pages.len());
     // The page the status bar names (#3880): the caret's, or a whole-story selection's page, while
     // it is on screen; else the page at the top of the window.
@@ -1697,8 +1708,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         deselect_balloon(app);
     }
     // Space and Enter also set `Response::clicked` on a focused click-sensing widget
-    // (egui's fake primary click). `request_focus` always interrupts IME; on X11 that
-    // destroys the XIM context and fcitx then drops every later key (#1169). A pointer
+    // (egui's fake primary click). Re-requesting an already focused widget no longer
+    // interrupts IME in 0.37. A pointer
     // click, an accessibility click, or a drag still takes focus, including a click on
     // a canvas that already has it, so a composition commits. `want_focus` focuses only
     // while the canvas does not, and does not interrupt an editor that already has it.
@@ -1706,6 +1717,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let pointer_click = resp.clicked_by(egui::PointerButton::Primary);
     let accesskit_click = resp.clicked() && !pointer_click && !keyboard_click;
     let focus_click = pointer_click || accesskit_click || resp.drag_started();
+    if focus_click {
+        ui.memory_mut(|memory| memory.interrupt_ime());
+    }
     if focus_click || (app.canvas.want_focus && !resp.has_focus()) {
         resp.request_focus();
     }
@@ -1719,6 +1733,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         });
     }
     app.canvas.focused = resp.has_focus();
+    // One observation per viewport pass, after every event and command for the pass has been
+    // applied: the owner, generation, bounded surrounding text and change cause all come from
+    // this same settled state.
+    crate::keys::observe_ime(app, ui.ctx(), ime_geometry, ime_interrupt);
     // Screen readers: the document under the canvas, with the caret (#488).
     crate::a11y::expose(app, ui.ctx(), resp.id, &layout, &rects, area);
     // The buttons that start or stop middle-click scrolling don't also click the page.
@@ -1828,7 +1846,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             ui.add_space(4.0);
             // The command panel keeps its own width, not the toolbar's: the popup's justified
             // layout would stretch it, so it takes the width egui measures in its sizing pass.
-            let width_id = ui.id().with("context_menu_width");
+            let width_id = ui.scope_id().with("context_menu_width");
             let width = ui.data(|d| d.get_temp::<f32>(width_id)).filter(|_| !ui.is_sizing_pass());
             let size = egui::vec2(width.unwrap_or(ui.available_width()), ui.available_height());
             let rect = egui::Rect::from_min_size(ui.cursor().min, size);
@@ -2102,6 +2120,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
                 active_balloon(app, ui, painter, *id, &thread, card, fs, color)
             } else {
                 card_shapes(painter, &t, card, color, selected, None);
+                let text_painter = painter.with_clip_rect(card.intersect(clip));
                 let mut y = card.min.y + 6.0;
                 for (i, (g, gap)) in lines.into_iter().enumerate() {
                     y += gap;
@@ -2110,10 +2129,10 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
                         painter.hline(card.min.x + 10.0..=card.max.x - 8.0, y - gap / 2.0, Stroke::new(1.0, t.border));
                     }
                     let h = g.size().y;
-                    painter.galley(pos2(card.min.x + 10.0, y), g, t.text);
+                    text_painter.galley(pos2(card.min.x + 10.0, y), g, t.text);
                     y += h;
                 }
-                let r = ui.interact(card, ui.id().with(("balloon", *id)), Sense::click());
+                let r = ui.interact(card, ui.scope_id().with(("balloon", *id)), Sense::click());
                 if r.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
@@ -2161,120 +2180,17 @@ fn card_shapes(painter: &egui::Painter, t: &Tokens, card: Rect, color: Color32, 
     }
 }
 
-/// Does `text` hold right-to-left letters (Arabic, Hebrew, Syriac, Thaana, N'Ko …)?
-pub(crate) fn has_rtl(text: &str) -> bool {
-    text.chars().any(|c| matches!(unicode_bidi::bidi_class(c), unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL))
-}
-
-/// Put `text` into visual display order for egui when it contains right-to-left characters.
-/// Uses an LTR base paragraph direction so left-aligned UI elements (recent files, paths) preserve
-/// trailing extensions and numbers in their proper visual order.
-pub(crate) fn bidi_display(text: &str) -> std::borrow::Cow<'_, str> {
-    if !has_rtl(text) {
-        return std::borrow::Cow::Borrowed(text);
-    }
-    let info = unicode_bidi::BidiInfo::new(text, Some(unicode_bidi::Level::ltr()));
-    match info.paragraphs.first() {
-        Some(p) => std::borrow::Cow::Owned(visual_row(&info, p, text, 0..text.len())),
-        None => std::borrow::Cow::Borrowed(text),
-    }
-}
-
-/// The row `line` of paragraph `p` of `para` in display order, for egui: the bidi runs left to
-/// right as they are shown, and inside a right-to-left run its words reversed. The letters of each
-/// word stay in logical order, because egui's shaper already runs an Arabic word right to left.
-fn visual_row(info: &unicode_bidi::BidiInfo, p: &unicode_bidi::ParagraphInfo, para: &str, line: std::ops::Range<usize>) -> String {
-    // `visual_runs` indexes the line's first byte: an empty line (an empty last row) would panic.
-    if line.start >= line.end || line.end > p.range.end {
-        return String::new();
-    }
-    let (levels, runs) = info.visual_runs(p, line);
-    let mut out = String::new();
-    for run in runs {
-        let rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
-        // Runs lie on character boundaries; a missing slice is skipped, never a panic.
-        let Some(piece) = para.get(run) else { continue };
-        if rtl {
-            let mut words: Vec<&str> = piece.split_inclusive(char::is_whitespace).collect();
-            words.reverse();
-            for w in words {
-                // The space that followed a word now goes before it.
-                let word = w.trim_end_matches(char::is_whitespace);
-                out.push_str(w.get(word.len()..).unwrap_or_default());
-                out.extend(word.chars().map(mirrored));
-            }
-        } else {
-            out.push_str(piece);
-        }
-    }
-    out
-}
-
-/// `c` as drawn in a right-to-left run: brackets face the other way (Unicode's Bidi_Mirrored
-/// pairs that interface text uses), since egui draws the character it is given.
-fn mirrored(c: char) -> char {
-    match c {
-        '(' => ')',
-        ')' => '(',
-        '[' => ']',
-        ']' => '[',
-        '{' => '}',
-        '}' => '{',
-        '<' => '>',
-        '>' => '<',
-        '«' => '»',
-        '»' => '«',
-        '‹' => '›',
-        '›' => '‹',
-        _ => c,
-    }
-}
-
-/// A read-only balloon's text, wrapped to `width`. egui joins Arabic letters but places them left
-/// to right, so a right-to-left comment read its words backwards. Each wrapped row is put into
-/// display order (Unicode bidi, per paragraph) and a right-to-left paragraph's rows are set against
-/// the right edge. Text without right-to-left letters is laid out exactly as before.
+/// A read-only balloon's text, wrapped to `width`. The fork's layout orders right-to-left and
+/// mixed-direction paragraphs itself; `TextDirection::Auto` takes each paragraph's first strong
+/// character. Place each already-shaped row against the card's start edge, including neutral
+/// paragraphs inheriting their predecessor's direction. Logical text and glyph order stay intact.
 fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
-    if !has_rtl(&text) {
-        return painter.layout(text, font, color, width);
-    }
-    let format = egui::TextFormat::simple(font.clone(), color);
-    let mut job = egui::text::LayoutJob::default();
-    let mut rows: Vec<(String, bool)> = Vec::new();
-    for para in text.split('\n') {
-        let info = unicode_bidi::BidiInfo::new(para, None);
-        if info.paragraphs.is_empty() {
-            rows.push((String::new(), false));
-        }
-        for p in &info.paragraphs {
-            let rtl = p.level.is_rtl();
-            // Wrap in logical order at spaces, by the words' widths (the order doesn't change a word's
-            // width), then put each row in display order. egui's own rows can't be used: it draws a
-            // lam-alef pair as one glyph, so its glyph count isn't the character count.
-            let mut start = p.range.start;
-            let mut end = start;
-            let mut used = 0.0;
-            for word in para.get(p.range.clone()).unwrap_or_default().split_inclusive(char::is_whitespace) {
-                let w = painter.layout_no_wrap(word.trim_end().to_string(), font.clone(), color).size().x;
-                let gap = painter.layout_no_wrap(word.get(word.trim_end().len()..).unwrap_or_default().to_string(), font.clone(), color).size().x;
-                if end > start && used + w > width {
-                    rows.push((visual_row(&info, p, para, start..end).trim().to_string(), rtl));
-                    start = end;
-                    used = 0.0;
-                }
-                used += w + gap;
-                end += word.len();
-            }
-            rows.push((visual_row(&info, p, para, start..end).trim().to_string(), rtl));
-        }
-    }
-    let last = rows.len().saturating_sub(1);
-    for (i, (row, rtl)) in rows.into_iter().enumerate() {
-        let lead = if rtl { (width - painter.layout_no_wrap(row.clone(), font.clone(), color).size().x).max(0.0) } else { 0.0 };
-        let row = if i < last { row + "\n" } else { row };
-        job.append(&row, lead, format.clone());
-    }
-    painter.layout_job(job)
+    let mut job = egui::text::LayoutJob::simple(text, font, color, width);
+    job.direction = egui::epaint::text::TextDirection::Auto;
+    job.halign = egui::Align::Min;
+    // Row placement below supplies the reading edge, including empty RTL rows.
+    job.halign_min_is_start = false;
+    craft_ui::text::align_galley_rows(painter.layout_job(job), width, |row| if row.rtl_paragraph { egui::Align::Max } else { egui::Align::Min })
 }
 
 /// The selected balloon: the comment and its replies as editable fields (each edit is one undo
@@ -2285,7 +2201,7 @@ fn active_balloon(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, id: u
     let t = Tokens::get(ui.ctx());
     let slot = painter.add(egui::Shape::Noop);
     // The card's own click area sits under its fields, so a click on its padding stays here.
-    let _ = ui.interact(card, ui.id().with(("balloon", id)), Sense::click());
+    let _ = ui.interact(card, ui.scope_id().with(("balloon", id)), Sense::click());
     let inner = Rect::from_min_max(pos2(card.min.x + 10.0, card.min.y + 6.0), pos2(card.max.x - 6.0, card.min.y + 20_000.0));
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
     child.spacing_mut().item_spacing.y = 3.0;
@@ -2407,7 +2323,7 @@ fn scrollbar_page_tip(app: &mut WordApp, ui: &Ui, scroll: egui::Id, rects: &[Rec
         (dragged && !rects.is_empty() && pages > 0).then(|| top_page(rects, bands, app.canvas.scroll_offset.y).min(pages - 1));
     let (Some(page), Some(at)) = (app.canvas.scrollbar_page, ui.ctx().pointer_latest_pos()) else { return };
     let text = crate::i18n::fmt(tl!("Page {page} of {pages}"), &[("page", &(page + 1).to_string()), ("pages", &pages.to_string())]);
-    egui::Area::new(egui::Id::new("scrollbar_page_tip"))
+    egui::Area::new(egui::Id::unique("scrollbar_page_tip"))
         .order(egui::Order::Tooltip)
         .interactable(false)
         .pivot(egui::Align2::RIGHT_CENTER)
@@ -2806,7 +2722,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         let key = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl" };
         let target = if is_generated_bookmark_link(&link) { tl!("Current Document").to_string() } else { link };
         let tip = format!("{target}\n{}", crate::i18n::fmt(tl!("{key}+Click to follow link"), &[("key", key)]));
-        egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::new("link_tip"), egui::PopupAnchor::Pointer).show(|ui| {
+        egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), egui::Id::unique("link_tip"), egui::PopupAnchor::Pointer).show(|ui| {
             ui.label(tip);
         });
     }
@@ -2912,7 +2828,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         // which keep the pointer where they overlap.
         crate::table_ruler::columns(app, ui, layout, pi, bar, x0, scale);
         // Dragging the left-indent marker.
-        let id = ui.id().with("ruler_left");
+        let id = ui.scope_id().with("ruler_left");
         let mr = Rect::from_center_size(pos2(left, bar.max.y - 3.0), vec2(12.0, 12.0));
         let r = ui.interact(mr, id, Sense::click_and_drag());
         if r.dragged()
@@ -2926,7 +2842,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             let _ = app.run("para.indents", json!({"left": snapped}));
         }
         let fr = Rect::from_center_size(pos2(first, bar.min.y + 3.0), vec2(12.0, 10.0));
-        let r = ui.interact(fr, ui.id().with("ruler_first"), Sense::click_and_drag());
+        let r = ui.interact(fr, ui.scope_id().with("ruler_first"), Sense::click_and_drag());
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
@@ -2937,7 +2853,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             let _ = app.run("para.indents", json!({"firstLine": (pt / 4.5).round() * 4.5}));
         }
         let rr = Rect::from_center_size(pos2(right, bar.max.y - 3.0), vec2(12.0, 12.0));
-        let r = ui.interact(rr, ui.id().with("ruler_right"), Sense::click_and_drag());
+        let r = ui.interact(rr, ui.scope_id().with("ruler_right"), Sense::click_and_drag());
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
@@ -3186,7 +3102,7 @@ fn margin_handle(
 ) {
     let cursor =
         if matches!(edge, MarginEdge::Left | MarginEdge::Right) { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical };
-    let r = ui.interact(zone, ui.id().with(("ruler_margin", edge)), Sense::drag()).on_hover_cursor(cursor);
+    let r = ui.interact(zone, ui.scope_id().with(("ruler_margin", edge)), Sense::drag()).on_hover_cursor(cursor);
     let r = if r.dragged() { r } else { r.on_hover_text(tl!(edge.label())) };
     if r.dragged()
         && let Some(pp) = r.interact_pointer_pos()
@@ -3863,7 +3779,13 @@ mod tests {
 
     #[test]
     fn reading_wheel_snaps_one_column_per_tick_and_respects_touchpads() {
-        let ev = |unit, y| egui::Event::MouseWheel { unit, delta: vec2(0.0, y), phase: egui::TouchPhase::Move, modifiers: egui::Modifiers::NONE };
+        let ev = |unit, y| egui::Event::MouseWheel {
+            unit,
+            delta: vec2(0.0, y),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+            source: egui::MouseWheelSource::Unknown,
+        };
         let mut partial = 0.0;
         for _ in 0..6 {
             assert_eq!(read_wheel_turns(&[ev(egui::MouseWheelUnit::Point, -65.0)], true, &mut partial), 1);
@@ -4646,8 +4568,13 @@ mod tests {
     /// Lays `text` out as a read-only balloon does, with a document face that covers Arabic, and
     /// returns each glyph's character and left edge.
     fn balloon_glyphs(text: &str, width: f32) -> Option<Vec<(char, f32)>> {
+        balloon_glyphs_at_scale(text, width, 1.0)
+    }
+
+    fn balloon_glyphs_at_scale(text: &str, width: f32, ppp: f32) -> Option<Vec<(char, f32)>> {
         let face = wordcraft_fonts::FontDb::global().fallback_for('ش', u32::MAX)?;
         let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(ppp);
         let mut fonts = crate::theme::font_definitions(false, false);
         crate::theme::add_fallback_faces(&mut fonts, &[face]);
         ctx.set_fonts(fonts);
@@ -4655,8 +4582,41 @@ mod tests {
         let mut out = Vec::new();
         ctx.run_ui(egui::RawInput::default(), |ui| {
             let g = balloon_text(ui.painter(), text.to_string(), egui::FontId::proportional(14.0), Color32::BLACK, width);
+            let atlas = ui.fonts(|fonts| fonts.image());
             for r in &g.rows {
                 out.extend(r.row.glyphs.iter().map(|gl| (gl.chr, r.pos.x + gl.pos.x)));
+                for glyph in &r.row.glyphs {
+                    // epaint rounds glyph origins individually while row advance stays fractional.
+                    // The two edge roundings can differ by one physical pixel.
+                    assert!(
+                        r.pos.x + glyph.max_x() <= width + 1.0 / ppp,
+                        "wrapped glyph {:?}: origin {}, max {}, row width {}, limit {} (text {:?})",
+                        glyph.chr,
+                        r.pos.x,
+                        glyph.max_x(),
+                        r.size.x,
+                        width,
+                        text
+                    );
+                    if !matches!(glyph.chr, '(' | ')') {
+                        continue;
+                    }
+                    // Glyph.chr remains logical in 0.37. Check the actual mirrored bitmap,
+                    // not a manually reversed display string, to verify bracket orientation.
+                    let [x0, y0] = glyph.uv_rect.min.map(usize::from);
+                    let [x1, y1] = glyph.uv_rect.max.map(usize::from);
+                    let y = usize::midpoint(y0, y1);
+                    let (mut ink, mut moment) = (0.0, 0.0);
+                    for x in x0..x1 {
+                        let alpha = f32::from(atlas[(x, y)].a());
+                        ink += alpha;
+                        moment += (x - x0) as f32 * alpha;
+                    }
+                    assert!(ink > 0.0 && x1 > x0, "bracket must have a visible bitmap");
+                    let drawn = if moment / ink < (x1 - x0 - 1) as f32 / 2.0 { '(' } else { ')' };
+                    let expected = if glyph.is_rtl() { if glyph.chr == '(' { ')' } else { '(' } } else { glyph.chr };
+                    assert_eq!(drawn, expected, "logical bracket {} at bidi level {}", glyph.chr, glyph.bidi_level);
+                }
             }
         })
         .drop_without_applying_deltas();
@@ -4674,45 +4634,59 @@ mod tests {
         let g = balloon_glyphs("الربط (APIs) هنا", 400.0).unwrap();
         assert!(x(&g, 'A') < x(&g, 's'));
         assert!(x(&g, 'ط') > x(&g, 'A') && x(&g, 'A') > x(&g, 'ه'), "{g:?}");
-        // The opening bracket, on the right in Arabic, is drawn mirrored: `(APIs)` on screen.
-        assert!(x(&g, '(') < x(&g, 'A') && x(&g, ')') > x(&g, 's'), "brackets face the word: {g:?}");
+        // The logical opening bracket is on the right and is drawn as a closing bracket.
+        // balloon_glyphs also checks the atlas bitmap, so this verifies actual `(APIs)` output.
+        assert!(x(&g, ')') < x(&g, 'A') && x(&g, '(') > x(&g, 's'), "brackets surround the word: {g:?}");
         // A paragraph that starts in Latin runs left to right.
         let g = balloon_glyphs("@Ahmed برجاء مراجعة", 400.0).unwrap();
         assert!(x(&g, '@') < x(&g, 'ب') && x(&g, '@') < 50.0, "{g:?}");
         assert!(x(&g, 'ب') > x(&g, 'م'), "the Arabic words still read from the right: {g:?}");
         // Wrapped rows stay inside the width.
         let long = "بيان الأنظمة المطلوب ربطها ومتطلبات التكامل وواجهات الربط البرمجي وآلية تبادل البيانات";
-        let g = balloon_glyphs(long, 200.0).unwrap();
-        assert!(g.iter().all(|(_, x)| *x <= 200.0), "{g:?}");
+        for ppp in [1.0, 1.25, 1.5, 2.0] {
+            let g = balloon_glyphs_at_scale(long, 200.0, ppp).unwrap();
+            assert!(!g.is_empty()); // Check real glyph right edges at each physical scale.
+        }
+        // Alignment follows each paragraph, including a neutral paragraph's inherited direction.
+        let g = balloon_glyphs("شركة\n123\nLatin", 400.0).unwrap();
+        assert!(x(&g, 'ش') > 300.0 && x(&g, '1') > 300.0 && x(&g, 'L') < 1.0, "{g:?}");
     }
 
     #[test]
-    fn balloon_rows_put_right_to_left_words_in_display_order() {
-        let row = |text: &str| {
-            let info = unicode_bidi::BidiInfo::new(text, None);
-            let p = info.paragraphs.first().unwrap();
-            visual_row(&info, p, text, p.range.clone())
-        };
-        // Words swap, each word's letters stay as they are (egui shapes the word).
-        assert_eq!(row("شركة اي للكهرباء"), "للكهرباء اي شركة");
-        // A Latin name and a number inside Arabic keep their own order.
-        assert_eq!(row("يجب ربط Odoo 19 هنا"), "هنا Odoo 19 ربط يجب");
-        assert_eq!(row("Should include Meters system API"), "Should include Meters system API");
-        assert!(!has_rtl("Should include Meters system API"));
-        assert!(has_rtl("נא לבדוק"));
-        // An empty row at the end of the text (egui's last row after a wrap) is empty, not a panic.
-        let text = "شركة اي";
-        let info = unicode_bidi::BidiInfo::new(text, None);
-        let p = info.paragraphs.first().unwrap();
-        assert_eq!(visual_row(&info, p, text, text.len()..text.len()), "");
-        assert_eq!(visual_row(&info, p, text, 0..text.len() + 5), "");
-    }
-
-    #[test]
-    fn bidi_display_preserves_extensions_and_numbers() {
-        assert_eq!(bidi_display("report.docx").as_ref(), "report.docx");
-        assert_eq!(bidi_display("نواقص 2026.docx").as_ref(), "2026 نواقص.docx");
-        assert_eq!(bidi_display("مذكرة داخلية.docx").as_ref(), "داخلية مذكرة.docx");
+    fn read_only_balloon_text_is_clipped_to_its_card() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("text.insert", json!({"text": "Some text here"})).unwrap();
+        app.run("select.text", json!({"text": "text"})).unwrap();
+        let body = "Balloon ink stays within its own card";
+        let id = app.run("review.newComment", json!({"text": body})).unwrap()["id"].as_u64().unwrap() as u32;
+        app.run("view.commentsPane", json!({"value": false})).unwrap();
+        app.canvas.balloon = None;
+        let ctx = egui::Context::default();
+        let mut checked = false;
+        for frame in 0..6 {
+            let input = egui::RawInput {
+                time: Some(f64::from(frame) / 60.0),
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1440.0, 900.0))),
+                ..Default::default()
+            };
+            let out = ctx.run_ui(input, |ui| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            });
+            if let Some((_, card)) = app.canvas.balloon_rects.iter().find(|(i, _)| *i == id) {
+                for clipped in &out.shapes {
+                    if let egui::Shape::Text(text) = &clipped.shape
+                        && text.galley.text() == body
+                    {
+                        assert!(card.contains_rect(clipped.clip_rect), "comment ink must not cross onto the page");
+                        assert!(clipped.clip_rect.is_positive());
+                        checked = true;
+                    }
+                }
+            }
+            out.drop_without_applying_deltas();
+        }
+        assert!(checked, "a read-only comment body must actually be painted");
     }
 
     #[test]
@@ -5525,7 +5499,8 @@ mod tests {
         // The events winit delivers for a Control-click, through the app's input hook as eframe runs it.
         let send = |h: &mut egui_kittest::Harness<'_, WordApp>, events: Vec<egui::Event>| {
             let mut raw = egui::RawInput { events, ..Default::default() };
-            h.state_mut().raw_input_hook(&mut raw);
+            let ctx = h.ctx.clone();
+            h.state_mut().raw_input_hook(&ctx, &mut raw);
             for e in raw.events {
                 h.event(e);
             }
@@ -6909,11 +6884,13 @@ mod tests {
         let at = h.state().canvas.page_rects.first().map(|r| r.center()).expect("a page");
         h.event(egui::Event::PointerMoved(at));
         h.step();
+        let mut pointer_interrupted = false;
         for pressed in [true, false] {
             h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
             h.step();
+            pointer_interrupted |= ime_interrupted(&h) == Some(true);
         }
-        assert_eq!(ime_interrupted(&h), Some(true), "a click still interrupts composition");
+        assert!(pointer_interrupted, "a pointer click still interrupts composition");
     }
 
     /// While an input method composes, the caret and the candidate window sit at its cursor inside
@@ -6954,6 +6931,782 @@ mod tests {
         h.step();
         assert_eq!(h.state().canvas.ime_preedit_range, None, "the commit clears the range");
         assert!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("にほん"));
+    }
+
+    /// The outgoing IME descriptor is built from settled, visible logical text. A pre-edit does
+    /// not change the model; an accepted commit alone earns `InputMethod`; ordinary typing earns
+    /// `Other`. The commit mixes Korean, Japanese, ASCII and an emoji.
+    #[test]
+    fn ime_descriptor_reports_visible_logical_text_and_exact_cause() {
+        use egui::ImeChangeCause;
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("ab")), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.sel = wordcraft_engine::Selection::caret(wordcraft_doc::Pos::body(0, 2));
+        h.step();
+        let text = |h: &egui_kittest::Harness<'_, WordApp>| {
+            h.output().platform_output.ime.as_ref().and_then(|i| i.surrounding_text.available()).map(|p| p.text.clone())
+        };
+        let cause = |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|i| i.change_cause);
+        assert_eq!(text(&h), Some("ab".into()), "the committed text is available");
+        h.event(egui::Event::Ime(egui::ImeEvent::Preedit { text: "に".into(), active_range_chars: None }));
+        h.step();
+        assert_eq!(text(&h), Some("ab".into()), "the pre-edit never enters the committed model");
+        assert_eq!(cause(&h), Some(ImeChangeCause::Other), "a pre-edit is no mutation");
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("한日本A😀".into())));
+        h.step();
+        assert!(text(&h).unwrap_or_default().contains("한日本A😀"), "the commit is in the visible text");
+        assert_eq!(cause(&h), Some(ImeChangeCause::InputMethod), "an accepted commit is the IME's change");
+        h.event(egui::Event::Text("x".into()));
+        h.step();
+        assert_eq!(cause(&h), Some(ImeChangeCause::Other), "ordinary typing is an application change");
+    }
+
+    /// Tracked deletions never go to the input method. The caret may straddle one and the
+    /// selection direction survives the visible mapping.
+    #[test]
+    fn ime_descriptor_hides_tracked_deletions_and_preserves_reversed_selection() {
+        use wordcraft_doc::props::CharProps;
+        use wordcraft_doc::{Paragraph, Run, para_block};
+        let mut p = Paragraph::new();
+        p.text = "abDELcd".into();
+        p.runs = vec![
+            Run { len: 2, props: CharProps::default() },
+            Run { len: 3, props: CharProps { del: Some(0), ..Default::default() } },
+            Run { len: 2, props: CharProps::default() },
+        ];
+        let mut doc = wordcraft_doc::Document::from_text("x");
+        doc.body = vec![para_block(p)];
+        let app = WordApp::new(wordcraft_engine::Session::new(doc), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.sel = wordcraft_engine::Selection { anchor: wordcraft_doc::Pos::body(0, 2), focus: wordcraft_doc::Pos::body(0, 7) };
+        h.step();
+        let payload =
+            |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().and_then(|i| i.surrounding_text.available()).cloned();
+        let p = payload(&h).expect("the visible text is available");
+        assert_eq!(p.text, "abcd");
+        assert_eq!(p.cursor, 4);
+        assert_eq!(p.anchor, 2, "the reversed selection stays reversed");
+    }
+
+    /// Byte deletion keeps the selection out of both erased sides, then the commit replaces it;
+    /// both accepted mutations are `InputMethod` receipts over bounded snapshots.
+    #[test]
+    fn ime_byte_deletion_preserves_the_selection_and_earns_input_method() {
+        use egui::ImeChangeCause;
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("abcd")), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.sel = wordcraft_engine::Selection { anchor: wordcraft_doc::Pos::body(0, 3), focus: wordcraft_doc::Pos::body(0, 1) };
+        h.step();
+        let cause = |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|i| i.change_cause);
+        h.event(egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 1 }));
+        h.step();
+        let body = |h: &egui_kittest::Harness<'_, WordApp>| h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end().to_string();
+        assert_eq!(body(&h), "bc", "the selected text is preserved");
+        assert_eq!(h.state().session.sel.anchor.off, 2, "the selection anchor moved with the erased prefix");
+        assert_eq!(h.state().session.sel.focus.off, 0);
+        assert_eq!(cause(&h), Some(ImeChangeCause::InputMethod), "an accepted deletion is the IME's change");
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("X".into())));
+        h.step();
+        assert_eq!(body(&h), "X", "the commit replaces the preserved selection");
+        assert_eq!(cause(&h), Some(ImeChangeCause::InputMethod), "delete plus commit chain into one IME change");
+    }
+
+    /// A selection wider than the protocol limit is honestly unavailable, not truncated.
+    #[test]
+    fn ime_descriptor_is_unavailable_for_a_too_wide_selection() {
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text(&"a".repeat(5000))), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.sel = wordcraft_engine::Selection { anchor: wordcraft_doc::Pos::body(0, 0), focus: wordcraft_doc::Pos::body(0, 5000) };
+        h.step();
+        let ime = h.output().platform_output.ime.clone().expect("the canvas owns the IME context");
+        assert!(ime.surrounding_text.available().is_none(), "a 5000-byte selection is unavailable");
+    }
+
+    /// Replacing the document starts a new IME context; caret motion inside it does not.
+    #[test]
+    fn ime_generation_changes_on_document_replacement_but_not_on_caret_motion() {
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("hello")), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        let generation = |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|i| i.context_generation);
+        let first = generation(&h).expect("an IME context");
+        h.state_mut().run("caret.right", json!({})).unwrap();
+        h.step();
+        assert_eq!(generation(&h), Some(first), "caret motion keeps the context");
+        h.state_mut().session.set_document(wordcraft_doc::Document::from_text("new"));
+        h.step();
+        assert!(generation(&h) > Some(first), "a replaced document starts a new context");
+    }
+
+    /// An equation's structured tree has no reversible surrounding text: report `Unavailable`
+    /// while keeping the stable editing-session context and candidate geometry through caret
+    /// motion. A real content commit is proved by the engine's checked revision and earns
+    /// `InputMethod`.
+    #[test]
+    fn ime_equation_is_unavailable_with_a_stable_session_context() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.equation", json!({"linear": "x+y"})).unwrap();
+        assert!(app.session.math.is_some(), "the equation is being edited");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        let ime = h.output().platform_output.ime.clone().expect("the equation places its candidate window");
+        assert!(ime.surrounding_text.available().is_none(), "no fabricated equation surroundings");
+        let generation = ime.context_generation;
+        h.state_mut().run("equation.move", json!({"dir": "left"})).unwrap();
+        h.step();
+        let moved = h.output().platform_output.ime.clone().expect("still editing");
+        assert_eq!(moved.context_generation, generation, "caret motion keeps the equation's IME context");
+        assert!(moved.surrounding_text.available().is_none());
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("z".into())));
+        h.step();
+        let committed = h.output().platform_output.ime.clone().expect("still editing");
+        assert_eq!(committed.change_cause, ImeChangeCause::InputMethod, "the engine revision proves the content commit");
+        assert!(committed.surrounding_text.available().is_none());
+    }
+
+    /// A transformed equation commit (build-up or Math AutoCorrect) is `Other`: the engine's
+    /// per-command outcome marks it transformed even though the revision moved and content
+    /// changed. The equation really built up; no InputMethod receipt is fabricated.
+    #[test]
+    fn ime_transformed_equation_commits_are_other() {
+        use egui::ImeChangeCause;
+        for (typed, latex) in [("a/b ", "\\frac{a}{b}"), ("\\alpha ", "\\alpha")] {
+            let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+            app.run("insert.equation", json!({})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                app,
+            );
+            for _ in 0..8 {
+                h.step();
+            }
+            h.event(egui::Event::Ime(egui::ImeEvent::Commit(typed.into())));
+            h.step();
+            let info = h.state_mut().run("equation.get", json!({})).unwrap();
+            assert_eq!(info["latex"].as_str(), Some(latex), "the commit was transformed: {typed:?}");
+            let ime = h.output().platform_output.ime.clone().expect("still editing the equation");
+            assert_eq!(ime.change_cause, ImeChangeCause::Other, "an automatic equation rewrite is not the IME's own edit: {typed:?}");
+        }
+    }
+
+    /// A literal IME commit after an earlier AutoCorrect is still the IME's own change. The
+    /// stale `"AutoFormat"` undo label left by that earlier step must not classify this command.
+    #[test]
+    fn ime_literal_commit_after_autoformat_is_input_method() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        for text in ["Word", " ", "(c)", " "] {
+            app.run("text.insert", json!({"text": text})).unwrap();
+        }
+        assert_eq!(app.session.undo_label(), Some("AutoFormat"), "the earlier AutoCorrect left its undo label");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("x".into())));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "Word \u{a9} x");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::InputMethod, "the literal commit is not the earlier AutoFormat");
+    }
+
+    /// A real allocator exhaustion (not a hand-built stamp) keeps the engine revision absent;
+    /// an equation commit and a wide body deletion still happen but can never certify a receipt.
+    #[test]
+    fn exhausted_ime_revisions_never_certify_equation_or_wide_body_edits() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.equation", json!({"linear": "x"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.exhaust_ime_state_revision();
+        h.step();
+        assert_eq!(h.state_mut().session.ime_state_revision(), None, "the allocator is exhausted");
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("y".into())));
+        h.step();
+        let linear = h.state_mut().run("equation.get", json!({})).unwrap()["linear"].as_str().unwrap_or_default().to_string();
+        assert_eq!(linear, "xy", "the real commit still happened");
+        let ime = h.output().platform_output.ime.clone().expect("still editing the equation");
+        assert_eq!(ime.change_cause, ImeChangeCause::Other, "without a revision the change cannot be certified");
+
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text(&"a".repeat(5000))), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.sel = wordcraft_engine::Selection { anchor: wordcraft_doc::Pos::body(0, 1), focus: wordcraft_doc::Pos::body(0, 5000) };
+        h.step();
+        h.state_mut().session.exhaust_ime_state_revision();
+        h.step();
+        h.event(egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 0 }));
+        h.step();
+        let body = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert_eq!(body.matches('a').count(), 4999, "the wide body delete still happened");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::Other, "the exhausted revision cannot prove the delete");
+    }
+
+    /// A body replaced under the same document id starts a new IME context and interrupts the
+    /// live composition, even when the replacement text (and so the bounded window) is identical.
+    #[test]
+    fn ime_generation_changes_on_body_replacement_with_the_same_text() {
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("hello")), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::Preedit { text: "に".into(), active_range_chars: None }));
+        h.step();
+        assert_eq!(h.state().canvas.ime_preedit.as_str(), "に");
+        let first = h.output().platform_output.ime.as_ref().map(|i| i.context_generation).expect("an IME context");
+        h.state_mut().run("document.setText", json!({"text": "hello"})).unwrap();
+        h.step();
+        let ime = h.output().platform_output.ime.clone().expect("the canvas still owns the IME context");
+        assert!(ime.context_generation > first, "a replaced body starts a new context");
+        assert!(ime.should_interrupt_composition, "the old composition is interrupted");
+        assert!(h.state().canvas.ime_preedit.is_empty(), "the old pre-edit is not kept");
+        assert!(ime.surrounding_text.available().is_some(), "the new body still has surroundings");
+    }
+
+    /// Undo (and a version restore) puts a whole body back: the IME generation follows it too.
+    #[test]
+    fn ime_generation_changes_on_undo_and_version_restore() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("one")), Default::default());
+        app.run("file.versions", json!({"save": "v1"})).unwrap();
+        app.run("document.setText", json!({"text": "two"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        let generation = |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|i| i.context_generation);
+        let first = generation(&h).expect("an IME context");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        h.step();
+        assert!(generation(&h) > Some(first), "Undo swaps the body back");
+        let after_undo = generation(&h);
+        h.state_mut().run("file.versions", json!({"restore": 0})).unwrap();
+        h.step();
+        assert!(generation(&h) > after_undo, "a version restore replaces the body");
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "one");
+    }
+
+    /// With smart quotes off the engine inserts the quote as typed: that is the input method's
+    /// own edit and earns an `InputMethod` receipt (it used to be forced to `Other`).
+    #[test]
+    fn ime_apostrophe_with_smart_quotes_off_is_an_input_method_change() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("tools.autocorrect", json!({"smartQuotes": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("'".into())));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "'", "the quote is not curled");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::InputMethod, "the engine inserted it unchanged");
+    }
+
+    /// With smart quotes on, the same commit is AutoFormat work and stays `Other` (the existing
+    /// contract), so the fix distinguishes the two instead of always assuming a transformation.
+    #[test]
+    fn ime_apostrophe_with_smart_quotes_on_stays_other() {
+        use egui::ImeChangeCause;
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        // Smart quotes are on by default.
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("'".into())));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "\u{2018}", "curled");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::Other, "AutoFormat changed the text");
+    }
+
+    /// A real IME-only literal commit is the input method's own edit.
+    #[test]
+    fn ime_literal_commit_is_input_method() {
+        use egui::ImeChangeCause;
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("literal".into())));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "literal");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::InputMethod);
+    }
+
+    /// A formatting change before an IME commit in the same frame must force `Other`, even
+    /// though an available body stamp cannot see the style change.
+    #[test]
+    fn para_alignment_before_ime_commit_is_other() {
+        use egui::ImeChangeCause;
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("hello")), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.sel = wordcraft_engine::Selection::caret(wordcraft_doc::Pos::body(0, 5));
+        h.step();
+        h.state_mut().run("para.alignCenter", json!({})).unwrap();
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("x".into())));
+        h.step();
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::Other, "an application change before the receipt poisons the frame");
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "hellox");
+        assert_eq!(
+            h.state().session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).and_then(|p| p.props.align),
+            Some(wordcraft_doc::props::Align::Center),
+            "the application command really ran"
+        );
+    }
+
+    /// A formatting change after an accepted IME commit in the same frame must also force
+    /// `Other`: the pending application signal survives the receipt and is drained at observation.
+    #[test]
+    fn para_alignment_after_ime_commit_is_other() {
+        use egui::ImeChangeCause;
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("hello")), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().session.sel = wordcraft_engine::Selection::caret(wordcraft_doc::Pos::body(0, 5));
+        h.step();
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("x".into())));
+        h.event(egui::Event::Key {
+            key: egui::Key::E,
+            physical_key: Some(egui::Key::E),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        });
+        h.step();
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::Other, "an application change after the receipt poisons the frame");
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "hellox");
+        assert_eq!(
+            h.state().session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).and_then(|p| p.props.align),
+            Some(wordcraft_doc::props::Align::Center),
+            "the application command really ran"
+        );
+    }
+
+    /// A selected non-empty SmartArt graphic consumes an IME commit as an application edit: its
+    /// item changes, the body does not, and the frame is `Other`.
+    #[test]
+    fn smart_art_item_ime_commit_is_other_and_does_not_reach_the_body() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.smartArt", json!({"items": ["A"]})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("x".into())));
+        h.step();
+        let body = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end().to_string();
+        assert_eq!(body, "", "the commit must not fall through into the body");
+        let item = wordcraft_engine::cmd::smart_art::selected_smart_art(&h.state().session).and_then(|g| g.items.first().map(|i| i.text.clone()));
+        assert_eq!(item.as_deref(), Some("Ax"), "the SmartArt item really changed");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::Other);
+    }
+
+    /// A selected graphic with no items consumes the commit without editing anything. The body
+    /// stays empty and no InputMethod receipt is fabricated.
+    #[test]
+    fn empty_smart_art_ime_commit_is_consumed_without_body_insertion() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.smartArt", json!({"items": ["A"]})).unwrap();
+        // `insert.smartArt` refuses an empty item list, but an imported/edited model may hold
+        // none: make the selected graphic empty while keeping its identity.
+        let at = app.session.sel.ordered().0;
+        if let Some(wordcraft_doc::InlineObject::Graphic { graphic, .. }) =
+            app.session.doc.para_mut(at.story, &at.path).expect("paragraph").object_at_mut(at.off)
+            && let Some(spec) = std::sync::Arc::make_mut(graphic).smart_art.as_mut()
+        {
+            std::sync::Arc::make_mut(spec).items.clear();
+        }
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        let depth = h.state().session.undo_depth();
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("x".into())));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "", "no body insertion");
+        assert_eq!(h.state().session.undo_depth(), depth, "consuming an empty graphic changes no document");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_eq!(ime.change_cause, ImeChangeCause::Other, "no receipt and no application edit");
+    }
+
+    /// A wide selection's surrounding text is unavailable; deleting inside it still earns
+    /// `InputMethod` when both engine revisions are present and strictly increase.
+    #[test]
+    fn ime_wide_unavailable_deletion_uses_engine_revisions() {
+        use egui::ImeChangeCause;
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text(&"a".repeat(5000))), Default::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        // A wide selection with one character before it: the counted deletion is outside the
+        // selection, so the selection stays wide (unavailable) after it.
+        h.state_mut().session.sel = wordcraft_engine::Selection { anchor: wordcraft_doc::Pos::body(0, 1), focus: wordcraft_doc::Pos::body(0, 5000) };
+        h.step();
+        let before = h.output().platform_output.ime.clone().expect("an IME context");
+        assert!(before.surrounding_text.available().is_none(), "the wide selection is unavailable");
+        h.event(egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 0 }));
+        h.step();
+        let body = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert_eq!(body.matches('a').count(), 4999);
+        let after = h.output().platform_output.ime.clone().expect("an IME context");
+        assert!(after.surrounding_text.available().is_none(), "the selection is still wide after the deletion");
+        assert_eq!(after.change_cause, ImeChangeCause::InputMethod, "the engine revisions prove the change");
+    }
+
+    /// A transactional equation delete that cannot make progress is refused as a whole and
+    /// interrupts the composition without a receipt.
+    #[test]
+    fn ime_equation_delete_at_start_is_refused_without_a_receipt() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.equation", json!({"linear": "x+y"})).unwrap();
+        app.run("equation.move", json!({"dir": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars: 1, after_chars: 0 }));
+        h.step();
+        let linear = h.state_mut().run("equation.get", json!({})).unwrap()["linear"].as_str().unwrap_or_default().to_string();
+        assert_eq!(linear, "x+y", "nothing is deleted");
+        let ime = h.output().platform_output.ime.clone().expect("an IME context");
+        assert_ne!(ime.change_cause, ImeChangeCause::InputMethod);
+        assert!(ime.should_interrupt_composition, "the refused equation delete interrupts the composition");
+    }
+
+    /// A byte-counted replacement inside an equation is refused as a whole: nothing is deleted,
+    /// only the immediately paired stale `Text`/`Commit` is dropped and the composition is
+    /// interrupted. A later direct commit in the same raw batch or a later frame is fresh input
+    /// and applies, so the adjacent-pair bound never swallows it.
+    #[test]
+    fn ime_equation_byte_delete_drops_only_its_immediate_replacement() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.equation", json!({"linear": "x+y"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        let linear = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            h.state_mut().run("equation.get", json!({})).unwrap()["linear"].as_str().unwrap_or_default().to_string()
+        };
+        // Harness::event steps each queued event in a separate frame. Insert the complete
+        // protocol replacement into RawInput to exercise a single native input batch.
+        h.input_mut().events.extend([
+            egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 0 }),
+            egui::Event::Ime(egui::ImeEvent::Commit("Z".into())),
+            egui::Event::Ime(egui::ImeEvent::Commit("W".into())),
+        ]);
+        h.step();
+        assert_eq!(linear(&mut h), "x+yW", "the adjacent stale commit is dropped and the next direct commit applies");
+        let ime = h.output().platform_output.ime.clone().expect("still editing the equation");
+        assert_eq!(ime.change_cause, ImeChangeCause::InputMethod, "the fresh direct commit is the input method's change");
+        assert!(ime.should_interrupt_composition, "the refused byte deletion still interrupts the stale composition");
+
+        // An adjacent `Text` + `Commit` pair is one replacement; a third commit is fresh.
+        let base = linear(&mut h);
+        h.input_mut().events.extend([
+            egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 0 }),
+            egui::Event::Text("Q".into()),
+            egui::Event::Ime(egui::ImeEvent::Commit("Q2".into())),
+            egui::Event::Ime(egui::ImeEvent::Commit("R".into())),
+        ]);
+        h.step();
+        assert_eq!(linear(&mut h), format!("{base}R"), "the adjacent pair is dropped, not every later commit");
+        let ime = h.output().platform_output.ime.clone().expect("still editing the equation");
+        assert_eq!(ime.change_cause, ImeChangeCause::InputMethod);
+        assert!(ime.should_interrupt_composition);
+
+        // A refused deletion with no replacement in its batch must not swallow a later direct
+        // commit, even with no pre-edit before it.
+        h.event(egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 0 }));
+        h.step();
+        let base = linear(&mut h);
+        assert_eq!(linear(&mut h), "x+yWR", "the refused deletion alone changed nothing");
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("Y".into())));
+        h.step();
+        assert_eq!(linear(&mut h), format!("{base}Y"), "a later direct commit applies without a pre-edit");
+        let ime = h.output().platform_output.ime.clone().expect("still editing the equation");
+        assert_eq!(ime.change_cause, ImeChangeCause::InputMethod, "the fresh commit is the input method's change");
+        assert!(!ime.should_interrupt_composition, "the fresh commit is not treated as stale");
+    }
+
+    /// A satisfied transactional equation delete commits content and earns one `InputMethod`
+    /// receipt over the checked unavailable revisions.
+    #[test]
+    fn ime_equation_delete_is_one_input_method_change() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.equation", json!({"linear": "x+y"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.event(egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars: 1, after_chars: 0 }));
+        h.step();
+        let linear = h.state_mut().run("equation.get", json!({})).unwrap()["linear"].as_str().unwrap_or_default().to_string();
+        assert_eq!(linear, "x+");
+        let ime = h.output().platform_output.ime.clone().expect("still editing the equation");
+        assert_eq!(ime.change_cause, ImeChangeCause::InputMethod, "the engine revision proves the delete");
+    }
+
+    /// An application change in an equation context and an IME commit in the same frame are
+    /// `Other` in both orders, just as for body text.
+    #[test]
+    fn ime_equation_context_mixes_with_application_changes() {
+        use egui::ImeChangeCause;
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.equation", json!({"linear": "x"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        h.state_mut().run("equation.justify", json!({"jc": "left"})).unwrap();
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("y".into())));
+        h.step();
+        let before = h.output().platform_output.ime.clone().expect("still editing");
+        assert_eq!(before.change_cause, ImeChangeCause::Other, "an application change before the receipt poisons the frame");
+        let linear = h.state_mut().run("equation.get", json!({})).unwrap()["linear"].as_str().unwrap_or_default().to_string();
+        assert_eq!(linear, "xy");
+
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("z".into())));
+        h.step();
+        let accepted = h.output().platform_output.ime.clone().expect("still editing");
+        assert_eq!(accepted.change_cause, ImeChangeCause::InputMethod);
+        h.state_mut().run("equation.justify", json!({"jc": "right"})).unwrap();
+        h.step();
+        let after = h.output().platform_output.ime.clone().expect("still editing");
+        assert_eq!(after.change_cause, ImeChangeCause::Other, "an application change after the receipt poisons the frame");
+    }
+
+    /// Replacing the edited equation under the same document id gives it a fresh session token:
+    /// the IME context changes and the old composition is interrupted.
+    #[test]
+    fn ime_equation_replacement_starts_a_new_context() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("insert.equation", json!({"linear": "x+y"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        let first = h.output().platform_output.ime.as_ref().map(|i| i.context_generation).expect("an IME context");
+        h.state_mut().run("insert.equation", json!({"linear": "z"})).unwrap();
+        h.step();
+        let ime = h.output().platform_output.ime.clone().expect("the new equation owns the context");
+        assert!(ime.context_generation > first, "a new equation editing session is a new context");
+        assert!(ime.should_interrupt_composition, "the old equation composition is interrupted");
+        assert!(h.state().session.math.is_some(), "the new equation is being edited");
     }
 
     fn page_at_index(rects: &[Rect], p: Pos2) -> Option<usize> {

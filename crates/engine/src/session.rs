@@ -23,7 +23,7 @@ use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Document, PartKind, Path, Pos, StoryRef, Table};
 use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
 
-use crate::{CmdError, Registry};
+use crate::{CmdError, ImeEditOutcome, Registry};
 
 /// A selection: anchor (where it started) and focus (where the caret is).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -323,8 +323,9 @@ struct Undo {
 
 /// What [`Session::restore`] needs to take commands back exactly: the document, the selection,
 /// the undo and redo stacks (also the oldest undo steps the undo limit pushes out meanwhile), the
-/// open typing group, a pending [`Session::join_next_undo`] and the dirty flag. See
-/// [`Session::edit_snapshot`].
+/// open typing group, the pending
+/// [`Session::join_next_undo`]/[`Session::join_next_equation_edit`]/body IME replacement promises
+/// and the dirty flag. See [`Session::edit_snapshot`].
 pub struct EditSnapshot {
     doc: Document,
     sel: Selection,
@@ -337,7 +338,13 @@ pub struct EditSnapshot {
     redo: Vec<Arc<Undo>>,
     typing_open: bool,
     join_next: bool,
+    equation_join_next: bool,
+    /// The body `DeleteSurrounding` replacement promise then, with the exact caret it expects.
+    ime_text_join: Option<Selection>,
     dirty: bool,
+    /// The body's replacement epoch then: a previewed replacement that is rolled back is not a
+    /// replacement after all.
+    ime_body_epoch: u64,
 }
 
 /// Undo steps that the commands run between [`Session::edit_snapshot`] and [`Session::restore`]
@@ -416,6 +423,14 @@ pub struct Session {
     typing_open: bool,
     /// The next mutating command joins the previous undo step (later frames of a drag).
     join_next: bool,
+    /// The next equation typing command joins a successful equation `deleteSurrounding`'s undo
+    /// step. Unlike [`Self::join_next`], any other command consumes and discards it, so an
+    /// unrelated Bold or document replacement can never be merged into the deletion.
+    equation_join_next: bool,
+    /// The next `text.insert` at this exact selection joins a successful body
+    /// `DeleteSurrounding`'s undo step. Any other command consumes and discards it, so an
+    /// intervening edit owns its own checkpoint instead of being merged into the deletion.
+    ime_text_join: Option<Selection>,
     /// The newest automatic capitalisation, for Word's "Automatically add words to list" (#1857).
     pub(crate) autocap: Option<crate::cmd::tools::AutoCap>,
     rev: u64,
@@ -426,6 +441,31 @@ pub struct Session {
     /// Which document this is: changes when [`Session::set_document`] replaces it (open, new,
     /// mail merge, recover), never on an edit.
     document_id: u64,
+    /// How many times the document's body was replaced under the same [`Self::document_id`]
+    /// (`document.setText`, version restore, compare, Undo/Redo). It is the body's IME
+    /// replacement epoch: a composition must not survive the swap, even when the new body has
+    /// the same text or the same bounded surrounding window.
+    ime_body_epoch: u64,
+    /// Engine-owned, checked, process-monotonic revision for IME receipts whose target cannot
+    /// provide surrounding text. `None` means the allocator is exhausted (fail closed).
+    ime_state_revision: Option<u64>,
+    /// The caret/equation-session token the revision was last allocated for. It covers selection
+    /// and caret changes without walking the document.
+    ime_state_seen: Option<ImeCaretState>,
+    /// The current command's explicit IME effect classification.
+    ime_edit_outcome: ImeEditOutcome,
+    /// Simulation of a globally exhausted IME revision allocator for front-end producer tests.
+    /// Only [`Self::exhaust_ime_state_revision`] sets it; production builds do not compile it,
+    /// and it only makes receipt classification fail closed.
+    #[cfg(any(test, feature = "test-support"))]
+    ime_state_exhausted: bool,
+    /// A successful non-IME command changed document state since the last IME observation. It is
+    /// drained before publishing a receipt and at observation time; it is never cleared by a later
+    /// command. It covers mixed formatting/IME frames when available stamps ignore the revision.
+    pending_ime_application_change: bool,
+    /// Whether the current command was entered through [`Session::run_ime`]. Nested commands
+    /// inherit the origin.
+    ime_origin: bool,
     cache: LayoutCache,
     /// (revision, width, read height, view, read line spacing, layout, proofing, outline,
     /// (deletions left out, deletions marked Hidden, body deletions in balloons), numeral display, the word being typed).
@@ -515,13 +555,43 @@ pub struct Session {
 /// The number of edit locations Go Back cycles through (Word: four).
 const EDIT_MARKS: usize = 4;
 
+/// The caret identity used for the process-monotonic IME state revision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ImeCaretState {
+    Body(Selection),
+    Equation { session: u64, pos: wordcraft_doc::math_edit::MathPos },
+}
+
+/// One checked allocation from a process-monotonic IME revision counter.
+fn allocate_ime_state_revision(counter: &std::sync::atomic::AtomicU64) -> Option<u64> {
+    counter.try_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| n.checked_add(1)).ok()
+}
+
+static IME_STATE_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn next_ime_state_revision() -> Option<u64> {
+    allocate_ime_state_revision(&IME_STATE_REVISION)
+}
+
 /// The equation being edited.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MathEdit {
-    /// The equation object (its U+FFFC).
+    /// The equation object (its U+FFFC). This moves as the document is edited, so it is not an
+    /// IME owner; [`Self::session`] is.
     pub at: Pos,
     /// The caret inside it.
     pub pos: wordcraft_doc::math_edit::MathPos,
+    /// A stable token for this editing session, unique across documents and re-entry.
+    pub session: u64,
+}
+
+/// Next stable token for an equation editing session, or `None` when the counter is exhausted.
+///
+/// Exhaustion fails closed: a repeated token could let a cached IME context outlive the
+/// equation it described, so the caller refuses to start editing instead.
+pub fn next_math_session() -> Option<u64> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.try_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| n.checked_add(1)).ok()
 }
 
 /// Editing preferences that persist between runs (the front end saves and restores them).
@@ -704,10 +774,20 @@ impl Session {
             redo: Vec::new(),
             typing_open: false,
             join_next: false,
+            equation_join_next: false,
+            ime_text_join: None,
             autocap: None,
             rev: 1,
             protect_facts: std::sync::Mutex::new(None),
             document_id: 1,
+            ime_body_epoch: 0,
+            ime_state_revision: None,
+            ime_state_seen: None,
+            ime_edit_outcome: ImeEditOutcome::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            ime_state_exhausted: false,
+            pending_ime_application_change: false,
+            ime_origin: false,
             cache: LayoutCache::new(),
             layout: None,
             typing: None,
@@ -813,6 +893,29 @@ impl Session {
     /// Which document is open (see `document_id`): lets a caller tell an edit from a replacement.
     pub fn document_id(&self) -> u64 {
         self.document_id
+    }
+
+    /// How many times the body was replaced under this [`Self::document_id`].
+    ///
+    /// Front ends use it as the body's IME replacement epoch and to tell a body swap from an
+    /// ordinary edit; it advances for `document.setText`, a version restore, a compare and
+    /// Undo/Redo, never for typing.
+    pub fn ime_body_epoch(&self) -> u64 {
+        self.ime_body_epoch
+    }
+
+    /// Note that a command replaced the document or its whole body under this document id.
+    ///
+    /// The counter fails closed: if it were ever exhausted (unreachable in practice), the
+    /// document owner id advances too, so a cached IME context still cannot be reused.
+    pub fn note_body_replaced(&mut self) {
+        self.ime_body_epoch = match self.ime_body_epoch.checked_add(1) {
+            Some(epoch) => epoch,
+            None => {
+                self.document_id = self.document_id.saturating_add(1);
+                u64::MAX
+            }
+        };
     }
     pub fn touch(&mut self) {
         self.rev = self.rev.wrapping_add(1);
@@ -1051,6 +1154,36 @@ impl Session {
     pub fn join_next_undo(&mut self) {
         self.join_next = true;
     }
+    /// Make the next equation typing command (`equation.type` or `equation.backspace`) join the
+    /// previous equation deletion's undo step. Unlike [`Self::join_next_undo`], the promise is
+    /// not generic: any other command consumes and discards it, so unrelated edits get their own
+    /// checkpoint. A deletion-only IME request therefore cannot leak a join into the next edit.
+    pub fn join_next_equation_edit(&mut self) {
+        self.equation_join_next = true;
+    }
+    /// Discard an equation replacement join that received no replacement (for example an empty
+    /// commit), so it cannot join a later composition's typing.
+    pub fn clear_equation_join(&mut self) {
+        self.equation_join_next = false;
+    }
+    /// Make the next `text.insert` at the current selection join a successful body
+    /// `DeleteSurrounding`'s undo step. Unlike [`Self::join_next_undo`], the promise is scoped to
+    /// that exact replacement: any other command consumes and discards it, so an intervening
+    /// ordinary edit gets its own checkpoint.
+    pub fn join_next_ime_text_replacement(&mut self) {
+        self.ime_text_join = Some(self.sel.clone());
+    }
+    /// Discard a body replacement join that received no replacement (an empty or refused
+    /// commit, a new request or a refusal), so it cannot join a later composition.
+    pub fn clear_ime_text_join(&mut self) {
+        self.ime_text_join = None;
+    }
+    /// Discard every pending IME replacement join. A refused surrounding request supersedes the
+    /// composition it interrupts, including any promise from an earlier accepted request.
+    pub fn clear_ime_joins(&mut self) {
+        self.equation_join_next = false;
+        self.ime_text_join = None;
+    }
     /// Stamp the document's save metadata (modified time, last modified by, revision; created
     /// when it has none) the way Word does on every save. `file.save` calls it, and so does any
     /// front end that writes the bytes itself (the web build's download, #262). Like Word, the
@@ -1145,6 +1278,9 @@ impl Session {
             column: std::mem::replace(&mut self.column, u.column),
         };
         self.redo.push(Arc::new(cur));
+        // Undo swaps the whole body back: a composition belongs to the text it showed.
+        self.note_body_replaced();
+        self.refresh_math_session();
         self.touch();
         true
     }
@@ -1164,9 +1300,28 @@ impl Session {
             column: std::mem::replace(&mut self.column, u.column),
         };
         self.history.push(Arc::new(cur));
+        self.note_body_replaced();
+        self.refresh_math_session();
         self.touch();
         true
     }
+    /// An equation's editing session cannot ride across Undo/Redo: the equation tree, or the
+    /// object at that offset, may be a different one now. A new session token starts a new IME
+    /// context; if tokens are exhausted, the equation is left (fail closed).
+    fn refresh_math_session(&mut self) {
+        if self.math.is_none() {
+            return;
+        }
+        match next_math_session() {
+            Some(session) => {
+                if let Some(m) = self.math.as_mut() {
+                    m.session = session;
+                }
+            }
+            None => self.math = None,
+        }
+    }
+
     /// Drop history (after open / new).
     pub fn reset_history(&mut self) {
         self.autocap = None;
@@ -1220,12 +1375,16 @@ impl Session {
     /// Replace the document (open/new).
     pub fn set_document(&mut self, doc: Document) {
         self.autocap = None;
-        self.document_id = self.document_id.wrapping_add(1);
+        // Never reuse an id after wrapping: the IME context is keyed by it.
+        self.document_id = self.document_id.saturating_add(1);
+        self.note_body_replaced();
         self.bib_style = doc_bib_style(&doc);
         self.doc = doc;
         self.doc.ensure_nonempty();
         self.password = None;
         self.file_name = None;
+        // The old document's equation is gone: its editing session cannot carry over.
+        self.math = None;
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));
         self.pending = None;
         self.typing = None;
@@ -1249,7 +1408,8 @@ impl Session {
     /// may want to take it back without a trace (cheap: the document's blocks are shared).
     ///
     /// Covered: `doc`, `sel`, the undo stack (its length, and its oldest steps when it is near
-    /// the limit), `redo`, the open typing group, a pending `join_next_undo` and `dirty`. `rev`,
+    /// the limit), `redo`, the open typing group, the pending `join_next_undo` and
+    /// `join_next_equation_edit` promises and `dirty`. `rev`,
     /// `cache` and `layout` are derived (`restore` bumps `rev`). The other fields are not
     /// covered: a caller that lets the command change them (the view, the find state, the
     /// clipboard, macros, the file path…) saves and puts them back itself.
@@ -1294,6 +1454,8 @@ impl Session {
             redo,
             typing_open,
             join_next,
+            equation_join_next,
+            ime_text_join,
             autocap: _,
             rev: _,
             protect_facts: _,
@@ -1313,6 +1475,16 @@ impl Session {
             merge: _,
             ui_requests: _,
             document_id: _,
+            ime_body_epoch,
+            // The IME revision and its caret token are process-global evidence, not document
+            // state: a rollback must not reuse a revision.
+            ime_state_revision: _,
+            ime_state_seen: _,
+            ime_edit_outcome: _,
+            #[cfg(any(test, feature = "test-support"))]
+                ime_state_exhausted: _,
+            pending_ime_application_change: _,
+            ime_origin: _,
             read_aloud: _,
             prefs: _,
             system_region: _,
@@ -1348,7 +1520,10 @@ impl Session {
             redo: redo.clone(),
             typing_open: *typing_open,
             join_next: *join_next,
+            equation_join_next: *equation_join_next,
+            ime_text_join: ime_text_join.clone(),
             dirty: *dirty,
+            ime_body_epoch: *ime_body_epoch,
         }
     }
 
@@ -1356,7 +1531,20 @@ impl Session {
     /// selection or undo/redo (undo steps the limit pushed out meanwhile come back). The layout
     /// is recomputed.
     pub fn restore(&mut self, snap: EditSnapshot) {
-        let EditSnapshot { doc, sel, history_len, evicted, head, redo, typing_open, join_next, dirty } = snap;
+        let EditSnapshot {
+            doc,
+            sel,
+            history_len,
+            evicted,
+            head,
+            redo,
+            typing_open,
+            join_next,
+            equation_join_next,
+            ime_text_join,
+            dirty,
+            ime_body_epoch,
+        } = snap;
         let gone = usize::try_from(self.undo_evicted.saturating_sub(evicted)).unwrap_or(usize::MAX);
         if gone > 0 {
             let back = gone.min(head.len());
@@ -1371,6 +1559,9 @@ impl Session {
         self.redo = redo;
         self.typing_open = typing_open;
         self.join_next = join_next;
+        self.equation_join_next = equation_join_next;
+        self.ime_text_join = ime_text_join;
+        self.ime_body_epoch = ime_body_epoch;
         self.touch();
         self.dirty = dirty;
     }
@@ -1417,13 +1608,105 @@ impl Session {
         f
     }
 
+    /// The current command's explicit IME effect classification.
+    pub fn ime_edit_outcome(&self) -> ImeEditOutcome {
+        self.ime_edit_outcome
+    }
+
+    /// Set the effect classification from a command handler. [`Session::run`] fills
+    /// `selection_changed` and enforces the content/state invariant after the command.
+    pub(crate) fn set_ime_edit_outcome(&mut self, outcome: ImeEditOutcome) {
+        self.ime_edit_outcome = outcome;
+    }
+
+    /// Take the pending application-origin change signal. The UI owns one session, so a simple
+    /// bool is enough; it deliberately survives later commands until drained.
+    pub fn take_pending_ime_application_change(&mut self) -> bool {
+        std::mem::take(&mut self.pending_ime_application_change)
+    }
+
+    /// Simulate a globally exhausted IME revision allocator in this session (test support).
+    ///
+    /// This only ever makes receipt classification fail closed. It exists so front-end producer
+    /// tests can exercise the real `ime_stamp` path instead of hand-building an `Unavailable`
+    /// stamp; production builds do not compile it.
+    #[cfg(any(test, feature = "test-support"))]
+    #[doc(hidden)]
+    pub fn exhaust_ime_state_revision(&mut self) {
+        self.ime_state_exhausted = true;
+        self.ime_state_revision = None;
+    }
+
+    /// The checked, process-monotonic revision for IME receipts with unavailable surrounding
+    /// text. Selection/caret motion allocates on the next call; `None` means exhausted.
+    pub fn ime_state_revision(&mut self) -> Option<u64> {
+        self.sync_ime_caret_state();
+        self.ime_state_revision
+    }
+
+    fn current_ime_caret_state(&self) -> ImeCaretState {
+        match &self.math {
+            Some(m) => ImeCaretState::Equation { session: m.session, pos: m.pos.clone() },
+            None => ImeCaretState::Body(self.sel.clone()),
+        }
+    }
+
+    /// Allocate the next IME state revision, or store `None` when the allocator is exhausted.
+    /// Test support can pin exhaustion for this session so a front-end producer test sees the
+    /// real `ime_stamp`/receipt path fail closed.
+    fn reset_ime_state_revision(&mut self) {
+        #[cfg(any(test, feature = "test-support"))]
+        if self.ime_state_exhausted {
+            self.ime_state_revision = None;
+            return;
+        }
+        // v5: allocation failure must store `None`, never retain a stale revision.
+        self.ime_state_revision = next_ime_state_revision();
+    }
+
+    fn sync_ime_caret_state(&mut self) {
+        let state = self.current_ime_caret_state();
+        if self.ime_state_seen.as_ref() != Some(&state) {
+            self.ime_state_seen = Some(state);
+            self.reset_ime_state_revision();
+        }
+    }
+
+    /// Run one command as the input method's own transaction.
+    ///
+    /// Commands run inside this scope are IME-origin: a successful command run *outside* this
+    /// scope sets the pending application-change signal, but nothing inside it does. Nested commands inherit
+    /// the origin. The previous origin is restored on every return, including unknown, disabled or
+    /// refused commands.
+    pub fn run_ime(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        let previous = std::mem::replace(&mut self.ime_origin, true);
+        let result = self.run(id, params);
+        self.ime_origin = previous;
+        result
+    }
+
     /// Run a command by id with JSON params (the single entry point for the UI, CLI, MCP and
     /// control channel). Mutating commands are undoable; a failed command leaves the document as
     /// it was; a panic inside a command becomes an error.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        // Every dispatch starts from an unclassified outcome. Early returns (unknown, disabled,
+        // protected) leave it at the default.
+        self.ime_edit_outcome = ImeEditOutcome::default();
+        // A rolled-back transaction must not leave a successful application-change signal from a
+        // nested command that ran before the failure.
+        let pending_application_change_before = self.pending_ime_application_change;
         let join = std::mem::take(&mut self.join_next);
+        // The equation replacement promise is not a generic undo join: only the command that
+        // actually types into the equation may consume it. Any other command discards it.
+        let equation_join = std::mem::take(&mut self.equation_join_next);
+        // The body replacement promise is likewise scoped: only the `text.insert` at the
+        // selection the deletion left may consume it.
+        let ime_text_join = self.ime_text_join.take();
         let reg = self.registry.clone();
         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };
+        let join = join
+            || (equation_join && matches!(id, "equation.type" | "equation.backspace"))
+            || (id == "text.insert" && ime_text_join.as_ref().is_some_and(|sel| sel == &self.sel));
         if let Some(why) = (spec.enabled)(self) {
             return Err(CmdError::Disabled(format!("{id}: {why}")));
         }
@@ -1461,6 +1744,10 @@ impl Session {
         }
         // The undo stacks are snapshotted whole, not as a length: commands run nested commands,
         // whose checkpoints, undos and redos (and evictions at the limit) must be put back too.
+        let ime_epoch_before = spec.mutates.then_some(self.ime_body_epoch);
+        // Commands may leave an equation (a whole-body replacement) even after they fail; put
+        // the editing session back with the document.
+        let math_before = spec.mutates.then(|| self.math.clone());
         let before_doc = if spec.mutates {
             Some((
                 self.doc.clone(),
@@ -1515,6 +1802,7 @@ impl Session {
         let default_language_before = self.prefs.default_language.clone();
         let run = spec.run;
         let mutates = spec.mutates;
+        let ime_caret_before = self.current_ime_caret_state();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::cmd::column::dispatch(self, id, mutates, run, params)));
         let mut result = match result {
             Ok(r) => r,
@@ -1547,6 +1835,25 @@ impl Session {
                     }
                 }
                 self.clamp_selection();
+                let mut ime_outcome = self.ime_edit_outcome;
+                if ime_outcome.content_changed {
+                    ime_outcome.state_changed = true;
+                }
+                // An unclassified mutating command is conservatively a state change. It can make
+                // a frame Other, but it can never mint a receipt because `classified` is false.
+                if !ime_outcome.classified && mutates {
+                    ime_outcome.state_changed = true;
+                }
+                ime_outcome.selection_changed = self.current_ime_caret_state() != ime_caret_before;
+                self.ime_edit_outcome = ime_outcome;
+                if ime_outcome.state_changed {
+                    let caret = self.current_ime_caret_state();
+                    self.ime_state_seen = Some(caret);
+                    self.reset_ime_state_revision();
+                }
+                if !self.ime_origin && (ime_outcome.content_changed || ime_outcome.state_changed || (!ime_outcome.classified && mutates)) {
+                    self.pending_ime_application_change = true;
+                }
                 if sel_before.focus.story == StoryRef::Body && self.in_header_footer() {
                     self.hf_return = Some(sel_before.clone());
                 }
@@ -1569,8 +1876,16 @@ impl Session {
                 self.note_typing(id, before_doc.as_ref().map(|b| &b.0), &sel_before);
             }
             Err(e) => {
+                self.ime_edit_outcome = ImeEditOutcome::default();
+                self.pending_ime_application_change = pending_application_change_before;
                 self.autocap = None;
                 self.prefs.default_language = default_language_before;
+                if let Some(epoch) = ime_epoch_before {
+                    self.ime_body_epoch = epoch;
+                }
+                if let Some(math) = math_before {
+                    self.math = math;
+                }
                 if let Some(versions) = versions_before {
                     self.versions = versions;
                 }
@@ -1681,4 +1996,85 @@ pub fn blank_document(region: &wordcraft_geom::Region) -> Document {
     d.last_section.page_w = w;
     d.last_section.page_h = h;
     d
+}
+
+#[cfg(test)]
+mod ime_revision_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn checked_revision_allocation_refuses_to_wrap() {
+        let counter = std::sync::atomic::AtomicU64::new(u64::MAX - 1);
+        assert_eq!(allocate_ime_state_revision(&counter), Some(u64::MAX - 1));
+        assert_eq!(allocate_ime_state_revision(&counter), None, "exhaustion fails closed");
+        assert_eq!(counter.load(std::sync::atomic::Ordering::Relaxed), u64::MAX);
+    }
+
+    #[test]
+    fn selection_and_caret_motion_advance_the_unavailable_revision() {
+        let mut s = Session::new(Document::from_text("hello"));
+        let first = s.ime_state_revision().expect("a revision");
+        assert_eq!(s.ime_state_revision(), Some(first), "an unchanged caret reuses its revision");
+        s.sel = Selection::caret(Pos::body(0, 2));
+        let moved = s.ime_state_revision().expect("a revision");
+        assert!(moved > first, "a direct selection assignment is caught");
+    }
+
+    #[test]
+    fn successful_state_changes_allocate_but_selection_only_commands_do_not() {
+        let mut s = Session::new(Document::from_text("hello"));
+        let first = s.ime_state_revision().expect("a revision");
+        s.run("select.all", &json!({})).unwrap();
+        // `run` does not allocate for selection-only work; the next stamp sees the new caret.
+        assert!(s.ime_state_revision() > Some(first));
+        let selected = s.ime_state_revision().expect("a revision");
+        s.run("para.alignCenter", &json!({})).unwrap();
+        assert!(s.ime_state_revision() > Some(selected), "a committed state change advances");
+    }
+
+    #[test]
+    fn exhausted_allocator_keeps_a_real_equation_commit_uncertifiable() {
+        let mut s = Session::new(Document::new());
+        s.run("insert.equation", &json!({})).unwrap();
+        s.exhaust_ime_state_revision();
+        assert_eq!(s.ime_state_revision(), None, "exhaustion fails closed");
+        s.run_ime("equation.type", &json!({"text": "x"})).unwrap();
+        let outcome = s.ime_edit_outcome();
+        assert!(outcome.classified && outcome.content_changed && outcome.state_changed, "{outcome:?}");
+        assert_eq!(s.ime_state_revision(), None, "a real producer command cannot mint a revision");
+    }
+
+    #[test]
+    fn application_origin_signal_is_taken_once_and_ime_commands_do_not_set_it() {
+        let mut s = Session::new(Document::from_text("hello"));
+        s.run("para.alignCenter", &json!({})).unwrap();
+        assert!(s.take_pending_ime_application_change(), "a normal command signals");
+        assert!(!s.take_pending_ime_application_change(), "taking clears it");
+        s.run_ime("text.insert", &json!({"text": "x"})).unwrap();
+        assert!(!s.take_pending_ime_application_change(), "an IME transaction is not an application change");
+        s.run("text.insert", &json!({"text": "y"})).unwrap();
+        assert!(s.take_pending_ime_application_change());
+    }
+
+    #[test]
+    fn ime_origin_is_restored_and_nested_commands_inherit_it() {
+        let mut s = Session::new(Document::from_text("hello"));
+        s.run("tools.macros", &json!({"define": {"name": "centre", "steps": [{"command": "para.alignCenter", "params": {}}]}})).unwrap();
+        s.take_pending_ime_application_change();
+
+        // Unknown and refused commands restore the normal application origin; the failed run
+        // itself leaves no application-change signal.
+        assert!(s.run_ime("no.such.command", &json!({})).is_err());
+        assert!(!s.take_pending_ime_application_change(), "an unknown IME command is not an application change");
+        assert!(s.run_ime("equation.backspace", &json!({})).is_err());
+        assert!(!s.take_pending_ime_application_change(), "a refused IME command is not an application change");
+
+        // A nested `run` inherits the IME origin from `run_ime`; the same macro run normally is
+        // an application change.
+        s.run_ime("tools.macros", &json!({"run": "centre"})).unwrap();
+        assert!(!s.take_pending_ime_application_change(), "the nested command inherits the IME origin");
+        s.run("tools.macros", &json!({"run": "centre"})).unwrap();
+        assert!(s.take_pending_ime_application_change(), "a normal macro run is application-origin");
+    }
 }

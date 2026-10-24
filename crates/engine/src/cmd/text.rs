@@ -5,7 +5,7 @@ use wordcraft_doc::para::{COLUMN_BREAK, NB_HYPHEN, NBSP, OBJ, PAGE_BREAK, SOFT_H
 use wordcraft_doc::props::{Border, BorderStyle, NumRef};
 use wordcraft_doc::{Block, ListKind, Path, Pos, StoryRef, Table};
 
-use super::{delete_selection, non_mac, sel_result, split_para, type_text};
+use super::{delete_selection, delete_selection_effect, non_mac, sel_result, split_para, type_text, type_text_effect};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -100,10 +100,18 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::req_str(v, "text")?;
     let raw = p::bool(v, "raw").unwrap_or(false);
     typing_options(s, text);
-    let t = if raw { None } else { autoformat(s, text) };
-    type_text(s, t.as_deref().unwrap_or(text))?;
+    let smart_quote = if raw { None } else { autoformat(s, text) };
+    let effect = type_text_effect(s, smart_quote.as_deref().unwrap_or(text))?;
+    let mut outcome = crate::ImeEditOutcome {
+        classified: true,
+        content_changed: effect.content_changed,
+        state_changed: effect.state_changed,
+        transformed: smart_quote.is_some(),
+        selection_changed: false,
+    };
     let trigger = text.chars().count() == 1 && text.chars().all(|c| c == ' ' || ",.;:!?".contains(c));
     if raw || !trigger {
+        s.set_ime_edit_outcome(outcome);
         return sel_result(s);
     }
     // The paragraph as typed, so an automatic change can be undone on its own.
@@ -114,8 +122,19 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     if !listed {
         super::tools::autocorrect(s).inspect_err(|_| s.autocap = None)?;
     }
-    if text == " " && !listed && s.prefs.autocorrect.enabled && s.prefs.autocorrect.dashes {
-        dash_autoformat(s).inspect_err(|_| s.autocap = None)?;
+    let dashed = text == " "
+        && !listed
+        && s.prefs.autocorrect.enabled
+        && s.prefs.autocorrect.dashes
+        && dash_autoformat(s).inspect_err(|_| s.autocap = None)?;
+    // Compare the paragraph with the one exactly as typed. This is the actual effect of
+    // AutoCorrect (including formatting-only superscripts and links), not an undo label that
+    // may have been left by an earlier step.
+    let rewritten = typed.as_ref().is_some_and(|(para, _)| s.doc.para_at(&f) != Some(para));
+    if listed || dashed || rewritten {
+        outcome.content_changed = true;
+        outcome.state_changed = true;
+        outcome.transformed = true;
     }
     if let Some((para, sel)) = typed
         && s.doc.para_at(&f) != Some(&para)
@@ -133,6 +152,7 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
         }
     }
     s.autocap.take_if(|c| c.depth == u64::MAX);
+    s.set_ime_edit_outcome(outcome);
     sel_result(s)
 }
 
@@ -188,10 +208,10 @@ fn list_autoformat(s: &mut Session) -> Result<bool, CmdError> {
 }
 
 /// "word -- word" → en dash, "word--word" → em dash (on the space after).
-fn dash_autoformat(s: &mut Session) -> Result<(), CmdError> {
+fn dash_autoformat(s: &mut Session) -> Result<bool, CmdError> {
     let f = s.sel.focus.clone();
-    let Some(para) = s.doc.para_at(&f) else { return Ok(()) };
-    let Some(before) = para.text.get(..f.off) else { return Ok(()) };
+    let Some(para) = s.doc.para_at(&f) else { return Ok(false) };
+    let Some(before) = para.text.get(..f.off) else { return Ok(false) };
     if before.ends_with(' ')
         && let Some(i) = before.trim_end().rfind(" -- ")
         && before.trim_end().get(i + 4..).is_some_and(|w| !w.is_empty() && !w.contains(' '))
@@ -202,6 +222,7 @@ fn dash_autoformat(s: &mut Session) -> Result<(), CmdError> {
         p.delete(i + 1, i + 3)?;
         p.insert_text(i + 1, "\u{2013}", &props)?;
         s.sel = Selection::caret(Pos { off: f.off + 1, ..f });
+        return Ok(true);
     } else if before.ends_with(' ')
         && let Some(i) = before.trim_end().rfind(" - ")
         && !before.trim_end()[i + 3..].contains(' ')
@@ -211,6 +232,7 @@ fn dash_autoformat(s: &mut Session) -> Result<(), CmdError> {
         p.delete(i + 1, i + 2)?;
         p.insert_text(i + 1, "\u{2013}", &props)?;
         s.sel = Selection::caret(Pos { off: f.off + 2, ..f });
+        return Ok(true);
     } else if before.ends_with(' ')
         && let Some(i) = before.trim_end().rfind("--")
         && i > 0
@@ -221,8 +243,9 @@ fn dash_autoformat(s: &mut Session) -> Result<(), CmdError> {
         p.delete(i, i + 2)?;
         p.insert_text(i, "\u{2014}", &props)?;
         s.sel = Selection::caret(Pos { off: f.off + 1, ..f });
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 /// An AutoFormat that Enter applies to the paragraph just finished.
@@ -689,7 +712,14 @@ fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
     s.goal_x = None;
     s.pending = None;
     if !s.sel.is_collapsed() {
-        delete_selection(s)?;
+        let effect = delete_selection_effect(s)?;
+        s.set_ime_edit_outcome(crate::ImeEditOutcome {
+            classified: true,
+            content_changed: effect.content_changed,
+            state_changed: effect.state_changed,
+            transformed: false,
+            selection_changed: false,
+        });
         return sel_result(s);
     }
     let f = s.sel.focus.clone();
@@ -700,7 +730,14 @@ fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
             c.note_backspace(&a, &f);
         }
         s.sel = Selection { anchor: a, focus: f };
-        delete_selection(s)?;
+        let effect = delete_selection_effect(s)?;
+        s.set_ime_edit_outcome(crate::ImeEditOutcome {
+            classified: true,
+            content_changed: effect.content_changed,
+            state_changed: effect.state_changed,
+            transformed: false,
+            selection_changed: false,
+        });
         return sel_result(s);
     }
     // At the start of a paragraph.
@@ -779,7 +816,14 @@ fn delete_inner(s: &mut Session, _: &Value) -> CmdResult {
     s.goal_x = None;
     s.pending = None;
     if !s.sel.is_collapsed() {
-        delete_selection(s)?;
+        let effect = delete_selection_effect(s)?;
+        s.set_ime_edit_outcome(crate::ImeEditOutcome {
+            classified: true,
+            content_changed: effect.content_changed,
+            state_changed: effect.state_changed,
+            transformed: false,
+            selection_changed: false,
+        });
         return sel_result(s);
     }
     let f = s.sel.focus.clone();
@@ -787,7 +831,14 @@ fn delete_inner(s: &mut Session, _: &Value) -> CmdResult {
     if f.off < para.len() {
         let b = Pos { off: para.next_boundary(f.off), ..f.clone() };
         s.sel = Selection { anchor: f, focus: b };
-        delete_selection(s)?;
+        let effect = delete_selection_effect(s)?;
+        s.set_ime_edit_outcome(crate::ImeEditOutcome {
+            classified: true,
+            content_changed: effect.content_changed,
+            state_changed: effect.state_changed,
+            transformed: false,
+            selection_changed: false,
+        });
         return sel_result(s);
     }
     // At the end: join with the next paragraph in the same container.

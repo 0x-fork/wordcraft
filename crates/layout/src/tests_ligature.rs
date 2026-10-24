@@ -171,6 +171,98 @@ fn an_emoji_zwj_sequence_stays_one_cluster() {
     assert!(xs.windows(2).all(|w| w[0] < w[1]), "{xs:?}");
 }
 
+/// Font/style fragments still draw independently, but every user-facing stop and emergency
+/// wrap must be at a whole paragraph grapheme boundary, in LTR and bidirectional lines alike.
+fn assert_atomic_drawing_group(d: &Document, legal: &[usize], start: usize, inside: usize, end: usize) {
+    let l = lay(d);
+    let pl = para_layout(&l);
+    assert!(pl.clusters.iter().any(|c| c.start == inside), "fixture must actually split the drawing inside the grapheme");
+    let li = pl.line_of(start);
+    assert_eq!(pl.x_of(li, inside), pl.x_of(li, start), "an explicit internal offset uses the grapheme's leading edge");
+    let mut reachable: Vec<_> = (0..pl.lines.len()).flat_map(|i| pl.line_offsets(i)).collect();
+    reachable.sort_unstable();
+    reachable.dedup();
+    assert_eq!(reachable, legal, "every expected grapheme boundary remains reachable");
+    if d.last_section.text_width() <= 18.01 {
+        assert!(pl.lines.len() > 1, "the narrow fixture must actually exercise wrapping");
+    }
+    for (li, line) in pl.lines.iter().enumerate() {
+        assert!(legal.contains(&line.start) && legal.contains(&line.stop), "wrap cannot split a grapheme: {}..{}", line.start, line.stop);
+        assert!(pl.line_offsets(li).iter().all(|o| legal.contains(o)), "only legal keyboard stops");
+        let left = (line.c0..line.c1).filter_map(|k| line.cl_left(k)).fold(line.left, f32::min);
+        let right = (line.c0..line.c1).filter_map(|k| line.cl_right(k)).fold(line.right, f32::max);
+        for sample in 0..=128 {
+            let x = left + (right - left) * sample as f32 / 128.0;
+            let off = pl.off_at_x(li, x);
+            assert!(legal.contains(&off), "click at {x} reached internal offset {off}");
+        }
+    }
+    // The whole group's selection covers every differently drawn component without gaps.
+    let rects = l.selection_rects(d, &Pos::body(0, start), &Pos::body(0, end), 0);
+    let width: f32 = rects.iter().map(|(_, r)| r.w).sum();
+    let expected = (pl.x_of(li, end).unwrap() - pl.x_of(li, start).unwrap()).abs();
+    assert!(width > 0.0 && (width - expected).abs() < 0.05, "whole-grapheme selection: {width}, expected {expected}");
+}
+
+#[test]
+fn a_mixed_style_emoji_grapheme_has_atomic_caret_hit_and_wrap_boundaries() {
+    for bidi in [false, true] {
+        let mut d = Document::from_text("x\u{1F469}\u{200D}\u{1F4BB}y");
+        d.format_range(&Pos::body(0, 0), &Pos::body(0, 13), &|c| {
+            c.font = Some("Source Sans 3".into());
+            c.size = Some(24.0);
+        })
+        .unwrap();
+        d.format_range(&Pos::body(0, 8), &Pos::body(0, 12), &|c| c.size = Some(48.0)).unwrap();
+        d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props.bidi = Some(bidi);
+        let wide = lay(&d);
+        let pl = para_layout(&wide);
+        if bidi {
+            assert!(pl.lines.iter().any(|line| !line.vis.is_empty()), "exercise the bidi hit/caret path");
+        }
+        let styles: Vec<_> = pl.clusters.iter().filter(|c| c.start >= 1 && c.end <= 12).map(|c| pl.styles[c.style as usize].size).collect();
+        assert!(styles.contains(&24.0) && styles.contains(&48.0), "both drawing sizes must survive: {styles:?}");
+        assert_atomic_drawing_group(&d, &[0, 1, 12, 13], 1, 8, 12);
+        for width in [18.0, 32.0, 48.0, 96.0] {
+            d.last_section.page_w = 144.0 + width;
+            assert_atomic_drawing_group(&d, &[0, 1, 12, 13], 1, 8, 12);
+        }
+    }
+}
+
+#[test]
+fn a_mixed_bundled_font_combining_grapheme_preserves_drawing_and_atomic_boundaries() {
+    for bidi in [false, true] {
+        let mut d = Document::from_text("xa\u{301}b");
+        d.format_range(&Pos::body(0, 0), &Pos::body(0, 5), &|c| {
+            c.font = Some("Source Sans 3".into());
+            c.size = Some(24.0);
+        })
+        .unwrap();
+        d.format_range(&Pos::body(0, 2), &Pos::body(0, 4), &|c| {
+            c.font = Some("Source Serif 4".into());
+            c.size = Some(48.0);
+        })
+        .unwrap();
+        d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().props.bidi = Some(bidi);
+        let wide = lay(&d);
+        let pl = para_layout(&wide);
+        if bidi {
+            assert!(pl.lines.iter().any(|line| !line.vis.is_empty()), "exercise the bidi hit/caret path");
+        }
+        let base = pl.clusters.iter().find(|c| c.start == 1).unwrap();
+        let mark = pl.clusters.iter().find(|c| c.start == 2).unwrap();
+        assert_eq!(pl.styles[base.style as usize].face.family, "Source Sans 3");
+        assert_eq!(pl.styles[mark.style as usize].face.family, "Source Serif 4");
+        assert!(base.g1 > base.g0 && mark.g1 > mark.g0, "both independently shaped pieces keep their glyphs");
+        assert_atomic_drawing_group(&d, &[0, 1, 4, 5], 1, 2, 4);
+        for width in [18.0, 32.0, 48.0, 96.0] {
+            d.last_section.page_w = 144.0 + width;
+            assert_atomic_drawing_group(&d, &[0, 1, 4, 5], 1, 2, 4);
+        }
+    }
+}
+
 #[test]
 fn an_indic_conjunct_stays_one_cluster() {
     // क्ष: ka, virama, ssa — one conjunct; the caret never stops inside it.

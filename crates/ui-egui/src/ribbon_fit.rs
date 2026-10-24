@@ -93,19 +93,19 @@ struct Measured {
 }
 
 fn frame_id() -> Id {
-    Id::new("ribbon_fit_frame")
+    Id::unique("ribbon_fit_frame")
 }
 fn measured_id() -> Id {
-    Id::new("ribbon_fit_measured")
+    Id::unique("ribbon_fit_measured")
 }
 fn compact_id() -> Id {
-    Id::new("ribbon_fit_compact")
+    Id::unique("ribbon_fit_compact")
 }
 fn saving_id() -> Id {
-    Id::new("ribbon_fit_saving")
+    Id::unique("ribbon_fit_saving")
 }
 fn active_id() -> Id {
-    Id::new("ribbon_fit_active")
+    Id::unique("ribbon_fit_active")
 }
 
 /// What the measured widths depend on besides the groups themselves.

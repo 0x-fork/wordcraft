@@ -40,9 +40,29 @@ fn paint_math(app: &mut WordApp, ui: &Ui, r: Rect, key: &str, linear: &str, node
         }
         None => {
             let t = Tokens::get(ui.ctx());
-            ui.painter().text(r.center(), Align2::CENTER_CENTER, linear, regular(11.0), t.text_dim);
+            // Math previews are asynchronous. Interface fonts need not cover the math font's
+            // repertoire, so use readable linear commands until the actual equation is ready.
+            let placeholder = math_placeholder(ui, linear);
+            ui.painter().with_clip_rect(r).text(r.center(), Align2::CENTER_CENTER, placeholder, regular(11.0), t.text_dim);
         }
     }
+}
+
+fn math_placeholder(ui: &Ui, linear: &str) -> String {
+    let font = regular(11.0);
+    let mut result = String::new();
+    for c in linear.chars() {
+        if c.is_whitespace() || ui.fonts_mut(|fonts| fonts.has_glyph(&font, c)) {
+            result.push(c);
+        } else if let Some(name) = wordcraft_doc::math_symbols::name_of(c) {
+            result.push('\\');
+            result.push_str(name);
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(result, "U+{:04X}", c as u32);
+        }
+    }
+    result
 }
 
 /// A big ribbon button whose picture is an equation; opens `menu`.
@@ -154,8 +174,8 @@ pub fn insert_button(ui: &mut Ui, app: &mut WordApp) {
     let (r, _) = ui.allocate_exact_size(vec2(w, CONTENT_H), Sense::hover());
     let top = Rect::from_min_max(r.min, pos2(r.max.x, r.min.y + BIG_LABEL_Y - 2.0));
     let bottom = Rect::from_min_max(pos2(r.min.x, r.min.y + BIG_LABEL_Y - 2.0), r.max);
-    let rt = ui.interact(top, ui.id().with("eq_insert_top"), Sense::click());
-    let rb = ui.interact(bottom, ui.id().with("eq_insert_bottom"), Sense::click());
+    let rt = ui.interact(top, ui.scope_id().with("eq_insert_top"), Sense::click());
+    let rb = ui.interact(bottom, ui.scope_id().with("eq_insert_bottom"), Sense::click());
     for (rr, resp) in [(top, &rt), (bottom, &rb)] {
         if resp.hovered() {
             ui.painter().rect_filled(rr, 4.0, t.hover);
@@ -178,10 +198,10 @@ pub fn insert_button(ui: &mut Ui, app: &mut WordApp) {
 
 /// The Symbols group: a strip of the current set's symbols, and a menu with every set.
 fn symbols(ui: &mut Ui, app: &mut WordApp) {
-    let id = egui::Id::new("eq_symbol_set");
+    let id = egui::Id::unique("eq_symbol_set");
     let set = ui.data(|d| d.get_temp::<usize>(id)).unwrap_or(0).min(SYMBOL_SETS.len().saturating_sub(1));
     let Some((_, chars)) = SYMBOL_SETS.get(set) else { return };
-    let start_id = egui::Id::new("eq_symbol_start");
+    let start_id = egui::Id::unique("eq_symbol_start");
     let per_row = 10usize;
     let rows = 3usize;
     let all: Vec<char> = chars.chars().collect();
@@ -256,7 +276,9 @@ fn symbol_button(ui: &mut Ui, app: &mut WordApp, c: char, t: &Tokens) -> bool {
     let s = c.to_string();
     let nodes = vec![wordcraft_doc::math::MNode::Run(wordcraft_doc::math::MRun { text: s.clone(), lit: true, ..Default::default() })];
     paint_math(app, ui, r, &format!("sym:{s}"), &s, Some(nodes), false, 11.0);
-    let name = wordcraft_doc::math_symbols::name_of(c).map(|n| format!("{s}  \\{n}")).unwrap_or_else(|| format!("{s}  U+{:04X}", c as u32));
+    let display = math_placeholder(ui, &s);
+    let name =
+        wordcraft_doc::math_symbols::name_of(c).map(|n| format!("{display}  \\{n}")).unwrap_or_else(|| format!("{display}  U+{:04X}", c as u32));
     resp.on_hover_text(name).clicked()
 }
 
@@ -377,4 +399,18 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         });
     });
+}
+
+#[cfg(test)]
+mod placeholder_tests {
+    #[test]
+    fn a_missing_math_glyph_has_a_readable_linear_placeholder() {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(!ui.fonts_mut(|fonts| fonts.has_glyph(&super::regular(11.0), '∁')));
+            assert_eq!(super::math_placeholder(ui, "x+\u{2201}"), "x+\\complement");
+            assert_eq!(super::math_placeholder(ui, "x+y"), "x+y");
+        });
+        output.textures_delta.clear();
+    }
 }

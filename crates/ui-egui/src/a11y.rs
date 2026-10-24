@@ -435,6 +435,7 @@ impl Builder<'_> {
             Some(url) => {
                 let lid = lb.pid.with(("link", lb.li, lb.seg));
                 let mut l = Node::new(Role::Link);
+                l.set_label(n.value().filter(|text| !text.is_empty()).unwrap_or(url).to_owned());
                 l.set_url(url.clone());
                 l.set_bounds(bounds(r));
                 self.add(lid, Some(lb.pid), l);
@@ -702,7 +703,7 @@ mod tests {
         let n = layout.pages.len();
         let rects = vec![Rect::from_min_size(egui::pos2(f32::NAN, 0.0), egui::vec2(f32::INFINITY, 1.0)); n];
         let p = Pos::body(0, 1_000_000);
-        let t = build(&doc, &layout, Id::new("doc"), &rects, (0, n + 5), (&p, &p));
+        let t = build(&doc, &layout, Id::unique("doc"), &rects, (0, n + 5), (&p, &p));
         assert!(!t.nodes.is_empty() && t.nodes.len() <= MAX_NODES);
         assert!(t.selection.is_some(), "an offset past the end lands at the end");
         assert!(page_window(&rects, Rect::NOTHING).is_none());

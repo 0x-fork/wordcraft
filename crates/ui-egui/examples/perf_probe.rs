@@ -18,7 +18,8 @@ static READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new
 
 fn step(h: &mut egui_kittest::Harness<'_, WordApp>) -> f64 {
     let mut raw = std::mem::take(h.input_mut());
-    h.state_mut().raw_input_hook(&mut raw);
+    let ctx = h.ctx.clone();
+    h.state_mut().raw_input_hook(&ctx, &mut raw);
     *h.input_mut() = raw;
     let t = Instant::now();
     h.step();
@@ -108,6 +109,7 @@ fn main() {
                 delta: egui::vec2(0.0, dy),
                 phase: egui::TouchPhase::Move,
                 modifiers: egui::Modifiers::NONE,
+                source: egui::MouseWheelSource::Unknown,
             });
             f.push(step(h));
         }

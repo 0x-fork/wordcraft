@@ -188,6 +188,10 @@ pub fn specs() -> Vec<CommandSpec> {
             let text = p::req_str(v, "text")?;
             let d = Document::from_text(text);
             s.doc.body = d.body;
+            // The body is new even though the document id stays: a live IME composition (or an
+            // equation editing session at the same offset) belongs to the old content.
+            s.note_body_replaced();
+            s.math = None;
             s.sel = crate::Selection::caret(s.doc.start_of(StoryRef::Body));
             sel_result(s)
         })

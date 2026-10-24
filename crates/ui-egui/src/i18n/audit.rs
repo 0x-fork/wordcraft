@@ -167,8 +167,12 @@ impl Exempt {
         let theme_fonts = plain.strip_prefix(": ").is_some_and(|f| f.split(" / ").count() == 2);
         let icon_lettering = matches!(plain, "Aa" | "ab" | "abc" | "ac" | "cd" | "ab-" | "fx" | "ABC");
         let initials = plain.chars().count() == 2 && plain.chars().all(|c| c.is_ascii_uppercase());
+        // Math tiles fall back to UnicodeMath syntax while their preview loads. These are
+        // language-independent commands, and only names in the real symbol table qualify.
+        let math_symbol = plain.strip_prefix('\\').is_some_and(|name| wordcraft_doc::math_symbols::symbol(name).is_some());
         icon_lettering // drawn inside icons
             || initials // the account button
+            || math_symbol
             || status
             || theme_fonts
             || is_shortcut()
