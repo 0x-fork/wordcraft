@@ -957,7 +957,8 @@ fn to_text(s: &mut Session, v: &Value) -> CmdResult {
         Some("comma") => Some(','),
         Some("paragraph") => None,
         Some("other") => match p::str(v, "char").and_then(|c| c.chars().next()) {
-            Some(c) if c != '\n' && c != '\r' => Some(c),
+            // U+FFFC marks an object in the text, so it cannot set the cells apart.
+            Some(c) if c != '\n' && c != '\r' && c != wordcraft_doc::para::OBJ => Some(c),
             _ => return Err(CmdError::Params("`char` (the separating character) is required with `other`".into())),
         },
         Some(x) => return Err(CmdError::Params(format!("unknown separator `{x}`"))),

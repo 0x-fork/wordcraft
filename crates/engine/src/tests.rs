@@ -6524,7 +6524,14 @@ fn convert_to_text_takes_each_separator() {
         assert_eq!(got.get(..want.len()), Some(&want.iter().map(|x| x.to_string()).collect::<Vec<_>>()[..]), "{params}: {got:?}");
         assert!(s.doc.body.iter().all(|b| b.as_table().is_none()), "{params}");
     }
-    for bad in [json!({"separator": "other"}), json!({"separator": "other", "char": "\n"}), json!({"separator": "pipe"})] {
+    // U+FFFC marks an object in a paragraph's text, so it cannot be the separator.
+    let obj = wordcraft_doc::para::OBJ.to_string();
+    for bad in [
+        json!({"separator": "other"}),
+        json!({"separator": "other", "char": "\n"}),
+        json!({"separator": "other", "char": obj}),
+        json!({"separator": "pipe"}),
+    ] {
         let mut s = typed_table(2, &["a", "b", "c", "d"]);
         let depth = s.undo_depth();
         assert!(s.run("table.toText", &bad).is_err(), "{bad}");
