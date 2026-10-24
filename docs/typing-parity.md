@@ -113,7 +113,9 @@ The `-->` replacement produces `→` when completed with a space (#2223), includ
 at paragraph start without creating a list. It respects AutoCorrect preferences, user
 entries and undo. The existing `-> ` paragraph-start arrow bullet is unchanged.
 
-Applied when a word is finished by a space, punctuation **or Enter** (`enter_finishes_a_word_for_autocorrect`):
+Applied when a word is finished by a space, punctuation **or Enter** (`enter_finishes_a_word_for_autocorrect`).
+The word starts after the last white-space character before it, also when that is a no-break space or an
+ideographic space (`autocorrect_finds_the_word_after_a_wide_space`):
 
 - First letter of a sentence (paragraph or list item start, after `. ! ?`) is capitalised; not
   after abbreviations (`e.g.`, `Dr.`, …) or initials (`J.`), and not for mixed-case words
