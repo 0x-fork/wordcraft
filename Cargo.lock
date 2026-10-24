@@ -6694,6 +6694,7 @@ dependencies = [
 name = "wordcraft-geom"
 version = "0.10.0"
 dependencies = [
+ "image",
  "serde",
 ]
 
@@ -6787,6 +6788,7 @@ name = "wordcraft-ui-egui"
 version = "0.10.0"
 dependencies = [
  "cfb",
+ "chrono",
  "craft-i18n",
  "craft-ui",
  "egui",
