@@ -1717,7 +1717,9 @@ impl Session {
                             self.dirty = dirty;
                         }
                         if let Some(rev) = rev_restore {
+                            let touched = self.rev;
                             self.restore_rev(rev);
+                            crate::cmd::draw::rekey_lasso(self, touched, rev);
                         }
                         if pushed {
                             self.join_anchor = false;
