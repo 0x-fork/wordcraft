@@ -171,6 +171,7 @@ impl WordApp {
             fonts_korean: _,
             fonts_system_cjk: _,
             want_system_cjk: _,
+            recover_fonts_for: _,
             recent_fonts_for: _,
             fonts_frames: _,
             applied_theme: _,

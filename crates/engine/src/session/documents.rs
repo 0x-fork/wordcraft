@@ -228,6 +228,8 @@ impl Session {
             edit_marks: _,
             go_back_step: _,
             // Shared by every open document.
+            // Keyed by document id, revision and author, so it never answers for another document.
+            protect_facts: _,
             user_dict_path: _,
             clipboard: _,
             clipboard_text: _,
