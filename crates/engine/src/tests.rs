@@ -7736,6 +7736,37 @@ fn outline_collapse_hides_descendants_and_expand_restores() {
     assert_eq!(s.selected_text(), "One\na\nTwo\nb");
 }
 
+/// #3621: with thousands of collapsed headings, an Enter above them (which shifts every index)
+/// finds them again without scanning the document once per heading, and a caret move doesn't
+/// redo the matching.
+#[test]
+fn outline_many_collapsed_headings_stay_fast_after_edits() {
+    const N: usize = 8000;
+    let text: Vec<String> = (0..N).flat_map(|i| [format!("Heading {i}"), format!("body {i}")]).collect();
+    let mut d = wordcraft_doc::Document::from_text(&text.join("\n"));
+    for i in 0..N {
+        let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(2 * i)).unwrap();
+        p.props.style = Some("Heading1".into());
+    }
+    let mut s = Session::new(d);
+    run(&mut s, "view.outline", json!({}));
+    run(&mut s, "outline.showLevel1", json!({}));
+    s.sel = crate::Selection::caret(Pos::body(0, 0));
+    run(&mut s, "outline.collapse", json!({}));
+    let collapsed_texts =
+        |s: &Session| -> Vec<String> { s.view.outline.collapsed.iter().map(|(i, _)| s.doc.body[*i].as_para().unwrap().text.clone()).collect() };
+    let before = collapsed_texts(&s);
+    assert_eq!(before.len(), N, "every heading is collapsed");
+    s.sel = crate::Selection::caret(Pos::body(1, 0));
+    for _ in 0..10 {
+        run(&mut s, "text.newParagraph", json!({}));
+    }
+    for _ in 0..20 {
+        run(&mut s, "caret.right", json!({}));
+    }
+    assert_eq!(collapsed_texts(&s), before, "the same headings stay collapsed");
+}
+
 /// #745: layout keeps a picture's size, so pictures read from HTML, Markdown, ODT or RTF at
 /// their pixel size are fitted to the text width when the file is opened (and when pasted),
 /// keeping their proportions; small pictures keep their size.
