@@ -1808,6 +1808,22 @@ fn inserting_a_column_keeps_cell_widths_in_step_with_the_grid() {
     }
 }
 
+/// A row that skips grid columns (`w:gridBefore`) gives its cells the widths of the columns
+/// they sit in, not of the first ones.
+#[test]
+fn cell_widths_follow_the_grid_after_skipped_columns() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+    let i = s.doc.body.iter().position(|b| b.as_table().is_some()).unwrap();
+    let wordcraft_doc::Block::Table(t) = std::sync::Arc::make_mut(&mut s.doc.body[i]) else { panic!("no table") };
+    t.grid = vec![100.0, 200.0, 300.0];
+    t.rows[1].props.grid_before = 1;
+    t.rows[1].cells.pop();
+    crate::cmd::table::sync_cell_widths(t);
+    let widths: Vec<f32> = t.rows[1].cells.iter().map(|c| c.props.width.unwrap_or(0.0)).collect();
+    assert_eq!(widths, [200.0, 300.0]);
+}
+
 #[test]
 fn a_rejected_version_restore_saves_nothing() {
     let mut s = Session::new(wordcraft_doc::Document::from_text("Original text."));
