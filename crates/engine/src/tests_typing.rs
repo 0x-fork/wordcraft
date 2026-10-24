@@ -2612,3 +2612,20 @@ fn highlight_toggle_checks_past_the_resolved_run_limit() {
         }
     }
 }
+
+/// A command preview uses the real session's remembered colour without changing its
+/// document, colour choice or undo history when the preview toggles highlighting off.
+#[test]
+fn highlight_preview_preserves_the_session_colour_and_document() {
+    use wordcraft_doc::props::Highlight;
+    let mut s = typed("Alpha");
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    let original = serde_json::to_value(&s.doc).unwrap();
+    let depth = s.undo_depth();
+    let (preview, _, _) = s.preview_layout("format.highlight", &json!({})).unwrap();
+    assert!(preview.body[0].as_para().unwrap().runs.iter().all(|r| r.props.highlight == Some(Highlight::None)));
+    assert_eq!(serde_json::to_value(&s.doc).unwrap(), original);
+    assert_eq!(s.last_highlight, Highlight::Blue);
+    assert_eq!(s.undo_depth(), depth);
+}
