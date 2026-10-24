@@ -613,7 +613,9 @@ fn new_paragraph(s: &mut Session, _: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// In a table: next cell (adds a row at the end). At the start of a list item: demote. Else a tab.
+/// In a table: next cell (adds a row at the end). At the start of a list item: demote. With "Set
+/// left- and first-indent with tabs and backspaces" on, at the start of a line of a paragraph with
+/// text: indent. Else a tab.
 fn tab(s: &mut Session, _: &Value) -> CmdResult {
     if let Some((tpath, r, c)) = s.sel.focus.path.cell() {
         let story = s.sel.focus.story;
@@ -647,11 +649,50 @@ fn tab(s: &mut Session, _: &Value) -> CmdResult {
         para.touch();
         return sel_result(s);
     }
+    if s.sel.is_collapsed() && tab_indent_on(s) && tab_indents(s, &f) {
+        return indent_by_tab(s, &f);
+    }
     if !s.sel.is_collapsed() && s.sel.anchor.path != s.sel.focus.path {
         // Multiple paragraphs selected: increase indent.
         return super::para::indent(s, &Value::Null);
     }
     ins_char(s, '\t')
+}
+
+/// Is AutoFormat As You Type's "Set left- and first-indent with tabs and backspaces" on? Not
+/// while the document limits formatting to its styles: the indents are direct formatting.
+fn tab_indent_on(s: &Session) -> bool {
+    let ac = &s.prefs.autocorrect;
+    ac.enabled && ac.tab_indent && !(super::protect::enforced(&s.doc) && s.doc.settings.protect_formatting)
+}
+
+/// Does Tab at `f` indent instead of typing a tab? Only at the start of a line of a paragraph
+/// with text.
+fn tab_indents(s: &mut Session, f: &Pos) -> bool {
+    if s.doc.para_at(f).is_none_or(|p| p.is_empty()) {
+        return false;
+    }
+    if f.off == 0 {
+        return true;
+    }
+    let l = s.layout();
+    l.line_bounds(f, s.page_hint).is_some_and(|(a, _)| a == *f)
+}
+
+/// Tab before the first line indents the first line by one default tab stop; before any other
+/// line, or when the first line is indented or hanging already, it indents the whole paragraph.
+fn indent_by_tab(s: &mut Session, f: &Pos) -> CmdResult {
+    let Some(para) = s.doc.para_at(f) else { return sel_result(s) };
+    let r = s.doc.styles.resolve_para(&para.props);
+    if f.off == 0 && r.indent_first == 0.0 && r.indent_chars[2] == 0.0 {
+        let tab = s.doc.settings.default_tab.max(1.0);
+        let p = s.doc.para_mut(f.story, &f.path)?;
+        p.props.indent_first = Some(tab);
+        p.props.cancel_char_indents(false, false, true);
+        p.touch();
+        return sel_result(s);
+    }
+    super::para::indent(s, &Value::Null)
 }
 
 fn back_tab(s: &mut Session, _: &Value) -> CmdResult {
@@ -732,6 +773,11 @@ fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
         p.props.cancel_char_indents(false, false, true);
         p.touch();
         return sel_result(s);
+    }
+    if tab_indent_on(s) && (para.props.indent_left.is_some_and(|x| x > 0.0) || para.props.indent_left_chars.is_some_and(|x| x > 0.0)) {
+        // Set left- and first-indent with tabs and backspaces: the paragraph's own left indent
+        // (in points or characters) goes back one tab stop at a time before the paragraphs join.
+        return super::para::outdent(s, &Value::Null);
     }
     let i = f.path.last();
     if i == 0 {
