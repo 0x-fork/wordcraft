@@ -315,6 +315,8 @@ pub enum Dialog {
         offset: f32,
         /// The selection already has a phonetic guide (Remove is offered).
         existing: bool,
+        /// Ask the Ruby text box for the keyboard on the first frame (once, so Tab and clicks still move it).
+        focus: bool,
     },
     NewStyle {
         name: String,
@@ -1208,6 +1210,7 @@ impl Dialog {
                     size: f("size"),
                     offset: f("offset"),
                     existing: v.get("existing").and_then(Value::as_bool).unwrap_or(false),
+                    focus: true,
                 }
             }
             "newStyle" => Dialog::NewStyle { name: "Style1".into(), based_on: "Normal".into(), back: false },
@@ -2491,7 +2494,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::Phonetic { base, ruby, align, size, offset, existing } => {
+        Dialog::Phonetic { base, ruby, align, size, offset, existing, focus } => {
             // Base and ruby text are usually Chinese or Japanese: fonts for them load from the next frame.
             app.want_system_cjk = true;
             const ALIGNS: [(&str, &str); 6] = [
@@ -2507,7 +2510,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.label(egui::RichText::new(base.as_str()).strong());
                 ui.end_row();
                 ui.label(tl!("Ruby text:"));
-                ui.text_edit_singleline(ruby);
+                let r = ui.text_edit_singleline(ruby);
+                // Typing goes to the Ruby text box, not the selected text in the document (#3914).
+                if std::mem::take(focus) {
+                    r.request_focus();
+                }
                 ui.end_row();
                 ui.label(tl!("Alignment:"));
                 let shown = ALIGNS.iter().find(|(k, _)| k == align).map_or("Center", |(_, l)| l);
@@ -4309,6 +4316,30 @@ mod tests {
             );
         }
         assert_eq!(serde_json::to_value(&h.state().session.doc).unwrap(), before, "search does not change the document");
+    }
+
+    /// #3914: the Phonetic Guide dialog opens with the keyboard in its Ruby text box, so typing
+    /// fills the box and does not replace the selected text in the document.
+    #[test]
+    fn phonetic_guide_ruby_box_takes_the_keyboard_on_open() {
+        let mut app = app_with("Unchanged document");
+        app.dialog = Some(Dialog::Phonetic {
+            base: "Unchanged".into(),
+            ruby: String::new(),
+            align: "center".into(),
+            size: 12.0,
+            offset: 0.0,
+            existing: false,
+            focus: true,
+        });
+        let mut h = app_harness(app);
+        h.run_steps(4);
+        h.event(egui::Event::Text("ab".into()));
+        h.run_steps(2);
+        match h.state().dialog.as_ref() {
+            Some(Dialog::Phonetic { ruby, .. }) => assert_eq!(ruby, "ab", "the typed text reaches the Ruby text box"),
+            _ => panic!("the Phonetic Guide dialog is still open"),
+        }
     }
 
     /// #2986: a box that keeps the keyboard asks for focus only while it lacks it. `request_focus`
