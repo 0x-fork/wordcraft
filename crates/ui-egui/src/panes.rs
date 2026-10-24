@@ -272,7 +272,7 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
         }
     }
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         for (k, l) in [("headings", "Headings"), ("pages", "Pages"), ("results", "Results")] {
             if ui.selectable_label(app.ui.nav_tab == k, tl!(l)).clicked() {
                 app.ui.nav_tab = k.into();
@@ -435,7 +435,7 @@ fn nav_heading(ui: &mut Ui, level: u8, text: &str, selected: bool, collapsed: Op
 /// Items collected by Copy and Cut, newest first; clicking one pastes it at the caret.
 fn clipboard(app: &mut WordApp, ui: &mut Ui) {
     let items: Vec<String> = app.session.clip_history.items().iter().map(|i| i.preview()).collect();
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.add_enabled(!items.is_empty(), egui::Button::new(tl!("Paste All"))).clicked() {
             let _ = app.run("edit.pasteAllClipboard", json!({}));
             app.canvas.want_focus = true;
@@ -1017,7 +1017,9 @@ fn camel_words(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::comment_stamp;
+    use super::{Content, Pane, comment_stamp};
+    use craft_ui::panes::PaneContent;
+    use egui::vec2;
 
     #[test]
     fn comment_stamp_keeps_date_and_time() {
@@ -1170,6 +1172,69 @@ mod tests {
                 assert!(!h.state().canvas.focused, "plain F6 moved the keyboard to the pane");
             }
         }
+    }
+
+    /// Every pane's body fits a pane at the 200 pt minimum width (the host clips what doesn't):
+    /// button rows wrap and fields narrow. Restrict Editing shows its style list and password
+    /// fields.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn pane_bodies_fit_the_narrowest_pane() {
+        // 200 pt less the 10 pt body margins and the frame's 1 pt strokes.
+        const BODY: f32 = 178.0;
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello")), crate::Services::default());
+        app.run("select.all", serde_json::json!({})).unwrap();
+        app.run("edit.copy", serde_json::json!({})).unwrap();
+        app.restrict = crate::dialogs_review::RestrictPane {
+            open: true,
+            formatting: true,
+            show_styles: true,
+            editing: true,
+            asking: true,
+            ..Default::default()
+        };
+        let panes = [
+            Pane::Navigation,
+            Pane::Clipboard,
+            Pane::Styles,
+            Pane::StyleInspector,
+            Pane::Accessibility,
+            Pane::AltText,
+            Pane::FormatShape,
+            Pane::RestrictEditing,
+            Pane::Comments,
+        ];
+        let widths = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = widths.clone();
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 1200.0)).build_ui_state(
+            move |ui, app: &mut crate::WordApp| {
+                // Fonts take effect the frame after they are installed.
+                if !fonts {
+                    crate::theme::install_fonts(ui.ctx());
+                    fonts = true;
+                    return;
+                }
+                let mut row = Vec::new();
+                for pane in panes {
+                    let width = ui
+                        .allocate_ui_with_layout(vec2(BODY, 1200.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                            ui.set_max_width(BODY);
+                            Content { app: &mut *app }.body(ui, &pane);
+                            ui.min_rect().width()
+                        })
+                        .inner;
+                    row.push((pane, width));
+                }
+                *seen.borrow_mut() = row;
+            },
+            app,
+        );
+        h.run_steps(3);
+        let widths = widths.borrow();
+        assert_eq!(widths.len(), panes.len());
+        let wide: Vec<_> = widths.iter().filter(|(_, width)| *width > BODY + 0.5).collect();
+        assert!(wide.is_empty(), "wider than the pane: {wide:?}");
     }
 
     /// #3032: Delete is greyed out for built-in styles in the Styles pane (the engine refuses
