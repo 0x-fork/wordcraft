@@ -1189,13 +1189,24 @@ fn envelope_size(v: &Value) -> Result<(f32, f32), CmdError> {
         .ok_or_else(|| CmdError::Params(format!("unknown envelope size `{name}`")))
 }
 
+/// Longest label or envelope address text accepted.
+const MAX_LABEL_TEXT: usize = 2_000;
+
+/// An optional label/envelope text parameter, rejected when longer than `MAX_LABEL_TEXT` characters.
+fn label_text(v: &Value, key: &str) -> Result<Option<String>, CmdError> {
+    match p::str(v, key) {
+        Some(t) if t.chars().count() > MAX_LABEL_TEXT => Err(CmdError::Params(format!("`{key}` is longer than {MAX_LABEL_TEXT} characters"))),
+        t => Ok(t.map(str::to_string)),
+    }
+}
+
 /// Envelopes: a landscape page with the return address at the top left and the delivery address
 /// in the middle. As a new document, or (`add`) as a section of its own at the start of this one.
 fn envelopes(s: &mut Session, v: &Value) -> CmdResult {
-    let delivery = p::str(v, "delivery").map(str::to_string).unwrap_or_else(|| {
+    let delivery = label_text(v, "delivery")?.unwrap_or_else(|| {
         if s.merge.rows.is_empty() { "Recipient Name\nStreet Address\nCity, ST 00000".into() } else { address_block(s, s.merge.record) }
     });
-    let ret = p::str(v, "return").unwrap_or("").to_string();
+    let ret = label_text(v, "return")?.unwrap_or_default();
     let (w, h) = envelope_size(v)?;
     let sect = SectionProps {
         page_w: w,
@@ -1417,7 +1428,7 @@ fn labels(s: &mut Session, v: &Value) -> CmdResult {
         (at("row").min(rows), at("col").min(cols))
     });
     let from_rec = single.is_none() && p::bool(v, "fromRecipients").unwrap_or(!s.merge.rows.is_empty() && p::str(v, "text").is_none());
-    let text = p::str(v, "text").unwrap_or("Name\nAddress\nCity, ST 00000").to_string();
+    let text = label_text(v, "text")?.unwrap_or_else(|| "Name\nAddress\nCity, ST 00000".into());
     let (page_w, page_h) = if prod.paper == "A4" { (595.3, 841.9) } else { (612.0, 792.0) };
     let h_gap = (prod.h_pitch - prod.width).max(0.0);
     let v_gap = (prod.v_pitch - prod.height).max(0.0);
@@ -1736,6 +1747,17 @@ mod tests {
         let texts: Vec<String> = secs.iter().map(|(_, sp)| header(&s, sp.headers.default.unwrap())).collect();
         assert_eq!(texts, ["Recipient: Alpha", "Recipient: Beta"]);
         assert!(!s.doc.parts.contains_key(&hdr), "the template header is replaced by the letters' copies");
+    }
+
+    #[test]
+    fn label_and_envelope_text_is_capped() {
+        let mut s = Session::new(Document::new());
+        let long = "x".repeat(2001);
+        assert!(matches!(s.run("mailings.labels", &json!({"text": long})), Err(CmdError::Params(_))));
+        assert!(matches!(s.run("mailings.envelopes", &json!({"delivery": long})), Err(CmdError::Params(_))));
+        assert!(matches!(s.run("mailings.envelopes", &json!({"return": long})), Err(CmdError::Params(_))));
+        s.run("mailings.labels", &json!({"text": "x".repeat(2000), "rows": 40, "cols": 10})).unwrap();
+        assert!(s.doc.plain_text(StoryRef::Body).chars().count() <= 400 * 2000 + 400 * 20);
     }
 
     #[test]
