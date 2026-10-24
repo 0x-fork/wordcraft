@@ -638,7 +638,7 @@ fn autocorrect_goes_on_after_bold_and_italic_marks() {
 fn bold_and_italic_marks_stay_as_typed_unless_they_enclose_words() {
     let mut s = s();
     run(&mut s, "tools.autocorrect", json!({"boldItalic": true, "capSentences": false}));
-    let keys = "2*3* file_name_ * x* *x * ** __ ";
+    let keys = "2*3* file_name_ * x* *x * ** __ *?!* _-_ ";
     typ(&mut s, keys);
     assert_eq!(s.doc.plain_text(StoryRef::Body), keys);
     // Marks stay while formatting is limited to the document's styles.

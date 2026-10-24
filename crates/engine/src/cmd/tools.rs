@@ -1168,15 +1168,20 @@ fn emphasis_at_caret(s: &Session, on_enter: bool) -> Option<(usize, usize, bool)
 /// The marks of a `*bold*` or `_italic_` span that `text` ends with: the byte offsets of the
 /// opening and closing mark, and whether it is bold. The opening mark starts a word (it follows
 /// the paragraph start, white space or an opening bracket or quote), the text between the marks
-/// is not empty and neither starts nor ends with white space, so `2*3*` and `file_name_` stay
-/// as typed. Text holding an object (a picture, field or content control) is left alone.
+/// holds a letter or digit and neither starts nor ends with white space, so `2*3*`, `file_name_`
+/// and `*?!*` stay as typed. Text holding an object (a picture, field or content control) is left
+/// alone.
 fn emphasis_span(text: &str) -> Option<(usize, usize, bool)> {
     let mark = text.chars().next_back().filter(|c| *c == '*' || *c == '_')?;
     let close = text.len() - 1;
     let open = text.get(..close)?.rfind(mark)?;
     let inner = text.get(open + 1..close)?;
     let edge_ok = |c: Option<char>| c.is_some_and(|c| !c.is_whitespace());
-    if !edge_ok(inner.chars().next()) || !edge_ok(inner.chars().next_back()) || inner.contains(wordcraft_doc::para::OBJ) {
+    if !edge_ok(inner.chars().next())
+        || !edge_ok(inner.chars().next_back())
+        || !inner.chars().any(char::is_alphanumeric)
+        || inner.contains(wordcraft_doc::para::OBJ)
+    {
         return None;
     }
     let starts_word = text.get(..open)?.chars().next_back().is_none_or(|c| c.is_whitespace() || "([{\"'“‘".contains(c));
