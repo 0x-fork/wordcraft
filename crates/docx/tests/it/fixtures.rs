@@ -2406,7 +2406,7 @@ fn vml_preset_shapes_are_drawn() {
     assert_eq!(kind(15), Some((ShapeKind::Rectangle, false)));
     assert_eq!(kind(16), Some((ShapeKind::Diamond, false)));
     assert_eq!(kind(17), Some((ShapeKind::Ellipse, false)));
-    assert_eq!(shape(18), Some((ShapeKind::Arrow, 60.0, 20.0, Some(Rgb(0xFF, 0xA5, 0x00)), black, 0.75, true, false)));
+    assert_eq!(shape(18), Some((ShapeKind::ArrowLeft, 60.0, 20.0, Some(Rgb(0xFF, 0xA5, 0x00)), black, 0.75, true, false)));
     assert_eq!(kind(19), Some((ShapeKind::Rectangle, false)));
     assert_eq!(kind(20), Some((ShapeKind::Star, false)));
     assert_eq!(shape(21), None);
@@ -2477,12 +2477,12 @@ fn vml_nearest_preset_shape_survives_saving() {
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(saved.as_slice())).unwrap();
     let mut xml = String::new();
     std::io::Read::read_to_string(&mut z.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
-    assert!(xml.contains(r#"prst="rightArrow""#), "{xml}");
+    assert!(xml.contains(r#"prst="leftArrow""#), "{xml}");
     let again = wordcraft_docx::read(&saved).unwrap();
     assert!(
         matches!(
             &paras(&again)[0].objects[..],
-            [InlineObject::Shape { kind: ShapeKind::Arrow, w: 60.0, h: 20.0, fill: Some(Fill::Solid { color: Rgb(0xFF, 0xA5, 0x00), .. }), .. }]
+            [InlineObject::Shape { kind: ShapeKind::ArrowLeft, w: 60.0, h: 20.0, fill: Some(Fill::Solid { color: Rgb(0xFF, 0xA5, 0x00), .. }), .. }]
         ),
         "{:?}",
         paras(&again)[0].objects
