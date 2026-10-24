@@ -1578,7 +1578,7 @@ impl Session {
         // command that changes nothing leaves both as they were, and a failed one leaves no
         // trace.
         let dirty_before = spec.mutates.then_some(self.dirty);
-        let rev_before = spec.mutates.then_some(self.rev);
+        let rev_restore = spec.mutates.then_some(self.rev);
         // These mutating commands can replace the open document and discard its saved versions.
         // Keep the versions until the command and the protected-region post-check have both
         // succeeded; rejected commands must leave the old document and its snapshots together.
@@ -1696,7 +1696,7 @@ impl Session {
                         if let Some(dirty) = dirty_before {
                             self.dirty = dirty;
                         }
-                        if let Some(rev) = rev_before {
+                        if let Some(rev) = rev_restore {
                             self.rev = rev;
                         }
                         if pushed {
@@ -1758,7 +1758,7 @@ impl Session {
                 if let Some(dirty) = dirty_before {
                     self.dirty = dirty;
                 }
-                if let Some(rev) = rev_before {
+                if let Some(rev) = rev_restore {
                     self.rev = rev;
                 }
                 if let Some(b) = blocks_before {
