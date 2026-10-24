@@ -342,6 +342,24 @@ fn a_no_op_command_keeps_the_redo_stack() {
     assert_eq!(text(&s), "Hello");
 }
 
+/// Undo and Redo move between steps even when a step's document is the one showing: they are
+/// never taken back as commands that changed nothing, so Undo can't get stuck on such a step.
+#[test]
+fn undo_moves_past_a_step_that_changed_nothing() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    s.checkpoint("Nothing");
+    let depth = s.undo_depth();
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.undo_depth(), depth - 1);
+    assert!(s.can_redo());
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(s.undo_depth(), depth);
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "");
+}
+
 /// Commands that run as one undo step (`join_next_undo`: a dialog's OK, the frames of a drag):
 /// a group whose first command changes nothing has no step to merge into, so the next command
 /// in it starts the group's step instead of merging into an older edit (#23 follow-up).
