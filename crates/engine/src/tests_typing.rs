@@ -2951,6 +2951,7 @@ fn highlight_toggle_checks_past_the_resolved_run_limit() {
             } else {
                 doc.para_mut(StoryRef::Body, &Pos::body(1, 0).path).unwrap().runs[0].props.highlight = Some(Highlight::Yellow);
             }
+            doc.para_mut(StoryRef::Body, &Pos::body(0, 0).path).unwrap().mark.highlight = Some(Highlight::Blue);
             let original = doc.clone();
             let mut s = Session::new(doc);
             s.last_highlight = Highlight::Blue;
@@ -2987,4 +2988,127 @@ fn highlight_preview_preserves_the_session_colour_and_document() {
     assert_eq!(serde_json::to_value(&s.doc).unwrap(), original);
     assert_eq!(s.last_highlight, Highlight::Blue);
     assert_eq!(s.undo_depth(), depth);
+}
+
+/// Whole-cell column selections include paragraph marks, including empty cells and
+/// inherited mark colours; adjacent unselected cells and undo/redo keep their formatting.
+#[test]
+fn highlight_toggle_checks_whole_cell_marks() {
+    use wordcraft_doc::props::Highlight;
+    use wordcraft_doc::{CharProps, Paragraph};
+    for inherited in [false, true] {
+        for empty in [false, true] {
+            let mut s = s();
+            run(&mut s, "insert.table", json!({"rows":2,"cols":2}));
+            let (table, _, _) = s.sel.focus.path.cell().unwrap();
+            let pos = |row, col| {
+                let mut path = table.clone();
+                path.0.extend([row, col, 0]);
+                Pos::new(StoryRef::Body, path, 0)
+            };
+            if inherited {
+                s.doc.styles.default_chr.highlight = Some(Highlight::Yellow);
+            }
+            for row in 0..2 {
+                for col in 0..2 {
+                    let p = s.doc.para_mut(StoryRef::Body, &pos(row, col).path).unwrap();
+                    let colour = if col == 0 { Highlight::Blue } else { Highlight::Red };
+                    *p = Paragraph::with_text(
+                        if empty && row == 1 && col == 0 { "" } else { "AB" },
+                        CharProps { highlight: Some(colour), ..Default::default() },
+                    );
+                    p.mark.highlight = Some(colour);
+                    if row == 1 && col == 0 {
+                        p.mark.highlight = if inherited { None } else { Some(Highlight::Yellow) };
+                    }
+                }
+            }
+            s.last_highlight = Highlight::Blue;
+            run(&mut s, "caret.set", json!({"pos":pos(0,0)}));
+            run(&mut s, "table.selectColumn", json!({}));
+            assert!(!s.cell_range().unwrap().stream);
+            let original = serde_json::to_value(&s.doc).unwrap();
+            run(&mut s, "format.highlight", json!({}));
+            for row in 0..2 {
+                let p = s.doc.para_at(&pos(row, 0)).unwrap();
+                assert_eq!(p.mark.highlight, Some(Highlight::Blue), "inherited={inherited}, empty={empty}");
+                assert!(p.runs.iter().all(|r| r.props.highlight == Some(Highlight::Blue)));
+            }
+            run(&mut s, "format.highlight", json!({}));
+            for row in 0..2 {
+                let p = s.doc.para_at(&pos(row, 0)).unwrap();
+                assert_eq!(p.mark.highlight, Some(Highlight::None));
+                assert!(p.runs.iter().all(|r| r.props.highlight == Some(Highlight::None)));
+                let other = s.doc.para_at(&pos(row, 1)).unwrap();
+                assert_eq!(other.mark.highlight, Some(Highlight::Red));
+                assert!(other.runs.iter().all(|r| r.props.highlight == Some(Highlight::Red)));
+            }
+            run(&mut s, "edit.undo", json!({}));
+            run(&mut s, "edit.undo", json!({}));
+            assert_eq!(serde_json::to_value(&s.doc).unwrap(), original);
+            run(&mut s, "edit.redo", json!({}));
+            assert_eq!(s.doc.para_at(&pos(1, 0)).unwrap().mark.highlight, Some(Highlight::Blue));
+        }
+    }
+}
+
+/// Fully selected marks participate even when the selection has no text runs or an
+/// empty paragraph between blue runs; repeated toggles and undo preserve these targets.
+#[test]
+fn highlight_toggle_checks_ordinary_paragraph_marks() {
+    use wordcraft_doc::props::Highlight;
+    for text in ["AB", "AB\n\nAB", "\n"] {
+        let mut doc = wordcraft_doc::Document::from_text(text);
+        doc.styles.default_chr.highlight = Some(Highlight::Blue);
+        let paths = doc.para_paths(StoryRef::Body);
+        for path in &paths {
+            let p = doc.para_mut(StoryRef::Body, path).unwrap();
+            p.mark.highlight = Some(Highlight::Blue);
+            for r in &mut p.runs {
+                r.props.highlight = Some(Highlight::Blue);
+            }
+        }
+        let mismatch = if text == "AB\n\nAB" { 1 } else { 0 };
+        doc.para_mut(StoryRef::Body, &paths[mismatch]).unwrap().mark.highlight = Some(Highlight::Yellow);
+        let original = serde_json::to_value(&doc).unwrap();
+        let mut s = Session::new(doc);
+        s.last_highlight = Highlight::Blue;
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, "format.highlight", json!({}));
+        for path in &paths {
+            let p = s.doc.para(StoryRef::Body, path).unwrap();
+            assert_eq!(p.mark.highlight, Some(Highlight::Blue), "text={text:?}");
+            assert!(p.runs.iter().all(|r| r.props.highlight == Some(Highlight::Blue)));
+        }
+        run(&mut s, "format.highlight", json!({}));
+        assert!(paths.iter().all(|p| s.doc.para(StoryRef::Body, p).unwrap().mark.highlight == Some(Highlight::None)));
+        run(&mut s, "edit.undo", json!({}));
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(serde_json::to_value(&s.doc).unwrap(), original);
+    }
+}
+
+/// A partial text column excludes paragraph marks and text beyond its selected offsets,
+/// so a different mark colour must not prevent clearing the selected blue characters.
+#[test]
+fn highlight_partial_column_ignores_unselected_marks() {
+    use wordcraft_doc::props::Highlight;
+    let mut doc = wordcraft_doc::Document::from_text("AB\nAB");
+    for path in doc.para_paths(StoryRef::Body) {
+        let p = doc.para_mut(StoryRef::Body, &path).unwrap();
+        p.mark.highlight = Some(Highlight::Yellow);
+        for r in &mut p.runs {
+            r.props.highlight = Some(Highlight::Blue);
+        }
+    }
+    let mut s = Session::new(doc);
+    s.last_highlight = Highlight::Blue;
+    run(&mut s, "select.column", json!({"anchor":Pos::body(0,0),"focus":Pos::body(1,1)}));
+    run(&mut s, "format.highlight", json!({}));
+    for row in 0..2 {
+        let p = s.doc.para_at(&Pos::body(row, 0)).unwrap();
+        assert_eq!(p.props_of_char(0).highlight, Some(Highlight::None));
+        assert_eq!(p.props_of_char(1).highlight, Some(Highlight::Blue));
+        assert_eq!(p.mark.highlight, Some(Highlight::Yellow));
+    }
 }
