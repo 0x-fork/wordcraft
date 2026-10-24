@@ -524,7 +524,16 @@ fn insert_field(s: &mut Session, instr: &str, placeholder: &str) -> CmdResult {
 /// Parse CSV (RFC 4180-ish: quotes, doubled quotes, commas/semicolons/tabs).
 pub fn parse_csv(text: &str) -> Vec<Vec<String>> {
     let first = text.lines().next().unwrap_or("");
-    let sep = [',', ';', '\t'].into_iter().max_by_key(|c| first.matches(*c).count()).unwrap_or(',');
+    let mut quoted = false;
+    let mut unquoted = String::new();
+    for c in first.chars() {
+        if c == '"' {
+            quoted = !quoted;
+        } else if !quoted {
+            unquoted.push(c);
+        }
+    }
+    let sep = [',', ';', '\t'].into_iter().max_by_key(|c| unquoted.matches(*c).count()).unwrap_or(',');
     let mut rows = Vec::new();
     let mut row = Vec::new();
     let mut cell = String::new();
@@ -1479,6 +1488,12 @@ mod tests {
         let r = parse_csv("Name,City\n\"Smith, Ann\",Paris\r\nBo,\"Oslo \"\"N\"\"\"\n\n");
         assert_eq!(r, vec![vec!["Name", "City"], vec!["Smith, Ann", "Paris"], vec!["Bo", "Oslo \"N\""]]);
         assert_eq!(parse_csv("a;b\n1;2")[1], vec!["1", "2"]);
+    }
+
+    #[test]
+    fn csv_delimiter_ignores_quoted_text() {
+        let r = parse_csv("\"Name, first, last\";City\nAnn;Paris\n");
+        assert_eq!(r, vec![vec!["Name, first, last", "City"], vec!["Ann", "Paris"]]);
     }
 
     #[test]
