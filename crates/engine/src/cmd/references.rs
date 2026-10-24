@@ -355,9 +355,11 @@ fn remove_toc(s: &mut Session, start: usize, end: usize) -> Result<usize, CmdErr
             start
         }
     };
-    let titled = start.checked_sub(1).and_then(|i| s.doc.body.get(i)).and_then(|b| b.as_para()).is_some_and(|p| {
-        p.props.style.as_deref() == Some("TOCHeading") && p.section.is_none() && toc_field(p).is_none()
-    });
+    let titled = start
+        .checked_sub(1)
+        .and_then(|i| s.doc.body.get(i))
+        .and_then(|b| b.as_para())
+        .is_some_and(|p| p.props.style.as_deref() == Some("TOCHeading") && p.section.is_none() && toc_field(p).is_none());
     if titled {
         s.doc.remove_block(StoryRef::Body, &Path::top(start - 1))?;
         return Ok(at - 1);

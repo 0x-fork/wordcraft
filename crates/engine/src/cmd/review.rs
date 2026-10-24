@@ -142,9 +142,19 @@ fn new_comment(s: &mut Session, v: &Value) -> CmdResult {
     let id = comment_id(s)?;
     let initials = s.user_initials();
     let now = now_iso();
-    s.doc
-        .comments
-        .insert(id, Comment { author: s.author.clone(), initials, date: now.clone(), date_utc: Some(now), parent: None, resolved: false, part, ..Default::default() });
+    s.doc.comments.insert(
+        id,
+        Comment {
+            author: s.author.clone(),
+            initials,
+            date: now.clone(),
+            date_utc: Some(now),
+            parent: None,
+            resolved: false,
+            part,
+            ..Default::default()
+        },
+    );
     let props = Default::default();
     s.doc.insert_object(&b, InlineObject::CommentEnd { id }, &props)?;
     s.doc.insert_object(&a, InlineObject::CommentStart { id }, &props)?;
@@ -174,7 +184,16 @@ fn reply(s: &mut Session, v: &Value) -> CmdResult {
     let now = now_iso();
     s.doc.comments.insert(
         id,
-        Comment { author: s.author.clone(), initials, date: now.clone(), date_utc: Some(now), parent: Some(parent), resolved: false, part, ..Default::default() },
+        Comment {
+            author: s.author.clone(),
+            initials,
+            date: now.clone(),
+            date_utc: Some(now),
+            parent: Some(parent),
+            resolved: false,
+            part,
+            ..Default::default()
+        },
     );
     Ok(json!({"id": id}))
 }
