@@ -865,9 +865,11 @@ pub fn autocorrect(s: &mut Session) -> Result<(), CmdError> {
 /// AutoCorrect the word ending at the caret; `on_enter` means Enter finished it (no trigger
 /// character was typed).
 pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError> {
-    if !s.prefs.autocorrect.enabled || emphasis_autoformat(s, on_enter)? {
+    if !s.prefs.autocorrect.enabled {
         return Ok(());
     }
+    // The word without its marks goes on through the steps below ("*teh* " → "The ").
+    let outside = emphasis_autoformat(s, on_enter)?;
     let ac = s.prefs.autocorrect.clone();
     let mut f = s.sel.focus.clone();
     let Some(text) = s.doc.para_at(&f).map(|p| p.text.clone()) else { return Ok(()) };
@@ -967,8 +969,9 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
             c.link = Some(href.clone());
             c.style = Some("Hyperlink".into());
         })?;
-        // Typing after the link isn't part of it (but keeps the text's other formatting).
-        let mut after = s.doc.para_at(&f).map(|p| p.props_of_char(start).clone()).unwrap_or_default();
+        // Typing after the link isn't part of it (but keeps the text's other formatting, or
+        // the formatting outside a `*bold*` or `_italic_` span).
+        let mut after = outside.unwrap_or_else(|| s.doc.para_at(&f).map(|p| p.props_of_char(start).clone()).unwrap_or_default());
         after.link = None;
         after.style = None;
         s.pending = Some(after);
@@ -1106,11 +1109,13 @@ fn case_fix(caps: &AutoCorrectPrefs, word: &str, turkic: bool) -> Option<(usize,
 
 /// *Bold* and _italic_ with real formatting, for the word ending at the caret (`on_enter` as for
 /// [`autocorrect_word`]): the two marks are removed and the text between them is made bold or
-/// italic, for plain and complex-script text. Returns whether anything changed.
-pub fn emphasis_autoformat(s: &mut Session, on_enter: bool) -> Result<bool, CmdError> {
-    let Some((open, close, bold)) = emphasis_at_caret(s, on_enter) else { return Ok(false) };
+/// italic, for plain and complex-script text. Returns the closing mark's formatting, which is
+/// the formatting outside the span, when anything changed.
+pub fn emphasis_autoformat(s: &mut Session, on_enter: bool) -> Result<Option<wordcraft_doc::props::CharProps>, CmdError> {
+    let Some((open, close, bold)) = emphasis_at_caret(s, on_enter) else { return Ok(None) };
     let f = s.sel.focus.clone();
     let para = s.doc.para_mut(f.story, &f.path)?;
+    let outside = para.props_of_char(close).clone();
     para.delete(close, close + 1)?;
     para.delete(open, open + 1)?;
     para.format(open, close - 1, &|c| {
@@ -1123,7 +1128,7 @@ pub fn emphasis_autoformat(s: &mut Session, on_enter: bool) -> Result<bool, CmdE
         }
     })?;
     s.sel = Selection::caret(Pos { off: f.off.saturating_sub(2), ..f });
-    Ok(true)
+    Ok(Some(outside))
 }
 
 /// Would [`emphasis_autoformat`] change the word ending at the caret?

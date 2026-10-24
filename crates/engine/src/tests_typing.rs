@@ -597,6 +597,44 @@ fn bold_and_italic_marks_become_formatting() {
 }
 
 #[test]
+fn autocorrect_goes_on_after_bold_and_italic_marks() {
+    // After a space or punctuation, the word without its marks is replaced and capitalized.
+    let mut s = s();
+    run(&mut s, "tools.autocorrect", json!({"boldItalic": true, "add": {"from": "wc", "to": "WordCraft"}}));
+    typ(&mut s, "*teh* end. _wc_.");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "The end. WordCraft.");
+    let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+    let at = |t: &str| p.props_of_char(p.text.find(t).unwrap()).clone();
+    assert_eq!((at("The").bold, at("WordCraft").italic, at(" end").bold), (Some(true), Some(true), None));
+    // One Undo brings the marks back as typed.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "The end. _wc_.");
+    // A marked web address becomes a link, and the text typed after it is neither bold nor italic.
+    let mut s = self::s();
+    run(&mut s, "tools.autocorrect", json!({"boldItalic": true}));
+    typ(&mut s, "see *www.example.org* and _www.example.com_ next ");
+    let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+    let at = |t: &str| p.props_of_char(p.text.find(t).unwrap()).clone();
+    assert_eq!((at("www.example.org").bold, at("www.example.org").link.is_some()), (Some(true), true));
+    assert_eq!((at("www.example.com").italic, at("www.example.com").link.is_some()), (Some(true), true));
+    for plain in [" and", " next"] {
+        assert_eq!((at(plain).bold, at(plain).italic, at(plain).link.is_some()), (None, None, false), "{plain:?}");
+    }
+    // After Enter too; a longer replacement moves the Enter with it, and Undo keeps the Enter.
+    let mut s = self::s();
+    run(&mut s, "tools.autocorrect", json!({"boldItalic": true, "add": {"from": "wc", "to": "WordCraft"}}));
+    typ(&mut s, "*teh*\nok. *wc*\nnext");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "The\nOk. WordCraft\nnext");
+    let p = s.doc.para_at(&Pos::body(1, 0)).unwrap();
+    assert_eq!(p.props_of_char(p.text.find("WordCraft").unwrap()).bold, Some(true));
+    let mut s = self::s();
+    run(&mut s, "tools.autocorrect", json!({"boldItalic": true}));
+    typ(&mut s, "*teh*\n");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "*teh*\n");
+}
+
+#[test]
 fn bold_and_italic_marks_stay_as_typed_unless_they_enclose_words() {
     let mut s = s();
     run(&mut s, "tools.autocorrect", json!({"boldItalic": true, "capSentences": false}));
