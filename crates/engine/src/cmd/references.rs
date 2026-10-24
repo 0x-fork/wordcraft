@@ -937,10 +937,11 @@ fn has_switch(instr: &str, sw: char) -> bool {
     })
 }
 
-/// Update fields of the story being edited, as Word's F9 does: dates, REF/PAGEREF, TITLE, AUTHOR
-/// and NUMWORDS in the body, or in the header, footer, note or text box the caret is in (the body's
-/// fields stay as they are then). SEQ numbering, citations and TOC are body-only, so they run only
-/// when the caret is in the body.
+/// Update fields of the story being edited, as Word's F9 does: dates, REF/PAGEREF, the document
+/// information fields (TITLE, SUBJECT, AUTHOR, KEYWORDS, COMMENTS, LASTSAVEDBY, REVNUM, NUMWORDS,
+/// NUMCHARS, FILENAME, DOCPROPERTY) in the body, or in the header, footer, note or text box the
+/// caret is in (the body's fields stay as they are then). SEQ numbering, citations and TOC are
+/// body-only, so they run only when the caret is in the body.
 pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
     update_fields_in(s, false)
 }
@@ -970,6 +971,9 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
     }
     let stories: Vec<StoryRef> =
         if all { std::iter::once(StoryRef::Body).chain(s.doc.parts.keys().map(|k| StoryRef::Part(*k))).collect() } else { vec![caret_story] };
+    // The document properties as the fields read and set them (`SUBJECT "New subject"`): a field
+    // after one that sets a property shows the new value.
+    let mut core = s.doc.core.clone();
     for (story, path) in stories.into_iter().flat_map(|st| s.doc.para_paths(st).into_iter().map(move |p| (st, p))).collect::<Vec<_>>() {
         let Some(p) = s.doc.para(story, &path) else { continue };
         if !p.objects.iter().any(|o| matches!(o, InlineObject::Field { .. })) {
@@ -1015,13 +1019,24 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                         updates.push((k, r));
                     }
                 }
-                "TITLE" => updates.push((k, s.doc.core.title.clone())),
-                "AUTHOR" => updates.push((k, s.doc.core.creator.clone())),
-                "NUMWORDS" => updates.push((k, s.doc.word_count().to_string())),
+                // The summary properties; a quoted text after the name replaces the property.
+                "TITLE" | "SUBJECT" | "AUTHOR" | "KEYWORDS" | "COMMENTS" => {
+                    if let Some(v) = new_property_value(instr) {
+                        set_summary_property(&mut core, &name, v);
+                    }
+                    updates.push((k, summary_property(&core, &name).to_string()));
+                }
+                "LASTSAVEDBY" => updates.push((k, core.last_modified_by.clone())),
+                "NUMWORDS" => updates.push((k, count_text(instr, s.doc.word_count()))),
+                "NUMCHARS" => {
+                    let chars = s.doc.plain_text(StoryRef::Body).chars().filter(|c| !c.is_whitespace()).count();
+                    updates.push((k, count_text(instr, chars)));
+                }
+                "REVNUM" => updates.push((k, count_text(instr, core.revision as usize))),
                 // DOCPROPERTY <name>: a custom property first, then a built-in one (#1798).
                 "DOCPROPERTY" => {
                     if let Some(name) = doc_property_arg(instr)
-                        && let Some(v) = doc_property(&s.doc, &name)
+                        && let Some(v) = doc_property(&s.doc, &core, &name)
                     {
                         updates.push((k, v));
                     }
@@ -1033,6 +1048,9 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                 }
                 _ => {}
             }
+        }
+        if core != s.doc.core {
+            s.doc.core.clone_from(&core);
         }
         if updates.is_empty() {
             continue;
@@ -1092,6 +1110,40 @@ pub fn refresh_date_fields(doc: &mut wordcraft_doc::Document) {
     }
 }
 
+/// The summary property a TITLE, SUBJECT, AUTHOR, KEYWORDS or COMMENTS field shows.
+fn summary_property<'a>(core: &'a wordcraft_doc::CoreProps, field: &str) -> &'a str {
+    match field {
+        "TITLE" => &core.title,
+        "SUBJECT" => &core.subject,
+        "AUTHOR" => &core.creator,
+        "KEYWORDS" => &core.keywords,
+        "COMMENTS" => &core.description,
+        _ => "",
+    }
+}
+
+fn set_summary_property(core: &mut wordcraft_doc::CoreProps, field: &str, value: String) {
+    match field {
+        "TITLE" => core.title = value,
+        "SUBJECT" => core.subject = value,
+        "AUTHOR" => core.creator = value,
+        "KEYWORDS" => core.keywords = value,
+        "COMMENTS" => core.description = value,
+        _ => {}
+    }
+}
+
+/// The new value a summary-property field gives its property: the text after the field's name
+/// (`SUBJECT "Quarterly report"`), at most 255 characters as Word allows.
+fn new_property_value(instr: &str) -> Option<String> {
+    FieldCode::parse(instr).args.first().map(|a| a.chars().take(255).collect())
+}
+
+/// A count (NUMWORDS, NUMCHARS, REVNUM) in the field's `\*` number format, digits without one.
+fn count_text(instr: &str, n: usize) -> String {
+    wordcraft_layout::fields::format_switch(instr).unwrap_or(NumFormat::Decimal).format(u32::try_from(n).unwrap_or(u32::MAX))
+}
+
 /// The property name of a `DOCPROPERTY` field: the word (or quoted text) after the field name,
 /// before any switch (`DOCPROPERTY "Project Name" \* MERGEFORMAT`).
 fn doc_property_arg(instr: &str) -> Option<String> {
@@ -1105,12 +1157,12 @@ fn doc_property_arg(instr: &str) -> Option<String> {
 
 /// The value of a document property under the name a `DOCPROPERTY` field uses: a custom property
 /// when one has this name, else the built-in property (English names, case-insensitively, as
-/// Word's field accepts). `None` for a name this application doesn't know.
-fn doc_property(doc: &wordcraft_doc::Document, name: &str) -> Option<String> {
+/// Word's field accepts) from `core`. `None` for a name this application doesn't know.
+fn doc_property(doc: &wordcraft_doc::Document, core: &wordcraft_doc::CoreProps, name: &str) -> Option<String> {
     if let Some(v) = doc.custom_prop(name) {
         return Some(v.to_string());
     }
-    let c = &doc.core;
+    let c = core;
     Some(match name.trim().to_ascii_lowercase().as_str() {
         "title" => c.title.clone(),
         "subject" => c.subject.clone(),
@@ -1442,6 +1494,70 @@ mod tests {
         assert_eq!(got[1].1, s.doc.word_count().to_string());
         assert_eq!(got[2].1, "stale", "a locked field stays as it was");
         assert!(story_fields(&s, StoryRef::Body).iter().all(|(_, r)| r == "stale"), "the body is not touched");
+    }
+
+    /// A session whose body reads "one two three" and whose header holds stale fields with
+    /// these codes, the caret in the header.
+    fn header_fields_session(doc: wordcraft_doc::Document, instrs: &[&str]) -> (Session, u32) {
+        use wordcraft_doc::{CharProps, Paragraph, PartKind};
+        let mut p = Paragraph::new();
+        for instr in instrs {
+            let off = p.len();
+            let field =
+                InlineObject::Field { instr: (*instr).into(), result: "stale".into(), locked: false, dirty: false, code: false, form: String::new() };
+            p.insert_object(off, field, &CharProps::default()).unwrap();
+        }
+        let mut doc = doc;
+        let hdr = doc.add_part(PartKind::Header, vec![std::sync::Arc::new(wordcraft_doc::Block::Para(p))]);
+        let mut s = Session::new(doc);
+        let path = s.doc.para_paths(StoryRef::Part(hdr)).remove(0);
+        s.sel = crate::session::Selection::caret(Pos::new(StoryRef::Part(hdr), path, 0));
+        (s, hdr)
+    }
+
+    /// SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY and REVNUM show the document properties, and
+    /// NUMCHARS counts the body's characters without spaces; the counts take a `\*` format.
+    #[test]
+    fn document_information_fields_show_the_properties() {
+        let mut doc = wordcraft_doc::Document::from_text("one two three");
+        doc.core.subject = "Budget".into();
+        doc.core.keywords = "plan; costs".into();
+        doc.core.description = "Draft for review".into();
+        doc.core.last_modified_by = "Grace".into();
+        doc.core.revision = 7;
+        let codes = ["SUBJECT", "KEYWORDS", "COMMENTS", "LASTSAVEDBY", "REVNUM", r"REVNUM \* ROMAN", "NUMCHARS", r"NUMWORDS \* roman"];
+        let (mut s, hdr) = header_fields_session(doc, &codes);
+        s.run("references.updateFields", &json!({})).unwrap();
+        let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
+        assert_eq!(got, ["Budget", "plan; costs", "Draft for review", "Grace", "7", "VII", "11", "iii"]);
+    }
+
+    /// A quoted text after TITLE, SUBJECT, AUTHOR, KEYWORDS or COMMENTS replaces the property
+    /// (at most 255 characters); the field and later ones, DOCPROPERTY too, show the new value.
+    #[test]
+    fn summary_fields_with_a_new_value_replace_the_property() {
+        let mut doc = wordcraft_doc::Document::from_text("one two three");
+        doc.core.subject = "Old".into();
+        let long = "x".repeat(300);
+        let long_code = format!("COMMENTS \"{long}\"");
+        let codes = [
+            r#"SUBJECT "Quarterly report""#,
+            "SUBJECT",
+            r#"TITLE "Plan" \* MERGEFORMAT"#,
+            r#"AUTHOR "Ada""#,
+            r#"KEYWORDS "a, b""#,
+            &long_code,
+            "DOCPROPERTY Subject",
+        ];
+        let (mut s, hdr) = header_fields_session(doc, &codes);
+        s.run("references.updateFields", &json!({})).unwrap();
+        let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
+        assert_eq!(got[..5], ["Quarterly report", "Quarterly report", "Plan", "Ada", "a, b"]);
+        assert_eq!(got[5].chars().count(), 255);
+        assert_eq!(got[6], "Quarterly report", "DOCPROPERTY reads the subject the paragraph set");
+        let c = &s.doc.core;
+        assert_eq!((c.subject.as_str(), c.title.as_str(), c.creator.as_str(), c.keywords.as_str()), ("Quarterly report", "Plan", "Ada", "a, b"));
+        assert_eq!(c.description, got[5]);
     }
 
     /// #1706: `all: true` (printing) updates the whole document even with the caret in a header.
