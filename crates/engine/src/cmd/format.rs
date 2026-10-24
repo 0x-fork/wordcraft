@@ -107,7 +107,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(r#"{"color": "RRGGBB" | "auto"} (the underline's own colour; "auto" follows the text colour)"#),
         CommandSpec::new("format.highlight", "Text Highlight Color", "Home › Font", highlight)
             .params(
-                r#"{"color": "yellow|brightGreen|turquoise|pink|blue|red|darkBlue|teal|green|violet|darkRed|darkYellow|gray50|gray25|black|none"}"#,
+                r#"{"color"?: "yellow|brightGreen|turquoise|pink|blue|red|darkBlue|teal|green|violet|darkRed|darkYellow|gray50|gray25|black|none"} (explicit colour sets it; omitted toggles the last chosen colour, initially yellow)"#,
             )
             // ⌘⌥H hides other apps on macOS.
             .key(super::non_mac("Mod+Alt+H")),
@@ -391,18 +391,27 @@ fn underline_color(s: &mut Session, v: &Value) -> CmdResult {
     apply(s, &|x| x.underline_color = rgb)
 }
 
+/// Explicit palette/automation colours set highlighting; the shortcut (no colour) toggles
+/// the last choice off only when the whole formatting target already has that colour.
 fn highlight(s: &mut Session, v: &Value) -> CmdResult {
-    let c = p::str(v, "color").unwrap_or("yellow");
-    let h = Highlight::ALL
-        .iter()
-        .copied()
-        .find(|h| {
-            h.ooxml().eq_ignore_ascii_case(c)
-                || h.name().replace(['-', ' ', '%'], "").eq_ignore_ascii_case(&c.replace(['-', ' ', '%'], ""))
-                || format!("{h:?}").eq_ignore_ascii_case(c)
-        })
-        .ok_or_else(|| CmdError::Params(format!("unknown highlight colour `{c}`")))?;
-    apply(s, &|x| x.highlight = Some(h))
+    let color = v.get("color").map(|_| p::req_str(v, "color")).transpose()?;
+    let h = match color {
+        None => s.last_highlight,
+        Some(c) => Highlight::ALL
+            .iter()
+            .copied()
+            .find(|h| {
+                h.ooxml().eq_ignore_ascii_case(c)
+                    || h.name().replace(['-', ' ', '%'], "").eq_ignore_ascii_case(&c.replace(['-', ' ', '%'], ""))
+                    || format!("{h:?}").eq_ignore_ascii_case(c)
+            })
+            .ok_or_else(|| CmdError::Params(format!("unknown highlight colour `{c}`")))?,
+    };
+    let remove = color.is_none() && resolved(s).iter().all(|r| r.highlight == h.rgb());
+    let value = if remove { Highlight::None } else { h };
+    let result = apply(s, &|x| x.highlight = Some(value))?;
+    s.last_highlight = h;
+    Ok(result)
 }
 
 /// `format.changeCase`: `mode` (lower, upper, title, sentence, toggle), or Shift+F3's cycle

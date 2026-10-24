@@ -366,6 +366,8 @@ pub struct Session {
     pub view: ViewState,
     /// Formatting picked with a collapsed caret, applied to the next typed text.
     pub pending: Option<CharProps>,
+    /// Last highlighter choice for the shortcut; palette state, outside document undo.
+    pub(crate) last_highlight: wordcraft_doc::props::Highlight,
     pub path: Option<std::path::PathBuf>,
     /// Name given to a document not saved yet (File › Info › Rename): what Save suggests. A file
     /// name, not document metadata, so it is not part of the document or its undo history.
@@ -680,6 +682,7 @@ impl Session {
             sel: Selection::caret(start),
             view: ViewState::default(),
             pending: None,
+            last_highlight: wordcraft_doc::props::Highlight::Yellow,
             path: None,
             file_name: None,
             user_dict_path: None,
@@ -1267,6 +1270,7 @@ impl Session {
             sel,
             view: _,
             pending: _,
+            last_highlight: _,
             path: _,
             file_name: _,
             // The custom dictionary file, like the file path: host wiring, not an edit.

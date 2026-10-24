@@ -2511,3 +2511,61 @@ fn a_new_list_uses_the_requested_kind_after_a_mixed_format_list() {
         assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap(), &before);
     }
 }
+
+/// #4085: the registered shortcut toggles the last selected highlight, while explicit
+/// colour commands remain idempotent setters for the palette, CLI and automation.
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn highlight_shortcut_toggles_the_last_colour() {
+    let mut s = typed("Alpha Beta");
+    run(&mut s, "select.all", json!({}));
+    let colour = |s: &mut Session| s.run("format.state", &json!({})).unwrap()["highlight"].clone();
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), json!("FFFF00"));
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(colour(&mut s), json!("FFFF00"));
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    assert_eq!(colour(&mut s), json!("0000FF"));
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), json!("0000FF"));
+    run(&mut s, "format.highlight", json!({"color":"none"}));
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    assert_eq!(s.doc.body[0].as_para().unwrap().text, "Alpha Beta");
+}
+
+/// #4085: mixed selections take one colour; removing an inherited colour writes an
+/// explicit No Color, and a collapsed caret toggles pending formatting for future typing.
+#[test]
+fn highlight_toggle_handles_mixed_inherited_and_pending_formatting() {
+    let mut s = typed("Alpha Beta ");
+    run(&mut s, "select.text", json!({"text":"Alpha"}));
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], json!("0000FF"));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], serde_json::Value::Null);
+    s.doc.styles.default_chr.highlight = Some(wordcraft_doc::props::Highlight::Blue);
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    run(&mut s, "format.highlight", json!({}));
+    assert!(s.doc.body[0].as_para().unwrap().runs.iter().all(|r| r.props.highlight == Some(wordcraft_doc::props::Highlight::None)));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.pending.as_ref().unwrap().highlight, Some(wordcraft_doc::props::Highlight::Blue));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.pending.as_ref().unwrap().highlight, Some(wordcraft_doc::props::Highlight::None));
+    run(&mut s, "text.insert", json!({"text":"X"}));
+    run(&mut s, "select.text", json!({"text":"X"}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], serde_json::Value::Null);
+    let before = serde_json::to_value(&s.doc).unwrap();
+    assert!(s.run("format.highlight", &json!({"color":123})).is_err());
+    assert_eq!(serde_json::to_value(&s.doc).unwrap(), before);
+}
