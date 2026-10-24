@@ -99,7 +99,7 @@ pub struct FaceRef(&'static FontFace);
 impl FaceRef {
     /// The handle for a loaded face (memoised per face).
     pub fn of(face: &Arc<FontFace>) -> FaceRef {
-        static LEAKED: RwLock<Vec<Option<&'static FontFace>>> = RwLock::new(Vec::new());
+        static LEAKED: RwLock<Vec<Option<&FontFace>>> = RwLock::new(Vec::new());
         let id = face.id as usize;
         if let Some(Some(f)) = LEAKED.read().unwrap_or_else(|e| e.into_inner()).get(id) {
             return FaceRef(f);
@@ -933,7 +933,7 @@ pub fn base_style(style: &str) -> &str {
 }
 
 fn norm(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
 }
 
 /// Weight implied by a style name.

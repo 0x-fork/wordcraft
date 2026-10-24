@@ -2638,7 +2638,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                 let Some(&n) = bytes.get(i + 1) else { break };
                 if n.is_ascii_alphabetic() {
                     let mut j = i + 1;
-                    while bytes.get(j).is_some_and(|b| b.is_ascii_alphabetic()) && j - i <= 32 {
+                    while bytes.get(j).is_some_and(u8::is_ascii_alphabetic) && j - i <= 32 {
                         j += 1;
                     }
                     let word = std::str::from_utf8(bytes.get(i + 1..j).unwrap_or(b"")).unwrap_or("");
@@ -2648,7 +2648,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                         k += 1;
                     }
                     let d0 = k;
-                    while bytes.get(k).is_some_and(|b| b.is_ascii_digit()) && k - d0 < 10 {
+                    while bytes.get(k).is_some_and(u8::is_ascii_digit) && k - d0 < 10 {
                         k += 1;
                     }
                     let param = if k > d0 {

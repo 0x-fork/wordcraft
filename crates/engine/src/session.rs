@@ -1519,7 +1519,7 @@ impl Session {
         let mut result = match result {
             Ok(r) => r,
             Err(p) => {
-                let msg = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
+                let msg = p.downcast_ref::<&str>().map(ToString::to_string).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
                 Err(CmdError::Failed(format!("{id} panicked: {msg}")))
             }
         };
