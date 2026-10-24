@@ -131,8 +131,9 @@ pub struct Services {
     /// Web, framed by a page that keeps the files (`?host=parent`): set alongside `download`,
     /// Save, Save As and Export hand the bytes to that page instead, with whether it was Save As
     /// ([`HostSaveFn`]: true for a `file.saveAs` in a format that keeps everything, which File ›
-    /// Export to such a format runs too; false for Save and for copies: the PDF and PNG exports
-    /// and Save As in a format that doesn't keep everything). Save then writes the opened file
+    /// Export to such a format runs too, and for a Save under a name the page never sent; false
+    /// for Save and for copies: the PDF and PNG exports and Save As in a format that doesn't keep
+    /// everything). Save then writes the opened file
     /// under its own name and format, as on the desktop, and a Save or Save As that keeps
     /// everything makes that name the document's file, so the next Save goes to it.
     pub host_save: Option<HostSaveFn>,
@@ -1048,10 +1049,13 @@ impl WordApp {
             // An export is a copy, and so is a save in a format that doesn't keep everything (a
             // page image, plain text): the document itself still has unsaved changes.
             let marked_saved = matches!(id, "file.save" | "file.saveAs") && keeps_everything(&name);
+            // Save As tells the host page the document is now this file, which it only is when the
+            // save marks it saved. A Save under a name the page never sent (an untitled document,
+            // an imported .doc saved as .docx) is a new file too, never an overwrite.
+            let opened_name = self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string());
+            let new_file = id == "file.saveAs" || opened_name.as_deref() != Some(name.as_str());
             let delivered = match (&self.services.host_save, &self.services.download) {
-                // Save As tells the host page the document is now this file, which it only is when
-                // the save marks it saved.
-                (Some(host), _) => host(&name, &bytes, id == "file.saveAs" && marked_saved),
+                (Some(host), _) => host(&name, &bytes, marked_saved && new_file),
                 (None, Some(download)) => download(&name, &bytes),
                 (None, None) => Ok(()),
             };
@@ -7006,13 +7010,28 @@ mod tests {
         assert_eq!(a.session.path.as_deref(), Some(std::path::Path::new("notes.md")));
     }
 
-    /// An import-only Word 97–2003 file is saved as a .docx, never back over itself (#2445).
+    /// An import-only Word 97–2003 file is saved as a .docx, never back over itself (#2445). The
+    /// host page never had that name, so it's a new file: Save As.
     #[test]
     fn host_save_of_a_legacy_word_file_writes_a_docx() {
         let (mut a, got) = host_app(false);
         a.session.path = Some("old.doc".into());
         a.execute("file.save", json!({})).unwrap();
-        assert_eq!(got.borrow().first().map(|(n, _, _)| n.as_str()), Some("old.docx"));
+        assert_eq!(got.borrow().first().map(|(n, s, _)| (n.as_str(), *s)), Some(("old.docx", true)));
+    }
+
+    /// Saving a document the host page never sent is Save As, so the page doesn't overwrite a
+    /// file of the same name; the next Save goes back to it.
+    #[test]
+    fn host_save_of_an_untitled_document_is_save_as() {
+        let (mut a, got) = host_app(false);
+        a.execute("file.save", json!({})).unwrap();
+        a.run("text.insert", json!({"text": "More "})).unwrap();
+        a.execute("file.save", json!({})).unwrap();
+        let got = got.borrow();
+        let calls: Vec<bool> = got.iter().map(|(_, s, _)| *s).collect();
+        assert_eq!(calls, [true, false], "{got:?}");
+        assert_eq!(got.first().map(|(n, ..)| n), got.get(1).map(|(n, ..)| n));
     }
 
     /// Exports without a name are named after the document, not after its file.

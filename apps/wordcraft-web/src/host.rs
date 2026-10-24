@@ -10,7 +10,8 @@
 //!   every file WordCraft would otherwise download. The parent stores it and reports failures
 //!   itself. `saveAs` says whether the file becomes the document's file:
 //!   - Save: `false`. It writes the opened file under its own name and format, as the desktop
-//!     app does.
+//!     app does. A name the parent never sent (an untitled document, an imported .doc saved as
+//!     .docx) is a new file: `true`, as for Save As.
 //!   - Save As, and File › Export to another document format (which runs Save As): `true` for a
 //!     format that keeps everything (.docx and the other Word packages, .odt, .rtf). The document
 //!     is now that file; the next Save sends its name with `false`.
