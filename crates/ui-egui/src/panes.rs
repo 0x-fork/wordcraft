@@ -65,6 +65,35 @@ impl Pane {
         PaneState::docked(edge, width)
     }
 
+    /// The pane's key in `ui.json`'s `panePlaces`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::SmartArtText => "smartArtText",
+            Self::Navigation => "navigation",
+            Self::Clipboard => "clipboard",
+            Self::Styles => "styles",
+            Self::StyleInspector => "styleInspector",
+            Self::Accessibility => "accessibility",
+            Self::AltText => "altText",
+            Self::FormatShape => "formatShape",
+            Self::RestrictEditing => "restrictEditing",
+            Self::Comments => "comments",
+        }
+    }
+
+    const ALL: [Self; 10] = [
+        Self::SmartArtText,
+        Self::Navigation,
+        Self::Clipboard,
+        Self::Styles,
+        Self::StyleInspector,
+        Self::Accessibility,
+        Self::AltText,
+        Self::FormatShape,
+        Self::RestrictEditing,
+        Self::Comments,
+    ];
+
     /// The command that closes the pane; Restrict Editing has none and closes in [`close`].
     fn close_command(self) -> Option<&'static str> {
         match self {
@@ -103,8 +132,77 @@ pub fn open(app: &WordApp) -> Vec<Pane> {
     .collect()
 }
 
+/// Where a task pane other than Styles sits, kept in `ui.json` (#1756). Styles keeps its place in
+/// `view.stylesPaneDock` and `stylesPaneFloat`.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SavedPane {
+    /// `None`: the pane's default edge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dock: Option<SavedDock>,
+    /// `[x, y, width, height]` of the floating pane, also kept while it is docked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub float: Option<[f32; 4]>,
+    /// The docked width this run; like the Styles pane's, not kept between runs.
+    #[serde(skip)]
+    pub width: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SavedDock {
+    Left,
+    Right,
+    Float,
+}
+
+/// `panePlaces` as saved: unknown panes, places and rects are dropped, not the whole file.
+pub(crate) fn lenient_places<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, SavedPane>, D::Error> {
+    let v = <Value as serde::Deserialize>::deserialize(d)?;
+    let Some(map) = v.as_object() else { return Ok(BTreeMap::new()) };
+    let dock = |v: &Value| match v.as_str() {
+        Some("left") => Some(SavedDock::Left),
+        Some("right") => Some(SavedDock::Right),
+        Some("float") => Some(SavedDock::Float),
+        _ => None,
+    };
+    Ok(Pane::ALL
+        .iter()
+        .filter(|pane| **pane != Pane::Styles)
+        .filter_map(|pane| {
+            let saved = map.get(pane.key())?;
+            let place = SavedPane { dock: saved.get("dock").and_then(dock), float: saved.get("float").and_then(float_rect), width: None };
+            Some((pane.key().to_string(), place))
+        })
+        .collect())
+}
+
+/// Four finite numbers as `[x, y, width, height]`; `craft_ui::panes` brings a saved rect back
+/// inside the window.
+pub(crate) fn float_rect(v: &Value) -> Option<[f32; 4]> {
+    let [x, y, w, h] = v.as_array().map(Vec::as_slice)? else { return None };
+    let n = |v: &Value| v.as_f64().map(|n| n as f32).filter(|n| n.is_finite());
+    n(x).zip(n(y)).zip(n(w)).zip(n(h)).map(|(((x, y), w), h)| [x, y, w, h])
+}
+
+/// A pane's place and size: Styles' from `view.stylesPaneDock` and its own preferences, the
+/// others' from `panePlaces`.
+fn pane_state(app: &WordApp, pane: Pane) -> PaneState {
+    if pane == Pane::Styles {
+        return styles_state(app);
+    }
+    let default = pane.default_state();
+    let Some(saved) = app.ui.pane_places.get(pane.key()) else { return default };
+    let place = match saved.dock {
+        Some(SavedDock::Left) => Place::Docked(Edge::Start),
+        Some(SavedDock::Right) => Place::Docked(Edge::End),
+        Some(SavedDock::Float) => Place::Floating,
+        None => default.place,
+    };
+    PaneState { place, size: saved.width.or(default.size), float_rect: saved.float }
+}
+
 /// The Styles pane's place and size, from `view.stylesPaneDock` and the UI preferences (#1756).
-/// Other panes keep theirs in the host for the session.
 fn styles_state(app: &WordApp) -> PaneState {
     let place = match app.session.view.styles_pane_dock {
         StylesPaneDock::Right => Place::Docked(Edge::End),
@@ -200,14 +298,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         crate::format_shape::forget_drag(ui.ctx());
     }
     route_f6(app, ui.ctx());
-    let styles = styles_state(app);
+    let states: Vec<(Pane, PaneState)> = open.iter().map(|pane| (*pane, pane_state(app, *pane))).collect();
     let out = PaneHost::new(HOST)
         .policy(SidePolicy::Columns)
         .f6(false)
         .labels(labels())
         .frame(egui::Frame::NONE.fill(t.panel).stroke(Stroke::new(1.0, t.border)))
         .body_margin(egui::Margin::same(10))
-        .show(ui, &open, |pane| (*pane == Pane::Styles).then_some(styles), &mut Content { app });
+        .show(ui, &open, |pane| states.iter().find(|(p, _)| p == pane).map(|(_, state)| *state), &mut Content { app });
     for request in out.requests {
         apply(app, request);
     }
@@ -231,7 +329,18 @@ pub(crate) fn apply(app: &mut WordApp, request: PaneRequest<Pane>) {
         }
         PaneRequest::Resize(Pane::Styles, width) => app.ui.styles_pane_width = Some(width),
         PaneRequest::FloatRect(Pane::Styles, rect) => app.ui.styles_pane_float = Some(rect),
-        PaneRequest::Place(..) | PaneRequest::Resize(..) | PaneRequest::FloatRect(..) | PaneRequest::Focus(_) => {}
+        PaneRequest::Place(pane, place) => {
+            let dock = match place {
+                Place::Docked(Edge::Start) => SavedDock::Left,
+                Place::Docked(Edge::End) => SavedDock::Right,
+                Place::Floating => SavedDock::Float,
+                Place::Docked(Edge::Bottom) => return,
+            };
+            app.ui.pane_places.entry(pane.key().into()).or_default().dock = Some(dock);
+        }
+        PaneRequest::Resize(pane, width) => app.ui.pane_places.entry(pane.key().into()).or_default().width = Some(width),
+        PaneRequest::FloatRect(pane, rect) => app.ui.pane_places.entry(pane.key().into()).or_default().float = Some(rect),
+        PaneRequest::Focus(_) => {}
     }
 }
 
@@ -1235,6 +1344,46 @@ mod tests {
         assert_eq!(widths.len(), panes.len());
         let wide: Vec<_> = widths.iter().filter(|(_, width)| *width > BODY + 0.5).collect();
         assert!(wide.is_empty(), "wider than the pane: {wide:?}");
+    }
+
+    /// A pane other than Styles floated from its menu comes back floating, at the same rect, after
+    /// a restart; junk in `panePlaces` reads as the defaults (#1756).
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn a_floated_pane_floats_again_after_a_restart() {
+        use craft_ui::panes::Place;
+        use egui_kittest::kittest::Queryable;
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+        app.run("view.navigationPane", serde_json::json!({"value": true})).unwrap();
+        let mut h = pane_harness(app);
+        let bar = h.get_by_label_contains("Move Pane: ").rect();
+        let on_row = |r: egui::Rect| r.center().y > bar.top() && r.center().y < bar.bottom();
+        h.get_all_by_label("Pane Options").find(|n| on_row(n.rect())).expect("the menu button beside the title bar").click();
+        h.run_steps(2);
+        h.get_by_label("Float").click();
+        h.run_steps(3);
+        assert_eq!(super::pane_state(h.state(), Pane::Navigation).place, Place::Floating);
+        let rect = h.state().ui.pane_places.get("navigation").and_then(|p| p.float).expect("the float rect is kept");
+
+        let saved = serde_json::to_vec(&h.state().prefs()).unwrap();
+        let mut next = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        next.apply_prefs(serde_json::from_slice(&saved).unwrap());
+        let state = super::pane_state(&next, Pane::Navigation);
+        assert_eq!((state.place, state.float_rect), (Place::Floating, Some(rect)));
+        assert_eq!(super::pane_state(&next, Pane::Clipboard), Pane::Clipboard.default_state(), "other panes keep their defaults");
+
+        let mut junk = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        junk.apply_prefs(
+            serde_json::from_str(
+                r#"{"panePlaces": {"navigation": {"dock": "top", "float": [1, "x", 3, 4]}, "clipboard": 7, "nope": {}}, "navPane": true}"#,
+            )
+            .unwrap(),
+        );
+        assert_eq!(super::pane_state(&junk, Pane::Navigation), Pane::Navigation.default_state(), "junk reads as the default");
+        assert!(junk.session.view.nav_pane, "the rest of the file still loads");
+        let mut odd = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        odd.apply_prefs(serde_json::from_str(r#"{"panePlaces": [1, 2], "navPane": true}"#).unwrap());
+        assert!(odd.ui.pane_places.is_empty() && odd.session.view.nav_pane);
     }
 
     /// #3032: Delete is greyed out for built-in styles in the Styles pane (the engine refuses

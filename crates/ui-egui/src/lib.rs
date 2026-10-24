@@ -286,6 +286,9 @@ pub struct UiState {
     /// The docked Styles pane's width this run; like the other panes' widths, not kept between runs.
     #[serde(skip)]
     pub styles_pane_width: Option<f32>,
+    /// Where each of the other task panes sits, by [`panes::Pane::key`] (#1756).
+    #[serde(deserialize_with = "panes::lenient_places")]
+    pub pane_places: std::collections::BTreeMap<String, panes::SavedPane>,
     /// Headings whose sub-headings the Navigation pane hides (#1997); per session, not saved.
     #[serde(skip)]
     pub nav_collapsed: std::collections::HashSet<wordcraft_doc::Path>,
@@ -406,6 +409,7 @@ impl Default for UiState {
             styles_pane_dock: wordcraft_engine::StylesPaneDock::Right,
             styles_pane_float: None,
             styles_pane_width: None,
+            pane_places: Default::default(),
             nav_collapsed: Default::default(),
             show_discord: true,
             author: String::new(),
@@ -506,10 +510,7 @@ fn lenient_styles_pane_dock<'de, D: serde::Deserializer<'de>>(d: D) -> Result<wo
 /// Anything but four finite numbers reads as no saved rect; `craft_ui::panes` brings a saved one
 /// back inside the window.
 fn lenient_float_rect<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<[f32; 4]>, D::Error> {
-    let v = Value::deserialize(d)?;
-    let Some([x, y, w, h]) = v.as_array().map(Vec::as_slice) else { return Ok(None) };
-    let n = |v: &Value| v.as_f64().map(|n| n as f32).filter(|n| n.is_finite());
-    Ok(n(x).zip(n(y)).zip(n(w)).zip(n(h)).map(|(((x, y), w), h)| [x, y, w, h]))
+    Ok(panes::float_rect(&Value::deserialize(d)?))
 }
 
 /// `recentFonts` as saved, through [`recent_fonts_from`]: an entry that isn't a name is dropped,
