@@ -168,7 +168,8 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
   the text inside holds a letter or digit and does not start or end with a space, so `2*3*`,
   `file_name_` and `*?!*` stay as typed, and so do marks around a picture, field or content
   control. AutoCorrect then goes on with the word without its marks, so `*teh* ` becomes bold
-  `The `. Undo right after brings the marks
+  `The `, and it corrects the first word of a span of several words as it is typed, so
+  `*teh end* ` becomes bold `The end `. Undo right after brings the marks
   back (after Enter, the Enter stays). With Track Changes on, WordCraft converts only marks the
   current author typed as tracked insertions, and it converts nothing while formatting is
   limited to the document's styles (`bold_and_italic_marks_become_formatting`,

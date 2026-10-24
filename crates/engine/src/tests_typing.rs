@@ -632,6 +632,14 @@ fn autocorrect_goes_on_after_bold_and_italic_marks() {
     typ(&mut s, "*teh*\n");
     run(&mut s, "edit.undo", json!({}));
     assert_eq!(s.doc.plain_text(StoryRef::Body), "*teh*\n");
+    // In a span of several words, the first word is replaced and capitalized as it is typed.
+    let mut s = self::s();
+    run(&mut s, "tools.autocorrect", json!({"boldItalic": true}));
+    typ(&mut s, "*teh end* and _teh rest_ ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "The end and the rest ");
+    let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+    let at = |t: &str| p.props_of_char(p.text.find(t).unwrap()).clone();
+    assert_eq!((at("The end").bold, at("the rest").italic, at(" and").bold), (Some(true), Some(true), None));
 }
 
 #[test]

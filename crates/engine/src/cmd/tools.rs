@@ -879,10 +879,19 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     }
     let trigger = if on_enter { 0 } else { last.len_utf8() };
     let Some(body) = before.get(..before.len() - trigger) else { return Ok(()) };
-    let start = body.rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
+    let mut start = body.rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
     let Some(mut word) = body.get(start..).map(str::to_string) else { return Ok(()) };
     if word.is_empty() {
         return Ok(());
+    }
+    // The opening mark of a `*bold*` or `_italic_` span is not part of the word, so the first
+    // word of a span of several words is corrected as it is typed ("*teh end*" → "*the end*").
+    let mark = word.chars().next().filter(|c| ac.bold_italic && (*c == '*' || *c == '_'));
+    let mut opened = false;
+    if let Some(rest) = mark.and_then(|m| word.get(1..).filter(|r| !r.is_empty() && !r.contains(m))) {
+        start += 1;
+        word = rest.to_string();
+        opened = true;
     }
     // The word's language (run, paragraph style, document default) picks the replacement list
     // (#835) and the case mapping (#1923). Text with no language at all is in the editing
@@ -976,7 +985,8 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
         s.pending = Some(after);
         return Ok(());
     }
-    let before_word = text.get(..start).unwrap_or("");
+    // A sentence starts before the opening mark, as for the word without it.
+    let before_word = text.get(..start - usize::from(opened)).unwrap_or("");
     // The first word in a table cell follows its own option; other sentences the sentence one.
     let sentence_on = if before_word.trim().is_empty() && f.path.cell().is_some() { ac.cap_cells } else { ac.cap_sentences };
     let exceptions = ac.exception_list();
