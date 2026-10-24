@@ -124,3 +124,97 @@ fn a_word_skipping_a_narrow_strip_at_table_contact_resumes_when_the_table_ends()
         assert!(lines[..3].iter().enumerate().all(|(n, l)| l.1 == 72.0 + n as f32 * LINE));
     }
 }
+
+#[test]
+fn exact_spacing_does_not_make_mark_height_a_table_contact_boundary() {
+    for mode in [11, 12, 14, 15] {
+        for table in [false, true] {
+            let mut d = Document::new();
+            d.settings.compat_mode = mode;
+            let mut p = Paragraph::with_text("P1", CharProps { font: Some("Source Sans 3".into()), size: Some(11.0), ..Default::default() });
+            p.mark = CharProps { font: Some("Source Sans 3".into()), size: Some(62.5), ..Default::default() };
+            p.props =
+                ParaProps { line_spacing: Some(LineSpacing::Exactly(12.0)), space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+            d.body = vec![wordcraft_doc::para_block(p)];
+            // The mark's natural 82.875 pt estimate ends far below the actual 12 pt line.
+            let top = 72.0 + LINE;
+            if table {
+                add_table(&mut d, top, 468.0);
+            } else {
+                add_shape(&mut d, top, 72.0, 468.0, 50.0);
+            }
+            let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+            let (y, height) = l.pages[0]
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    Placed::Lines { story: StoryRef::Body, path, y, para, .. } if path.0.len() == 1 => Some((*y, para.lines[0].height)),
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(height, 12.0);
+            assert_eq!(y, 72.0, "mode={mode}, table={table}");
+        }
+    }
+}
+
+fn exact_document(mode: u32, mark_size: f32) -> Document {
+    let mut d = Document::new();
+    d.settings.compat_mode = mode;
+    let mut p = Paragraph::with_text("WWWWWWWWWWWW", CharProps { font: Some("Source Sans 3".into()), size: Some(11.0), ..Default::default() });
+    p.mark = CharProps { font: Some("Source Sans 3".into()), size: Some(mark_size), ..Default::default() };
+    p.props = ParaProps { line_spacing: Some(LineSpacing::Exactly(12.0)), space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+    d.body = vec![wordcraft_doc::para_block(p)];
+    d
+}
+
+fn exact_line(d: &Document) -> (f32, f32) {
+    let l = layout(d, &mut LayoutCache::new(), &LayoutOptions::default());
+    assert_eq!(l.pages.len(), 1);
+    l.pages[0]
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Placed::Lines { story: StoryRef::Body, path, x, y, para, .. } if path.0 == vec![(d.body.len() - 1) as u32] => {
+                assert_eq!(para.lines.len(), 1);
+                assert_eq!(para.lines[0].height, 12.0);
+                Some((x + para.lines[0].left, *y))
+            }
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn exact_table_contact_uses_the_spacing_with_larger_and_smaller_marks() {
+    for mode in [11, 12, 14, 15] {
+        for mark in [4.0, 62.5] {
+            for twips in [-1, 0, 1] {
+                let mut d = exact_document(mode, mark);
+                let top = 84.0 + twips as f32 / 20.0;
+                add_table(&mut d, top, 468.0);
+                let (_, y) = exact_line(&d);
+                let expected = if twips <= 0 { top + 50.0 } else { 72.0 };
+                assert!((y - expected).abs() < 0.001, "mode={mode}, mark={mark}, twips={twips}: {y}");
+            }
+        }
+    }
+}
+
+#[test]
+fn exact_table_contact_uses_the_spacing_when_a_word_skips_a_strip() {
+    for mode in [11, 12, 14, 15] {
+        let mut d = exact_document(mode, 4.0);
+        // Anchor the shape in an earlier paragraph so the tested word has no inline anchor.
+        let Block::Para(p) = &*d.body[0] else { panic!("expected paragraph") };
+        let mut anchor = Paragraph::with_text("P0", p.mark.clone());
+        anchor.mark = p.mark.clone();
+        anchor.props = p.props.clone();
+        d.body.insert(0, wordcraft_doc::para_block(anchor));
+        add_table(&mut d, 96.0, 168.0);
+        add_shape(&mut d, 72.0, 272.0, 268.0, 500.0);
+        // The 32 pt strip cannot hold the word. The table ends before the shape,
+        // leaving 200 pt on the left, so skipping must stop at the table's bottom.
+        assert_eq!(exact_line(&d), (72.0, 146.0), "mode={mode}");
+    }
+}
