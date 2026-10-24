@@ -134,7 +134,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     // `blur` asserts on a subnormal width.
                     img = img.blur(-sharpen / 25.0);
                 }
-                img
+                Ok(img)
             })
         })
         .params(r#"{"brightness"?: -100..100, "contrast"?: -100..100, "sharpen"?: -100..100}"#)
@@ -146,7 +146,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
             let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
             let base = s.originals.get(&media).cloned().unwrap_or(media.clone());
-            adjust_media(s, &base, move |img| recolor(img, &mode, sat))
+            adjust_media(s, &base, move |img| Ok(recolor(img, &mode, sat)))
         })
         .params(r#"{"mode": "grayscale|sepia|washout|blackAndWhite|saturation|tint", "saturation"?: 0..400}"#)
         .when(has_picture),
@@ -159,7 +159,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 for px in rgba.pixels_mut() {
                     px.0 = [c.0, c.1, c.2, px.0[3]];
                 }
-                image::DynamicImage::ImageRgba8(rgba)
+                Ok(image::DynamicImage::ImageRgba8(rgba))
             })
         })
         .params(r#"{"color": "RRGGBB"}"#)
@@ -186,20 +186,20 @@ pub fn specs() -> Vec<CommandSpec> {
                 for px in rgba.pixels_mut() {
                     px.0[3] = (px.0[3] as f32 * (1.0 - t / 100.0)) as u8;
                 }
-                image::DynamicImage::ImageRgba8(rgba)
+                Ok(image::DynamicImage::ImageRgba8(rgba))
             })
         })
         .params(r#"{"percent": 0..100}"#)
         .when(has_picture),
         CommandSpec::new("picture.removeBackground", "Remove Background", "Picture Format › Adjust", |s, v| {
             let tol = p::f32(v, "tolerance").unwrap_or(30.0).clamp(0.0, 255.0);
-            adjust(s, move |img| remove_background(img, tol))
+            adjust(s, move |img| Ok(remove_background(img, tol)))
         })
         .params(r#"{"tolerance"?: 0..255}"#)
         .when(has_picture),
         CommandSpec::new("picture.compress", "Compress Pictures", "Picture Format › Adjust", |s, v| {
             let max = p::u64(v, "maxPixels").unwrap_or(1600).clamp(32, 20000) as u32;
-            adjust(s, move |img| if img.width().max(img.height()) > max { img.resize(max, max, image::imageops::FilterType::Lanczos3) } else { img })
+            adjust(s, move |img| Ok(if img.width().max(img.height()) > max { img.resize(max, max, image::imageops::FilterType::Lanczos3) } else { img }))
         })
         .params(r#"{"maxPixels"?: n}"#)
         .when(has_picture),
@@ -1185,7 +1185,7 @@ pub fn fit_size(w: f32, h: f32, keep: bool) -> (f32, f32) {
 }
 
 /// Apply an image operation to the selected picture's bitmap (stored as a new PNG).
-fn adjust(s: &mut Session, f: impl Fn(image::DynamicImage) -> image::DynamicImage) -> CmdResult {
+fn adjust(s: &mut Session, f: impl Fn(image::DynamicImage) -> Result<image::DynamicImage, CmdError>) -> CmdResult {
     let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
     let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
     adjust_media(s, &media, f)
@@ -1194,14 +1194,14 @@ fn adjust(s: &mut Session, f: impl Fn(image::DynamicImage) -> image::DynamicImag
 /// Like [`adjust`], but decodes `base` (a media key, usually the pre-edit original) instead
 /// of the picture's current bitmap. The result still chains onto the originals map, so Reset
 /// Picture keeps working.
-fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> image::DynamicImage) -> CmdResult {
+fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> Result<image::DynamicImage, CmdError>) -> CmdResult {
     let bytes = s.doc.media.get(base).cloned().ok_or_else(|| CmdError::Failed("picture data missing".into()))?;
     // Within the budget pictures are drawn within, checked from the header first (#3644, #3647).
     let img = wordcraft_geom::picture::decode(&bytes, wordcraft_geom::MAX_DECODED_BYTES).map_err(|e| match e {
-        wordcraft_geom::picture::Refusal::TooLarge { .. } => CmdError::Failed("picture is too large to edit".into()),
+        wordcraft_geom::picture::Refusal::TooLarge { .. } => too_large(),
         e => CmdError::Failed(format!("can't decode the picture: {e}")),
     })?;
-    let out = f(img);
+    let out = f(img)?;
     let mut png = Vec::new();
     out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).map_err(|e| CmdError::Failed(e.to_string()))?;
     let key = s.doc.add_media(png, "png");
@@ -1223,6 +1223,25 @@ fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> 
             *media = key.clone();
         }
     })
+}
+
+fn too_large() -> CmdError {
+    CmdError::Failed("picture is too large to edit".into())
+}
+
+/// A `w` × `h` bitmap of `fill` for an edit to draw on, refused when the picture it makes would be
+/// too large to draw (two RGBA buffers within the decode budget), before it is allocated (#3611).
+fn canvas(w: u32, h: u32, fill: [u8; 4]) -> Result<image::RgbaImage, CmdError> {
+    if !wordcraft_geom::decode_fits(w, h, wordcraft_geom::MAX_DECODED_BYTES) {
+        return Err(too_large());
+    }
+    Ok(image::RgbaImage::from_pixel(w, h, image::Rgba(fill)))
+}
+
+/// `w` and `h` grown by `pad` on every side, None past `u32`.
+fn grown(w: u32, h: u32, pad: u32) -> Option<(u32, u32)> {
+    let twice = pad.checked_mul(2)?;
+    Some((w.checked_add(twice)?, h.checked_add(twice)?))
 }
 
 /// What Artistic Effects, Picture Styles and Picture Border drew on a picture's bitmap: the
@@ -1271,12 +1290,12 @@ fn relook(s: &mut Session, change: impl FnOnce(&mut PictureLook)) -> CmdResult {
             None => img,
         };
         if let Some(st) = &l.style {
-            img = picture_style(img, st);
+            img = picture_style(img, st)?;
         }
         if let Some((c, w)) = l.border {
-            img = frame(img, w, [c.0, c.1, c.2, 255]);
+            img = frame(img, w, [c.0, c.1, c.2, 255])?;
         }
-        img
+        Ok(img)
     })?;
     if let Some((_, InlineObject::Image { media, .. })) = selected(s)
         && let Some(drawn) = s.doc.media.get(&media).cloned()
@@ -1405,17 +1424,17 @@ fn remove_background(img: image::DynamicImage, tol: f32) -> image::DynamicImage 
     image::DynamicImage::ImageRgba8(rgba)
 }
 
-fn frame(img: image::DynamicImage, border: u32, color: [u8; 4]) -> image::DynamicImage {
-    let (w, h) = (img.width(), img.height());
-    let mut out = image::RgbaImage::from_pixel(w + 2 * border, h + 2 * border, image::Rgba(color));
+fn frame(img: image::DynamicImage, border: u32, color: [u8; 4]) -> Result<image::DynamicImage, CmdError> {
+    let (w, h) = grown(img.width(), img.height(), border).ok_or_else(too_large)?;
+    let mut out = canvas(w, h, color)?;
     image::imageops::overlay(&mut out, &img.to_rgba8(), border as i64, border as i64);
-    image::DynamicImage::ImageRgba8(out)
+    Ok(image::DynamicImage::ImageRgba8(out))
 }
 
-fn picture_style(img: image::DynamicImage, style: &str) -> image::DynamicImage {
+fn picture_style(img: image::DynamicImage, style: &str) -> Result<image::DynamicImage, CmdError> {
     let m = (img.width().max(img.height()) / 40).max(4);
-    match style {
-        "thickFrame" => frame(frame(img, m * 2, [255, 255, 255, 255]), m / 2, [40, 40, 40, 255]),
+    Ok(match style {
+        "thickFrame" => frame(frame(img, m * 2, [255, 255, 255, 255])?, m / 2, [40, 40, 40, 255])?,
         "rounded" | "softEdge" => {
             let mut rgba = img.to_rgba8();
             let (w, h) = rgba.dimensions();
@@ -1438,18 +1457,19 @@ fn picture_style(img: image::DynamicImage, style: &str) -> image::DynamicImage {
         "shadow" => {
             let (w, h) = (img.width(), img.height());
             let off = m;
-            let mut out = image::RgbaImage::from_pixel(w + off * 2, h + off * 2, image::Rgba([0, 0, 0, 0]));
+            let (pw, ph) = grown(w, h, off).ok_or_else(too_large)?;
+            let mut out = canvas(pw, ph, [0, 0, 0, 0])?;
             let shadow = image::RgbaImage::from_pixel(w, h, image::Rgba([0, 0, 0, 90]));
             let shadow = image::DynamicImage::ImageRgba8(shadow);
-            let mut padded = image::RgbaImage::from_pixel(w + off * 2, h + off * 2, image::Rgba([0, 0, 0, 0]));
+            let mut padded = canvas(pw, ph, [0, 0, 0, 0])?;
             image::imageops::overlay(&mut padded, &shadow.to_rgba8(), (off + off / 2) as i64, (off + off / 2) as i64);
             let blurred = image::DynamicImage::ImageRgba8(padded).blur(off as f32 / 2.0).to_rgba8();
             image::imageops::overlay(&mut out, &blurred, 0, 0);
             image::imageops::overlay(&mut out, &img.to_rgba8(), 0, 0);
             image::DynamicImage::ImageRgba8(out)
         }
-        _ => frame(img, m, [255, 255, 255, 255]),
-    }
+        _ => frame(img, m, [255, 255, 255, 255])?,
+    })
 }
 
 /// The selected pictures, shapes, text boxes and groups: the one the selection holds, then
@@ -2018,6 +2038,28 @@ mod tests {
             assert!(e.contains("too large to edit"), "{id}: {e}");
         }
         assert_eq!(s.doc.media.len(), media, "nothing was added");
+    }
+
+    /// #3611: a style or border is drawn only when the picture it makes can still be drawn. On a
+    /// 1 × 2,000,000 picture Thick Frame asked for about 1.8 TB and aborted the process.
+    #[test]
+    fn picture_styles_and_borders_check_the_size_they_draw() {
+        let mut thin = Vec::new();
+        image::GrayImage::new(1, 2_000_000).write_to(&mut std::io::Cursor::new(&mut thin), image::ImageFormat::Png).unwrap();
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.picture", &json!({"data": super::super::insert::base64_encode(&thin)})).unwrap();
+        let media = s.doc.media.len();
+        for (id, v) in [
+            ("picture.style", json!({"style": "thickFrame"})),
+            ("picture.style", json!({"style": "shadow"})),
+            ("picture.style", json!({})),
+            ("picture.border", json!({"width": 200})),
+        ] {
+            let e = s.run(id, &v).unwrap_err().to_string();
+            assert!(e.contains("too large to edit"), "{id} {v}: {e}");
+        }
+        assert_eq!(s.doc.media.len(), media, "nothing was drawn");
+        assert_eq!(grown(u32::MAX, 1, 1), None);
     }
 
     #[test]
