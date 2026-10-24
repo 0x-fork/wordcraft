@@ -1125,6 +1125,28 @@ mod tests {
         }
     }
 
+    /// Ctrl and F-key shortcuts run while F6 has put the keyboard on a pane's title bar; a pane's
+    /// text field keeps Ctrl+H for itself.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn shortcuts_run_while_a_pane_title_bar_has_focus() {
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+        app.run("view.navigationPane", serde_json::json!({"value": true})).unwrap();
+        let mut h = pane_harness(app);
+        press(&mut h, egui::Key::F6, egui::Modifiers::NONE);
+        assert!(!h.state().canvas.focused && h.ctx.memory(|m| m.focused()).is_some(), "the title bar has the keyboard");
+        press(&mut h, egui::Key::H, egui::Modifiers::COMMAND);
+        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("replace"), "Ctrl+H opened Replace");
+        press(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
+        assert!(h.state().dialog.is_none());
+
+        h.state_mut().nav_search_focus = true;
+        h.run_steps(2);
+        assert!(h.ctx.text_edit_focused());
+        press(&mut h, egui::Key::H, egui::Modifiers::COMMAND);
+        assert!(h.state().dialog.is_none(), "the search field keeps Ctrl+H");
+    }
+
     /// An F6 the user bound runs its command; plain F6 still moves to the panes when only
     /// Shift+F6 is bound.
     #[test]
