@@ -2212,8 +2212,11 @@ impl<'a> Parser<'a> {
             let mut chars = arg.chars();
             let s = match chars.next() {
                 Some(b) => format!("{}{}", compose(b, mark), chars.as_str()),
+                // An accent over nothing prints the accent alone: the spacing form of the mark.
                 None => match name {
-                    "'" | "`" | "^" | "\"" | "~" => name.to_string(),
+                    "`" | "^" | "~" => name.to_string(),
+                    "'" => "\u{B4}".to_string(),
+                    "\"" => "\u{A8}".to_string(),
                     _ => mark.to_string(),
                 },
             };
@@ -2833,6 +2836,8 @@ mod tests {
     fn empty_accent_group_is_plain_character() {
         let t = texts("\\begin{document}x\\^{}y \\~{}z 2\\^{}10 \\texttt{\\~{}/dir}\\end{document}");
         assert_eq!(t, vec!["x^y ~z 2^10 ~/dir".to_string()]);
+        // The acute and the diaeresis alone are accents, not an apostrophe or a quotation mark.
+        assert_eq!(texts("\\begin{document}\\'{} \\\"{}\\end{document}"), vec!["\u{B4} \u{A8}".to_string()]);
     }
 
     #[test]
