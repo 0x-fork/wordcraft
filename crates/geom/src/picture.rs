@@ -1,7 +1,8 @@
 //! Decoding a picture within a memory budget. Every crate that decodes a document's pictures goes
 //! through [`probe`]: the header gives the format and size, and the decode is refused before
 //! anything is allocated when its peak would pass the budget. The peak counts what a decoder holds
-//! beside its output (a progressive JPEG's coefficients, #3644).
+//! beside its output (a progressive JPEG's coefficients, #3644), and a picture whose decoder can't
+//! be held to a budget is not decoded at all (a TIFF with JPEG strips, #3645).
 
 use std::io::Cursor;
 
@@ -12,6 +13,8 @@ use image::{DynamicImage, ImageDecoder, ImageFormat};
 pub enum Refusal {
     /// Not a raster picture WordCraft decodes (a metafile, SVG or other bytes).
     NotAPicture,
+    /// A kind of picture that is never decoded, because its decoder can't be held to a budget.
+    Unsupported(&'static str),
     /// Decoding it would take more memory than the budget.
     TooLarge { width: u32, height: u32 },
     /// The header or the data is damaged.
@@ -22,6 +25,7 @@ impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Refusal::NotAPicture => f.write_str("not a supported picture (PNG, JPEG, GIF, WebP, BMP or TIFF)"),
+            Refusal::Unsupported(what) => f.write_str(what),
             Refusal::TooLarge { width, height } => write!(f, "the picture is too large ({width} × {height} pixels)"),
             Refusal::Broken(why) => write!(f, "the picture is damaged ({why})"),
         }
@@ -45,12 +49,23 @@ pub struct Probe<'a> {
     peak: u64,
 }
 
+/// TIFF compressions decoded within the caller's limits: none, CCITT Group 4, LZW, Deflate (both
+/// codes) and PackBits. The `tiff` crate decodes a JPEG strip (7) with a decoder of its own and
+/// default limits, whatever size the TIFF declares, so such a TIFF is not decoded (#3645).
+const TIFF_COMPRESSIONS: [u16; 6] = [1, 4, 5, 8, 32946, 32773];
+
 /// Read a picture's header: PNG, JPEG, GIF, WebP, BMP or TIFF.
 pub fn probe(bytes: &[u8]) -> Result<Probe<'_>, Refusal> {
     let format = image::guess_format(bytes).map_err(|_| Refusal::NotAPicture)?;
     let held = match format {
-        ImageFormat::Png | ImageFormat::Gif | ImageFormat::WebP | ImageFormat::Bmp | ImageFormat::Tiff => 0,
+        ImageFormat::Png | ImageFormat::Gif | ImageFormat::WebP | ImageFormat::Bmp => 0,
         ImageFormat::Jpeg => jpeg_coefficients(bytes),
+        ImageFormat::Tiff => {
+            if !tiff_compression(bytes).is_some_and(|c| TIFF_COMPRESSIONS.contains(&c)) {
+                return Err(Refusal::Unsupported("TIFF pictures with JPEG or an unknown compression can't be read"));
+            }
+            0
+        }
         _ => return Err(Refusal::NotAPicture),
     };
     let decoder = image::ImageReader::with_format(Cursor::new(bytes), format).into_decoder().map_err(broken)?;
@@ -170,6 +185,40 @@ fn worst_coefficients(bytes: &[u8]) -> u64 {
     mcus.saturating_mul(2 * 64 * 16 * 4)
 }
 
+/// The compression of a classic TIFF's first image (the one the image crate decodes): 1 when the
+/// tag is missing. None when the header can't be read.
+fn tiff_compression(bytes: &[u8]) -> Option<u16> {
+    let le = match bytes.get(..4)? {
+        b"II*\0" => true,
+        b"MM\0*" => false,
+        _ => return None,
+    };
+    let u16_at = |at: usize| -> Option<u16> {
+        let b = [*bytes.get(at)?, *bytes.get(at.checked_add(1)?)?];
+        Some(if le { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) })
+    };
+    let u32_at = |at: usize| -> Option<u32> {
+        let b: [u8; 4] = bytes.get(at..at.checked_add(4)?)?.try_into().ok()?;
+        Some(if le { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) })
+    };
+    let ifd = usize::try_from(u32_at(4)?).ok()?;
+    for i in 0..usize::from(u16_at(ifd)?) {
+        let entry = ifd.checked_add(2)?.checked_add(i.checked_mul(12)?)?;
+        if u16_at(entry)? != 259 {
+            continue;
+        }
+        if u32_at(entry.checked_add(4)?)? != 1 {
+            return None;
+        }
+        return match u16_at(entry.checked_add(2)?)? {
+            3 => u16_at(entry.checked_add(8)?),
+            4 => u16::try_from(u32_at(entry.checked_add(8)?)?).ok(),
+            _ => None,
+        };
+    }
+    Some(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +334,33 @@ mod tests {
         jpeg.extend(&f);
         jpeg.extend([0xFF, 0xDA]);
         assert_eq!(jpeg_coefficients(&jpeg), 64 * 64 * 2);
+    }
+
+    /// A little-endian TIFF header whose first IFD holds just a compression tag.
+    fn tiff_with_compression(compression: u16) -> Vec<u8> {
+        let mut t = b"II*\0".to_vec();
+        t.extend(8u32.to_le_bytes());
+        t.extend(1u16.to_le_bytes());
+        t.extend(259u16.to_le_bytes());
+        t.extend(3u16.to_le_bytes());
+        t.extend(1u32.to_le_bytes());
+        t.extend(u32::from(compression).to_le_bytes());
+        t.extend(0u32.to_le_bytes());
+        t
+    }
+
+    #[test]
+    fn tiffs_with_jpeg_strips_are_never_decoded() {
+        assert_eq!(tiff_compression(&tiff_with_compression(7)), Some(7));
+        assert!(matches!(probe(&tiff_with_compression(7)), Err(Refusal::Unsupported(_))));
+        assert!(matches!(probe(&tiff_with_compression(6)), Err(Refusal::Unsupported(_))), "old-style JPEG");
+        let mut be = b"MM\0*\0\0\0\x08\0\x01\x01\x03\0\x03\0\0\0\x01\0\x07\0\0".to_vec();
+        assert_eq!(tiff_compression(&be), Some(7), "big-endian: the short is left-justified");
+        be.truncate(12);
+        assert_eq!(tiff_compression(&be), None, "cut short");
+        // An uncompressed TIFF reads as before.
+        let tiff = encode(image::RgbImage::from_pixel(5, 3, image::Rgb([9, 8, 7])), ImageFormat::Tiff);
+        assert_eq!(tiff_compression(&tiff), Some(1));
+        assert_eq!(decode(&tiff, 1 << 20).unwrap().to_rgb8().get_pixel(4, 2).0, [9, 8, 7]);
     }
 }
