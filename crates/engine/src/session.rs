@@ -1406,7 +1406,7 @@ impl Session {
     /// [`crate::cmd::protect::Facts`] for the document as it is now, cached per revision.
     fn protect_facts(&self) -> crate::cmd::protect::Facts {
         let key = (self.document_id, self.rev, self.author.clone());
-        let mut cache = self.protect_facts.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self.protect_facts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((k, f)) = cache.as_ref()
             && *k == key
         {
