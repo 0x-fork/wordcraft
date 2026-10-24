@@ -1193,10 +1193,11 @@ fn adjust(s: &mut Session, f: impl Fn(image::DynamicImage) -> image::DynamicImag
 /// Picture keeps working.
 fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> image::DynamicImage) -> CmdResult {
     let bytes = s.doc.media.get(base).cloned().ok_or_else(|| CmdError::Failed("picture data missing".into()))?;
-    let img = image::load_from_memory(&bytes).map_err(|e| CmdError::Failed(format!("can't decode the picture: {e}")))?;
-    if (img.width() as u64) * (img.height() as u64) > 80_000_000 {
-        return Err(CmdError::Failed("picture is too large to edit".into()));
-    }
+    // Within the budget pictures are drawn within, checked from the header first (#3644, #3647).
+    let img = wordcraft_geom::picture::decode(&bytes, wordcraft_geom::MAX_DECODED_BYTES).map_err(|e| match e {
+        wordcraft_geom::picture::Refusal::TooLarge { .. } => CmdError::Failed("picture is too large to edit".into()),
+        e => CmdError::Failed(format!("can't decode the picture: {e}")),
+    })?;
     let out = f(img);
     let mut png = Vec::new();
     out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).map_err(|e| CmdError::Failed(e.to_string()))?;
@@ -1980,6 +1981,40 @@ mod tests {
         s.sel = crate::Selection { anchor: Pos::body(0, 0), focus: Pos::body(0, wordcraft_doc::para::OBJ.len_utf8()) };
         s.run("insert.picture", &json!({"data": data})).unwrap();
         assert_eq!(s.run("arrange.selectionPane", &json!({})).unwrap().as_array().map(Vec::len), Some(1));
+    }
+
+    /// A PNG whose header (valid CRC) declares `w` × `h` pixels, with one pixel of data.
+    fn header_only_png(w: u32, h: u32) -> Vec<u8> {
+        let mut b = png(8, 8);
+        b[16..20].copy_from_slice(&w.to_be_bytes());
+        b[20..24].copy_from_slice(&h.to_be_bytes());
+        let mut crc = 0xFFFF_FFFFu32;
+        for &byte in &b[12..29] {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 { 0xEDB8_8320 ^ (crc >> 1) } else { crc >> 1 };
+            }
+        }
+        b[29..33].copy_from_slice(&(!crc).to_be_bytes());
+        b
+    }
+
+    #[test]
+    fn picture_edits_refuse_an_over_budget_header_before_decoding() {
+        // Inserting reads the size only; every edit then refuses it from the header (#3644, #3647).
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.picture", &json!({"data": super::super::insert::base64_encode(&header_only_png(20_000, 20_000))})).unwrap();
+        let media = s.doc.media.len();
+        for (id, v) in [
+            ("picture.corrections", json!({"brightness": 10})),
+            ("picture.color", json!({"mode": "sepia"})),
+            ("picture.removeBackground", json!({})),
+            ("picture.style", json!({"style": "shadow"})),
+        ] {
+            let e = s.run(id, &v).unwrap_err().to_string();
+            assert!(e.contains("too large to edit"), "{id}: {e}");
+        }
+        assert_eq!(s.doc.media.len(), media, "nothing was added");
     }
 
     #[test]

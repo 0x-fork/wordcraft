@@ -202,6 +202,10 @@ const MAX_DECODE_SIDE: u32 = u16::MAX as u32;
 /// Decode an encoded image to a premultiplied pixmap. The dimension limit above and the default
 /// allocation cap (512 MB, what `load_from_memory` applied) bound the decode during paint.
 pub fn decode_pixmap(bytes: &[u8]) -> Option<Pixmap> {
+    // The shared probe also charges what the decoder holds beside its output (#3644).
+    if !wordcraft_geom::picture::probe(bytes).is_ok_and(|p| p.fits(wordcraft_geom::MAX_DECODED_BYTES)) {
+        return None;
+    }
     decode_pixmap_within(bytes, wordcraft_geom::MAX_DECODED_BYTES)
 }
 
@@ -1628,6 +1632,36 @@ mod tests {
         let big = render_page(&d, &l.pages[0], 1e9, &RenderOptions::default());
         assert!(big.width <= MAX_SIDE);
         assert!(decode_pixmap(b"not an image").is_none());
+    }
+
+    /// A JPEG whose headers say progressive (SOF2, a DC-only first scan) and `w` × `h`, its three
+    /// components unsubsampled, with no pixel data that size.
+    fn progressive_jpeg_header(w: u16, h: u16) -> Vec<u8> {
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(16, 16).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+        let sof = jpeg.windows(2).position(|m| m == [0xFF, 0xC0]).unwrap();
+        jpeg[sof + 1] = 0xC2;
+        jpeg[sof + 5..sof + 7].copy_from_slice(&h.to_be_bytes());
+        jpeg[sof + 7..sof + 9].copy_from_slice(&w.to_be_bytes());
+        for c in 0..3 {
+            jpeg[sof + 11 + 3 * c] = 0x11;
+        }
+        let sos = jpeg.windows(2).position(|m| m == [0xFF, 0xDA]).unwrap();
+        let n = usize::from(jpeg[sos + 4]);
+        jpeg[sos + 6 + 2 * n] = 0;
+        jpeg
+    }
+
+    #[test]
+    fn progressive_jpeg_coefficients_count_toward_the_decode_budget() {
+        // Two RGBA buffers of 7900 × 7900 fit 512 MB, but RGB output beside three full-size
+        // coefficient planes (9 bytes a pixel) doesn't (#3644).
+        let jpeg = progressive_jpeg_header(7900, 7900);
+        assert!(wordcraft_geom::decode_fits(7900, 7900, wordcraft_geom::MAX_DECODED_BYTES));
+        assert!(decode_pixmap(&jpeg).is_none());
+        let mut baseline = Vec::new();
+        image::RgbImage::new(64, 64).write_to(&mut std::io::Cursor::new(&mut baseline), image::ImageFormat::Jpeg).unwrap();
+        assert!(decode_pixmap(&baseline).is_some(), "other JPEGs still draw");
     }
 
     #[test]
