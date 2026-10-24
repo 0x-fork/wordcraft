@@ -191,6 +191,20 @@ fn same_content_sees_every_change() {
     let mut e = d.clone();
     e.para_mut(StoryRef::Body, &Path::top(0)).unwrap().touch();
     assert!(d.same_content(&e), "the paragraph only changed its counter");
+    // A table copied for an edit: the same until a cell's content changes.
+    let mut d = Document::from_text("Hello");
+    d.body.insert(0, Arc::new(Block::Table(Table::new(2, 2, 200.0))));
+    let mut e = d.clone();
+    Arc::make_mut(&mut e.body[0]);
+    assert!(!Arc::ptr_eq(&d.body[0], &e.body[0]));
+    assert!(d.same_content(&e), "the table was only copied");
+    let Block::Table(t) = Arc::make_mut(&mut e.body[0]) else { panic!("a table") };
+    t.rows[1].cells[1].blocks[0] = para_block(Paragraph::with_text("x", CharProps::default()));
+    assert!(!d.same_content(&e), "a cell's text changed");
+    // A building block was added.
+    let mut e = d.clone();
+    e.glossary.push(BuildingBlock { name: "Sign-off".into(), ..Default::default() });
+    assert!(!d.same_content(&e), "a building block was added");
 }
 
 #[test]
