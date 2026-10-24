@@ -278,8 +278,8 @@ fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
         sep(ui, t);
 
         let hl = app.canvas.last_highlight.clone();
-        let (icon, sw) = highlight_button_appearance(&hl);
-        widgets::split(ui, app, icon, "Text Highlight Color", "format.highlight", json!({"color": hl}), false, sw, |ui, app| {
+        let (icon, sw, color) = highlight_button_appearance(&hl);
+        widgets::split(ui, app, icon, "Text Highlight Color", "format.highlight", json!({"color": color}), false, sw, |ui, app| {
             highlight_menu(ui, app);
         });
         let fc = app.canvas.last_font_color.clone();
@@ -305,10 +305,10 @@ fn sep(ui: &mut egui::Ui, t: &Tokens) {
 }
 
 /// The split-button icon and colour bar for the remembered highlight choice.
-pub(crate) fn highlight_button_appearance(name: &str) -> (&'static str, Option<egui::Color32>) {
+pub(crate) fn highlight_button_appearance(name: &str) -> (&'static str, Option<egui::Color32>, &'static str) {
     let highlight = wordcraft_doc::props::Highlight::from_ooxml(name);
     let icon = if highlight == wordcraft_doc::props::Highlight::None { "highlightNoColor" } else { "highlight" };
-    (icon, highlight.rgb().map(crate::theme::c32))
+    (icon, highlight.rgb().map(crate::theme::c32), highlight.ooxml())
 }
 
 /// Highlight colour grid and No Color, shared by the ribbon and the mini toolbar. The pick,
@@ -358,9 +358,9 @@ mod tests {
 
     #[test]
     fn highlight_button_appearance_follows_the_picked_colour() {
-        assert_eq!(highlight_button_appearance("cyan"), ("highlight", Some(egui::Color32::from_rgb(0, 255, 255))));
-        assert_eq!(highlight_button_appearance("none"), ("highlightNoColor", None));
-        assert_eq!(highlight_button_appearance("unknown"), ("highlightNoColor", None));
+        assert_eq!(highlight_button_appearance("cyan"), ("highlight", Some(egui::Color32::from_rgb(0, 255, 255)), "cyan"));
+        assert_eq!(highlight_button_appearance("none"), ("highlightNoColor", None, "none"));
+        assert_eq!(highlight_button_appearance("unknown"), ("highlightNoColor", None, "none"));
     }
 
     fn vp() -> Rect {
@@ -868,6 +868,14 @@ mod tests {
         let arrow = highlight_arrow(&h);
         click_at(&mut h, pos2(arrow.min.x - 12.0, arrow.center().y));
         assert_eq!(format_state(&mut h).get("highlight"), Some(&Value::Null), "the button applies No Color, not yellow again");
+
+        // A stale or corrupted remembered value looks like No Color and must act like it too.
+        h.state_mut().canvas.last_highlight = "unknown".into();
+        h.state_mut().run("format.highlight", json!({"color": "yellow"})).unwrap();
+        steps(&mut h);
+        let arrow = highlight_arrow(&h);
+        click_at(&mut h, pos2(arrow.min.x - 12.0, arrow.center().y));
+        assert_eq!(format_state(&mut h).get("highlight"), Some(&Value::Null), "an unknown remembered colour is normalized to No Color");
     }
 
     /// #3039: picking Automatic from the bar's font-colour menu hands the keyboard back to the
