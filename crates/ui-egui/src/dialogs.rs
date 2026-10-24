@@ -1938,14 +1938,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             mixed,
             ..
         } => {
-            ui.horizontal(|ui| {
-                for (k, name) in ["Indents and Spacing", "Line and Page Breaks", "Asian Typography"].into_iter().enumerate() {
-                    if ui.selectable_label(*tab as usize == k, tl!(name)).clicked() {
-                        *tab = k as u8;
-                    }
-                }
-            });
-            ui.separator();
+            let names = ["Indents and Spacing", "Line and Page Breaks", "Asian Typography"].map(|n| tl!(n).to_string());
+            if let Some(k) = crate::widgets::dialog_tabs(ui, &names, *tab as usize) {
+                *tab = k as u8;
+            }
+            ui.add_space(6.0);
             match *tab {
                 0 => {
                     ui.label(egui::RichText::new(tl!("General")).font(semibold(12.5)));
@@ -2043,15 +2040,14 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         Dialog::Tabs { form } => crate::dialogs_para::tabs(app, ui, form),
         Dialog::Borders { form } => crate::dialogs_para::borders(app, ui, form),
         Dialog::Find { query, replace, match_case, whole_word, regex, extra, tab, goto_what, goto_target, message, focus } => {
-            ui.horizontal(|ui| {
-                for (t, label) in [(FindTab::Find, "Find"), (FindTab::Replace, "Replace"), (FindTab::GoTo, "Go To")] {
-                    if ui.selectable_label(*tab == t, tl!(label)).clicked() && *tab != t {
-                        *tab = t;
-                        message.clear();
-                    }
-                }
-            });
-            ui.separator();
+            const FIND_TABS: [(FindTab, &str); 3] = [(FindTab::Find, "Find"), (FindTab::Replace, "Replace"), (FindTab::GoTo, "Go To")];
+            let names = FIND_TABS.map(|(_, l)| tl!(l).to_string());
+            let current = FIND_TABS.iter().position(|(t, _)| t == tab).unwrap_or(0);
+            if let Some((t, _)) = crate::widgets::dialog_tabs(ui, &names, current).and_then(|k| FIND_TABS.get(k)) {
+                *tab = *t;
+                message.clear();
+            }
+            ui.add_space(6.0);
             if *tab == FindTab::GoTo {
                 return goto_body(app, ui, goto_what, goto_target, message);
             }
@@ -2706,15 +2702,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::About { tab } => {
             ui.set_width(660.0);
-            ui.horizontal(|ui| {
-                for (i, l) in ["About", "Contributors", "Models"].into_iter().enumerate() {
-                    let i = i as u8;
-                    if ui.selectable_label(*tab == i, tl!(l)).clicked() {
-                        *tab = i;
-                    }
-                }
-            });
-            ui.separator();
+            let names = ["About", "Contributors", "Models"].map(|n| tl!(n).to_string());
+            if let Some(i) = crate::widgets::dialog_tabs(ui, &names, *tab as usize) {
+                *tab = i as u8;
+            }
+            ui.add_space(6.0);
             match *tab {
                 1 => crate::credits::contributors_ui(ui),
                 2 => crate::credits::models_ui(ui),
