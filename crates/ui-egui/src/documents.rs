@@ -102,6 +102,22 @@ impl WordApp {
         seen
     }
 
+    /// Open the file at `path` for the window showing document `into` (`None`: the active
+    /// document's window). Every way of opening a file comes through here, so each follows the
+    /// same rule: an untouched blank document is replaced in its own window, else the file opens
+    /// in a window of its own (or its window comes forward if it is already open). A file a
+    /// dialog picked arrives while any window draws, so the document it was asked from is made
+    /// active again first.
+    pub fn open_file(&mut self, path: &str, into: Option<u64>) -> Result<Value, String> {
+        if let Some(id) = into
+            && id != self.session.document_id()
+            && self.session.is_open(id)
+        {
+            self.show_document(id)?;
+        }
+        self.run("file.open", json!({"path": path}))
+    }
+
     /// Show open document `id` in the window (View › Window › Switch Windows, quitting).
     pub(crate) fn show_document(&mut self, id: u64) -> Result<(), String> {
         self.session.activate(id).map_err(|e| e.to_string())?;

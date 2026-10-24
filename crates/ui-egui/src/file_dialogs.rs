@@ -56,8 +56,8 @@ pub fn open_filters(purpose: &str) -> &'static [(&'static str, &'static [&'stati
 
 /// What to do with the path picked in a dialog.
 pub(crate) enum AfterPick {
-    /// Open the picked document.
-    OpenDocument,
+    /// Open the picked document from the window showing `document` ([`WordApp::open_file`]).
+    OpenDocument { document: u64 },
     /// Insert the picked picture, or replace the pending Change Picture target.
     Picture,
     /// Save the document there, then carry on.
@@ -242,9 +242,9 @@ impl WordApp {
     /// Do what the dialog was for with the picked path (`None`: the user cancelled).
     pub(crate) fn finish_pick(&mut self, after: AfterPick, picked: Option<String>) -> Result<Value, String> {
         match after {
-            AfterPick::OpenDocument => {
+            AfterPick::OpenDocument { document } => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
-                let r = self.run("file.open", json!({"path": path}));
+                let r = self.open_file(&path, Some(document));
                 self.ui.backstage = false;
                 r
             }
@@ -450,7 +450,8 @@ impl WordApp {
             f("document");
             return;
         }
-        let _ = self.ask_file(FileDialogRequest::Open { purpose: "document".into() }, AfterPick::OpenDocument);
+        let _ =
+            self.ask_file(FileDialogRequest::Open { purpose: "document".into() }, AfterPick::OpenDocument { document: self.session.document_id() });
     }
 
     pub(crate) fn pick_picture(&mut self) {

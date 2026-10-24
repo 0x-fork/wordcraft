@@ -43,7 +43,7 @@ pub fn poll(inbox: &Inbox, app: &mut WordApp, ctx: &egui::Context) {
         match e {
             Event::Open(paths) => {
                 for p in paths.iter().filter_map(|p| p.to_str()) {
-                    match app.run("file.open", serde_json::json!({"path": p})) {
+                    match app.open_file(p, None) {
                         // Leave Backstage, as opening from the Open dialog does.
                         Ok(_) => app.ui.backstage = false,
                         Err(e) => {

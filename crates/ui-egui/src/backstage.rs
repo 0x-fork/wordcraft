@@ -564,8 +564,8 @@ pub(crate) fn forget_save_as_error(ctx: &egui::Context) {
 
 /// Open a file from the Recent list. A file that can't be opened (deleted, moved, unreadable)
 /// leaves File open so the list can say why, rather than closing it on a greyed-out window.
-fn open_recent(app: &mut WordApp, path: &str) -> Result<(), String> {
-    app.run("file.open", json!({"path": path}))?;
+pub(crate) fn open_recent(app: &mut WordApp, path: &str) -> Result<(), String> {
+    app.open_file(path, None)?;
     app.ui.backstage = false;
     app.canvas.want_focus = true;
     Ok(())

@@ -2479,7 +2479,7 @@ impl WordApp {
                 } else if wordcraft_fonts::is_font_file_name(&lp) {
                     self.run("font.add", json!({"path": path}))
                 } else {
-                    self.run("file.open", json!({"path": path}))
+                    self.open_file(&path, None)
                 };
             }
         }

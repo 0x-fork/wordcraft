@@ -1251,4 +1251,66 @@ mod tests {
         a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
         assert!(a.quit_requested, "one prompt for the document");
     }
+
+    /// Two windows, the second (focused) on an untouched blank document: an app whose host
+    /// answers file dialogs only when the test does, plus the dialog's answer channel.
+    fn blank_beside_a_document() -> (egui::Context, WordApp, Shown, u64) {
+        let shown: Shown = std::rc::Rc::default();
+        let log = shown.clone();
+        let services = Services {
+            file_dialog: Some(Box::new(move |_| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                log.borrow_mut().push(tx);
+                rx
+            })),
+            ..Default::default()
+        };
+        let ctx = backend();
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
+        frames(&ctx, &mut a, 2);
+        a.run("file.open", json!({"path": docx_on_disk("first", "First").to_string_lossy()})).unwrap();
+        a.run("file.new", json!({})).unwrap();
+        frames(&ctx, &mut a, 2);
+        assert!(a.window_count() == 2 && a.session.is_untouched_blank());
+        let blank = a.windows.shown();
+        (ctx, a, shown, blank)
+    }
+
+    type Shown = std::rc::Rc<RefCell<Vec<std::sync::mpsc::Sender<crate::file_dialogs::FileDialogAnswer>>>>;
+
+    /// Each way of opening a file replaces an untouched blank document in its own window, even
+    /// when the file arrives while another window draws: File › Open, ⌘O and the File page's
+    /// Browse (an asynchronous dialog), the File page's and Start screen's recent list, and
+    /// Finder (between frames, in the focused window).
+    #[test]
+    fn every_open_replaces_an_untouched_blank_document_in_its_window() {
+        let second = docx_on_disk("second", "Second");
+        let path = second.to_string_lossy().to_string();
+        let opens: [(&str, fn(&mut WordApp, &egui::Context, &Shown, &str)); 3] = [
+            ("dialog", |a, ctx, shown, path| {
+                a.run("ui.backstage", json!({"value": true, "page": "open"})).unwrap();
+                a.run("ui.openFileDialog", json!({})).unwrap();
+                frames(ctx, a, 2);
+                let tx = shown.borrow_mut().pop().unwrap();
+                tx.send(Ok(vec![path.to_string()])).unwrap();
+                frames(ctx, a, 3);
+            }),
+            ("recent", |a, ctx, _, path| {
+                crate::backstage::open_recent(a, path).unwrap();
+                frames(ctx, a, 2);
+            }),
+            ("finder", |a, ctx, _, path| {
+                a.open_file(path, None).unwrap();
+                frames(ctx, a, 2);
+            }),
+        ];
+        for (how, open) in opens {
+            let (ctx, mut a, shown, blank) = blank_beside_a_document();
+            open(&mut a, &ctx, &shown, &path);
+            assert_eq!(a.window_count(), 2, "{how}: no third window");
+            assert!(a.enter_window(blank), "{how}: the blank document's window is still open");
+            assert_eq!(text(&a), "Second", "{how}: it shows the opened file");
+        }
+        std::fs::remove_dir_all(second.parent().unwrap()).ok();
+    }
 }
