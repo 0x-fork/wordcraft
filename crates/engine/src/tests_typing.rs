@@ -737,6 +737,16 @@ fn tab_before_a_later_line_of_a_paragraph_indents_the_whole_paragraph() {
     s.sel = crate::Selection::caret(Pos::body(1, 0));
     typ(&mut s, "\t");
     assert_eq!(s.doc.para_at(&Pos::body(1, 0)).unwrap().props.numbering.map(|n| n.level), Some(8));
+    s.doc.para_mut(StoryRef::Body, &Pos::body(0, 0).path).unwrap().props.numbering = Some(wordcraft_doc::props::NumRef { num, level: u8::MAX });
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "caret.down", json!({}));
+    run(&mut s, "caret.home", json!({}));
+    assert_eq!((s.sel.focus.path.clone(), s.sel.focus.off), (Pos::body(0, 0).path, 6), "the caret is before \"More\"");
+    typ(&mut s, "\t");
+    assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.numbering.map(|n| n.level), Some(8));
+    s.doc.para_mut(StoryRef::Body, &Pos::body(0, 0).path).unwrap().props.numbering = Some(wordcraft_doc::props::NumRef { num, level: u8::MAX });
+    run(&mut s, "outline.demote", json!({}));
+    assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap().props.numbering.map(|n| n.level), Some(8));
 }
 
 #[test]
