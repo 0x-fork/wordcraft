@@ -159,6 +159,39 @@ impl PaneContent<Pane> for Content<'_> {
     }
 }
 
+const HOST: &str = "task_panes";
+
+/// F6 and Shift+F6 move the keyboard through the panes and back to the document. The key stays
+/// with an open dialog, file browser, popup or keytips (Customize Keyboard records it), and an
+/// F6 the user bound to a command runs that command instead.
+fn route_f6(app: &WordApp, ctx: &egui::Context) {
+    let busy = app.dialog.is_some()
+        || app.file_dialog_open()
+        || app.colors.is_some()
+        || app.controls.popup_open()
+        || app.zotero.alert_open()
+        || app.ui.keytips != crate::keytips::Phase::Off
+        || egui::Popup::is_any_open(ctx);
+    if busy {
+        return;
+    }
+    let reg = &app.session.registry;
+    let bound = |m: egui::Modifiers| app.session.keymap.resolve(reg, &crate::keys::combo(m, "F6", true)).is_some();
+    let mut cycle = None;
+    ctx.input_mut(|input| {
+        input.events.retain(|e| match e {
+            egui::Event::Key { key: egui::Key::F6, pressed: true, modifiers: m, .. } if !m.command && !m.ctrl && !m.mac_cmd && !bound(*m) => {
+                cycle = Some(m.shift);
+                false
+            }
+            _ => true,
+        });
+    });
+    if let Some(reverse) = cycle {
+        craft_ui::panes::focus_next(ctx, HOST, reverse);
+    }
+}
+
 /// Draw the open panes around the document. Call before the canvas's `CentralPanel`.
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -166,9 +199,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if !open.contains(&Pane::FormatShape) {
         crate::format_shape::forget_drag(ui.ctx());
     }
+    route_f6(app, ui.ctx());
     let styles = styles_state(app);
-    let out = PaneHost::new("task_panes")
+    let out = PaneHost::new(HOST)
         .policy(SidePolicy::Columns)
+        .f6(false)
         .labels(labels())
         .frame(egui::Frame::NONE.fill(t.panel).stroke(Stroke::new(1.0, t.border)))
         .body_margin(egui::Margin::same(10))
@@ -1051,6 +1086,68 @@ mod tests {
         h.input_mut().events.push(egui::Event::Text("typed".into()));
         h.run_steps(2);
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim(), "typed");
+    }
+
+    fn pane_harness(app: crate::WordApp) -> egui_kittest::Harness<'static, crate::WordApp> {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut crate::WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        h
+    }
+
+    fn press(h: &mut egui_kittest::Harness<'static, crate::WordApp>, key: egui::Key, modifiers: egui::Modifiers) {
+        h.input_mut().events.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
+        h.run_steps(2);
+    }
+
+    /// F6 and Shift+F6 with a dialog open leave the keyboard in the dialog: no pane title bar and
+    /// no document behind it takes it.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn f6_in_an_open_dialog_keeps_focus_there() {
+        for panes in [true, false] {
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+            app.run("view.navigationPane", serde_json::json!({"value": panes})).unwrap();
+            app.run("ui.dialog", serde_json::json!({"name": "replace"})).unwrap();
+            let mut h = pane_harness(app);
+            let focused = h.ctx.memory(|m| m.focused());
+            for shift in [false, true] {
+                press(&mut h, egui::Key::F6, if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE });
+                assert_eq!(h.ctx.memory(|m| m.focused()), focused, "panes open: {panes}, shift: {shift}");
+                assert!(!h.state().canvas.focused && h.state().dialog.is_some(), "panes open: {panes}, shift: {shift}");
+            }
+        }
+    }
+
+    /// An F6 the user bound runs its command; plain F6 still moves to the panes when only
+    /// Shift+F6 is bound.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn a_user_bound_f6_runs_its_command() {
+        for key in ["F6", "Shift+F6"] {
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+            app.run("view.navigationPane", serde_json::json!({"value": true})).unwrap();
+            app.session.keymap = wordcraft_engine::keymap::KeyMap::from_value(&serde_json::json!({"assigned": {key: "view.focus"}}));
+            let mut h = pane_harness(app);
+            assert!(h.state().canvas.focused);
+            let m = if key == "F6" { egui::Modifiers::NONE } else { egui::Modifiers::SHIFT };
+            press(&mut h, egui::Key::F6, m);
+            assert!(h.state().session.view.focus_mode, "{key} ran its command");
+            press(&mut h, egui::Key::F6, m);
+            assert!(!h.state().session.view.focus_mode, "{key} ran its command again");
+            if key == "Shift+F6" {
+                h.state_mut().canvas.want_focus = true;
+                h.run_steps(2);
+                press(&mut h, egui::Key::F6, egui::Modifiers::NONE);
+                assert!(!h.state().canvas.focused, "plain F6 moved the keyboard to the pane");
+            }
+        }
     }
 
     /// #3032: Delete is greyed out for built-in styles in the Styles pane (the engine refuses
