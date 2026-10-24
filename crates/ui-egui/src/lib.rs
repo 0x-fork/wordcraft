@@ -129,7 +129,8 @@ pub struct Services {
     pub async_saves: Option<async_saves::AsyncSaves>,
     /// Web, framed by a page that keeps the files (`?host=parent`): set alongside `download`,
     /// Save, Save As and Export hand the bytes to that page instead, with whether it was Save As
-    /// ([`HostSaveFn`]). Save then writes the opened file under its own name and format, as on
+    /// ([`HostSaveFn`]: true for `file.saveAs`, which File › Export to a document format runs
+    /// too; false for Save and for the PDF and PNG exports, which are copies). Save then writes the opened file under its own name and format, as on
     /// the desktop, and a Save or Save As that keeps everything makes that name the document's
     /// file, so the next Save goes to it.
     pub host_save: Option<HostSaveFn>,

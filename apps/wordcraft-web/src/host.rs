@@ -2,14 +2,19 @@
 //! WordCraft in an `<iframe>` and keep its files (a Nextcloud app, a personal file server). The
 //! same messages as GridCraft's and PdfCraft's bridges; each is a plain object with a `type`:
 //!
-//! - `wordcraft:ready` (to the parent): `{ version }`, the app is listening; send a file now.
+//! - `wordcraft:ready` (to the parent): `{ version }`, sent once the app is running and
+//!   listening; send a file now.
 //! - `wordcraft:open` (from the parent): `{ name, bytes }`, bytes an `ArrayBuffer` or
 //!   `Uint8Array`. It opens like a document picked with File › Open or dropped on the window.
 //! - `wordcraft:save` (to the parent): `{ name, saveAs, bytes }` (a transferred `ArrayBuffer`) for
-//!   every file WordCraft would otherwise download: Save, Save As, File › Export and Export as
-//!   PDF. Save writes the opened file under its own name and format, as the desktop app does;
-//!   `saveAs` is true for Save As and File › Export. The parent stores it and reports failures
-//!   itself.
+//!   every file WordCraft would otherwise download. The parent stores it and reports failures
+//!   itself. `saveAs` says whether the file becomes the document's file:
+//!   - Save: `false`. It writes the opened file under its own name and format, as the desktop
+//!     app does.
+//!   - Save As, and File › Export to another document format (which runs Save As): `true`. The
+//!     document is now that file; the next Save sends its name with `false`.
+//!   - Export as PDF and Export Page as PNG: `false`, with a name of their own (`report.pdf`).
+//!     They are copies; the document's file stays the same.
 //! - `wordcraft:dirty` (to the parent): `{ dirty }` whenever unsaved changes appear or go away.
 //! - `wordcraft:failed` (to the parent): `{ error }` when the app couldn't start.
 //!

@@ -85,23 +85,30 @@ pub fn start() {
                         let doc = app.session.blank_document();
                         app.session.set_document(doc);
                     }
-                    let prefs = crate::prefs::PrefsSync::new(stored);
+                    let mut prefs = crate::prefs::PrefsSync::new(stored);
                     // No document to show: start on File › Home, as the desktop app does (#766).
                     if !sample {
                         app.start_screen();
                     }
-                    if let Some(bridge) = &app_bridge {
-                        if let Some(author) = query_param("author") {
-                            crate::host::Bridge::set_author(&mut app, &author);
-                        }
-                        bridge.post_ready();
+                    // The host's name for the user signs this visit's work, but isn't stored as the
+                    // browser's own preference, which a visit outside the host would restore.
+                    if app_bridge.is_some()
+                        && let Some(author) = query_param("author")
+                    {
+                        let own = app.session.author.clone();
+                        crate::host::Bridge::set_author(&mut app, &author);
+                        prefs.keep_own_author(&app.session.author, &own);
                     }
                     Ok(Box::new(WebShell { app, inbox, messages, prefs }))
                 }),
             )
             .await;
-        if let (Err(e), Some(bridge)) = (&result, &bridge) {
-            bridge.post_failed(&format!("{e:?}"));
+        // Ready only once the runner is up: starting can still fail after the app is made.
+        if let Some(bridge) = &bridge {
+            match &result {
+                Ok(()) => bridge.post_ready(),
+                Err(e) => bridge.post_failed(&format!("{e:?}")),
+            }
         }
         if let Some(el) = document.get_element_by_id(LOADING_ID) {
             match result {
