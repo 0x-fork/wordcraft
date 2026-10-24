@@ -2150,7 +2150,7 @@ impl Reader {
                     self.pending_high = Some(u);
                 } else {
                     let c = match self.pending_high.take() {
-                        Some(h) if (0xDC00..0xE000).contains(&u) => char::decode_utf16([h, u]).next().and_then(|r| r.ok()).unwrap_or('\u{FFFD}'),
+                        Some(h) if (0xDC00..0xE000).contains(&u) => char::decode_utf16([h, u]).next().and_then(Result::ok).unwrap_or('\u{FFFD}'),
                         _ => char::from_u32(u32::from(u)).unwrap_or('\u{FFFD}'),
                     };
                     self.ch(c);
