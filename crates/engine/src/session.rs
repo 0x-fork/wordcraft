@@ -367,6 +367,8 @@ pub struct Session {
     pub view: ViewState,
     /// Formatting picked with a collapsed caret, applied to the next typed text.
     pub pending: Option<CharProps>,
+    /// Last highlighter choice for the shortcut; palette state, outside document undo.
+    pub(crate) last_highlight: wordcraft_doc::props::Highlight,
     pub path: Option<std::path::PathBuf>,
     /// Name given to a document not saved yet (File › Info › Rename): what Save suggests. A file
     /// name, not document metadata, so it is not part of the document or its undo history.
@@ -677,10 +679,13 @@ impl Session {
         }
     }
 
+    /// Start an editing session at the document beginning with empty history and
+    /// default view, preferences and a yellow highlighter independent of document undo.
     pub fn new(doc: Document) -> Self {
         Self::with_registry(doc, Arc::new(crate::cmd::registry()))
     }
 
+    /// Initialise session defaults while sharing the immutable command registry with previews.
     fn with_registry(doc: Document, registry: Arc<Registry>) -> Self {
         let start = doc.start_of(StoryRef::Body);
         let bib_style = doc_bib_style(&doc);
@@ -689,6 +694,7 @@ impl Session {
             sel: Selection::caret(start),
             view: ViewState::default(),
             pending: None,
+            last_highlight: wordcraft_doc::props::Highlight::Yellow,
             path: None,
             file_name: None,
             user_dict_path: None,
@@ -1001,6 +1007,7 @@ impl Session {
         copy.path = self.path.clone();
         copy.file_name = self.file_name.clone();
         copy.author = self.author.clone();
+        copy.last_highlight = self.last_highlight;
         copy.system_region = self.system_region.clone();
         copy.editing_lang = self.editing_lang.clone();
         // The copy shares the paragraph layouts, so only what the command changed is laid out.
@@ -1336,6 +1343,7 @@ impl Session {
             sel,
             view: _,
             pending: _,
+            last_highlight: _,
             path: _,
             file_name: _,
             // The custom dictionary file, like the file path: host wiring, not an edit.

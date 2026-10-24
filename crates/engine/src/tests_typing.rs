@@ -8,10 +8,12 @@ use wordcraft_doc::{Pos, StoryRef};
 
 use crate::Session;
 
+/// Create an empty session for command-driven typing fixtures.
 fn s() -> Session {
     Session::new(wordcraft_doc::Document::new())
 }
 
+/// Execute a registry command and report its id on a test failure.
 fn run(s: &mut Session, id: &str, v: serde_json::Value) {
     s.run(id, &v).unwrap_or_else(|e| panic!("{id}: {e}"));
 }
@@ -39,10 +41,12 @@ fn paras(s: &Session) -> Vec<(String, Option<u8>, bool)> {
         .collect()
 }
 
+/// Expected paragraph text and list membership for typing assertions.
 fn para(text: &str, level: Option<u8>) -> (String, Option<u8>, bool) {
     (text.to_string(), level, level.is_some())
 }
 
+/// Create a session and enter its fixture through the actual typing commands.
 fn typed(keys: &str) -> Session {
     let mut s = s();
     typ(&mut s, keys);
@@ -2869,4 +2873,118 @@ fn a_new_list_uses_the_requested_kind_after_a_mixed_format_list() {
         assert_eq!(level.format == wordcraft_doc::section::NumFormat::Bullet, kind == ListKind::Bullet);
         assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap(), &before);
     }
+}
+
+/// #4085: the registered shortcut toggles the last selected highlight, while explicit
+/// colour commands remain idempotent setters for the palette, CLI and automation.
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn highlight_shortcut_toggles_the_last_colour() {
+    let mut s = typed("Alpha Beta");
+    run(&mut s, "select.all", json!({}));
+    let colour = |s: &mut Session| s.run("format.state", &json!({})).unwrap()["highlight"].clone();
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), json!("FFFF00"));
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(colour(&mut s), json!("FFFF00"));
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    assert_eq!(colour(&mut s), json!("0000FF"));
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), json!("0000FF"));
+    run(&mut s, "format.highlight", json!({"color":"none"}));
+    press(&mut s, "Mod+Alt+H").unwrap();
+    assert_eq!(colour(&mut s), serde_json::Value::Null);
+    assert_eq!(s.doc.body[0].as_para().unwrap().text, "Alpha Beta");
+}
+
+/// #4085: mixed selections take one colour; removing an inherited colour writes an
+/// explicit No Color, and a collapsed caret toggles pending formatting for future typing.
+#[test]
+fn highlight_toggle_handles_mixed_inherited_and_pending_formatting() {
+    let mut s = typed("Alpha Beta ");
+    run(&mut s, "select.text", json!({"text":"Alpha"}));
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], json!("0000FF"));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], serde_json::Value::Null);
+    s.doc.styles.default_chr.highlight = Some(wordcraft_doc::props::Highlight::Blue);
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    run(&mut s, "format.highlight", json!({}));
+    assert!(s.doc.body[0].as_para().unwrap().runs.iter().all(|r| r.props.highlight == Some(wordcraft_doc::props::Highlight::None)));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.pending.as_ref().unwrap().highlight, Some(wordcraft_doc::props::Highlight::Blue));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.pending.as_ref().unwrap().highlight, Some(wordcraft_doc::props::Highlight::None));
+    run(&mut s, "text.insert", json!({"text":"X"}));
+    run(&mut s, "select.text", json!({"text":"X"}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], serde_json::Value::Null);
+    let before = serde_json::to_value(&s.doc).unwrap();
+    assert!(s.run("format.highlight", &json!({"color":123})).is_err());
+    assert_eq!(serde_json::to_value(&s.doc).unwrap(), before);
+}
+
+/// A differently coloured final paragraph must remain visible to the shortcut beyond
+/// the formatting-state query limit, including a style-inherited tail and Undo/Redo.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn highlight_toggle_checks_past_the_resolved_run_limit() {
+    use wordcraft_doc::para::Run;
+    use wordcraft_doc::props::{CharProps, Highlight};
+    for count in [10_000, 10_001, 10_002] {
+        for inherited in [false, true] {
+            let mut doc = wordcraft_doc::Document::from_text(&format!("{}\nZ", "x".repeat(count)));
+            doc.para_mut(StoryRef::Body, &Pos::body(0, 0).path).unwrap().runs = (0..count)
+                .map(|i| Run { len: 1, props: CharProps { highlight: Some(Highlight::Blue), bold: Some(i % 2 == 0), ..Default::default() } })
+                .collect();
+            if inherited {
+                doc.styles.default_chr.highlight = Some(Highlight::Yellow);
+            } else {
+                doc.para_mut(StoryRef::Body, &Pos::body(1, 0).path).unwrap().runs[0].props.highlight = Some(Highlight::Yellow);
+            }
+            let original = doc.clone();
+            let mut s = Session::new(doc);
+            s.last_highlight = Highlight::Blue;
+            run(&mut s, "select.all", json!({}));
+            press(&mut s, "Mod+Alt+H").unwrap();
+            assert!(
+                s.doc.body.iter().filter_map(|b| b.as_para()).flat_map(|p| &p.runs).all(|r| r.props.highlight == Some(Highlight::Blue)),
+                "count={count}, inherited={inherited}"
+            );
+            press(&mut s, "Mod+Alt+H").unwrap();
+            assert!(s.doc.body.iter().filter_map(|b| b.as_para()).flat_map(|p| &p.runs).all(|r| r.props.highlight == Some(Highlight::None)));
+            run(&mut s, "edit.undo", json!({}));
+            assert!(s.doc.body[1].as_para().unwrap().runs.iter().all(|r| r.props.highlight == Some(Highlight::Blue)));
+            run(&mut s, "edit.undo", json!({}));
+            assert_eq!(serde_json::to_value(&s.doc).unwrap(), serde_json::to_value(&original).unwrap());
+            run(&mut s, "edit.redo", json!({}));
+            assert!(s.doc.body[1].as_para().unwrap().runs.iter().all(|r| r.props.highlight == Some(Highlight::Blue)));
+        }
+    }
+}
+
+/// A command preview uses the real session's remembered colour without changing its
+/// document, colour choice or undo history when the preview toggles highlighting off.
+#[test]
+fn highlight_preview_preserves_the_session_colour_and_document() {
+    use wordcraft_doc::props::Highlight;
+    let mut s = typed("Alpha");
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.highlight", json!({"color":"blue"}));
+    let original = serde_json::to_value(&s.doc).unwrap();
+    let depth = s.undo_depth();
+    let (preview, _, _) = s.preview_layout("format.highlight", &json!({})).unwrap();
+    assert!(preview.body[0].as_para().unwrap().runs.iter().all(|r| r.props.highlight == Some(Highlight::None)));
+    assert_eq!(serde_json::to_value(&s.doc).unwrap(), original);
+    assert_eq!(s.last_highlight, Highlight::Blue);
+    assert_eq!(s.undo_depth(), depth);
 }
