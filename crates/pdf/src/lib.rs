@@ -27,7 +27,6 @@ use std::num::NonZeroU16;
 use std::sync::Arc;
 
 use craft_pdf::write::{self, Metadata, WriteError, Writer, backend as krilla};
-use krilla::action::{Action, LinkAction};
 use krilla::annotation::{Annotation, LinkAnnotation, Target};
 use krilla::color::rgb;
 use krilla::destination::XyzDestination;
@@ -1595,11 +1594,11 @@ impl Exporter<'_> {
                     None => continue,
                 }
             } else {
-                let url = target.trim();
-                if url.is_empty() {
-                    continue;
+                // Unsafe targets (javascript:, file:, shares, other schemes) get no link; the text stays.
+                match write::uri_target(target) {
+                    Some(t) => t,
+                    None => continue,
                 }
-                Target::Action(Action::Link(LinkAction::new(url.to_string())))
             };
             v.push(Annotation::new_link(LinkAnnotation::new(rect, t), Some(target.clone())));
         }
