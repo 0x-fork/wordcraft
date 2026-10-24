@@ -2144,10 +2144,12 @@ impl WordApp {
         // New documents are written in the interface's language when WordCraft can proof it
         // (a Polish interface: Polish spelling, grammar and hyphenation from the first word).
         // An English interface writes the region's English (English (UK) on a British system,
-        // #1045).
+        // #1045), a Spanish one the region's Spanish (Spanish (Uruguay) on a Uruguayan system,
+        // Spain's elsewhere, #3360).
         let editing = match lang.editing_lang() {
             Some(t) => Some(t.to_string()),
             None if lang.code() == "en" => self.session.region_english(),
+            None if lang.code() == "es" => Some(self.session.region_spanish()),
             None => None,
         };
         if self.applied_editing.as_ref().is_none_or(|(l, e)| *l != lang || *e != editing) {
@@ -2566,7 +2568,7 @@ impl WordApp {
     /// recipient lists (CSV/TSV, spreadsheets, or a text file asked for as one) load as recipients.
     fn drain_inbox(&mut self) {
         let Some(inbox) = self.services.inbox.clone() else { return };
-        let files = std::mem::take(&mut *inbox.lock().unwrap_or_else(|e| e.into_inner()));
+        let files = std::mem::take(&mut *inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         let mut placed_picture = false;
         for (name, bytes) in files {
             let lower = name.to_ascii_lowercase();
@@ -2600,7 +2602,7 @@ impl WordApp {
     /// otherwise so the focused field's own paste applies (a text field ignores a picture).
     fn drain_pasted(&mut self) {
         let Some(pasted) = self.services.pasted.clone() else { return };
-        let pictures = std::mem::take(&mut *pasted.lock().unwrap_or_else(|e| e.into_inner()));
+        let pictures = std::mem::take(&mut *pasted.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         let target = paste_target(self.canvas.focused, self.ui.backstage, self.dialog.is_some() || self.file_dialog_open());
         for (_, bytes) in pictures {
             if !target {
