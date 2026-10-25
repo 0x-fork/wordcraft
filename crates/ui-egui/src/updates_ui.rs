@@ -70,7 +70,9 @@ pub(crate) fn tick(app: &mut WordApp, ctx: &egui::Context) {
 pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        match app.updates_rt.updater.show(ctx) {
+        // The restart helper is scheduled before the app closes, so no update starts over unsaved work.
+        let clean = !(app.session.dirty || app.save_unconfirmed());
+        match app.updates_rt.updater.show_if(ctx, clean) {
             Action::OpenUrl(url) => ctx.open_url(egui::OpenUrl::new_tab(url)),
             Action::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             Action::None => {}
