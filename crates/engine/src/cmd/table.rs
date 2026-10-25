@@ -971,44 +971,37 @@ fn to_text(s: &mut Session, v: &Value) -> CmdResult {
         (Some(a), Some(b)) if cells.len() > 1 || s.cell_range().is_some() => (a, b.min(t.rows.len().saturating_sub(1))),
         _ => (0, t.rows.len().saturating_sub(1)),
     };
-    // Content controls around several rows that the cut crosses: the rows above close them, the
-    // rows below open them again.
-    let open_above = row_controls_open_after(t.rows.get(..r0).unwrap_or_default());
-    let open_below = row_controls_open_after(t.rows.get(..=r1).unwrap_or_default());
-    let mut tail_rows = if r1 < t.rows.len() { t.rows.split_off(r1 + 1) } else { Vec::new() };
-    let rows = t.rows.split_off(r0.min(t.rows.len()));
-    if let Some(last) = t.rows.last_mut() {
-        last.controls.close = last.controls.close.saturating_add(u32::try_from(open_above.len()).unwrap_or(u32::MAX));
-    }
-    if let Some(first) = tail_rows.first_mut() {
-        let own = std::mem::replace(&mut first.controls.open, open_below);
-        first.controls.open.extend(own);
-    }
+    // `split_off` ends the vertical merges and row content controls that a cut crosses, and opens
+    // them again (without their ids) below it.
+    let mut tail = t.split_off(r1 + 1);
+    let rows = t.split_off(r0).rows;
+    t.controls.close = std::mem::take(&mut tail.controls.close);
     let mut blocks = Vec::new();
     if !t.rows.is_empty() {
         let mut head = Table { props: t.props.clone(), grid: t.grid.clone(), rows: std::mem::take(&mut t.rows), controls: Default::default() };
         head.controls.open = std::mem::take(&mut t.controls.open);
-        end_vmerge_above(&mut head);
         blocks.push(Block::Table(head));
     }
     let text_from = blocks.len();
     for row in rows {
         row_to_text(row, sep, &mut blocks);
     }
+    // Rows without cells (only from a damaged file) still leave a paragraph in their place.
+    if blocks.len() == text_from {
+        blocks.push(Block::Para(Paragraph::new()));
+    }
     // The caret goes to the first converted paragraph (into a nested table when there is none).
     let caret = match blocks.iter().enumerate().skip(text_from).find(|(_, b)| matches!(b, Block::Para(_))) {
         Some((k, _)) => tp.with_last(tp.last() + k),
         None => Path(tp.with_last(tp.last() + text_from).0.into_iter().chain([0, 0, 0]).collect()),
     };
-    if !tail_rows.is_empty() {
-        let mut tail = Table { props: t.props.clone(), grid: t.grid.clone(), rows: tail_rows, controls: Default::default() };
+    if !tail.rows.is_empty() {
         tail.controls.close = std::mem::take(&mut t.controls.close);
         // A floating table keeps its position in the part above; the part below goes in the text
         // flow.
         if text_from > 0 {
             tail.props.float = None;
         }
-        start_vmerge_below(&mut tail);
         blocks.push(Block::Table(tail));
     }
     // A content control around the table keeps both ends: on the text where no table part is
@@ -1097,45 +1090,6 @@ fn row_to_text(row: wordcraft_doc::Row, sep: Option<char>, out: &mut Vec<Block>)
     }
     if let Some(done) = line {
         out.push(Block::Para(done));
-    }
-}
-
-/// The row content controls still open after `rows`, outermost first.
-fn row_controls_open_after(rows: &[wordcraft_doc::Row]) -> Vec<wordcraft_doc::ContentControl> {
-    let mut open = Vec::new();
-    for row in rows {
-        open.extend(row.controls.open.iter().cloned());
-        let close = usize::try_from(row.controls.close).unwrap_or(usize::MAX).min(open.len());
-        open.truncate(open.len() - close);
-    }
-    open
-}
-
-/// Ends each vertical merge that starts in the last row, for a table whose rows below were
-/// taken out.
-fn end_vmerge_above(t: &mut Table) {
-    if let Some(row) = t.rows.last_mut() {
-        for c in &mut row.cells {
-            if c.props.vmerge == VMerge::Restart {
-                c.props.vmerge = VMerge::None;
-            }
-        }
-    }
-}
-
-/// Starts each vertical merge that the first row continues in that row, or ends it there when
-/// the row below doesn't continue it, for a table whose rows above were taken out.
-fn start_vmerge_below(t: &mut Table) {
-    let Some(first) = t.rows.first() else { return };
-    let cols: Vec<(usize, usize)> = (0..first.cells.len())
-        .filter(|&c| first.cells.get(c).is_some_and(|x| x.props.vmerge == VMerge::Continue))
-        .map(|c| (c, t.grid_col(0, c)))
-        .collect();
-    for (c, g) in cols {
-        let more = t.cell_at_grid(1, g).and_then(|i| t.rows.get(1)?.cells.get(i)).is_some_and(|x| x.props.vmerge == VMerge::Continue);
-        if let Some(x) = t.rows.first_mut().and_then(|r| r.cells.get_mut(c)) {
-            x.props.vmerge = if more { VMerge::Restart } else { VMerge::None };
-        }
     }
 }
 

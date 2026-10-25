@@ -7175,7 +7175,7 @@ fn convert_to_text_keeps_a_content_control_around_the_table() {
     let t = s.doc.body.iter().position(|b| b.as_table().is_some()).unwrap() as u32;
     {
         let table = s.doc.table_mut(StoryRef::Body, &wordcraft_doc::Path(vec![t])).unwrap();
-        table.rows[0].controls.open = vec![ContentControl { tag: "rows".into(), ..Default::default() }];
+        table.rows[0].controls.open = vec![ContentControl { id: Some(7), tag: "rows".into(), ..Default::default() }];
         table.rows[3].controls.close = 1;
     }
     run(&mut s, "select.range", json!({"anchor": cell_at(t, 1, 0), "focus": cell_at(t, 1, 1)}));
@@ -7185,6 +7185,7 @@ fn convert_to_text_keeps_a_content_control_around_the_table() {
     let tail = s.doc.body[at + 2].as_table().unwrap();
     assert_eq!((head.rows.len(), head.rows[0].controls.close), (1, 1), "the table above closes the control");
     assert_eq!(tail.rows[0].controls.open.iter().map(|c| c.tag.as_str()).collect::<Vec<_>>(), ["rows"], "the table below opens it");
+    assert_eq!((head.rows[0].controls.open[0].id, tail.rows[0].controls.open[0].id), (Some(7), None), "one w:id in the file");
     assert_eq!(tail.rows[1].controls.close, 1);
     assert!(!s.doc.has_unbalanced_controls());
 }
