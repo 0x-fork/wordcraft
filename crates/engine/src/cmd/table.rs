@@ -1047,6 +1047,7 @@ fn row_to_text(row: wordcraft_doc::Row, sep: Option<char>, out: &mut Vec<Block>)
         for b in row.cells.into_iter().flat_map(|c| c.blocks) {
             out.push(match std::sync::Arc::unwrap_or_clone(b) {
                 Block::Para(mut para) => {
+                    para.section = None;
                     para.touch();
                     Block::Para(para)
                 }
