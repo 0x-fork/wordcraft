@@ -6687,7 +6687,7 @@ dependencies = [
  "chrono",
  "image",
  "log",
- "miniz_oxide 0.9.1",
+ "miniz_oxide 0.8.9",
  "proptest",
  "serde_json",
  "sha1 0.11.0",
@@ -6856,7 +6856,7 @@ name = "wordcraft-proof"
 version = "0.11.0"
 dependencies = [
  "log",
- "miniz_oxide 0.9.1",
+ "miniz_oxide 0.8.9",
  "proptest",
  "unicode-normalization",
 ]
