@@ -4979,9 +4979,9 @@ mod tests_grid;
 #[cfg(test)]
 mod tests_ligature;
 #[cfg(test)]
-mod tests_nbsp;
-#[cfg(test)]
 mod tests_linear;
+#[cfg(test)]
+mod tests_nbsp;
 #[cfg(test)]
 mod tests_numeral;
 #[cfg(test)]
