@@ -1243,7 +1243,7 @@ impl FontDb {
                     stack.push(p);
                     continue;
                 }
-                let ext = p.extension().and_then(std::ffi::OsStr::to_str).map(|e| e.to_ascii_lowercase());
+                let ext = p.extension().and_then(std::ffi::OsStr::to_str).map(str::to_ascii_lowercase);
                 if !matches!(ext.as_deref(), Some("ttf" | "otf" | "ttc" | "otc")) {
                     continue;
                 }
