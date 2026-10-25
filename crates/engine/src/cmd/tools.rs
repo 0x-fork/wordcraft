@@ -1372,7 +1372,8 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
         // Tables match as a whole, by their text.
         Block::Table(_) => format!("\u{0}table\u{0}{}", opts.key(&block_text(b, 0))),
     };
-    let ops = lcs_ops(&old.iter().map(key).collect::<Vec<_>>(), &new.iter().map(key).collect::<Vec<_>>());
+    let mut budget = MAX_COMPARE_CELLS;
+    let ops = lcs_ops(&old.iter().map(key).collect::<Vec<_>>(), &new.iter().map(key).collect::<Vec<_>>(), &mut budget);
     let mut out: Vec<Arc<Block>> = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     let mut changes = 0usize;
@@ -1408,7 +1409,7 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
                 for x in 0..dels.max(inss) {
                     let (a, b) = (if x < dels { old.get(i + x) } else { None }, if x < inss { new.get(j + x) } else { None });
                     match (a.map(|x| &**x), b.map(|x| &**x)) {
-                        (Some(Block::Para(pa)), Some(Block::Para(pb))) => out.push(para_block(word_diff(pa, pb, ins, del, &opts))),
+                        (Some(Block::Para(pa)), Some(Block::Para(pb))) => out.push(para_block(word_diff(pa, pb, ins, del, &opts, &mut budget))),
                         _ => {
                             if let Some(x) = a {
                                 out.push(Arc::new(mark_block(x, &|c| c.del = Some(del), 0)));
@@ -1486,15 +1487,26 @@ enum Op {
 /// compared as deleted and inserted, never dropped.
 const MAX_LCS: usize = 4000;
 
+/// Comparison table cells one compare may fill over all its tables (blocks and every changed
+/// paragraph pair); once spent, the remaining middles are compared as deleted and inserted.
+const MAX_COMPARE_CELLS: u64 = 50_000_000;
+
 /// LCS edit script between two sequences: the common start and end are matched first, then the
-/// middle (bounded size).
-fn lcs_ops<T: PartialEq>(a: &[T], b: &[T]) -> Vec<Op> {
+/// middle (bounded size). The middle's table is charged to `budget`; when it doesn't fit, the
+/// middle is deleted and inserted whole.
+fn lcs_ops<T: PartialEq>(a: &[T], b: &[T], budget: &mut u64) -> Vec<Op> {
     let pre = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     let (ra, rb) = (a.get(pre..).unwrap_or_default(), b.get(pre..).unwrap_or_default());
     let suf = ra.iter().rev().zip(rb.iter().rev()).take_while(|(x, y)| x == y).count();
     let (a, b) = (ra.get(..ra.len() - suf).unwrap_or_default(), rb.get(..rb.len() - suf).unwrap_or_default());
     let mut ops = vec![Op::Same; pre];
-    let (n, m) = (a.len().min(MAX_LCS), b.len().min(MAX_LCS));
+    let (mut n, mut m) = (a.len().min(MAX_LCS), b.len().min(MAX_LCS));
+    let cells = (n as u64).saturating_mul(m as u64);
+    if cells > *budget {
+        (n, m) = (0, 0);
+    } else {
+        *budget -= cells;
+    }
     let mut t = vec![vec![0u32; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
@@ -1608,11 +1620,11 @@ fn tokens(s: &str, characters: bool) -> Vec<String> {
     v
 }
 
-fn word_diff(a: &Paragraph, b: &Paragraph, ins: u32, del: u32, opts: &CompareOptions) -> Paragraph {
+fn word_diff(a: &Paragraph, b: &Paragraph, ins: u32, del: u32, opts: &CompareOptions, budget: &mut u64) -> Paragraph {
     let (at, bt) = (a.plain_text(), b.plain_text());
     let chars = opts.characters && at.chars().count().max(bt.chars().count()) <= MAX_CHAR_DIFF;
     let (ta, tb) = (tokens(&at, chars), tokens(&bt, chars));
-    let ops = lcs_ops(&ta.iter().map(|t| opts.key(t)).collect::<Vec<_>>(), &tb.iter().map(|t| opts.key(t)).collect::<Vec<_>>());
+    let ops = lcs_ops(&ta.iter().map(|t| opts.key(t)).collect::<Vec<_>>(), &tb.iter().map(|t| opts.key(t)).collect::<Vec<_>>(), budget);
     // Only at character granularity: a matched whole word almost never happens by coincidence,
     // but a matched single character very often does (digits, punctuation), so only there does
     // a short interior match need folding back into its surrounding edit.
@@ -2261,12 +2273,12 @@ mod tests {
     fn collapse_noise_matches_merges_short_interior_runs_but_keeps_prefix_suffix() {
         // "01.09" vs "19.10": a pure LCS finds a scrambled chain of single-character matches
         // ('1', '.', '0') threaded through what a reader expects to be one clean replacement.
-        let ops = lcs_ops(&['0', '1', '.', '0', '9'], &['1', '9', '.', '1', '0']);
+        let ops = lcs_ops(&['0', '1', '.', '0', '9'], &['1', '9', '.', '1', '0'], &mut { u64::MAX });
         assert!(ops.contains(&Op::Same), "the raw LCS does find spurious matches here, or this test proves nothing");
         assert_eq!(collapse_noise_matches(&ops), vec![Op::Del, Op::Del, Op::Del, Op::Del, Op::Del, Op::Ins, Op::Ins, Op::Ins, Op::Ins, Op::Ins]);
         // A plain single-character replacement flanked by a real common prefix and suffix has no
         // interior match to begin with (the DP's middle is pure delete/insert), so it's untouched.
-        let ops = lcs_ops(&['a', 'b', 'c', 'x', 'd', 'e', 'f'], &['a', 'b', 'c', 'y', 'd', 'e', 'f']);
+        let ops = lcs_ops(&['a', 'b', 'c', 'x', 'd', 'e', 'f'], &['a', 'b', 'c', 'y', 'd', 'e', 'f'], &mut { u64::MAX });
         assert_eq!(collapse_noise_matches(&ops), ops);
     }
 
@@ -2282,6 +2294,39 @@ mod tests {
             p.run_ranges().any(|(r, c)| c.del.is_none() && c.ins.is_none() && p.text[r].trim() == "cat"),
             "the unchanged word must survive as plain text"
         );
+    }
+
+    #[test]
+    fn compare_bounds_total_diff_work() {
+        // Many long, slightly different paragraphs: each pair alone fits one comparison table,
+        // but the work over all pairs must stay bounded. Pairs past the budget are compared
+        // whole (deleted and inserted), and every pair still counts as a change.
+        let words = 3000;
+        let paras = 12;
+        let doc = |rev: bool| -> String {
+            (0..paras)
+                .map(|p| (0..words).map(|w| if w % 10 == 0 && rev { format!("x{p}w{w}") } else { format!("p{p}w{w}") }).collect::<Vec<_>>().join(" "))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let (original, revised) = (doc(false), doc(true));
+        let mut s = Session::new(Document::from_text(&original));
+        let r = s.run("review.compare", &json!({"text": revised})).unwrap();
+        assert_eq!(r["changes"], paras);
+        // A pair diffed word by word keeps most of its text unmarked; one replaced whole keeps
+        // only its common start and end.
+        let word_diffed = |b: &Arc<Block>| {
+            let p = b.as_para().unwrap();
+            let same: usize = p.run_ranges().filter(|(_, c)| c.ins.is_none() && c.del.is_none()).map(|(r, _)| r.len()).sum();
+            same * 2 > p.text.len()
+        };
+        assert!(word_diffed(&s.doc.body[0]));
+        let diffed = s.doc.body.iter().filter(|b| word_diffed(b)).count() as u64;
+        let cells = (words as u64) * (words as u64);
+        assert!(diffed * cells <= 50_000_000 + cells, "{diffed} pairs diffed word by word");
+        assert!(!word_diffed(s.doc.body.last().unwrap()));
+        s.run("review.acceptAll", &json!({})).unwrap();
+        assert_eq!(s.doc.plain_text(StoryRef::Body), revised);
     }
 
     #[test]
