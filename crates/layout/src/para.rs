@@ -1066,6 +1066,10 @@ impl<'a> Builder<'a> {
                 let d = show(c);
                 if d != c {
                     d
+                } else if c == '\u{a0}' {
+                    // Word sets a no-break space as wide as a space; some fonts draw their own
+                    // U+00A0 glyph wider. Only the shaping changes: line breaking reads the text.
+                    ' '
                 } else if upper {
                     upper_char(c)
                 } else {
