@@ -1144,10 +1144,13 @@ fn new_property_value(instr: &str) -> Option<String> {
     FieldCode::parse(instr).args.first().map(|a| a.chars().take(255).collect())
 }
 
-/// A count (NUMWORDS, NUMCHARS, REVNUM) in the field's `\*` number format, digits without one,
+/// A count (NUMWORDS, NUMCHARS, REVNUM) in the field's `\*` number format, digits without one or
+/// when the format does not cover the count (see [`super::table_formula::number_format_covers`]),
 /// with the field's capitalization switches.
 fn count_text(instr: &str, n: usize) -> String {
-    let fmt = wordcraft_layout::fields::format_switch(instr).unwrap_or(NumFormat::Decimal);
+    let fmt = wordcraft_layout::fields::format_switch(instr)
+        .filter(|f| super::table_formula::number_format_covers(*f, n as f64))
+        .unwrap_or(NumFormat::Decimal);
     wordcraft_layout::fields::field_number(instr, fmt, u32::try_from(n).unwrap_or(u32::MAX))
 }
 
@@ -1645,6 +1648,18 @@ mod tests {
         let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
         assert_eq!(got, ["Old", "Grace", "Old"]);
         assert_eq!((s.doc.core.subject.as_str(), s.doc.core.creator.as_str()), ("Old", "Grace"));
+    }
+
+    /// A count the field's number format does not cover keeps its digits.
+    #[test]
+    fn counts_past_the_number_format_keep_their_digits() {
+        let mut doc = wordcraft_doc::Document::from_text("one two three");
+        doc.core.revision = 1_000_000;
+        let codes = [r"REVNUM \* ROMAN", r"REVNUM \* CardText", r"REVNUM \* alphabetic", r"NUMWORDS \* ROMAN"];
+        let (mut s, hdr) = header_fields_session(doc, &codes);
+        s.run("references.updateFields", &json!({})).unwrap();
+        let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
+        assert_eq!(got, ["1000000", "1000000", "1000000", "III"]);
     }
 
     /// #1706: `all: true` (printing) updates the whole document even with the caret in a header.

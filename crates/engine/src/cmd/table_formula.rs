@@ -116,16 +116,23 @@ fn format_switches(switches: &str, value: f64, text: String) -> String {
     use wordcraft_doc::section::NumFormat;
     let unquoted = switches.split('"').step_by(2).collect::<Vec<_>>().join(" ");
     let fmt = wordcraft_layout::fields::format_switch(&unquoted).filter(|f| *f != NumFormat::Decimal);
-    let covers = |fmt: NumFormat| match fmt {
+    match fmt {
+        Some(fmt) if number_format_covers(fmt, value) => wordcraft_layout::fields::field_number(switches, fmt, value as u32),
+        _ => wordcraft_layout::fields::apply_case_switch(switches, text),
+    }
+}
+
+/// Whether the `\*` number format `fmt` writes `value`: a whole number up to 999,999 for CardText
+/// and OrdText, 1 to 50,000 for roman, 1 to 780 for alphabetic, and 0 to `u32::MAX` otherwise.
+pub(crate) fn number_format_covers(fmt: wordcraft_doc::section::NumFormat, value: f64) -> bool {
+    use wordcraft_doc::section::NumFormat;
+    let range = match fmt {
         NumFormat::CardinalText | NumFormat::OrdinalText => 0.0..=999_999.0,
         NumFormat::LowerRoman | NumFormat::UpperRoman => 1.0..=50_000.0,
         NumFormat::LowerLetter | NumFormat::UpperLetter => 1.0..=780.0,
         _ => 0.0..=f64::from(u32::MAX),
     };
-    match fmt {
-        Some(fmt) if value.fract() == 0.0 && covers(fmt).contains(&value) => wordcraft_layout::fields::field_number(switches, fmt, value as u32),
-        _ => wordcraft_layout::fields::apply_case_switch(switches, text),
-    }
+    value.fract() == 0.0 && range.contains(&value)
 }
 
 /// Splits a field's switches (`\#` and `\*`) off its formula: `=SUM(ABOVE) \# "0.00"` gives the
