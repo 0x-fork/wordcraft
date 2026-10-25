@@ -387,8 +387,12 @@ fn insert_text(s: &mut Session, text: &str, enter: bool) -> Result<InsertEffect,
     let mut at = s.sel.focus.clone();
     let mut first = true;
     let mut inserted = false;
+    // Typed line breaks are the Enter key between the lines: in a one-line control it does
+    // nothing, so the lines run together and the control stays one paragraph (pasted text keeps
+    // its breaks, as before).
+    let no_breaks = enter && controls::refuses_paragraph(s);
     for part in text.split(['\r', '\u{2029}']) {
-        if !first {
+        if !first && !no_breaks {
             at = split_para_as(s, &at, enter)?;
             inserted = true;
         }

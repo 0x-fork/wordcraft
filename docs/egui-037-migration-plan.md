@@ -35,16 +35,17 @@ Baseline dependency identities in that lockfile:
 | winit | registry 0.30.13 |
 | accesskit | registry `accesskit` 0.24.1, `accesskit_winit` 0.32.2, `accesskit_unix` 0.21.1 |
 | craft-libs | `craft-ui` + `craft-print` at `d27646a5f7c8b4fc85d9dd3213b8c88b58e0088d`; `craft-pdf` at `c3487320b2d1de657b860b3c8abb44e1f2b32bd8` |
-| fonts | `CRAFT_FONTS_REF` `8dcdacd5153e64560d109541a47d806f26f048c0` (CI), plus the bundled Inter/SourceSans/JetBrains Mono assets |
+| fonts | `CRAFT_FONTS_REF` `b076417b5880bd4154bd22f00695b1d28c6bea83` (CI), plus the bundled Inter/SourceSans/JetBrains Mono assets |
 | toolchain | workspace MSRV 1.95; the planning host used rustc/cargo 1.99.0, which is not an acceptance toolchain by itself |
 
 **Target and current local pins:** egui family 0.37.0 at
 `6d518fc799681571963842f95b55a6b68431b15a`, winit at
-`a517b3846ee8457d84ee4975110bfda6797c44dc`, and craft-ui/craft-print at
+`a517b3846ee8457d84ee4975110bfda6797c44dc`, and craft-ui at
 `25da1314d443171b4adeaad2cd9454b273f35c6f`. The regenerated lock records these exact
-revisions and passed the dependency-source audit. The current-main PDF security update uses
-craft-pdf/krilla at `9f75d3dc19b4b514c4f3d4847ed1ec1b0e86b4ef`. These are immutable canonical
-Git URL pins. The new craft-ui edge and generated lock passed the current full CI.
+revisions and passed the dependency-source audit. The current-main shared PDF, printing and
+locale update uses craft-pdf, krilla, craft-print and craft-i18n at
+`17744430be327d0257496a6a31c8d38fe20a6756`. These are immutable canonical Git URL pins.
+The predecessor passed full CI; the latest main integration is undergoing its own full CI.
 The translation catalog is pinned
 separately to the reviewed `9205108cfdced5177706264038848b68b2422d2b`; it is not a Cargo dependency.
 Publication observations and
@@ -842,7 +843,7 @@ The engine and command registry are not migrated. Tests must still prove the UI 
 Fixtures: `wordcraft_engine::sample::sample_document()`, a large synthetic table
 (`tests_perf::big_table_doc`), and a durable evidence `.docx` with Latin/Arabic/Hebrew/CJK/
 Vietnamese/emoji/comments/headers. Fixtures and fonts are licensed and pinned: use
-`CRAFT_FONTS_DIR` at `8dcdacd5153e64560d109541a47d806f26f048c0` for the app's CI text faces,
+`CRAFT_FONTS_DIR` at `b076417b5880bd4154bd22f00695b1d28c6bea83` for the app's CI text faces,
 the central craft-fonts fixtures at `2481a8a324b986a45954e90045ed1f8f2efaaf3c` for
 Arabic/Thai/CJK/Japanese coverage, the pinned Noto Sans Hebrew variable fixture
 (`7ef36a2c...`, OFL-1.1) for Hebrew, and the test-only Noto Color Emoji v2.047
@@ -1420,7 +1421,7 @@ Canonical egui0.37 default_fonts embeds `EGUI_ICONS` (the small emoji-icon-font 
 monochrome_emoji_fonts embeds its parent emoji-icon-font face. WordCraft starts from
 `FontDefinitions::default()` in `theme.rs`. NOTICE now carries the exact upstream MIT text,
 including Copyright (c) 2014 John Slegers, and ATTRIBUTION identifies both dependency assets.
-The PDF notice names the actual pinned9f75 revision. Shared Linux/web/CLI staging, macOS app
+The PDF notice names the actual pinned 17744430 revision. Shared Linux/web/CLI staging, macOS app
 resources, Windows portable ZIP and unconditional MSI notice components now include NOTICE
 and ATTRIBUTION independently of optional craft-fonts. The existing optional OFL rules remain.
 This documentation/packaging follow-up changes no runtime/font/manifests/lock bytes; its asset,
