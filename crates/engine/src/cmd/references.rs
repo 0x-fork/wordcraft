@@ -1171,14 +1171,10 @@ fn set_summary_property(core: &mut wordcraft_doc::CoreProps, field: &str, value:
     }
 }
 
-/// The new value a summary-property field gives its property: the quoted text after the field's
-/// name (`SUBJECT "Quarterly report"`), at most 255 characters as Word allows. `None` when the
-/// name is not followed by quoted text (`SUBJECT Draft`).
+/// The new value a summary-property field gives its property: the argument after the field's
+/// name (`SUBJECT "Quarterly report"`, or one word without quotes: `SUBJECT Draft`), at most 255
+/// characters as Word allows.
 fn new_property_value(instr: &str) -> Option<String> {
-    let rest = instr.trim().split_once(char::is_whitespace)?.1.trim_start();
-    if !rest.starts_with('"') {
-        return None;
-    }
     FieldCode::parse(instr).args.first().map(|a| a.chars().take(255).collect())
 }
 
@@ -1611,17 +1607,19 @@ mod tests {
         assert_eq!(c.description, got[5]);
     }
 
-    /// Text after the name that is not quoted leaves the property as it is.
+    /// One word after the name sets the property without quotes; a switch alone sets nothing.
     #[test]
-    fn summary_fields_without_quotes_keep_the_property() {
+    fn summary_fields_take_one_word_without_quotes() {
         let mut doc = wordcraft_doc::Document::from_text("one two three");
         doc.core.subject = "Old".into();
         doc.core.creator = "Grace".into();
-        let (mut s, hdr) = header_fields_session(doc, &["SUBJECT Draft", "AUTHOR Ada", "DOCPROPERTY Subject"]);
+        doc.core.title = "Plan".into();
+        let (mut s, hdr) = header_fields_session(doc, &["SUBJECT Draft", "AUTHOR Ada", r"TITLE \* Upper"]);
         s.run("references.updateFields", &json!({})).unwrap();
         let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
-        assert_eq!(got, ["Old", "Grace", "Old"]);
-        assert_eq!((s.doc.core.subject.as_str(), s.doc.core.creator.as_str()), ("Old", "Grace"));
+        assert_eq!(got, ["Draft", "Ada", "PLAN"]);
+        let c = &s.doc.core;
+        assert_eq!((c.subject.as_str(), c.creator.as_str(), c.title.as_str()), ("Draft", "Ada", "Plan"));
     }
 
     /// `\* Upper`, `\* Lower`, `\* Caps` and `\* FirstCap` apply to the text Update Field computes,
