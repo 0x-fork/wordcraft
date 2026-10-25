@@ -125,8 +125,20 @@ pub(crate) fn reference_link(instr: &str) -> Option<String> {
     None
 }
 
-/// `\* FORMAT` switch value (Arabic, roman, ROMAN, alphabetic, ALPHABETIC, CardText, Ordinal…).
+/// `\* FORMAT` switch value (Arabic, roman, ROMAN, alphabetic, ALPHABETIC, CardText, Ordinal,
+/// DollarText, Hex…).
 pub fn format_switch(instr: &str) -> Option<NumFormat> {
+    format_switch_of(instr, false)
+}
+
+/// A PAGE field's `\* FORMAT` switch value: the values of [`format_switch`] and `\* ArabicDash`
+/// (`{ PAGE \* ArabicDash }` shows "- 31 -"). Only PAGE reads `\* ArabicDash`; other fields,
+/// PAGEREF included, skip it and read the next format switch.
+pub fn page_format_switch(instr: &str) -> Option<NumFormat> {
+    format_switch_of(instr, true)
+}
+
+fn format_switch_of(instr: &str, page: bool) -> Option<NumFormat> {
     let mut it = instr.split_whitespace();
     while let Some(w) = it.next() {
         if let Some(rest) = w.strip_prefix("\\*") {
@@ -141,6 +153,9 @@ pub fn format_switch(instr: &str) -> Option<NumFormat> {
                 "OrdText" | "ordtext" => NumFormat::OrdinalText,
                 "Ordinal" | "ordinal" => NumFormat::Ordinal,
                 "Arabic" | "arabic" => NumFormat::Decimal,
+                "ArabicDash" | "arabicdash" | "ARABICDASH" if page => NumFormat::NumberInDash,
+                "DollarText" | "dollartext" | "DOLLARTEXT" => NumFormat::DollarText,
+                "Hex" | "hex" | "HEX" => NumFormat::Hex,
                 // Chinese numerals: counting (一百零一), legal (壹佰零壹), digit by digit (一〇一).
                 v if v.eq_ignore_ascii_case("ChineseNum1") => NumFormat::ChineseCountingThousand,
                 v if v.eq_ignore_ascii_case("ChineseNum2") => NumFormat::ChineseLegalSimplified,
@@ -228,15 +243,36 @@ pub fn apply_case_switch(instr: &str, text: String) -> String {
     }
 }
 
-/// Formats `n` in `fmt` as a field shows it. Cardinal and ordinal text is lowercase
-/// (`\* CardText` shows "twenty-one"), and the field's capitalization switch applies after that
-/// (`\* CardText \* Caps` shows "Twenty-one").
+/// Formats `n` in `fmt` as a field shows it. Cardinal, ordinal and dollar text is lowercase
+/// (`\* CardText` shows "twenty-one", `\* DollarText` shows "twenty-one and 00/100") and writes
+/// numbers up to 999,999; a larger number keeps its digits. `\* Hex` writes uppercase hexadecimal
+/// digits (`1CA`). The field's capitalization switch applies after that (`\* CardText \* Caps`
+/// shows "Twenty-one").
 pub fn field_number(instr: &str, fmt: NumFormat, n: u32) -> String {
     let text = match fmt {
+        NumFormat::CardinalText | NumFormat::OrdinalText | NumFormat::DollarText if n > MAX_TEXT_NUMBER => n.to_string(),
         NumFormat::CardinalText | NumFormat::OrdinalText => fmt.format(n).to_lowercase(),
+        NumFormat::DollarText => dollar_text(f64::from(n)).unwrap_or_else(|| n.to_string()),
+        NumFormat::Hex => format!("{n:X}"),
         _ => fmt.format(n),
     };
     apply_case_switch(instr, text)
+}
+
+/// The largest number cardinal, ordinal and dollar text write in words.
+const MAX_TEXT_NUMBER: u32 = 999_999;
+
+/// `value` as `\* DollarText` writes it, before any capitalization switch: the whole part in
+/// lowercase cardinal text, "and", and the first two decimals (rounded) over 100
+/// (14.55 gives "fourteen and 55/100"). `None` for NaN, or for a value that rounds below 0 or past
+/// 999,999.99.
+pub fn dollar_text(value: f64) -> Option<String> {
+    let cents = (value * 100.0).round();
+    if !(0.0..=f64::from(MAX_TEXT_NUMBER) * 100.0 + 99.0).contains(&cents) {
+        return None;
+    }
+    let cents = cents as u32;
+    Some(format!("{} and {:02}/100", NumFormat::CardinalText.format(cents / 100).to_lowercase(), cents % 100))
 }
 
 /// The light grey behind a field shown as its code.
@@ -257,7 +293,7 @@ pub fn field_text_on(instr: &str, result: &str, ctx: &FieldCtx, page: u32) -> (S
     let name = field_name(instr);
     let fmt = format_switch(instr);
     match name.as_str() {
-        "PAGE" => (field_number(instr, fmt.unwrap_or(ctx.page_format), page), true),
+        "PAGE" => (field_number(instr, page_format_switch(instr).unwrap_or(ctx.page_format), page), true),
         "NUMPAGES" => (field_number(instr, fmt.unwrap_or(NumFormat::Decimal), ctx.pages), true),
         "SECTIONPAGES" => (field_number(instr, fmt.unwrap_or(NumFormat::Decimal), ctx.section_pages), true),
         "SECTION" => (field_number(instr, fmt.unwrap_or(NumFormat::Decimal), ctx.section), true),
@@ -402,6 +438,36 @@ mod tests {
         }
         assert_eq!(field_text(r#"TITLE "x \* Upper""#, "", &ctx).0, "weekly report on sales");
         assert_eq!(field_text(r"REF mark \* Upper", "stored", &ctx).0, "stored", "a stored result shows as it is");
+    }
+
+    /// `\* DollarText` writes lowercase cardinal text with "and 00/100", `\* Hex` uppercase
+    /// hexadecimal digits, and `\* ArabicDash` a page number between hyphens, on PAGE only. Words
+    /// stop at 999,999; a larger number keeps its digits.
+    #[test]
+    fn dollar_text_hex_and_arabic_dash_switches() {
+        let ctx = FieldCtx { page: 31, pages: 458, section: 790, ..Default::default() };
+        let text = |instr: &str| field_text(instr, "", &ctx).0;
+        assert_eq!(text(r"PAGE \* ArabicDash"), "- 31 -");
+        assert_eq!(text(r"PAGE \*arabicdash \* MERGEFORMAT"), "- 31 -");
+        assert_eq!(text(r"NUMPAGES \* ArabicDash"), "458", "ArabicDash is for page numbers only");
+        assert_eq!(text(r"NUMPAGES \* ArabicDash \* roman"), "cdlviii", "the next format switch counts");
+        assert_eq!(text(r"NUMPAGES \* Hex"), "1CA");
+        assert_eq!(text(r"NUMPAGES \* hex \* Lower"), "1ca");
+        assert_eq!(text(r"PAGE \* Hex"), "1F");
+        assert_eq!(text(r"SECTION \* DollarText"), "seven hundred ninety and 00/100");
+        assert_eq!(text(r"SECTION \* DollarText \* Upper"), "SEVEN HUNDRED NINETY AND 00/100");
+        assert_eq!(text(r"PAGE \* DollarText \* FirstCap"), "Thirty-one and 00/100");
+        assert_eq!(dollar_text(9.20 + 5.35).as_deref(), Some("fourteen and 55/100"));
+        assert_eq!(dollar_text(0.999).as_deref(), Some("one and 00/100"), "the decimals round");
+        assert_eq!(dollar_text(999_999.99).as_deref(), Some("nine hundred ninety-nine thousand nine hundred ninety-nine and 99/100"));
+        assert_eq!(dollar_text(999_999.995), None);
+        assert_eq!(dollar_text(-1.0), None);
+        assert_eq!(dollar_text(-0.004).as_deref(), Some("zero and 00/100"), "a value that rounds to 0 is not below 0");
+        assert_eq!(dollar_text(f64::NAN), None);
+        for fmt in [NumFormat::CardinalText, NumFormat::OrdinalText, NumFormat::DollarText] {
+            assert_eq!(field_number(r"SEQ x \* Upper", fmt, 1_000_140), "1000140", "{fmt:?}");
+        }
+        assert_eq!(field_number("SEQ x", NumFormat::CardinalText, 999_999), "nine hundred ninety-nine thousand nine hundred ninety-nine");
     }
 
     /// #1765: ASK and SET only assign text to a bookmark; they show nothing, whatever result is stored.
