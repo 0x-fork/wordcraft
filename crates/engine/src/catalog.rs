@@ -605,5 +605,6 @@ mod tests {
         );
         let reg = crate::cmd::registry();
         assert!(reg.get("view.readColumnWidth").is_some(), "Column Width counts as live");
+        assert!(reg.get("view.readPageColor").is_some(), "Page Color counts as live");
     }
 }
