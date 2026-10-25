@@ -1631,7 +1631,7 @@ impl WordApp {
     fn ui_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
         Some(Ok(match id {
-            "app.checkForUpdates" | "help.checkForUpdates" => {
+            "ui.checkForUpdates" | "help.checkForUpdates" => {
                 crate::updates_ui::check(self);
                 Value::Null
             }
@@ -3027,7 +3027,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.discord"
             | "ui.caretAnimation"
             | "ui.startScreen"
-            | "app.checkForUpdates"
+            | "ui.checkForUpdates"
     ) || id.starts_with("help.")
 }
 
