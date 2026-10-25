@@ -1305,6 +1305,34 @@ mod tests {
         assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("wordCount"));
     }
 
+    /// Escape during a pane's title-bar drag cancels the drag and leaves full screen on.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn escape_during_a_pane_drag_keeps_full_screen() {
+        use egui_kittest::kittest::Queryable;
+
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+        app.run("view.navigationPane", serde_json::json!({"value": true})).unwrap();
+        app.run("view.fullScreen", serde_json::json!({"value": true})).unwrap();
+        let mut h = pane_harness(app);
+        let title = h.get_by_label_contains("Move Pane: ").rect().center();
+        let button =
+            |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        h.input_mut().events.extend([egui::Event::PointerMoved(title), button(title, true)]);
+        h.run_steps(2);
+        let away = title + egui::vec2(300.0, 200.0);
+        h.input_mut().events.push(egui::Event::PointerMoved(away));
+        h.run_steps(2);
+        assert!(h.ctx.dragged_id().is_some(), "the title bar is dragged");
+        press(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
+        assert!(h.state().session.view.full_screen);
+        h.input_mut().events.push(button(away, false));
+        h.run_steps(2);
+        assert!(h.state().session.view.full_screen);
+        let docked = craft_ui::panes::Place::Docked(craft_ui::panes::Edge::Start);
+        assert_eq!(super::pane_state(h.state(), Pane::Navigation).place, docked, "the drag was cancelled");
+    }
+
     /// An F6 the user bound runs its command; plain F6 still moves to the panes when only
     /// Shift+F6 is bound.
     #[test]
