@@ -1,12 +1,7 @@
 # WordCraft: egui 0.37 migration plan
 
-**Status:** current-main reconciliation, shared text-bounds followup and regenerated lock
-passed all eight mandatory CI stages on 2026-10-24: 4,133 tests passed, none failed and four
-were ignored (`egui037-wordcraft-ruby-final-ci-20261024-2100`). The frozen upstream
-observation is `254351c01bc6e498eaede5c1bd79050d3f2d5c23`. The table-hover preview
-accessibility mismatch was reproduced, fixed and independently reviewed; all four focused
-accessibility tests passed before full CI. The phonetic-label regression also passed review
-and full CI.
+**Status:** current-main reconciliation through `b4da59f0c38b506c36629b1d812ad7c0519fc238` passed all eight mandatory CI stages on 2026-10-25: 4,270 passing test executions, zero failures and 4 ignored (`egui037-wordcraft-main-refresh-ci-20261025-0603`). This includes main's encrypted-DOCX integrity requirement and selected-paragraph-mark highlight behavior. The dependency pins and lockfile are unchanged. A fresh review verified that the merge preserves the IME documentation and upstream fixes. Earlier counts and source snapshots below are historical.
+
 Read-only comment balloons now consume the explicit `AlignedGalley` result from craft-ui at
 `25da1314d443171b4adeaad2cd9454b273f35c6f`: height comes from the requested reading area,
 and painting retains the existing reading origin and card clip while preserving overwide
