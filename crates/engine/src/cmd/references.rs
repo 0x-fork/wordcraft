@@ -1133,9 +1133,14 @@ fn set_summary_property(core: &mut wordcraft_doc::CoreProps, field: &str, value:
     }
 }
 
-/// The new value a summary-property field gives its property: the text after the field's name
-/// (`SUBJECT "Quarterly report"`), at most 255 characters as Word allows.
+/// The new value a summary-property field gives its property: the quoted text after the field's
+/// name (`SUBJECT "Quarterly report"`), at most 255 characters as Word allows. `None` when the
+/// name is not followed by quoted text (`SUBJECT Draft`).
 fn new_property_value(instr: &str) -> Option<String> {
+    let rest = instr.trim().split_once(char::is_whitespace)?.1.trim_start();
+    if !rest.starts_with('"') {
+        return None;
+    }
     FieldCode::parse(instr).args.first().map(|a| a.chars().take(255).collect())
 }
 
@@ -1558,6 +1563,19 @@ mod tests {
         let c = &s.doc.core;
         assert_eq!((c.subject.as_str(), c.title.as_str(), c.creator.as_str(), c.keywords.as_str()), ("Quarterly report", "Plan", "Ada", "a, b"));
         assert_eq!(c.description, got[5]);
+    }
+
+    /// Text after the name that is not quoted leaves the property as it is.
+    #[test]
+    fn summary_fields_without_quotes_keep_the_property() {
+        let mut doc = wordcraft_doc::Document::from_text("one two three");
+        doc.core.subject = "Old".into();
+        doc.core.creator = "Grace".into();
+        let (mut s, hdr) = header_fields_session(doc, &["SUBJECT Draft", "AUTHOR Ada", "DOCPROPERTY Subject"]);
+        s.run("references.updateFields", &json!({})).unwrap();
+        let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
+        assert_eq!(got, ["Old", "Grace", "Old"]);
+        assert_eq!((s.doc.core.subject.as_str(), s.doc.core.creator.as_str()), ("Old", "Grace"));
     }
 
     /// #1706: `all: true` (printing) updates the whole document even with the caret in a header.
