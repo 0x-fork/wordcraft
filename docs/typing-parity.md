@@ -156,6 +156,13 @@ ideographic space (`autocorrect_finds_the_word_after_a_wide_space`):
   is “ (U+201C) even though it shows on the right of the word, after a letter ” (U+201D); in an
   acronym (`צה"ל`) it becomes ” as in Word for Mac 16.113.4, not gershayim (״); `'` after a letter
   (`ג'ירפה`) is ’ as after any letter, with no geresh conversion (not yet checked in Word; `smart_quotes_in_hebrew_use_logical_order`, #1670).
+- Add a period with double-space (File › Options › Proofing › AutoCorrect Options › AutoFormat As
+  You Type, `tools.autocorrect {"doubleSpacePeriod"}`; **off by default**, as macOS's system switch
+  is a per-user choice): a second Space after a letter, a digit or a closing bracket or quote turns
+  the first into a period (`Hello  world`→`Hello. world`). Other punctuation before the spaces,
+  a lone space, the start of a paragraph, a tab, a selection typed over and a third space are left
+  as typed; Undo puts the two spaces back (`double_space_adds_a_period_when_asked`, #2848). Not
+  observed in Word; Word for Mac follows the macOS setting.
 - Correct TWo INitial CApitals: a finished word of three or more letters with two capitals and
   the rest lowercase loses its second capital (`WOrd`→`Word`, `TEh`→`The`); not the exceptions
   (`IDs`, `CDs`, `PCs`, `TVs`, … plus the user's, `tools.autocorrect {"addInitialCapsException"}`)
@@ -427,6 +434,7 @@ again.
 | 2026-10-19 | trivial | Delete on whole selected cells (rows, columns, the table, a cell) leaves one empty paragraph in each, with the cell's last paragraph's formatting; nested tables go too (#2802) |
 | 2026-10-19 | trivial | Ctrl+Tab (⌥Tab on macOS) types a tab character in a table cell (#3137) |
 | 2026-10-16 | trivial | AltGr on Linux (Wayland) types ś, ł, ż… instead of opening KeyTips: the modifiers event without Alt that follows the Right Alt key no longer reads as Alt let go, and a bare AltGr tap doesn't open KeyTips (#2388) |
+| 2026-10-20 | trivial | AutoFormat As You Type: optional "Add a period with double-space" (off by default), undoable (#2848) |
 | 2026-10-18 | trivial | Typing over a selection takes the first selected character's formatting, also when the selection was made right to left (#2879) |
 | 2026-10-17 | trivial | A table inserted in a right-to-left paragraph is a right-to-left table, so Tab moves to the cell on the left (#2634) |
 | 2026-10-15 | trivial | Backspace after a section break and Delete before it remove the break, also one on the last paragraph's mark; the text takes the following section's setup and keeps the headers it showed (#2127) |
