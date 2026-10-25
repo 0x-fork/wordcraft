@@ -47,6 +47,9 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 # The browser clock (`SystemTime::now()`/`Instant::now()` panic on wasm32).
 js-sys = "0.3"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+craft-update = { workspace = true }
+
 [dev-dependencies]
 cfb = { workspace = true }
 # Producer tests simulate a globally exhausted IME revision allocator through the engine's
