@@ -54,7 +54,7 @@ harfrust = "0.13"
 wuff = "0.2.9"
 vello_cpu = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tiff"] }
-craft-pdf = { git = "https://github.com/storytold/craft-libs", rev = "8a503cfe79f0a4e7da2e167e01e71155668e0cee", version = "=0.1.0", default-features = false, features = ["write"] }
+craft-pdf = { git = "https://github.com/storytold/craft-libs", rev = "4dc543cb449cc232e4c3d58f78a05c1ab169db9e", version = "=0.1.0", default-features = false, features = ["write"] }
 quick-xml = "0.41"
 zip = { version = "3", default-features = false, features = ["deflate"] }
 # zlib streams (compressed metafile pictures in `.doc` drawings); already in the lock as a dependency of other crates.
@@ -110,4 +110,4 @@ debug = 0
 
 # Required by craft-pdf: the backend rejects writers that failed during unwinding.
 [patch.crates-io]
-krilla = { git = "https://github.com/storytold/craft-libs", rev = "8a503cfe79f0a4e7da2e167e01e71155668e0cee" }
+krilla = { git = "https://github.com/storytold/craft-libs", rev = "4dc543cb449cc232e4c3d58f78a05c1ab169db9e" }
