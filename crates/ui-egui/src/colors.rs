@@ -247,14 +247,17 @@ pub enum Pick {
     More,
 }
 
+/// Stable storage id for the Recent Colors list.
 fn recent_id() -> Id {
     Id::unique("wordcraft.recentColors")
 }
 
+/// Stable storage id for the pending More Colors request.
 fn request_id() -> Id {
     Id::unique("wordcraft.moreColorsRequest")
 }
 
+/// Stable storage id for the Colors dialog's open flag.
 fn open_flag_id() -> Id {
     Id::unique("wordcraft.colorsDialogOpen")
 }
@@ -794,6 +797,8 @@ mod tests {
         assert_eq!((g.first().copied(), g.last().copied()), (Some(Rgb::WHITE), Some(Rgb::BLACK)));
     }
 
+    /// Assert that colour targets build the expected `format.color` or JSON-path command payload, and
+    /// that a field target has no command.
     #[test]
     fn targets_put_the_colour_where_the_command_wants_it() {
         assert_eq!(Target::cmd("format.color").command("1A2B3C"), Some(("format.color".into(), json!({"color": "1A2B3C"}))));

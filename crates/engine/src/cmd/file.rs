@@ -79,6 +79,10 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"name": name, "path": s.path}))
 }
 
+/// Builds the file and document command table: rename, new, open, save, save as and encryption,
+/// PDF/PNG/print output and print settings, close, properties and info, author and privacy
+/// settings, and document inspection and text access. Recovery, compatibility, sharing, autosave,
+/// `file.newFromTemplate` and `file.saveTemplate` are registered in [`super::tools::specs`].
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name; its extension is kept, so the name may be given with or without it)}"#).pure(),

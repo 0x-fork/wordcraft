@@ -146,6 +146,9 @@ fn stored_prefs() -> Option<String> {
 }
 
 impl eframe::App for WebShell {
+    /// Runs one browser frame: forwards queued host messages to the status bar, advances the app,
+    /// then writes changed preferences to browser storage immediately, because a reload or closed
+    /// tab never runs the exit path.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let msgs = std::mem::take(&mut *self.messages.borrow_mut());
         for msg in msgs {
@@ -165,10 +168,13 @@ impl eframe::App for WebShell {
         }
     }
 
+    /// Forwards this frame's raw browser input to the app before widgets run.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(ctx, raw);
     }
 
+    /// Draws the app. On the first pass of a visible frame it takes the browser's dropped files and
+    /// spawns asynchronous byte reads into the inbox; later passes only draw.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Browser drops are input: take them only in the first real UI pass, never in a hidden
         // `run_logic` tick that still sees the previous shown frame's RawInput.

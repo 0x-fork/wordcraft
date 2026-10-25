@@ -1436,6 +1436,9 @@ fn count_dialog_frame(ctx: &egui::Context, id: egui::Id) {
     }
 }
 
+/// Takes the active dialog, resolves its translated title, hosts it as a non-resizable window, draws
+/// its body, keeps it open when it stays, and gives the Save Changes prompt the AccessKit
+/// alert-dialog role.
 pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     let Some(mut d) = app.dialog.take() else {
         ctx.data_mut(|d| d.remove::<(egui::Id, u8)>(dialog_top_key()));
@@ -4189,6 +4192,7 @@ mod tests {
     /// open, Cancel then reading Close — and one undo brings the bookmark back.
     #[test]
     fn the_bookmark_dialog_goes_to_and_deletes_bookmarks() {
+        /// Clicks the labelled control inside the open Bookmark dialog and advances three frames.
         fn press(h: &mut egui_kittest::Harness<'_, WordApp>, label: &str) {
             use egui_kittest::kittest::Queryable;
             let dialog = h.ctx.memory(|m| m.area_rect(egui::Id::unique(("dialog", "Bookmark")))).expect("the dialog is open");

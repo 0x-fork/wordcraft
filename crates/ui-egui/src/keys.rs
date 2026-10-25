@@ -1030,10 +1030,14 @@ enum ImeProof {
     Certified,
 }
 
+/// Wraps egui's unavailable-revision accessor for an IME mutation stamp.
 fn unavailable_revision(stamp: &egui::ImeMutationStamp) -> Option<u64> {
     stamp.unavailable_revision()
 }
 
+/// Whether a pair of IME mutation stamps proves a transition: changed surrounding text, an
+/// increase between unavailable revisions, or a mixed transition whose unavailable endpoint
+/// carries a revision.
 fn stamp_transition_proven(before: &egui::ImeMutationStamp, after: &egui::ImeMutationStamp) -> bool {
     use egui::output::IMESurroundingText;
     match (before.surrounding_text(), after.surrounding_text()) {
@@ -1049,6 +1053,8 @@ fn stamp_transition_proven(before: &egui::ImeMutationStamp, after: &egui::ImeMut
     }
 }
 
+/// Classifies an IME outcome and stamp pair as no mutation, unproven mutation or certified. Only a
+/// classified, untransformed content change with a proven stamp transition is certified.
 fn classify_ime_proof(outcome: ImeEditOutcome, before: &egui::ImeMutationStamp, after: &egui::ImeMutationStamp) -> ImeProof {
     if !outcome.classified {
         return if outcome.state_changed { ImeProof::UnprovenMutation } else { ImeProof::NoMutation };
@@ -1170,6 +1176,114 @@ fn restored_placeholder_end(s: &wordcraft_engine::Session, deleted_start: usize)
     (!placeholder.is_empty() && para.text.get(start..end) == Some(placeholder)).then_some(end)
 }
 
+/// The exact state a refused IME delete-surrounding transaction restores.
+struct ImeRollback {
+    snapshot: Option<wordcraft_engine::EditSnapshot>,
+    original: wordcraft_engine::Selection,
+    pending: Option<wordcraft_doc::props::CharProps>,
+    goal_x: Option<f32>,
+}
+
+impl ImeRollback {
+    fn apply(&mut self, app: &mut WordApp) {
+        let Some(snapshot) = self.snapshot.take() else {
+            return;
+        };
+        app.session.restore(snapshot);
+        app.session.sel = self.original.clone();
+        app.session.pending = self.pending.clone();
+        app.session.goal_x = self.goal_x;
+        refuse_ime_request(app);
+    }
+}
+
+/// Whether the edit is a classified content and state change that is not a transform.
+fn ime_edit_satisfied(app: &mut WordApp) -> bool {
+    let outcome = app.session.ime_edit_outcome();
+    outcome.classified && outcome.content_changed && outcome.state_changed && !outcome.transformed
+}
+
+/// Delete one IME-surrounding range. Returns the paragraph's signed length change and the end of
+/// a placeholder the deletion restored, or `None` after rolling back the whole transaction.
+fn ime_delete_side(
+    app: &mut WordApp,
+    rollback: &mut ImeRollback,
+    cursor: &wordcraft_doc::Pos,
+    start: usize,
+    end: usize,
+    join_undo: bool,
+) -> Option<(i64, Option<usize>)> {
+    if start >= end {
+        rollback.apply(app);
+        return None;
+    }
+    let Some(len_before) = app.session.doc.para_at(cursor).map(|p| p.len()) else {
+        rollback.apply(app);
+        return None;
+    };
+    // A control already showing its placeholder cannot have received a new one from this
+    // deletion; its unchanged text must not be mistaken for a restored placeholder.
+    let showing_before =
+        app.session.doc.control_at(&wordcraft_doc::Pos { off: end, ..cursor.clone() }).is_some_and(|r| r.control.showing_placeholder);
+    app.session.sel = wordcraft_engine::Selection {
+        anchor: wordcraft_doc::Pos { off: start, ..cursor.clone() },
+        focus: wordcraft_doc::Pos { off: end, ..cursor.clone() },
+    };
+    if join_undo {
+        app.session.join_next_undo();
+    }
+    if app.run_ime("text.backspace", json!({})).is_err() || !ime_edit_satisfied(app) {
+        rollback.apply(app);
+        return None;
+    }
+    // A tracked delete of text this author inserted removes it from the stored paragraph;
+    // other tracked deletions only mark it. A content control emptied by the deletion gains
+    // its placeholder again, which can make the paragraph longer. Measure the signed change
+    // and require proof for growth: only a placeholder restored at or before the erased
+    // range can move the suffix right.
+    let Some(len_after) = app.session.doc.para_at(cursor).map(|p| p.len()) else {
+        rollback.apply(app);
+        return None;
+    };
+    let Some(delta) = signed_len_delta(len_before, len_after) else {
+        rollback.apply(app);
+        return None;
+    };
+    let restored = restored_placeholder_end(&app.session, start).filter(|_| !showing_before);
+    if delta > 0 && restored.is_none() {
+        // Growth that cannot be attributed to a placeholder insertion at/before the erased
+        // range has no provable suffix mapping: refuse the whole transaction.
+        rollback.apply(app);
+        return None;
+    }
+    // Keep the restored placeholder's end: for a caret it is the provable insertion point,
+    // also when a tracked deletion keeps the erased bytes in the stored paragraph.
+    Some((delta, restored))
+}
+
+/// The final caret/selection offsets after one or two surrounding deletions. A restored
+/// placeholder end is the only provable position when one side inserted it; otherwise both
+/// stored offsets move by the paragraph's signed length change.
+fn ime_surrounding_offsets(
+    del_anchor: usize,
+    del_focus: usize,
+    shift: i64,
+    first_placeholder_end: Option<usize>,
+    second_placeholder_end: Option<usize>,
+) -> Option<(usize, usize)> {
+    if let Some(end) = second_placeholder_end {
+        // A selection spanning the emptied control cannot be remapped through a placeholder
+        // insertion without guessing; only a caret has a provable position.
+        return (del_anchor == del_focus).then_some((end, end));
+    }
+    if let (Some(end), true) = (first_placeholder_end, del_anchor == del_focus) {
+        // The first side restored the placeholder; its end is the caret's provable position even
+        // while an after-side deletion is applied beyond the control.
+        return Some((end, end));
+    }
+    Some((shift_offset(del_anchor, shift)?, shift_offset(del_focus, shift)?))
+}
+
 /// Both delete-surrounding paths: one visible-logical mapping for the query and the deletion.
 fn delete_surrounding_common(app: &mut WordApp, before: usize, after: usize, unit: wordcraft_doc::ime_text::DeleteUnit) {
     if before == 0 && after == 0 {
@@ -1208,21 +1322,7 @@ fn delete_surrounding_common(app: &mut WordApp, before: usize, after: usize, uni
     // restored: `last_command`, macro recording, Go Back marks, `also_selected`, `typing`/
     // `autocap` and canvas preedit (a refusal clears it).
     let snapshot = app.session.edit_snapshot();
-    let rollback = |app: &mut WordApp,
-                    snapshot: wordcraft_engine::EditSnapshot,
-                    original: wordcraft_engine::Selection,
-                    pending: Option<wordcraft_doc::props::CharProps>,
-                    goal_x: Option<f32>| {
-        app.session.restore(snapshot);
-        app.session.sel = original;
-        app.session.pending = pending;
-        app.session.goal_x = goal_x;
-        refuse_ime_request(app);
-    };
-    let satisfied = |app: &mut WordApp| {
-        let outcome = app.session.ime_edit_outcome();
-        outcome.classified && outcome.content_changed && outcome.state_changed && !outcome.transformed
-    };
+    let mut rollback = ImeRollback { snapshot: Some(snapshot), original, pending: pending_before, goal_x: goal_x_before };
     // Stored offsets of the suffix (and of the original selection) move by the paragraph's
     // signed length change. A placeholder can make that positive; subtracting a removed-byte
     // count cannot describe that, and would leave the second range and the caret inside the
@@ -1231,67 +1331,21 @@ fn delete_surrounding_common(app: &mut WordApp, before: usize, after: usize, uni
     let mut deleted = false;
     let mut first_placeholder_end = None;
     if let Some(range) = del.before.clone() {
-        if range.start >= range.end {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        }
-        let Some(len_before) = app.session.doc.para_at(&cursor).map(|p| p.len()) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
+        let Some((delta, restored)) = ime_delete_side(app, &mut rollback, &cursor, range.start, range.end, join) else {
             return;
         };
-        // A control already showing its placeholder cannot have received a new one from this
-        // deletion; its unchanged text must not be mistaken for a restored placeholder.
-        let showing_before =
-            app.session.doc.control_at(&wordcraft_doc::Pos { off: range.end, ..cursor.clone() }).is_some_and(|r| r.control.showing_placeholder);
-        app.session.sel = wordcraft_engine::Selection {
-            anchor: wordcraft_doc::Pos { off: range.start, ..cursor.clone() },
-            focus: wordcraft_doc::Pos { off: range.end, ..cursor.clone() },
-        };
-        if join {
-            app.session.join_next_undo();
-        }
-        if app.run_ime("text.backspace", json!({})).is_err() || !satisfied(app) {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        }
         deleted = true;
-        // A tracked delete of text this author inserted removes it from the stored paragraph;
-        // other tracked deletions only mark it. A content control emptied by the deletion gains
-        // its placeholder again, which can make the paragraph longer. Measure the signed change
-        // and require proof for growth: only a placeholder restored at or before the erased
-        // range can move the suffix right.
-        let Some(len_after) = app.session.doc.para_at(&cursor).map(|p| p.len()) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        };
-        let Some(delta) = signed_len_delta(len_before, len_after) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        };
-        let restored = restored_placeholder_end(&app.session, range.start).filter(|_| !showing_before);
-        if delta > 0 && restored.is_none() {
-            // Growth that cannot be attributed to a placeholder insertion at/before the erased
-            // range has no provable suffix mapping: refuse the whole transaction.
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        }
-        // Keep the restored placeholder's end: for a caret it is the provable insertion point,
-        // also when a tracked deletion keeps the erased bytes in the stored paragraph.
         first_placeholder_end = restored;
         shift = delta;
     }
     let mut second_placeholder_end = None;
     if let Some(range) = del.after {
-        let Some(len_before) = app.session.doc.para_at(&cursor).map(|p| p.len()) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        };
         let Some(start) = shift_offset(range.start, shift) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
+            rollback.apply(app);
             return;
         };
         let Some(end) = shift_offset(range.end, shift) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
+            rollback.apply(app);
             return;
         };
         let in_bounds = app
@@ -1300,72 +1354,27 @@ fn delete_surrounding_common(app: &mut WordApp, before: usize, after: usize, uni
             .para_at(&cursor)
             .is_some_and(|p| start < end && end <= p.len() && p.text.is_char_boundary(start) && p.text.is_char_boundary(end));
         if !in_bounds {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
+            rollback.apply(app);
             return;
         }
         // The mapped end is in the paragraph as the first side left it; a control already
         // showing its placeholder there is not one this side restores.
-        let showing_before =
-            app.session.doc.control_at(&wordcraft_doc::Pos { off: end, ..cursor.clone() }).is_some_and(|r| r.control.showing_placeholder);
-        app.session.sel = wordcraft_engine::Selection {
-            anchor: wordcraft_doc::Pos { off: start, ..cursor.clone() },
-            focus: wordcraft_doc::Pos { off: end, ..cursor.clone() },
-        };
-        // A second erased side belongs to the same undo step as the first (and to the
-        // typing group when one is open), and so does the commit that follows.
-        if deleted || join {
-            app.session.join_next_undo();
-        }
-        if app.run_ime("text.backspace", json!({})).is_err() || !satisfied(app) {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
+        let Some((_, restored)) = ime_delete_side(app, &mut rollback, &cursor, start, end, deleted || join) else {
             return;
-        }
+        };
         deleted = true;
-        // The after side can empty a different control and restore its placeholder too. That
-        // insertion changes the caret's position by its own length, not by the stored delta of
-        // the text beyond it, so map the caret to the restored placeholder's end explicitly.
-        let Some(len_after) = app.session.doc.para_at(&cursor).map(|p| p.len()) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        };
-        let Some(delta) = signed_len_delta(len_before, len_after) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        };
-        let restored = restored_placeholder_end(&app.session, start).filter(|_| !showing_before);
-        if delta > 0 && restored.is_none() {
-            // The after side grew the paragraph without a provable placeholder insertion:
-            // the final caret cannot be mapped safely.
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        }
         second_placeholder_end = restored;
     }
-    let (anchor_off, focus_off) = if let Some(end) = second_placeholder_end {
-        // A selection spanning the emptied control cannot be remapped through a placeholder
-        // insertion without guessing; only a caret has a provable position.
-        if del.anchor != del.focus {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        }
-        (end, end)
-    } else if let (Some(end), true) = (first_placeholder_end, del.anchor == del.focus) {
-        // The first side restored the placeholder; its end is the caret's provable position even
-        // while an after-side deletion is applied beyond the control.
-        (end, end)
-    } else {
-        let (Some(anchor_off), Some(focus_off)) = (shift_offset(del.anchor, shift), shift_offset(del.focus, shift)) else {
-            rollback(app, snapshot, original, pending_before, goal_x_before);
-            return;
-        };
-        (anchor_off, focus_off)
+    let Some((anchor_off, focus_off)) = ime_surrounding_offsets(del.anchor, del.focus, shift, first_placeholder_end, second_placeholder_end) else {
+        rollback.apply(app);
+        return;
     };
     let valid =
         app.session.doc.para_at(&cursor).is_some_and(|p| {
             anchor_off <= p.len() && focus_off <= p.len() && p.text.is_char_boundary(anchor_off) && p.text.is_char_boundary(focus_off)
         });
     if !valid {
-        rollback(app, snapshot, original, pending_before, goal_x_before);
+        rollback.apply(app);
         return;
     }
     app.session.sel = wordcraft_engine::Selection {
@@ -1483,6 +1492,7 @@ pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
 mod tests {
     use super::*;
 
+    /// Builds an IME edit outcome test fixture with `selection_changed` false.
     fn outcome(classified: bool, content: bool, state: bool, transformed: bool) -> ImeEditOutcome {
         ImeEditOutcome { classified, content_changed: content, state_changed: state, transformed, selection_changed: false }
     }
@@ -2032,6 +2042,7 @@ mod tests {
         assert_eq!(body(&a), "риabм ");
     }
 
+    /// Builds an `ImeEvent::DeleteSurroundingBytes` event with the given before and after byte counts.
     fn surround_bytes(before_bytes: usize, after_bytes: usize) -> egui::Event {
         egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes, after_bytes })
     }
@@ -2349,12 +2360,15 @@ mod tests {
         assert_eq!(a.session.goal_x, Some(123.0), "the Up/Down goal column is restored");
     }
 
+    /// Selects a body range, wraps it in a rich-text content control with `tag`, and sets its
+    /// placeholder.
     fn wrap_in_control(a: &mut WordApp, start: usize, end: usize, tag: &str, placeholder: &str) {
         a.session.sel = wordcraft_engine::Selection { anchor: wordcraft_doc::Pos::body(0, start), focus: wordcraft_doc::Pos::body(0, end) };
         a.run("developer.richText", json!({"tag": tag})).unwrap();
         a.run("developer.properties", json!({"control": tag, "placeholder": placeholder})).unwrap();
     }
 
+    /// Finds the body content control with `tag`, panicking if it is absent.
     fn control(a: &WordApp, tag: &str) -> wordcraft_doc::ControlRange {
         a.session
             .doc

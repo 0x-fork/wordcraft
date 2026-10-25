@@ -16,10 +16,12 @@ use wordcraft_layout::display::paint_for;
 use crate::WordApp;
 use crate::theme::Tokens;
 
+/// Stable storage id for a fill drag's undo mark.
 fn mark_id() -> Id {
     Id::unique("format_shape.drag_mark")
 }
 
+/// Stable storage id for the gradient stop being edited.
 fn stop_id() -> Id {
     Id::unique("format_shape.stop")
 }
@@ -35,6 +37,7 @@ pub fn forget_drag(ctx: &egui::Context) {
 #[derive(Clone)]
 struct Variation(wordcraft_doc::Pos, Fill, Rgb);
 
+/// Stable storage id for the gradient variation remembered for the last object.
 fn variation_id() -> Id {
     Id::unique("format_shape.variation")
 }
@@ -126,6 +129,8 @@ pub fn pane(app: &mut WordApp, ui: &mut Ui) {
     }
 }
 
+/// Draws a solid fill's colour field and transparency slider, applying each changed fill as a
+/// whole.
 fn solid(app: &mut WordApp, ui: &mut Ui, theme: &[Rgb], color: Rgb, transparency: f32) {
     let mut c = color;
     if color_field(ui, theme, Id::unique("format_shape.solid_color"), &mut c) {
@@ -211,6 +216,9 @@ fn kind_of(t: usize, focus: [f32; 4], angle: f32, scaled: bool) -> GradientKind 
     }
 }
 
+/// Draws the gradient preset gallery and type, direction and angle controls, the stop bar with
+/// add and remove, and the selected stop's colour, position, transparency and rotate-with-shape
+/// controls.
 fn gradient(app: &mut WordApp, ui: &mut Ui, theme: &[Rgb], g: &Gradient) {
     egui::Grid::new("format_shape.gradient").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("Preset gradients"));

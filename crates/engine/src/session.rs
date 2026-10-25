@@ -581,6 +581,8 @@ fn allocate_ime_state_revision(counter: &std::sync::atomic::AtomicU64) -> Option
 
 static IME_STATE_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+/// Allocates the next process-monotonic IME state revision, returning `None` when the counter is
+/// exhausted.
 fn next_ime_state_revision() -> Option<u64> {
     allocate_ime_state_revision(&IME_STATE_REVISION)
 }
@@ -1328,6 +1330,9 @@ impl Session {
         }
         done
     }
+    /// Undoes the newest step: closes typing, records an AutoCorrect exception when the undone step
+    /// was its automatic capital, swaps the document, selection, pending formatting and column with
+    /// the redo snapshot, replaces the body identity, refreshes equation editing and touches layout.
     pub fn undo(&mut self) -> bool {
         self.typing_open = false;
         // Undoing the automatic capitalisation's own step makes its word an exception; any
@@ -1356,6 +1361,8 @@ impl Session {
         let next = if redo { self.redo.last() } else { self.history.last() };
         next.is_some_and(|u| crate::cmd::protect::protection_lifted(&self.doc, &u.doc))
     }
+    /// Redoes the newest undone step by swapping the snapshots back, replacing the body identity,
+    /// refreshing equation editing and touching layout.
     pub fn redo(&mut self) -> bool {
         self.typing_open = false;
         let Some(u) = self.redo.pop().map(Arc::unwrap_or_clone) else { return false };
@@ -1750,6 +1757,8 @@ impl Session {
         self.ime_state_revision
     }
 
+    /// Returns the caret identity used for IME state revisions: the equation session and position
+    /// while editing, otherwise the body selection.
     fn current_ime_caret_state(&self) -> ImeCaretState {
         match &self.math {
             Some(m) => ImeCaretState::Equation { session: m.session, pos: m.pos.clone() },
@@ -1770,6 +1779,8 @@ impl Session {
         self.ime_state_revision = next_ime_state_revision();
     }
 
+    /// Allocates a new revision only when the body selection or the equation session and position
+    /// differs from the last observed state.
     fn sync_ime_caret_state(&mut self) {
         let state = self.current_ime_caret_state();
         if self.ime_state_seen.as_ref() != Some(&state) {
@@ -2198,6 +2209,7 @@ mod ime_revision_tests {
     use super::*;
     use serde_json::json;
 
+    /// Checked allocations stop at `u64::MAX` and report exhaustion instead of wrapping.
     #[test]
     fn checked_revision_allocation_refuses_to_wrap() {
         let counter = std::sync::atomic::AtomicU64::new(u64::MAX - 1);
@@ -2206,6 +2218,8 @@ mod ime_revision_tests {
         assert_eq!(counter.load(std::sync::atomic::Ordering::Relaxed), u64::MAX);
     }
 
+    /// An unchanged caret reuses its revision, while a direct selection assignment is observed and
+    /// advances the revision.
     #[test]
     fn selection_and_caret_motion_advance_the_unavailable_revision() {
         let mut s = Session::new(Document::from_text("hello"));
@@ -2216,6 +2230,8 @@ mod ime_revision_tests {
         assert!(moved > first, "a direct selection assignment is caught");
     }
 
+    /// A selection-only command advances the revision on the next read, while a committed state
+    /// change advances it immediately.
     #[test]
     fn successful_state_changes_allocate_but_selection_only_commands_do_not() {
         let mut s = Session::new(Document::from_text("hello"));
@@ -2228,6 +2244,8 @@ mod ime_revision_tests {
         assert!(s.ime_state_revision() > Some(selected), "a committed state change advances");
     }
 
+    /// After the revision allocator is exhausted, a real equation edit still reports its classified
+    /// change but cannot mint a revision.
     #[test]
     fn exhausted_allocator_keeps_a_real_equation_commit_uncertifiable() {
         let mut s = Session::new(Document::new());
@@ -2240,6 +2258,8 @@ mod ime_revision_tests {
         assert_eq!(s.ime_state_revision(), None, "a real producer command cannot mint a revision");
     }
 
+    /// The application-change signal is consumed once; commands run through `run_ime` do not set it,
+    /// while a normal command does.
     #[test]
     fn application_origin_signal_is_taken_once_and_ime_commands_do_not_set_it() {
         let mut s = Session::new(Document::from_text("hello"));
@@ -2252,6 +2272,8 @@ mod ime_revision_tests {
         assert!(s.take_pending_ime_application_change());
     }
 
+    /// Unknown and refused IME commands restore the normal origin without signalling an application
+    /// change, and a nested command inside a macro inherits the IME origin.
     #[test]
     fn ime_origin_is_restored_and_nested_commands_inherit_it() {
         let mut s = Session::new(Document::from_text("hello"));

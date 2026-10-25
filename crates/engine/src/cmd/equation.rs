@@ -20,6 +20,9 @@ fn near_equation(s: &Session) -> Option<&'static str> {
     if s.math.is_some() || equation_at_caret(s).is_some() { None } else { Some("no equation at the caret") }
 }
 
+/// Builds the equation command table: insert, edit and exit, typing, structures, symbols, caret
+/// movement, deletion (including bounded surrounding deletion), enter, conversion, input format,
+/// normal text, display, justification, numbering, set and get, gallery and structure actions.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("insert.equation", "Equation", "Insert › Symbols", insert)
@@ -112,12 +115,15 @@ struct EquationEffect {
 }
 
 impl EquationEffect {
+    /// Merges another edit's effect flags, so a change on either side marks the merged effect.
     fn merge(&mut self, other: Self) {
         self.content_changed |= other.content_changed;
         self.state_changed |= other.state_changed;
     }
 }
 
+/// Records the edit as a classified IME outcome; any content change also counts as a state
+/// change, and `transformed` marks automatic rewrites.
 fn apply_effect(s: &mut Session, effect: EquationEffect, transformed: bool) {
     s.set_ime_edit_outcome(ImeEditOutcome {
         classified: true,
@@ -128,6 +134,8 @@ fn apply_effect(s: &mut Session, effect: EquationEffect, transformed: bool) {
     });
 }
 
+/// Records a classified IME outcome with no content or state change, distinguishing a real
+/// no-op from a command that never classified its edit.
 fn classified_noop(s: &mut Session) {
     s.set_ime_edit_outcome(ImeEditOutcome { classified: true, ..ImeEditOutcome::default() });
 }
@@ -213,6 +221,9 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     insert_nodes_as_equation(s, nodes, v)
 }
 
+/// Clears any editing session, deletes the selection, creates an equation object (display on an
+/// empty line unless the request overrides it), optionally opens editing at the first
+/// placeholder, and reports a content change.
 fn insert_nodes_as_equation(s: &mut Session, nodes: Arg, v: &Value) -> CmdResult {
     s.math = None;
     let props = s.typing_props();
@@ -247,6 +258,8 @@ fn insert_nodes_as_equation(s: &mut Session, nodes: Arg, v: &Value) -> CmdResult
     result(s)
 }
 
+/// Starts editing the equation at the caret, materializing lazy nodes and clamping the requested
+/// position, and returns the equation and caret.
 fn edit(s: &mut Session, v: &Value) -> CmdResult {
     let at = equation_at_caret(s).ok_or_else(|| CmdError::Disabled("no equation at the caret".into()))?;
     let nodes = match s.doc.para_at(&at).and_then(|p| p.object_at(at.off)) {
@@ -282,6 +295,9 @@ fn current(s: &Session) -> Result<MathEdit, CmdError> {
     s.math.clone().ok_or_else(|| CmdError::Disabled("not editing an equation".into()))
 }
 
+/// Caps typing at `MAX_EQUATION_TYPE_CHARS`; empty text is a classified no-op. Linear form
+/// inserts literal runs, while built-up form applies AutoCorrect and build-up before spaces and
+/// relational characters.
 fn type_text(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::req_str(v, "text")?.to_string();
     let m = current(s)?;
@@ -339,6 +355,8 @@ fn set_literal(nodes: &mut Arg) {
     }
 }
 
+/// Inserts a gallery, linear or LaTeX structure: a new equation when none is being edited,
+/// literal text in linear form, or nodes at the caret in built-up form.
 fn insert_structure(s: &mut Session, v: &Value) -> CmdResult {
     let nodes = nodes_from(v).ok_or_else(|| CmdError::Params("give an id, linear or latex".into()))?;
     let Some(m) = s.math.clone() else {
@@ -361,6 +379,8 @@ fn insert_structure(s: &mut Session, v: &Value) -> CmdResult {
     result(s)
 }
 
+/// Rejects an empty character; outside editing creates an equation, otherwise inserts the
+/// character at the math caret, marked literal in linear form.
 fn insert_symbol(s: &mut Session, v: &Value) -> CmdResult {
     let c = p::req_str(v, "char")?.to_string();
     if c.is_empty() {
@@ -393,6 +413,8 @@ fn nodes_of(s: &Session, at: &Pos) -> Option<Arg> {
     }
 }
 
+/// Validates the direction, commits an AutoCorrect or build-up triggered by leaving a slot as one
+/// undoable edit, moves or clamps the math caret, and exits past either end.
 fn move_caret(s: &mut Session, v: &Value) -> CmdResult {
     let m = current(s)?;
     let dir = p::str(v, "dir").unwrap_or("right");
@@ -456,6 +478,8 @@ fn move_caret(s: &mut Session, v: &Value) -> CmdResult {
         None => exit(s, &json!({"before": dir == "left"})),
     }
 }
+/// With the caret in an empty equation, removes the whole equation as a content change;
+/// otherwise deletes backward or forward, updates the caret and records the effect.
 fn delete(s: &mut Session, back: bool) -> CmdResult {
     let m = current(s)?;
     let nodes = nodes_of(s, &m.at).ok_or_else(|| CmdError::Failed("no equation there".into()))?;
@@ -536,6 +560,8 @@ fn delete_surrounding(s: &mut Session, v: &Value) -> CmdResult {
     apply_effect(s, effect, false);
     Ok(json!({"before": before, "after": after, "changed": true}))
 }
+/// In built-up form runs AutoCorrect, build-up and equation numbering; when nothing changes,
+/// leaves the equation and splits a new paragraph.
 fn enter(s: &mut Session, _: &Value) -> CmdResult {
     let m = current(s)?;
     let latex = s.math_latex;
@@ -595,6 +621,8 @@ fn convert_math(math: &mut Math, professional: bool, latex: bool) {
     }
 }
 
+/// Converts one equation or all equations between built-up and linear form, honoring LaTeX mode,
+/// merging every effect and resetting the math caret.
 fn convert(s: &mut Session, v: &Value) -> CmdResult {
     let professional = p::str(v, "to").map(|t| !t.eq_ignore_ascii_case("linear")).unwrap_or(true);
     let latex = s.math_latex;
@@ -638,6 +666,7 @@ fn convert(s: &mut Session, v: &Value) -> CmdResult {
     result(s)
 }
 
+/// Toggles or sets the equation's inline or display mode.
 fn set_display(s: &mut Session, v: &Value) -> CmdResult {
     let at = equation_at_caret(s).ok_or_else(|| CmdError::Disabled("no equation at the caret".into()))?;
     let (_, effect) = with_eq(s, &at, |_, display| *display = p::bool(v, "value").unwrap_or(!*display))?;
@@ -645,6 +674,8 @@ fn set_display(s: &mut Session, v: &Value) -> CmdResult {
     result(s)
 }
 
+/// Maps `jc` to the math justification, with unknown values falling back to center-group, and
+/// forces display mode.
 fn justify(s: &mut Session, v: &Value) -> CmdResult {
     let at = equation_at_caret(s).ok_or_else(|| CmdError::Disabled("no equation at the caret".into()))?;
     let jc = match p::str(v, "jc").unwrap_or("centerGroup") {
@@ -712,6 +743,8 @@ fn without_number(row: Arg) -> Arg {
     out
 }
 
+/// Replaces the equation's nodes from linear or LaTeX input, forces built-up form, and puts the
+/// caret at the new end.
 fn set(s: &mut Session, v: &Value) -> CmdResult {
     let at = equation_at_caret(s).ok_or_else(|| CmdError::Disabled("no equation at the caret".into()))?;
     let nodes = nodes_from(v).ok_or_else(|| CmdError::Params("give linear or latex".into()))?;
@@ -752,6 +785,8 @@ fn structure_actions(s: &mut Session, _: &Value) -> CmdResult {
     Ok(json!({"actions": acts}))
 }
 
+/// Applies a named structure action at an explicit or inferred level, refusing an action that
+/// does not apply at the caret.
 fn structure(s: &mut Session, v: &Value) -> CmdResult {
     let m = current(s)?;
     let action = p::req_str(v, "action")?.to_string();
@@ -1010,6 +1045,9 @@ mod tests {
         assert!(document_xml(&s).contains(">bx<"));
     }
 
+    /// A Left move that builds up `a/b` makes the document dirty, advances layout and IME revisions,
+    /// reports a classified transformed change, and Undo restores the literal run; plain navigation
+    /// leaves no undo step.
     #[test]
     fn navigation_build_up_is_an_undoable_edit() {
         // #447: building `a/b` up on a Left move left the document clean and Undo did nothing.
@@ -1101,10 +1139,13 @@ mod tests {
         assert!(nodes.iter().all(|n| matches!(n, MNode::Script { .. }) || matches!(n, MNode::Run(r) if r.text.trim().is_empty())), "{nodes:#?}");
     }
 
+    /// Returns the session's current IME state revision, allocating a new one when the caret state changed.
     fn revision(s: &mut Session) -> u64 {
         s.ime_state_revision().expect("an IME state revision")
     }
 
+    /// Clears the stored node tree of the equation currently being edited, leaving its linear text
+    /// and lazy state in place.
     fn clear_nodes(s: &mut Session) {
         let at = s.math.as_ref().expect("editing").at.clone();
         if let Some(InlineObject::Equation { math, .. }) = s.doc.para_mut(at.story, &at.path).expect("paragraph").object_at_mut(at.off) {
@@ -1112,6 +1153,8 @@ mod tests {
         }
     }
 
+    /// Backspace at the start of an equation is classified with no content or state change,
+    /// allocates no revision and leaves the linear text intact.
     #[test]
     fn equation_backspace_at_start_is_a_classified_noop() {
         let mut s = session();
@@ -1126,6 +1169,8 @@ mod tests {
         assert_eq!(linear(&s), "x+y");
     }
 
+    /// Materializing an imported equation's lazy nodes is a state change only: the outcome is
+    /// classified, content is unchanged, and the revision advances.
     #[test]
     fn lazy_normalization_is_state_not_content() {
         let mut s = session();
@@ -1143,6 +1188,7 @@ mod tests {
         assert!(revision(&mut s) > before, "state changes advance the revision");
     }
 
+    /// Empty typing is a classified no-op in built-up and linear form, without a new revision.
     #[test]
     fn empty_equation_type_is_a_classified_noop_in_both_modes() {
         let mut s = session();
@@ -1159,6 +1205,7 @@ mod tests {
         assert_eq!(revision(&mut s), before, "linear empty type is a no-op");
     }
 
+    /// Typing `a/b ` or `\alpha ` reports both a content change and a transformed automatic rewrite.
     #[test]
     fn automatic_equation_rewrites_are_transformed() {
         for text in ["a/b ", "\\alpha "] {
@@ -1171,6 +1218,8 @@ mod tests {
         }
     }
 
+    /// Justification and display changes advance the revision and report a state, not content,
+    /// change.
     #[test]
     fn equation_style_changes_are_state_changes_without_content() {
         let mut s = session();
@@ -1186,6 +1235,8 @@ mod tests {
         assert!(revision(&mut s) > before);
     }
 
+    /// Converting every equation reports one classified effect that merges their content and state
+    /// changes.
     #[test]
     fn convert_all_merges_every_equations_effect() {
         let mut s = session();
@@ -1201,6 +1252,8 @@ mod tests {
         assert!(outcome.classified && outcome.content_changed && outcome.state_changed, "{outcome:?}");
     }
 
+    /// A bounded deletion around the caret removes the requested units in one undo step and reports
+    /// a content change.
     #[test]
     fn equation_delete_surrounding_is_one_transaction_and_one_undo_step() {
         let mut s = session();
@@ -1212,6 +1265,8 @@ mod tests {
         assert!(s.ime_edit_outcome().classified && s.ime_edit_outcome().content_changed);
     }
 
+    /// An impossible bounded deletion applies no prefix, adds no undo step, keeps the session and
+    /// caret, and leaves no classified outcome.
     #[test]
     fn equation_delete_surrounding_refuses_partial_progress() {
         let mut s = session();
@@ -1234,6 +1289,8 @@ mod tests {
         );
     }
 
+    /// Zero or oversized counts and deletions from an empty equation are refused without mutation;
+    /// exactly deleting all text leaves the empty equation object.
     #[test]
     fn equation_delete_surrounding_bounds_and_empty_equations() {
         let mut s = session();
@@ -1252,6 +1309,8 @@ mod tests {
         assert!(s.math.is_some());
     }
 
+    /// A forward deletion that would only step into another argument is refused whole, leaving the
+    /// text and undo depth unchanged (the caret is not asserted here).
     #[test]
     fn equation_delete_surrounding_refuses_a_caret_only_step() {
         let mut s = session();
@@ -1287,6 +1346,8 @@ mod tests {
         assert_eq!(s.math.as_ref().expect("editing").pos, pos, "the caret stays where the request found it");
     }
 
+    /// Typing more than the cap inserts exactly `MAX_EQUATION_TYPE_CHARS` characters in both linear
+    /// and built-up form.
     #[test]
     fn equation_type_caps_linear_and_built_up_input() {
         for linear_mode in [false, true] {
@@ -1301,6 +1362,8 @@ mod tests {
         }
     }
 
+    /// Deleting one character forward removes it and moves the math caret to the start of the
+    /// remaining text.
     #[test]
     fn equation_delete_surrounding_moves_the_caret_for_a_one_step_delete() {
         let mut s = session();

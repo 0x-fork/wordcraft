@@ -275,6 +275,8 @@ impl MacTitleBar {
     }
 }
 
+/// Draws the title bar with window dragging, AutoSave, quick access, account, community and search
+/// controls, and the centred clickable document title.
 pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
@@ -536,6 +538,8 @@ pub fn focus_ribbon(app: &mut WordApp, ctx: &egui::Context) {
     }
 }
 
+/// Draws the status bar's page, word count, zoom and status controls, fitting a status message
+/// with a tooltip; without a document the bar is empty.
 pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("status")

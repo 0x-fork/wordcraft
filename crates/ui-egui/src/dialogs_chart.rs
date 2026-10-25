@@ -369,6 +369,7 @@ mod tests {
     /// became `align(Align2)`: `RIGHT_CENTER` silently changed vertical alignment too.
     #[test]
     fn chart_value_cells_are_right_and_top_aligned() {
+        /// Finds the first text shape's position, descending into a vector of shapes.
         fn text_pos(shape: &egui::Shape) -> Option<egui::Pos2> {
             match shape {
                 egui::Shape::Text(text) => Some(text.pos),

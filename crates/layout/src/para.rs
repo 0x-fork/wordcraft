@@ -3043,6 +3043,8 @@ fn resolve_tab(pl: &mut ParaLayout, pending: &mut Option<(usize, TabStop, f32)>,
 }
 
 impl ParaLayout {
+    /// Returns whether `off` is a legal caret and edit boundary, that is, not the interior start of a
+    /// joined grapheme cluster.
     fn is_edit_boundary(&self, off: usize) -> bool {
         self.joined_cluster_starts.binary_search(&off).is_err()
     }

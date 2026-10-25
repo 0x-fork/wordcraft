@@ -829,6 +829,9 @@ struct ComboSearch {
     view_h: f32,
 }
 
+/// Draws an editable or searchable combo box: keeps temporary text and search state, supports
+/// keyboard selection, popup rows with recent and preview sections, an arrow and hint, and
+/// returns the chosen or committed text.
 fn combo_impl(
     ui: &mut Ui,
     id: &str,
@@ -1247,6 +1250,8 @@ fn icon_text_button_size(ui: &Ui, text_w: f32, marker: bool, show_text: bool) ->
     pad.x + 16.0 + gap + text_w + marker_w + pad.x
 }
 
+/// Allocates and paints a themed icon button with optional text, marker and accessible label, and
+/// returns its response.
 fn icon_text_button_with(ui: &mut Ui, icon: &str, text: &str, font: egui::FontId, marker: bool, show_text: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let galley = ui.painter().layout_no_wrap(text.to_string(), font, Color32::PLACEHOLDER);

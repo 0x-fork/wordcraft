@@ -54,6 +54,8 @@ struct Key {
 }
 
 impl Key {
+    /// Compares two AccessKit cache keys: layout identity, document id, table-preview flag, page range,
+    /// page rectangles and selection.
     fn same(&self, o: &Key) -> bool {
         Arc::ptr_eq(&self.layout, &o.layout)
             && self.doc == o.doc

@@ -321,6 +321,7 @@ fn parse_ms(value: Option<&str>) -> f64 {
     }
 }
 
+/// Stable id for the caret glide's temporary animation state.
 fn state_id() -> egui::Id {
     egui::Id::unique("caret_glide")
 }

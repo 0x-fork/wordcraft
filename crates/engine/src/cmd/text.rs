@@ -96,6 +96,9 @@ fn typing_options(s: &mut Session, text: &str) {
     }
 }
 
+/// Inserts text with the typing options and smart quotes, records the IME outcome, and for a
+/// single trigger character runs list, AutoCorrect and dash AutoFormat as a separate undo step
+/// when they rewrite the paragraph.
 fn insert(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::req_str(v, "text")?;
     let raw = p::bool(v, "raw").unwrap_or(false);
@@ -880,6 +883,10 @@ fn backspace(s: &mut Session, v: &Value) -> CmdResult {
     Ok(r)
 }
 
+/// Deletes the selection or the character before the caret. At a paragraph start it removes list
+/// numbering while keeping the text position, takes a List Paragraph out of the list, outdents,
+/// joins the previous paragraph or moves into a preceding table; the command wrapper restores a
+/// content-control placeholder.
 fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
     s.goal_x = None;
     s.pending = None;
@@ -989,6 +996,8 @@ fn delete(s: &mut Session, v: &Value) -> CmdResult {
     Ok(r)
 }
 
+/// Deletes the selection or the character after the caret, joins the next paragraph, handles a
+/// following table and removes a trailing section break; tracked changes keep their marks.
 fn delete_inner(s: &mut Session, _: &Value) -> CmdResult {
     s.goal_x = None;
     s.pending = None;

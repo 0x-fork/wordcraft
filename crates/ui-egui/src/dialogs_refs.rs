@@ -312,6 +312,8 @@ impl CaptionForm {
     }
 }
 
+/// Draws the Caption dialog's preview, text, label, position and numbering controls, with New
+/// Label, Delete Label and Numbering jumps, and inserts the caption on OK.
 fn caption_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) -> Next {
     let caption_label = ui.label(tl!("Caption:"));
     ui.horizontal(|ui| {
@@ -420,6 +422,9 @@ impl CrossRefForm {
     }
 }
 
+/// Draws the Cross-reference dialog's reference-type and insert-reference-to selectors and the
+/// target list, reloading the form when the type changes, and runs `insert.crossReference` on
+/// Insert.
 fn cross_ref_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CrossRefForm) -> Next {
     let was = f.to.clone();
     egui::Grid::new("xref_opts").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
@@ -461,6 +466,8 @@ fn cross_ref_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CrossRefForm) -> Next {
     if cancel { Next::Close } else { Next::Stay }
 }
 
+/// Draws the caption numbering format, chapter-number toggle and chapter level and separator
+/// controls, returning to the caption dialog with the edited or original form.
 fn numbering_ui(ui: &mut Ui, f: &mut CaptionForm, was: &CaptionForm) -> Next {
     egui::Grid::new("cap_num").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         let format_label = ui.label(tl!("Format:"));
@@ -499,6 +506,8 @@ fn numbering_ui(ui: &mut Ui, f: &mut CaptionForm, was: &CaptionForm) -> Next {
     Next::Stay
 }
 
+/// Draws the new caption label field with focus, sanitizes an accepted label, remembers custom
+/// labels, and returns to the caption dialog.
 fn new_label_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) -> Next {
     let label = ui.label(tl!("Label:"));
     let r = ui.add(egui::TextEdit::singleline(&mut f.new_label).desired_width(260.0)).labelled_by(label.id);
@@ -565,6 +574,8 @@ impl IndexForm {
     }
 }
 
+/// Draws the index preview and type, columns, right-alignment, tab-leader and heading controls,
+/// jumps to Mark Entry, and runs `references.index` on OK.
 fn index_ui(app: &mut WordApp, ui: &mut Ui, f: &mut IndexForm) -> Next {
     let page = |p: &str| p.to_string();
     let lines: Vec<(usize, String, String)> = {
@@ -664,6 +675,8 @@ impl MarkForm {
     }
 }
 
+/// Draws the index-entry fields and page, cross-reference or bookmark-range options, with Mark
+/// and Mark All running `references.markEntry`.
 fn mark_ui(app: &mut WordApp, ui: &mut Ui, f: &mut MarkForm) -> Next {
     heading(ui, "Index");
     egui::Grid::new("xe").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
@@ -814,6 +827,8 @@ impl TocForm {
     }
 }
 
+/// Draws the TOC preview and page-number, right-alignment, tab-leader, hyperlink and level
+/// controls, with Options and Modify jumps and `references.toc` on OK.
 fn toc_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm) -> Next {
     let lines: Vec<(usize, String, String)> = (1..=f.levels.min(3))
         .map(|l| {
@@ -859,6 +874,8 @@ fn toc_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm) -> Next {
     if ok || cancel { Next::Close } else { Next::Stay }
 }
 
+/// Draws the TOC sources: heading styles, per-style TOC levels, outline levels and TC entry
+/// fields, with Reset. OK returns the edited form and Cancel the original.
 fn toc_options_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm, was: &TocForm) -> Next {
     heading(ui, "Collect entries from:");
     ui.checkbox(&mut f.heading_styles, crate::i18n::fmt(tl!("Heading styles (levels 1–{n})"), &[("n", &f.levels.to_string())]));
@@ -962,6 +979,8 @@ impl FiguresForm {
     }
 }
 
+/// Draws the table-of-figures preview and label, include-label, page-number, right-alignment and
+/// tab-leader controls, running `references.tableOfFigures` on OK.
 fn figures_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FiguresForm) -> Next {
     let lines: Vec<(usize, String, String)> = [(1, "1"), (2, "3")]
         .iter()
@@ -1145,6 +1164,8 @@ impl SourceForm {
     }
 }
 
+/// Draws a source's type and fields, optionally every bibliography field, and adds it as a
+/// bibliography source or inserts a citation on OK.
 fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> Next {
     egui::Grid::new("src").num_columns(2).spacing(vec2(10.0, 5.0)).show(ui, |ui| {
         let kind_label = ui.label(tl!("Source type:"));

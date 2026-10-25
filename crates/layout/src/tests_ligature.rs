@@ -204,6 +204,8 @@ fn assert_atomic_drawing_group(d: &Document, legal: &[usize], start: usize, insi
     assert!(width > 0.0 && (width - expected).abs() < 0.05, "whole-grapheme selection: {width}, expected {expected}");
 }
 
+/// A mixed-size emoji ZWJ grapheme keeps both drawing sizes and gives caret hit testing,
+/// selection and wrapping atomic boundaries in LTR and bidi at several widths.
 #[test]
 fn a_mixed_style_emoji_grapheme_has_atomic_caret_hit_and_wrap_boundaries() {
     for bidi in [false, true] {
@@ -230,6 +232,8 @@ fn a_mixed_style_emoji_grapheme_has_atomic_caret_hit_and_wrap_boundaries() {
     }
 }
 
+/// A base letter and combining mark using different bundled fonts keep their own faces and
+/// glyphs, with atomic hit, selection and wrap boundaries across widths and bidi.
 #[test]
 fn a_mixed_bundled_font_combining_grapheme_preserves_drawing_and_atomic_boundaries() {
     for bidi in [false, true] {

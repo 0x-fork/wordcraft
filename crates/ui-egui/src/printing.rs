@@ -19,6 +19,8 @@ pub fn commands(app: &crate::WordApp) -> Vec<serde_json::Value> {
     ]
 }
 
+/// Builds translated print labels, draws the shared print-settings panel, and shows the current
+/// feedback message.
 pub fn show(state: &mut State, ui: &mut egui::Ui, discover: &Discover, translate: impl Fn(&str) -> String) {
     let labels = Labels {
         printer: &translate("Printer"),

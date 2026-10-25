@@ -125,6 +125,9 @@ pub(crate) fn close_refused(app: &WordApp, id: &str, params: &Value) -> Option<&
 /// The reply to a request that needs a document while none is open (#1129).
 const NO_DOCUMENT: &str = "no document is open; create one (file.new) or open one (file.open) first";
 
+/// Dispatches one JSON-lines control request: commands and inspection, parity, synthetic click,
+/// drag, key, wheel and text input, screenshots and renders, resize, focus and quit, and unknown
+/// ids as commands. It refuses closing unsaved work and document operations without a document.
 pub fn handle(app: &mut WordApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
     let p = &req.params;
     let s = |k: &str| p.get(k).and_then(Value::as_str);
@@ -363,6 +366,8 @@ pub(crate) struct SurfaceGeometry {
 }
 
 impl SurfaceGeometry {
+    /// Derives this frame's capturable surface from raw viewport data, rejecting a missing, non-finite
+    /// or zero-sized visible surface and recording minimized or occluded state.
     pub(crate) fn from_raw(raw: &egui::RawInput, ctx: &egui::Context) -> Option<Self> {
         let viewport = raw.viewports.get(&raw.viewport_id)?;
         let minimized = viewport.minimized == Some(true);
@@ -387,6 +392,7 @@ impl SurfaceGeometry {
         Some(Self { viewport: rect.size(), pixels_per_point, max_texture_side, minimized, occluded })
     }
 
+    /// Pairs the surface geometry with the document id a capture belongs to.
     pub(crate) fn with_document(self, document: u64) -> CaptureGeometry {
         CaptureGeometry { surface: self, document }
     }
@@ -402,10 +408,13 @@ pub(crate) struct CaptureGeometry {
 }
 
 impl CaptureGeometry {
+    /// Returns the document id the capture was admitted for.
     pub(crate) fn document(self) -> u64 {
         self.document
     }
 
+    /// Explains why the surface cannot be captured, when it is minimized or fully occluded, and
+    /// returns `None` when it can.
     pub(crate) fn unavailable_reason(self) -> Option<&'static str> {
         if self.surface.minimized {
             Some("the window is minimized")
@@ -490,23 +499,29 @@ pub(crate) struct Shots {
 }
 
 impl Shots {
+    /// Whether any screenshot request is outstanding.
     pub(crate) fn in_flight(&self) -> bool {
         !self.requests.is_empty()
     }
 
+    /// Sums, saturating, the admission bytes reserved by outstanding screenshot requests.
     fn reserved(&self) -> usize {
         self.requests.iter().fold(0usize, |sum, shot| sum.saturating_add(shot.bytes))
     }
 }
 
+/// Builds a screenshot error reply carrying the request token.
 fn error_reply(token: u64, message: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": message.to_string(), "request": token})
 }
 
+/// Sends one screenshot error reply, ignoring a disconnected receiver.
 fn reject_shot(reply: Sender<Value>, token: u64, message: impl std::fmt::Display) {
     let _ = reply.send(error_reply(token, message));
 }
 
+/// Advances the screenshot token, wrapping and skipping zero so every request has a non-zero
+/// token.
 fn next_token(app: &mut WordApp) -> u64 {
     let mut token = app.shots.token.wrapping_add(1);
     if token == 0 {
@@ -677,6 +692,7 @@ pub(crate) fn issue_screenshots(app: &mut WordApp, ctx: &egui::Context) {
 }
 
 impl Shot {
+    /// The screenshot callback's viewport: the root window.
     fn viewport(&self) -> egui::ViewportId {
         egui::ViewportId::ROOT
     }
@@ -698,6 +714,8 @@ fn dimensions_are_a_rounded_variant(expected: [usize; 2], actual: [usize; 2]) ->
     expected[0].abs_diff(actual[0]) <= 1 && expected[1].abs_diff(actual[1]) <= 1
 }
 
+/// Rejects an empty, overflowing, underfilled or oversized image. A size one pixel away from the
+/// expected surface is accepted as a rounding variant; a larger difference is stale.
 fn validate_image(image: &egui::ColorImage, expected: [usize; 2]) -> Result<(), ImageCheck> {
     let [width, height] = image.size;
     if width == 0 || height == 0 {
@@ -728,6 +746,128 @@ fn validate_image(image: &egui::ColorImage, expected: [usize; 2]) -> Result<(), 
     Ok(())
 }
 
+/// What one pass over an outstanding screenshot request decides.
+enum ShotAction {
+    Keep,
+    Remove(Value),
+    Restart,
+}
+
+/// Classify one pending request: deadline first, then admission state, then the completed slot.
+fn take_screenshot_action(app: &mut WordApp, index: usize, now: f64, current: Option<CaptureGeometry>, epoch: u64) -> ShotAction {
+    let completed = {
+        let shot = &mut app.shots.requests[index];
+        if now >= shot.deadline {
+            if let Some(slot) = shot.slot.take() {
+                slot.cancel();
+            }
+            return ShotAction::Remove(error_reply(shot.token, "no frame was presented before the screenshot timeout"));
+        }
+        if !shot.issued {
+            return ShotAction::Keep;
+        }
+        if let Some(reason) = current.and_then(CaptureGeometry::unavailable_reason) {
+            if let Some(slot) = shot.slot.take() {
+                slot.cancel();
+            }
+            return ShotAction::Remove(error_reply(shot.token, format!("screenshot failed: {reason} while the capture was pending")));
+        }
+        if current.is_some_and(|geometry| geometry.document() != shot.document) {
+            if let Some(slot) = shot.slot.take() {
+                slot.cancel();
+            }
+            return ShotAction::Remove(error_reply(shot.token, "screenshot failed: the document changed while the capture was queued"));
+        }
+        shot.slot.as_ref().and_then(|slot| slot.take())
+    };
+    match completed {
+        None => ShotAction::Keep,
+        Some(Err(error)) => ShotAction::Remove(error_reply(app.shots.requests[index].token, error)),
+        Some(Ok(image)) => completed_screenshot_action(app, index, image, current, epoch),
+    }
+}
+
+/// Judge one taken image: its geometry and epoch identity first, then the image's own validity.
+fn completed_screenshot_action(
+    app: &mut WordApp,
+    index: usize,
+    image: std::sync::Arc<egui::ColorImage>,
+    current: Option<CaptureGeometry>,
+    epoch: u64,
+) -> ShotAction {
+    let shot = &app.shots.requests[index];
+    let stale = current != Some(shot.geometry) || epoch != shot.epoch;
+    if stale {
+        if shot.retries < SCREENSHOT_MAX_RETRIES {
+            return ShotAction::Restart;
+        }
+        return ShotAction::Remove(error_reply(shot.token, "screenshot geometry changed while it was captured; no image was written"));
+    }
+    match validate_image(&image, shot.expected) {
+        Err(ImageCheck::Stale(_)) if shot.retries < SCREENSHOT_MAX_RETRIES => ShotAction::Restart,
+        Err(ImageCheck::Stale(message) | ImageCheck::Invalid(message)) => ShotAction::Remove(error_reply(shot.token, message)),
+        Ok(()) => ShotAction::Remove(save_screenshot(image.as_ref(), shot.path.as_deref(), shot.token)),
+    }
+}
+
+/// Drop one request at `index` with its reply, cancelling any slot still held.
+fn remove_shot(app: &mut WordApp, index: usize, value: Value) {
+    let shot = app.shots.requests.remove(index);
+    if let Some(slot) = shot.slot {
+        slot.cancel();
+    }
+    let _ = shot.reply.send(value);
+}
+
+/// Drop one request at `index` and send an error reply for it.
+fn reject_removed_shot(app: &mut WordApp, index: usize, message: impl std::fmt::Display) {
+    let shot = app.shots.requests.remove(index);
+    if let Some(slot) = shot.slot {
+        slot.cancel();
+    }
+    reject_shot(shot.reply, shot.token, message);
+}
+
+/// Reissue the request at `index` against the current geometry. Returns whether it was reissued:
+/// a request removed for a refusal keeps `index` for the request that slides into its place.
+fn restart_shot(app: &mut WordApp, ctx: &egui::Context, index: usize, now: f64, current: Option<CaptureGeometry>, epoch: u64) -> bool {
+    let Some(current) = current else {
+        reject_removed_shot(app, index, "screenshot failed: the window geometry is not known");
+        return false;
+    };
+    let Some(expected) = current.expected_size() else {
+        reject_removed_shot(app, index, "screenshot failed: the window size overflows the screenshot budget");
+        return false;
+    };
+    if let Some(reason) = current.oversize_reason() {
+        reject_removed_shot(app, index, reason);
+        return false;
+    }
+    let inline_reply = app.shots.requests[index].path.is_none();
+    let Some(bytes) = current.reserved_bytes(inline_reply) else {
+        reject_removed_shot(app, index, "screenshot failed: the window size overflows the screenshot budget");
+        return false;
+    };
+    let others = app.shots.requests.iter().enumerate().filter(|(j, _)| *j != index).fold(0usize, |sum, (_, shot)| sum.saturating_add(shot.bytes));
+    if bytes > SCREENSHOT_MAX_IMAGE_BYTES || others.saturating_add(bytes) > SCREENSHOT_MAX_AGGREGATE_BYTES {
+        reject_removed_shot(app, index, "screenshot budget exceeded while retrying after a resize");
+        return false;
+    }
+    let (slot, callback) = CaptureSlot::new(ctx, ctx.viewport_id(), SCREENSHOT_MAX_IMAGE_BYTES);
+    let shot = &mut app.shots.requests[index];
+    shot.slot = Some(slot);
+    shot.callback = Some(callback);
+    shot.issued = false;
+    shot.ready_at = now + 120.0;
+    shot.frames = 0;
+    shot.retries = shot.retries.saturating_add(1);
+    shot.geometry = current;
+    shot.expected = expected;
+    shot.bytes = bytes;
+    shot.epoch = epoch;
+    true
+}
+
 /// Called from `logic`: take each completed slot once, check the deadline **before** writing,
 /// validate request/document/geometry identity, and only then encode and reply. A late, stale or
 /// oversized image is dropped without a file; a document switch cancels instead of rebinding.
@@ -737,119 +877,13 @@ pub(crate) fn drain_screenshots(app: &mut WordApp, ctx: &egui::Context) {
     let epoch = app.capture_epoch;
     let mut i = 0;
     while i < app.shots.requests.len() {
-        enum Action {
-            Keep,
-            Remove(Value),
-            Restart,
-        }
-        let action = {
-            let shot = &mut app.shots.requests[i];
-            if now >= shot.deadline {
-                if let Some(slot) = shot.slot.take() {
-                    slot.cancel();
+        match take_screenshot_action(app, i, now, current, epoch) {
+            ShotAction::Keep => i += 1,
+            ShotAction::Remove(value) => remove_shot(app, i, value),
+            ShotAction::Restart => {
+                if restart_shot(app, ctx, i, now, current, epoch) {
+                    i += 1;
                 }
-                Action::Remove(error_reply(shot.token, "no frame was presented before the screenshot timeout"))
-            } else if !shot.issued {
-                Action::Keep
-            } else if let Some(reason) = current.and_then(CaptureGeometry::unavailable_reason) {
-                if let Some(slot) = shot.slot.take() {
-                    slot.cancel();
-                }
-                Action::Remove(error_reply(shot.token, format!("screenshot failed: {reason} while the capture was pending")))
-            } else if current.is_some_and(|geometry| geometry.document() != shot.document) {
-                if let Some(slot) = shot.slot.take() {
-                    slot.cancel();
-                }
-                Action::Remove(error_reply(shot.token, "screenshot failed: the document changed while the capture was queued"))
-            } else {
-                match shot.slot.as_ref().and_then(|slot| slot.take()) {
-                    None => Action::Keep,
-                    Some(Err(error)) => Action::Remove(error_reply(shot.token, error)),
-                    Some(Ok(image)) => {
-                        let stale = current != Some(shot.geometry) || epoch != shot.epoch;
-                        if stale {
-                            if shot.retries < SCREENSHOT_MAX_RETRIES {
-                                Action::Restart
-                            } else {
-                                Action::Remove(error_reply(shot.token, "screenshot geometry changed while it was captured; no image was written"))
-                            }
-                        } else {
-                            match validate_image(&image, shot.expected) {
-                                Err(ImageCheck::Stale(_)) if shot.retries < SCREENSHOT_MAX_RETRIES => Action::Restart,
-                                Err(ImageCheck::Stale(message) | ImageCheck::Invalid(message)) => Action::Remove(error_reply(shot.token, message)),
-                                Ok(()) => Action::Remove(save_screenshot(image.as_ref(), shot.path.as_deref(), shot.token)),
-                            }
-                        }
-                    }
-                }
-            }
-        };
-        match action {
-            Action::Keep => i += 1,
-            Action::Remove(value) => {
-                let shot = app.shots.requests.remove(i);
-                if let Some(slot) = shot.slot {
-                    slot.cancel();
-                }
-                let _ = shot.reply.send(value);
-            }
-            Action::Restart => {
-                let Some(current) = current else {
-                    let shot = app.shots.requests.remove(i);
-                    if let Some(slot) = shot.slot {
-                        slot.cancel();
-                    }
-                    reject_shot(shot.reply, shot.token, "screenshot failed: the window geometry is not known");
-                    continue;
-                };
-                let Some(expected) = current.expected_size() else {
-                    let shot = app.shots.requests.remove(i);
-                    if let Some(slot) = shot.slot {
-                        slot.cancel();
-                    }
-                    reject_shot(shot.reply, shot.token, "screenshot failed: the window size overflows the screenshot budget");
-                    continue;
-                };
-                if let Some(reason) = current.oversize_reason() {
-                    let shot = app.shots.requests.remove(i);
-                    if let Some(slot) = shot.slot {
-                        slot.cancel();
-                    }
-                    reject_shot(shot.reply, shot.token, reason);
-                    continue;
-                }
-                let inline_reply = app.shots.requests[i].path.is_none();
-                let Some(bytes) = current.reserved_bytes(inline_reply) else {
-                    let shot = app.shots.requests.remove(i);
-                    if let Some(slot) = shot.slot {
-                        slot.cancel();
-                    }
-                    reject_shot(shot.reply, shot.token, "screenshot failed: the window size overflows the screenshot budget");
-                    continue;
-                };
-                let others =
-                    app.shots.requests.iter().enumerate().filter(|(j, _)| *j != i).fold(0usize, |sum, (_, shot)| sum.saturating_add(shot.bytes));
-                if bytes > SCREENSHOT_MAX_IMAGE_BYTES || others.saturating_add(bytes) > SCREENSHOT_MAX_AGGREGATE_BYTES {
-                    let shot = app.shots.requests.remove(i);
-                    if let Some(slot) = shot.slot {
-                        slot.cancel();
-                    }
-                    reject_shot(shot.reply, shot.token, "screenshot budget exceeded while retrying after a resize");
-                    continue;
-                }
-                let (slot, callback) = CaptureSlot::new(ctx, ctx.viewport_id(), SCREENSHOT_MAX_IMAGE_BYTES);
-                let shot = &mut app.shots.requests[i];
-                shot.slot = Some(slot);
-                shot.callback = Some(callback);
-                shot.issued = false;
-                shot.ready_at = now + 120.0;
-                shot.frames = 0;
-                shot.retries = shot.retries.saturating_add(1);
-                shot.geometry = current;
-                shot.expected = expected;
-                shot.bytes = bytes;
-                shot.epoch = epoch;
-                i += 1;
             }
         }
     }
@@ -938,6 +972,8 @@ pub fn save_screenshot(image: &egui::ColorImage, path: Option<&str>, token: u64)
 mod tests {
     use super::*;
 
+    /// Builds a visible root-surface fixture with the given viewport, scale and texture limit for
+    /// screenshot tests.
     fn surface(viewport: egui::Vec2, pixels_per_point: f32, max_texture_side: usize) -> SurfaceGeometry {
         let ctx = egui::Context::default();
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, viewport);
@@ -955,10 +991,12 @@ mod tests {
         SurfaceGeometry::from_raw(&raw, &ctx).expect("a visible surface")
     }
 
+    /// Builds a capture geometry fixture for document id 7.
     fn geometry(viewport: egui::Vec2, pixels_per_point: f32, max_texture_side: usize) -> CaptureGeometry {
         CaptureGeometry { surface: surface(viewport, pixels_per_point, max_texture_side), document: 7 }
     }
 
+    /// Creates a black test image of the given size.
     fn image(width: usize, height: usize) -> egui::ColorImage {
         egui::ColorImage::filled([width, height], egui::Color32::BLACK)
     }
@@ -1042,6 +1080,8 @@ mod screenshot_tests {
         }
     }
 
+    /// A screenshot path must end in `.png` and is refused otherwise; a PNG is written, while a
+    /// symlinked PNG target is not followed or overwritten.
     #[test]
     fn screenshot_path_must_be_png_and_does_not_follow_symlinks() {
         let dir = std::env::temp_dir().join(format!("wc-shot-{}", std::process::id()));

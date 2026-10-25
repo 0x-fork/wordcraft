@@ -179,6 +179,9 @@ fn own_margins_and_resize_to_fit_keep_the_text_in_view() {
     assert!(shown >= 1);
 }
 
+/// An auto-fit inline box shrinks to its three lines and keeps the explicit page break on page
+/// one; a fixed 10 cm box keeps its saved height and pushes the break and following text to
+/// later pages.
 #[test]
 fn inline_box_that_resizes_to_fit_takes_its_texts_height() {
     // #2791: an inline box with Resize shape to fit text, saved 10 cm tall around three short

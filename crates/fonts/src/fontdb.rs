@@ -2010,6 +2010,9 @@ mod tests {
         assert_eq!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_some(), thai_bundled);
     }
 
+    /// With only bundled Latin faces and no system fallback, a Thai run has no single covering face,
+    /// so run-level fallback declines. This test asserts that `fallback_for_run` returns `None`; the
+    /// caller's per-character path is not exercised here.
     #[test]
     fn a_run_without_a_covering_face_keeps_the_per_character_path() {
         // Use only this repository's Latin faces. Optional craft-fonts inputs can contain a

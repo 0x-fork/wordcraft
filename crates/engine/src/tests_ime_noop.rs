@@ -7,10 +7,12 @@ use serde_json::json;
 
 use crate::Session;
 
+/// Creates an empty-document session for the IME no-op regressions.
 fn s() -> Session {
     Session::new(wordcraft_doc::Document::new())
 }
 
+/// Runs a command in the test session, panicking with the command id on error.
 fn run(s: &mut Session, id: &str, v: serde_json::Value) -> serde_json::Value {
     s.run(id, &v).unwrap_or_else(|e| panic!("{id}: {e}"))
 }

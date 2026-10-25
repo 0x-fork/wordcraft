@@ -10538,6 +10538,8 @@ fn ime_body_epoch_marks_body_replacements_not_edits() {
     assert!(s.ime_body_epoch() > before_undo, "Undo replaces the body");
 }
 
+/// Replacing the document body while an equation is being edited ends that equation editing
+/// session.
 #[test]
 fn a_body_replacement_ends_equation_editing() {
     let mut s = s();

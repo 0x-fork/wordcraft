@@ -355,6 +355,12 @@ pub fn paste_text(s: &mut Session, text: &str) -> Result<(), CmdError> {
     insert_text(s, text, false).map(|_| ())
 }
 
+/// Inserts typed or pasted text at the caret: resolves field ends and content-control placeholders,
+/// deletes the selection, applies tracked-change insertions, and splits paragraphs at every typed
+/// line break or pasted paragraph separator. A pasted separator keeps the list semantics of pasted
+/// text; a one-line control suppresses typed breaks only. It gives an otherwise undirected paragraph
+/// right-to-left direction when its first strong letter is RTL, and returns whether content or state
+/// changed.
 fn insert_text(s: &mut Session, text: &str, enter: bool) -> Result<InsertEffect, CmdError> {
     let mut props = s.typing_props();
     if s.sel.is_collapsed() {

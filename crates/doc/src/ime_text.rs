@@ -474,6 +474,7 @@ mod tests {
     use crate::props::CharProps;
     use crate::{InlineObject, StoryRef};
 
+    /// Builds a paragraph with one run per `(text, deleted)` part; deleted parts carry revision 0.
     fn para_with_runs(parts: &[(&str, bool)]) -> Paragraph {
         let mut p = Paragraph::new();
         for (text, deleted) in parts {
@@ -487,6 +488,8 @@ mod tests {
         p
     }
 
+    /// A tracked deletion is hidden from the IME view but still maps stored offsets: its start is a
+    /// visible caret position, its interior is not, and a window concatenates only visible text.
     #[test]
     fn tracked_deletions_are_hidden_and_offsets_still_map() {
         let p = para_with_runs(&[("ab", false), ("DEL", true), ("cd", false)]);
@@ -502,6 +505,8 @@ mod tests {
         assert_eq!(view.window(2, 2, 4000).map(|w| w.text), Some("abcd".into()));
     }
 
+    /// An inline object contributes its plain text to visible length and boundary mapping; offsets
+    /// strictly inside that expansion have no stored boundary.
     #[test]
     fn objects_contribute_their_plain_text_and_split_mapping_stops() {
         let mut p = Paragraph::new();
@@ -517,6 +522,8 @@ mod tests {
         assert_eq!(view.stored_offset(2), None, "inside the object's text");
     }
 
+    /// An empty paragraph yields an available empty IME context at offset 0; an empty document
+    /// yields an available empty context too, though this test asserts only its text, not its offsets.
     #[test]
     fn an_empty_document_is_available_and_empty() {
         let p = Paragraph::new();
@@ -528,6 +535,8 @@ mod tests {
         assert_eq!(w.text, "");
     }
 
+    /// A window is capped at the IME byte budget while keeping cursor and anchor inside its text; a
+    /// selection wider than the budget is unavailable.
     #[test]
     fn bounded_window_keeps_the_selection_and_rejects_too_wide_ones() {
         let p = Paragraph::with_text(&"a".repeat(10_000), CharProps::default());
@@ -539,6 +548,8 @@ mod tests {
         assert!(view.window(0, 4001, MAX_IME_TEXT_BYTES).is_none());
     }
 
+    /// Byte deletion rounds its start to a visible UTF-8 boundary, leaves partially covered scalar
+    /// values whole, and refuses counts that run past the paragraph.
     #[test]
     fn byte_deletion_rounds_inward_and_leaves_partial_scalars_whole() {
         let doc = Document::from_text("aé👍b");
@@ -556,6 +567,8 @@ mod tests {
         assert!(doc.ime_delete_surrounding(&caret, &caret, 99, 0, DeleteUnit::Bytes).is_none());
     }
 
+    /// Surrounding deletion skips the selected range on both sides and returns the selection's
+    /// original reversed anchor and focus.
     #[test]
     fn byte_deletion_excludes_a_reversed_selection() {
         let doc = Document::from_text("abcd");
@@ -567,6 +580,8 @@ mod tests {
         assert_eq!((del.anchor, del.focus), (3, 1), "the reversed selection is preserved");
     }
 
+    /// Tracked deletions are absent from windows and skipped when deleting around a caret, so an IME
+    /// edit cannot remove them.
     #[test]
     fn tracked_deletions_are_not_counted_for_deletion_or_query() {
         let mut doc = Document::from_text("abDELcd");
@@ -579,6 +594,8 @@ mod tests {
         assert_eq!(del.before, Some(6..7), "the stored deletion run is skipped");
     }
 
+    /// A selection spanning paragraphs has no single surrounding context: both the query and
+    /// surrounding deletion return `None`.
     #[test]
     fn cross_paragraph_selection_is_unavailable() {
         let doc = Document::from_text("one\ntwo");
@@ -654,6 +671,7 @@ mod tests {
         assert_eq!(w.text.len(), MAX_IME_TEXT_BYTES);
     }
 
+    /// A caret in a table-cell paragraph maps against that cell's text, not the body around the table.
     #[test]
     fn table_cell_paragraph_maps_inside_its_cell() {
         let mut doc = Document::from_text("outside");

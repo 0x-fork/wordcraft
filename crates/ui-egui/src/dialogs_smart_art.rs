@@ -321,6 +321,8 @@ pub(crate) enum SmartArtTypeResult {
     Changed,
 }
 
+/// Appends typing to the selected SmartArt item, joining an active typing undo, and returns
+/// whether the input was unhandled, consumed without a change, or changed an item.
 pub(crate) fn type_into(app: &mut WordApp, typed: &str) -> SmartArtTypeResult {
     let Some(g) = wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session) else {
         return SmartArtTypeResult::NotHandled;

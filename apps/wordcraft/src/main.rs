@@ -46,6 +46,9 @@ struct App(
 );
 
 impl eframe::App for App {
+    /// Advances one desktop frame: polls Finder events on macOS, runs the app and its file dialogs,
+    /// fits or rescues the window and maximizes it after opening, then gates a close or quit request
+    /// on unsaved changes and active printing.
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
         apple_events::poll(&self.5, &mut self.0, ctx);
@@ -90,6 +93,8 @@ impl eframe::App for App {
             }
         }
     }
+    /// Records this frame's native window state before forwarding the hook, so logic never reads a
+    /// stale inner rectangle from a hidden tick.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         // Keep this frame's native window state. `logic` must not read the last painted
         // `InputState` when a hidden Wayland tick reports no fresh inner rect.
@@ -328,6 +333,9 @@ fn open_non_unicode(app: &mut WordApp, path: &std::path::Path) {
     }
 }
 
+/// Parses the command line, installs logging and the panic hook, restores preferences and window
+/// geometry, opens requested documents or the Start screen, starts the control server when
+/// asked, and runs the eframe event loop.
 fn main() -> eframe::Result {
     // First, so the panic hook and every start-up warning are recorded (`logging`).
     let logger = logging::install();

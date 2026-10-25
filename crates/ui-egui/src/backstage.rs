@@ -29,6 +29,8 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
     pos2(band_min_x + x, center_y)
 }
 
+/// Draws the Backstage side menu and the active page. Without a document only the Home, New, Open
+/// and Options pages work, and it handles Back, Escape, Save, Save As and Close routing.
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // No document open (#1129): only the pages that open or create one, and Options.
@@ -222,6 +224,8 @@ fn heading(ui: &mut Ui, s: &str) {
     ui.add_space(16.0);
 }
 
+/// Draws a template thumbnail and caption as one accessible button, lazily renders and caches a
+/// region-aware page preview, and creates a document from the template on click.
 fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
     let t = Tokens::get(ui.ctx());
     ui.vertical(|ui| {
@@ -404,6 +408,7 @@ struct PersonalListing {
     templates: Vec<PersonalTemplate>,
 }
 
+/// Stable storage id for the personal-template listing cache.
 fn personal_listing_id() -> egui::Id {
     egui::Id::unique("backstage_personal_templates")
 }
@@ -498,10 +503,13 @@ fn open_personal(app: &mut WordApp, path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Stable storage id for the personal-template listing error.
 fn personal_error_id() -> egui::Id {
     egui::Id::unique("backstage_personal_error")
 }
 
+/// Draws the Recent documents list, distinguishes duplicate names by path for screen readers, and
+/// stores an open failure in this page's temporary state.
 fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
@@ -535,6 +543,7 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
     }
 }
 
+/// Stable storage id for the Recent list's open error.
 fn open_error_id() -> egui::Id {
     egui::Id::unique("backstage_open_error")
 }

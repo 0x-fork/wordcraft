@@ -429,6 +429,11 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
     }))
 }
 
+/// Builds the tools, review, file and insertion command table: Repeat and macros; AutoCorrect,
+/// keyboard and ribbon customization and search; Compare, accessibility, inspection, protection,
+/// versions, recovery, templates and autosave; compatibility, sharing, Quick Parts, fields,
+/// signatures, objects and spreadsheets; header/footer, table and numbering settings; language,
+/// markup, editor and selection commands; and design and view options.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("edit.repeat", "Repeat", "Quick Access Toolbar", |s, _| {

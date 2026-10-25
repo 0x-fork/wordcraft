@@ -783,6 +783,8 @@ mod tests {
         assert!(dim.r() < 0xE0 && dim.r() > 0xA0, "{dim:?}");
     }
 
+    /// Font-menu previews defer over budget, render on a later frame, and reuse cached entries
+    /// without consuming budget or deadlocking.
     #[test]
     fn font_menu_previews_render_defer_and_reuse_without_deadlocking() {
         // A nested Context lock used to hang the first uncached menu entry. Bound the wait so

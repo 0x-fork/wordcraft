@@ -416,6 +416,8 @@ mod tests {
         assert!(!m.is_active());
     }
 
+    /// Builds a move-phase mouse-wheel event from an unknown source with the given unit, delta and
+    /// modifiers.
     fn wheel(unit: MouseWheelUnit, delta: Vec2, modifiers: Modifiers) -> Event {
         Event::MouseWheel { unit, delta, phase: TouchPhase::Move, modifiers, source: MouseWheelSource::Unknown }
     }

@@ -117,6 +117,7 @@ pub(crate) fn header(ui: &mut Ui, title: &str) -> bool {
     close
 }
 
+/// Draws the Navigation pane: search box and tabs, page list, find results and heading outline.
 fn nav(app: &mut WordApp, ui: &mut Ui) {
     if header(ui, "Navigation") {
         let _ = app.run("view.navigationPane", json!({"value": false}));
@@ -431,6 +432,8 @@ fn styles(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// Draws the Comments pane: New Comment and scrollable comment and reply cards with edit, go-to,
+/// reply, resolve or reopen, and delete actions.
 fn comments(app: &mut WordApp, ui: &mut Ui) {
     if header(ui, "Comments") {
         let _ = app.run("view.commentsPane", json!({"value": false}));

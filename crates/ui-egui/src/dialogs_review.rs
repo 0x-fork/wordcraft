@@ -423,6 +423,8 @@ fn autocorrect_ui(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) -> bo
     cancel
 }
 
+/// Draws AutoCorrect's capitalization and replacement checkboxes, the replace list with its
+/// filter and add, replace and delete actions, and the exceptions editor.
 fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
     let o = &mut f.options;
     ui.checkbox(&mut o.two_initial_caps, tl!("Correct TWo INitial CApitals"));
@@ -530,6 +532,7 @@ fn exceptions(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
     });
 }
 
+/// Filters the math-symbol table by the typed prefix and lists each `\name` with its character.
 fn math_tab(ui: &mut Ui, f: &mut AutoCorrectForm) {
     ui.label(egui::RichText::new(tl!("In equations, typing a name after a backslash replaces it with its symbol.")).small().weak());
     ui.horizontal(|ui| {

@@ -711,6 +711,9 @@ impl SaveChoice {
 }
 
 impl WordApp {
+    /// Creates the app: adopts the system locale, then initializes the document session, UI state,
+    /// services, printing, canvas, dialogs, previews, control and screenshot state, font and theme
+    /// tracking.
     pub fn new(session: Session, services: Services) -> Self {
         // Numeral › System follows the system locale, found here rather than in layout.
         if let Some(tag) = sys_locale::get_locale() {
@@ -2547,30 +2550,7 @@ impl WordApp {
             let opts = ctx.options(|o| o.input_options);
             ctx.input_mut(|i| i.smooth_scroll_delta = scroll::unsmoothed_scroll(i, &opts));
         }
-        // Raw input is read in the known UI phase, first pass only. `logic` also runs hidden,
-        // where its input events are from the previous shown frame. Handle it before the font
-        // warm-up return: eframe does not preserve dropped files for a later frame, so a drop in
-        // the first two passes would otherwise disappear.
-        #[cfg(not(target_arch = "wasm32"))]
-        if ctx.current_pass_index() == 0 {
-            let dropped = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
-            if !dropped.is_empty() {
-                self.open_dropped_files(dropped);
-                let lang = i18n::Lang::from_pref(&self.ui.language);
-                self.install_ui_fonts(&ctx, lang);
-            }
-        }
-        // SmartArt Text Pane (#2701): Tab demotes and Shift+Tab promote the focused item, as
-        // Word's pane does. This is an input action, so it runs in the first UI pass only; hidden
-        // `run_logic` ticks still see the previous shown frame's keys.
-        if ctx.current_pass_index() == 0 && self.session.view.smart_art_pane && self.smart_art_row_focused && self.smart_art_item.is_some() {
-            let shift_tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
-            let tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
-            if shift_tab || tab {
-                ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
-                let _ = self.run(if shift_tab { "smartArt.promote" } else { "smartArt.demote" }, json!({"index": self.smart_art_item.unwrap_or(0)}));
-            }
-        }
+        self.handle_ui_input_events(&ctx);
         // Fonts installed by `logic` take effect on the next frame.
         if self.fonts_frames < 2 {
             self.fonts_frames += 1;
@@ -2587,6 +2567,42 @@ impl WordApp {
             backstage::forget_open_error(&ctx);
             backstage::forget_save_as_error(&ctx);
         }
+        self.paint_window(ui, &ctx, t);
+        self.show_overlays(ui, &ctx);
+        self.sync_title_and_frame(&ctx, t0);
+        self.flush_shot_and_synthetic(&ctx);
+    }
+
+    /// Raw input read in the known UI phase, first pass only: dropped files and the SmartArt Text
+    /// Pane's Tab/Shift+Tab, before the font warm-up return. `logic` also runs hidden, where its
+    /// input events are from the previous shown frame.
+    fn handle_ui_input_events(&mut self, ctx: &egui::Context) {
+        // eframe does not preserve dropped files for a later frame, so a drop in the first two
+        // passes would otherwise disappear.
+        #[cfg(not(target_arch = "wasm32"))]
+        if ctx.current_pass_index() == 0 {
+            let dropped = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
+            if !dropped.is_empty() {
+                self.open_dropped_files(dropped);
+                let lang = i18n::Lang::from_pref(&self.ui.language);
+                self.install_ui_fonts(ctx, lang);
+            }
+        }
+        // SmartArt Text Pane (#2701): Tab demotes and Shift+Tab promote the focused item, as
+        // Word's pane does. This is an input action, so it runs in the first UI pass only; hidden
+        // `run_logic` ticks still see the previous shown frame's keys.
+        if ctx.current_pass_index() == 0 && self.session.view.smart_art_pane && self.smart_art_row_focused && self.smart_art_item.is_some() {
+            let shift_tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+            let tab = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+            if shift_tab || tab {
+                ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+                let _ = self.run(if shift_tab { "smartArt.promote" } else { "smartArt.demote" }, json!({"index": self.smart_art_item.unwrap_or(0)}));
+            }
+        }
+    }
+
+    /// Draw the File page, the empty-window chrome, or the normal document window.
+    fn paint_window(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, t: theme::Tokens) {
         if self.ui.backstage {
             backstage::show(self, ui);
         } else if !self.has_document() {
@@ -2612,22 +2628,30 @@ impl WordApp {
                 canvas::show(self, ui);
             });
             if self.focus_ribbon {
-                chrome::focus_ribbon(self, &ctx);
+                chrome::focus_ribbon(self, ctx);
             }
         }
-        content_controls::popup(self, &ctx);
-        dialogs::show(self, &ctx);
+    }
+
+    /// Dialogs, panes and other overlays drawn over the window.
+    fn show_overlays(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        content_controls::popup(self, ctx);
+        dialogs::show(self, ctx);
         #[cfg(not(target_arch = "wasm32"))]
-        file_browser::show(self, &ctx);
-        colors::show(self, &ctx);
-        zotero::show_alert(self, &ctx);
-        read_aloud::show(self, &ctx);
-        crate::keytips::show(self, &ctx, ui);
-        keys::global_shortcuts(self, &ctx);
-        self.refocus_after_chrome_click(&ctx);
+        file_browser::show(self, ctx);
+        colors::show(self, ctx);
+        zotero::show_alert(self, ctx);
+        read_aloud::show(self, ctx);
+        crate::keytips::show(self, ctx, ui);
+        keys::global_shortcuts(self, ctx);
+        self.refocus_after_chrome_click(ctx);
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
+    }
+
+    /// Keep the window title and full-screen state in sync, then record this frame's time.
+    fn sync_title_and_frame(&mut self, ctx: &egui::Context, t0: f64) {
         let title = if self.has_document() {
             format!("{}{} - WordCraft", self.title_stem(), if self.session.dirty { " •" } else { "" })
         } else {
@@ -2637,15 +2661,18 @@ impl WordApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.sent_title = title;
         }
-        self.sync_full_screen(&ctx);
+        self.sync_full_screen(ctx);
         self.frame_ms = now_ms() - t0;
         // Typing and formatting land here, after `logic` has reported.
         self.report_dirty();
-        // One callback command per admitted request. This is in `ui` so the captured frame is
-        // the layout just drawn; a discarded pass is not a layout anyone will see. The shot's
-        // `issued` flag makes repeated final passes harmless.
+    }
+
+    /// One callback command per admitted request, and the synthetic-input queue's final pass.
+    fn flush_shot_and_synthetic(&mut self, ctx: &egui::Context) {
+        // This is in `ui` so the captured frame is the layout just drawn; a discarded pass is not
+        // a layout anyone will see. The shot's `issued` flag makes repeated final passes harmless.
         if !ctx.will_discard() {
-            control::issue_screenshots(self, &ctx);
+            control::issue_screenshots(self, ctx);
         }
         // The raw input was consumed by this host frame's passes; only a final UI pass proves
         // the step is done. A discarded pass keeps the queue for the next UI frame.
@@ -2784,6 +2811,8 @@ impl WordApp {
         }
     }
 
+    /// Drains queued control requests, dispatches each through `control::handle`, sends its reply or
+    /// admits a screenshot, then puts the receiver back.
     fn drain_control(&mut self, ctx: &egui::Context) {
         let Some(rx) = self.control_rx.take() else { return };
         while let Ok(req) = rx.try_recv() {
@@ -3490,6 +3519,9 @@ mod tests {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
     }
 
+    /// All title-bar inputs have accessible names. Clicking the title opens Rename Document, the
+    /// Rename button saves a new name, Escape cancels, a long name stays clickable, and rename
+    /// leaves the document clean.
     #[test]
     fn title_and_account_buttons_work() {
         use egui_kittest::kittest::Queryable;
@@ -5091,6 +5123,7 @@ mod tests {
         assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Part(footer)), "Foot");
     }
 
+    /// Runs one 1280 by 800 frame through the raw input hook, logic and UI, dropping texture deltas.
     fn control_frame(a: &mut WordApp, ctx: &egui::Context, focused: bool) {
         let mut raw = egui::RawInput {
             focused,
@@ -5146,6 +5179,9 @@ mod tests {
         }
     }
 
+    /// Synthetic control text and keys target the focused background widget (the Find field), and
+    /// Escape closes it. Closing a dirty document offers Save Changes, and Escape cancels without
+    /// losing the document.
     #[test]
     fn control_keyboard_keeps_the_background_widget_target() {
         let ctx = egui::Context::default();
@@ -5184,6 +5220,8 @@ mod tests {
         assert_eq!(body_text(&a), "Seed", "Cancel preserves the unsaved document");
     }
 
+    /// Control input respects read-only protection, and a frame without control keys leaves the native
+    /// focus state alone.
     #[test]
     fn control_keyboard_preserves_native_focus_and_document_protection() {
         let ctx = egui::Context::default();
@@ -9313,6 +9351,7 @@ mod tests {
         assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("find"));
     }
 
+    /// Builds a root-viewport raw input at `size`, optionally marked minimized and occluded.
     fn shot_raw(size: egui::Vec2, hidden: bool) -> egui::RawInput {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
         let mut raw = egui::RawInput { screen_rect: Some(rect), max_texture_side: Some(16_384), ..Default::default() };
@@ -9329,6 +9368,7 @@ mod tests {
         raw
     }
 
+    /// Runs one screenshot frame through the raw hook, logic and UI, and clears its texture deltas.
     fn shot_frame(app: &mut WordApp, ctx: &egui::Context, size: egui::Vec2) -> egui::FullOutput {
         let mut raw = shot_raw(size, false);
         app.raw_input_hook(ctx, &mut raw);
@@ -9341,6 +9381,8 @@ mod tests {
         output
     }
 
+    /// Replaces each root screenshot command in the output with `ViewportCommand::Focus` and returns
+    /// its callback, so the test frame runs no real screenshot.
     fn take_shot_callbacks(output: &mut egui::FullOutput) -> Vec<egui::ScreenshotCallback> {
         let mut callbacks = Vec::new();
         if let Some(viewport) = output.viewport_output.get_mut(&egui::ViewportId::ROOT) {
@@ -9356,6 +9398,7 @@ mod tests {
         callbacks
     }
 
+    /// Creates an app with text, warms four screenshot frames, and returns it with a fresh context.
     fn screenshot_app(size: egui::Vec2) -> (WordApp, egui::Context) {
         let mut app = app();
         app.run("document.setText", json!({"text": "Screenshot"})).unwrap();
@@ -9366,12 +9409,15 @@ mod tests {
         (app, ctx)
     }
 
+    /// Admits a screenshot through `control::admit_screenshot` with a fresh reply channel and returns
+    /// the receiver.
     fn admit(app: &mut WordApp, ctx: &egui::Context, path: Option<String>) -> std::sync::mpsc::Receiver<Value> {
         let (reply, replies) = std::sync::mpsc::channel();
         control::admit_screenshot(app, ctx, path, reply);
         replies
     }
 
+    /// Forces queued screenshot requests ready and runs one frame to collect their callbacks.
     fn issue_ready(app: &mut WordApp, ctx: &egui::Context, size: egui::Vec2) -> Vec<egui::ScreenshotCallback> {
         for shot in &mut app.shots.requests {
             shot.ready_at = 0.0;
@@ -9398,9 +9444,11 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     impl egui::DroppedFile for DroppedText {
+        /// Exposes the dropped file's path.
         fn path(&self) -> &std::path::Path {
             &self.0
         }
+        /// Reads the dropped file's bytes, stringifying I/O errors.
         fn bytes(&self) -> Result<Vec<u8>, String> {
             std::fs::read(&self.0).map_err(|e| e.to_string())
         }
@@ -9551,6 +9599,7 @@ mod tests {
         assert_eq!(replies.recv().unwrap()["ok"], false);
     }
 
+    /// A geometry change and change back still invalidates issued pixels and retries the request.
     #[test]
     fn screenshot_epoch_observes_a_raw_change_and_change_back() {
         let (mut app, ctx) = screenshot_app(egui::vec2(640.0, 480.0));

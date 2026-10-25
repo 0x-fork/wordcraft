@@ -206,6 +206,8 @@ fn flag(app: &mut WordApp, ui: &mut Ui, label: &str, key: &str, value: bool) {
     }
 }
 
+/// Draws General options: interface theme and size, mini toolbar, dark page, community button and
+/// default apps; the Start screen; and personalization such as user name and initials.
 fn general(app: &mut WordApp, ui: &mut Ui) {
     section(ui, "Interface");
     theme_picker(app, ui);
@@ -482,6 +484,7 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     ui.label(RichText::new(text).small().weak());
 }
 
+/// Draws Accessibility options: the animation setting and Read Aloud speed and skip-citations.
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     use wordcraft_engine::speech::{MAX_RATE, MIN_RATE};
     section(ui, "Visual effects");
@@ -503,6 +506,8 @@ fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     }
 }
 
+/// Draws Advanced options: typing and overtype behavior, alignment guides, recent-document count,
+/// measurement units, region, keytips, caret animation, file locations and customization.
 fn advanced(app: &mut WordApp, ui: &mut Ui) {
     section(ui, "Editing");
     let pr = app.session.prefs.clone();

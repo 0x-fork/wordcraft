@@ -11,12 +11,15 @@ use crate::theme::{Tokens, semibold};
 pub fn phase_id() -> egui::Id {
     egui::Id::unique("wc_keytips_phase")
 }
+/// Stable id for the keytips' selected-tab state.
 pub fn tab_id() -> egui::Id {
     egui::Id::unique("wc_keytips_tab")
 }
+/// Stable id for the keytips' letter badges.
 pub fn letters_id() -> egui::Id {
     egui::Id::unique("wc_keytips_letters")
 }
+/// Stable id for the keytips' badge rectangles.
 pub fn rects_id() -> egui::Id {
     egui::Id::unique("wc_keytips_rects")
 }

@@ -260,6 +260,8 @@ pub fn in_table_public(app: &WordApp) -> bool {
     app.session.sel.focus.path.cell().is_some()
 }
 
+/// Draws the Read toolbar or the full ribbon, switching to and from the contextual Equation and
+/// Outlining tabs and showing the available tab strip.
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     if app.session.view.read_mode {
@@ -2279,6 +2281,8 @@ fn developer(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// Draws the View tab's Views, Immersive, Page Movement, Show, Zoom, Dark Mode, Window and Macros
+/// and Templates groups.
 fn view(app: &mut WordApp, ui: &mut Ui) {
     let v = app.session.view.clone();
     group(ui, "Views", None, app, |ui, app| {
@@ -2760,6 +2764,8 @@ fn shape_effects_menu(ui: &mut Ui, app: &mut WordApp, theme: &[wordcraft_doc::Rg
     });
 }
 
+/// Draws the Picture Format tab's Adjust, Picture Styles, Accessibility (Alt Text), Arrange and
+/// Size groups.
 fn picture_format(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Adjust", None, app, |ui, app| {
         menu_button(ui, app, "picture", Some("Corrections"), "Brightness, contrast and sharpness", true, "picture.corrections", |ui, app| {
@@ -3224,7 +3230,12 @@ mod tests {
         use wordcraft_doc::props::Underline;
         let mut a = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Lanterns")), crate::Services::default());
         a.run("select.all", json!({})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 700.0)).build_ui_state(|ui, app: &mut WordApp| underline_menu(ui, app), a);
+        // The app's real interface fonts carry the macOS shortcut symbols (⌘⇧⌥⌃); egui's
+        // bare test defaults do not.
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(vec2(400.0, 700.0))
+            .with_context_setup(|ctx| ctx.set_fonts(crate::theme::font_definitions(false, false)))
+            .build_ui_state(|ui, app: &mut WordApp| underline_menu(ui, app), a);
         h.run_steps(2);
         let run =
             |h: &egui_kittest::Harness<'_, WordApp>| h.state().session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).unwrap().runs[0].props.clone();
