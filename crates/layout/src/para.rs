@@ -1517,6 +1517,8 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let math_props = doc.settings.math.clone().unwrap_or_default();
     // The byte ranges of runs left out of the layout, in order, adjacent runs merged.
     let mut left: Vec<std::ops::Range<usize>> = Vec::new();
+    // The byte ranges of objects with nothing to show (bookmarks, comment anchors), in order.
+    let mut bare: Vec<std::ops::Range<usize>> = Vec::new();
     // Each run's proofing language and whether it is checked (spelling, grammar, hyphenation).
     let mut runs: Vec<ProofRun> = Vec::new();
     for (range, props) in p.run_ranges() {
@@ -1752,7 +1754,10 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                             push(&mut b, ClKind::Tab, 0.0, 0.0);
                             ptabs.push((b.clusters.len() - 1, *align, *relative_to, *leader));
                         }
-                        _ => push(&mut b, ClKind::Marker, 0.0, 0.0),
+                        _ => {
+                            bare.push(start..end);
+                            push(&mut b, ClKind::Marker, 0.0, 0.0)
+                        }
                     }
                 }
             }
@@ -1769,15 +1774,19 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         if rp.snap_to_grid && env.grid.chars.is_some() { Vec::new() } else { auto_space(&mut b, &p.text, rp.auto_space_de, rp.auto_space_dn) };
     // Break opportunities and hyphenation points come from the text as laid out: hidden text that is
     // not shown and, without markup, tracked deletions are left out, so a space or soft hyphen there
-    // is no place to break, and words are hyphenated as they read.
+    // is no place to break, and words are hyphenated as they read. An object with nothing to show
+    // is left out too: its U+FFFC has the line-break class CB, but a bookmark never moves a break.
+    let mut skip = left.clone();
+    skip.extend(bare);
+    skip.sort_unstable_by_key(|r| r.start);
     // The text and, for each char of it, its end there and in `p.text`.
-    let (text, ends): (std::borrow::Cow<str>, Vec<(usize, usize)>) = if left.is_empty() {
+    let (text, ends): (std::borrow::Cow<str>, Vec<(usize, usize)>) = if skip.is_empty() {
         (p.text.as_str().into(), Vec::new())
     } else {
         let (mut text, mut ends) = (String::new(), Vec::new());
-        let mut next = left.iter().peekable();
+        let mut next = skip.iter().peekable();
         for (i, c) in p.text.char_indices() {
-            // `left` is in order: skip the ranges that end here, then is `i` in the next one?
+            // `skip` is in order: skip the ranges that end here, then is `i` in the next one?
             while next.next_if(|r| r.end <= i).is_some() {}
             if next.peek().is_some_and(|r| r.start <= i) {
                 continue;
@@ -1789,7 +1798,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     };
     // The end of a char in `text` → the same place in `p.text`.
     let to_para = |i: usize| -> Option<usize> {
-        if left.is_empty() { Some(i) } else { ends.binary_search_by_key(&i, |e| e.0).ok().and_then(|k| ends.get(k)).map(|e| e.1) }
+        if skip.is_empty() { Some(i) } else { ends.binary_search_by_key(&i, |e| e.0).ok().and_then(|k| ends.get(k)).map(|e| e.1) }
     };
     let mut found = Vec::new();
     for (i, o) in unicode_linebreak::linebreaks(&text) {

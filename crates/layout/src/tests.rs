@@ -1443,6 +1443,35 @@ fn a_bookmark_before_a_left_tab_past_the_right_indent_is_not_a_line() {
     assert_eq!(lines(true), lines(false));
 }
 
+/// A bookmark is not text: where a line breaks is the same with it as without it. U+FFFC has the
+/// line-break class CB, which on its own would allow a break before and after it.
+#[test]
+fn a_bookmark_is_no_line_break_opportunity() {
+    // (the bookmark's offset in "Oremus", or none) -> the lines' clusters, not counting the bookmarks'
+    let lines = |marks: &[usize]| {
+        let mut d = Document::from_text("Oremus");
+        // A column too narrow for the word, which then breaks inside it.
+        d.last_section.page_w = d.last_section.margin_left + d.last_section.margin_right + 30.0;
+        // From the end, so the offsets stay those of "Oremus".
+        for (n, &at) in marks.iter().enumerate().rev() {
+            let mark = InlineObject::BookmarkStart { name: format!("b{n}") };
+            d.insert_object(&Pos::body(0, at), mark, &Default::default()).unwrap();
+        }
+        let l = lay(&d);
+        let Some(para) = l.pages[0].items.iter().find_map(|i| if let Placed::Lines { para, .. } = i { Some(para.clone()) } else { None }) else {
+            panic!("no lines")
+        };
+        para.lines
+            .iter()
+            .map(|l| para.clusters.get(l.c0..l.c1).map_or(0, |cs| cs.iter().filter(|c| c.kind != para::ClKind::Marker).count()))
+            .collect::<Vec<_>>()
+    };
+    let plain = lines(&[]);
+    assert!(plain.len() > 1, "the word is meant to break inside: {plain:?}");
+    assert_eq!(lines(&[0, 0]), plain, "two bookmarks before the word leave no line of their own");
+    assert_eq!(lines(&[3]), plain, "a bookmark inside the word is no place to wrap");
+}
+
 #[test]
 fn lists_get_labels_and_indent() {
     let mut d = Document::from_text("one\ntwo\nthree");
