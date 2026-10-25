@@ -73,7 +73,7 @@ windows = { version = "0.62", features = ["UI_ViewManagement", "System_UserProfi
 clipboard-win = { version = "5.4", features = ["std"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-craft-print = { git = "https://github.com/storytold/craft-libs", rev = "6e7f28518dd1cb57e1624bdc269c3c14316b13ae" }
+craft-print = { git = "https://github.com/storytold/craft-libs", rev = "869928d2a06a14fccd921dc9e94cd15e4ad18e18" }
 rfd = { workspace = true }
 # Waits for an `rfd::AsyncFileDialog` on a background thread (the dialogs don't block the UI, #94);
 # rfd itself already depends on it.
