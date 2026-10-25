@@ -8113,6 +8113,27 @@ fn table_formula_results_take_the_format_switches() {
     }
 }
 
+#[test]
+fn table_formula_results_take_dollar_text_and_hex() {
+    for (formula, inserted, updated) in [
+        (r"=SUM(ABOVE) \* DollarText", "twelve and 00/100", "twenty-one and 00/100"),
+        (r"=SUM(ABOVE) \* DollarText \* Upper", "TWELVE AND 00/100", "TWENTY-ONE AND 00/100"),
+        (r"=SUM(ABOVE) \* Hex", "C", "15"),
+    ] {
+        let mut s = formula_table();
+        let r = run(&mut s, "table.formula", json!({"formula": formula}));
+        assert_eq!((r["formula"].as_str(), r["result"].as_str()), (Some(formula), Some(inserted)));
+        run(
+            &mut s,
+            "select.range",
+            json!({"anchor": {"story": "body", "path": [1, 1, 1, 0], "off": 0}, "focus": {"story": "body", "path": [1, 1, 1, 0], "off": 1}}),
+        );
+        run(&mut s, "text.insert", json!({"text": "10"}));
+        run(&mut s, "references.updateFields", json!({}));
+        assert_eq!(formula_result(&s, 4, 1).as_deref(), Some(updated), "{formula}");
+    }
+}
+
 /// A one-column table (no header row) holding `cells`, in a document whose default language
 /// is `lang`; the caret ends in the last cell.
 fn column_table(lang: &str, cells: &[&str]) -> Session {

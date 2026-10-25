@@ -109,9 +109,12 @@ pub fn evaluate_field_with(
 /// with the `\#` picture, or in the cell's language when there is no picture. A number format such
 /// as `\* CardText`, `\* OrdText` or `\* roman` writes a whole number the format covers (up to
 /// 999,999 for CardText and OrdText, 1 to 50,000 for roman, 1 to 780 for alphabetic), in lowercase
-/// for CardText and OrdText. Any other result keeps its digits. A capitalization switch
-/// (`\* Upper`, `\* Lower`, `\* Caps`, `\* FirstCap`) then applies to the text. Other `\*` switches
-/// leave the text as it is. Quoted text, such as a `\#` picture, is not a switch.
+/// for CardText and OrdText. `\* Hex` writes a whole number from 0 to 4,294,967,295 in uppercase
+/// hexadecimal digits. `\* DollarText` writes a result from 0 to 999,999.99 in lowercase cardinal
+/// text with its first two decimals (rounded) over 100 (see
+/// [`wordcraft_layout::fields::dollar_text`]). Any other result keeps its digits. A capitalization
+/// switch (`\* Upper`, `\* Lower`, `\* Caps`, `\* FirstCap`) then applies to the text. Other `\*`
+/// switches leave the text as it is. Quoted text, such as a `\#` picture, is not a switch.
 fn format_switches(switches: &str, value: f64, text: String) -> String {
     use wordcraft_doc::section::NumFormat;
     let unquoted = switches.split('"').step_by(2).collect::<Vec<_>>().join(" ");
@@ -123,6 +126,10 @@ fn format_switches(switches: &str, value: f64, text: String) -> String {
         _ => 0.0..=f64::from(u32::MAX),
     };
     match fmt {
+        Some(NumFormat::DollarText) => {
+            let text = wordcraft_layout::fields::dollar_text(value).unwrap_or(text);
+            wordcraft_layout::fields::apply_case_switch(switches, text)
+        }
         Some(fmt) if value.fract() == 0.0 && covers(fmt).contains(&value) => wordcraft_layout::fields::field_number(switches, fmt, value as u32),
         _ => wordcraft_layout::fields::apply_case_switch(switches, text),
     }
@@ -1003,6 +1010,24 @@ mod tests {
         assert_eq!(shown("=A1*64 \\* roman"), "50560", "a number past roman keeps its digits");
         assert_eq!(shown("=A1-790 \\* roman"), "0", "roman has no zero");
         assert_eq!(shown("=A1 \\* alphabetic"), "790", "a number past alphabetic keeps its digits");
+    }
+
+    #[test]
+    fn dollar_text_and_hex_switches_write_the_result() {
+        let t = table(&[&["9.20", "5.35"], &["458", "-1"], &["", ""]]);
+        let shown = |f: &str| evaluate_field(&t, 2, 0, f).unwrap_or_else(|e| panic!("{f}: {e}"));
+        assert_eq!(shown("= 9.20 + 5.35 \\* DollarText \\* Upper"), "FOURTEEN AND 55/100");
+        assert_eq!(shown("=A1+B1 \\* DollarText"), "fourteen and 55/100");
+        assert_eq!(shown("=A2 \\* DollarText \\* FirstCap"), "Four hundred fifty-eight and 00/100");
+        assert_eq!(shown("=0.999 \\* DollarText"), "one and 00/100");
+        assert_eq!(shown("=A2 \\* Hex"), "1CA");
+        assert_eq!(shown("=A2 \\* Hex \\* Lower"), "1ca");
+        assert_eq!(shown("=A2*0 \\* Hex"), "0");
+        assert_eq!(shown("=B2 \\* DollarText"), shown("=B2"), "a negative number keeps its digits");
+        assert_eq!(shown("=B2 \\* Hex"), shown("=B2"));
+        assert_eq!(shown("=A2/4 \\* Hex"), shown("=A2/4"), "a fraction keeps its digits");
+        assert_eq!(shown("=A2*2200 \\* DollarText"), shown("=A2*2200"), "a number past DollarText keeps its digits");
+        assert_eq!(shown("=A2 \\* ArabicDash"), "458", "ArabicDash is for page numbers only");
     }
 
     #[test]
