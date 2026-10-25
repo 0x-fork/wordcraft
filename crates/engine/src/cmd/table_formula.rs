@@ -1027,7 +1027,7 @@ mod tests {
         assert_eq!(shown("=B2 \\* Hex"), shown("=B2"));
         assert_eq!(shown("=A2/4 \\* Hex"), shown("=A2/4"), "a fraction keeps its digits");
         assert_eq!(shown("=A2*2200 \\* DollarText"), shown("=A2*2200"), "a number past DollarText keeps its digits");
-        assert_eq!(shown("=A2 \\* ArabicDash"), "458", "ArabicDash is for page numbers only");
+        assert_eq!(shown("=A2 \\* ArabicDash"), "- 458 -");
     }
 
     #[test]

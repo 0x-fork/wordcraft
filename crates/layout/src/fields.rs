@@ -126,19 +126,8 @@ pub(crate) fn reference_link(instr: &str) -> Option<String> {
 }
 
 /// `\* FORMAT` switch value (Arabic, roman, ROMAN, alphabetic, ALPHABETIC, CardText, Ordinal,
-/// DollarText, Hex…).
+/// ArabicDash, DollarText, Hex…). `{ PAGE \* ArabicDash }` shows "- 31 -".
 pub fn format_switch(instr: &str) -> Option<NumFormat> {
-    format_switch_of(instr, false)
-}
-
-/// A PAGE field's `\* FORMAT` switch value: the values of [`format_switch`] and `\* ArabicDash`
-/// (`{ PAGE \* ArabicDash }` shows "- 31 -"). Only PAGE reads `\* ArabicDash`; other fields,
-/// PAGEREF included, skip it and read the next format switch.
-pub fn page_format_switch(instr: &str) -> Option<NumFormat> {
-    format_switch_of(instr, true)
-}
-
-fn format_switch_of(instr: &str, page: bool) -> Option<NumFormat> {
     let mut it = instr.split_whitespace();
     while let Some(w) = it.next() {
         if let Some(rest) = w.strip_prefix("\\*") {
@@ -153,7 +142,7 @@ fn format_switch_of(instr: &str, page: bool) -> Option<NumFormat> {
                 "OrdText" | "ordtext" => NumFormat::OrdinalText,
                 "Ordinal" | "ordinal" => NumFormat::Ordinal,
                 "Arabic" | "arabic" => NumFormat::Decimal,
-                "ArabicDash" | "arabicdash" | "ARABICDASH" if page => NumFormat::NumberInDash,
+                "ArabicDash" | "arabicdash" | "ARABICDASH" => NumFormat::NumberInDash,
                 "DollarText" | "dollartext" | "DOLLARTEXT" => NumFormat::DollarText,
                 "Hex" | "hex" | "HEX" => NumFormat::Hex,
                 // Chinese numerals: counting (一百零一), legal (壹佰零壹), digit by digit (一〇一).
@@ -293,7 +282,7 @@ pub fn field_text_on(instr: &str, result: &str, ctx: &FieldCtx, page: u32) -> (S
     let name = field_name(instr);
     let fmt = format_switch(instr);
     match name.as_str() {
-        "PAGE" => (field_number(instr, page_format_switch(instr).unwrap_or(ctx.page_format), page), true),
+        "PAGE" => (field_number(instr, format_switch(instr).unwrap_or(ctx.page_format), page), true),
         "NUMPAGES" => (field_number(instr, fmt.unwrap_or(NumFormat::Decimal), ctx.pages), true),
         "SECTIONPAGES" => (field_number(instr, fmt.unwrap_or(NumFormat::Decimal), ctx.section_pages), true),
         "SECTION" => (field_number(instr, fmt.unwrap_or(NumFormat::Decimal), ctx.section), true),
@@ -441,7 +430,7 @@ mod tests {
     }
 
     /// `\* DollarText` writes lowercase cardinal text with "and 00/100", `\* Hex` uppercase
-    /// hexadecimal digits, and `\* ArabicDash` a page number between hyphens, on PAGE only. Words
+    /// hexadecimal digits, and `\* ArabicDash` the number between hyphens. Words
     /// stop at 999,999; a larger number keeps its digits.
     #[test]
     fn dollar_text_hex_and_arabic_dash_switches() {
@@ -449,8 +438,8 @@ mod tests {
         let text = |instr: &str| field_text(instr, "", &ctx).0;
         assert_eq!(text(r"PAGE \* ArabicDash"), "- 31 -");
         assert_eq!(text(r"PAGE \*arabicdash \* MERGEFORMAT"), "- 31 -");
-        assert_eq!(text(r"NUMPAGES \* ArabicDash"), "458", "ArabicDash is for page numbers only");
-        assert_eq!(text(r"NUMPAGES \* ArabicDash \* roman"), "cdlviii", "the next format switch counts");
+        assert_eq!(text(r"NUMPAGES \* ArabicDash"), "- 458 -", "any number field reads ArabicDash");
+        assert_eq!(text(r"NUMPAGES \* ArabicDash \* roman"), "- 458 -", "the first format switch counts");
         assert_eq!(text(r"NUMPAGES \* Hex"), "1CA");
         assert_eq!(text(r"NUMPAGES \* hex \* Lower"), "1ca");
         assert_eq!(text(r"PAGE \* Hex"), "1F");
