@@ -62,3 +62,61 @@ fn a_same_text_set_text_advances_the_body_epoch_without_an_application_change() 
     assert!(!s.take_pending_ime_application_change(), "an identical setText is not an application change");
     assert_eq!((s.undo_depth(), s.rev()), (depth, rev));
 }
+
+/// The IME body replacement promise (`DeleteSurrounding`, then the commit that replaces the
+/// erased text) joins only a `text.insert` at the selection the deletion left. Tab, an ordinary
+/// command, consumes it: it is no IME replacement receipt itself, and the commit after it owns a
+/// new Undo step instead of joining the deletion.
+#[test]
+fn tab_between_an_ime_replacement_and_its_commit_keeps_the_steps_apart() {
+    let text = |s: &Session| s.doc.plain_text(wordcraft_doc::StoryRef::Body);
+
+    // The promise itself joins the commit at the unchanged selection.
+    let mut s = self::s();
+    run(&mut s, "text.insert", json!({"text": "ab"}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(text(&s), "a", "DeleteSurrounding erased the b");
+    s.join_next_ime_text_replacement();
+    let depth = s.undo_depth();
+    run(&mut s, "text.insert", json!({"text": "c"}));
+    assert_eq!(text(&s), "ac");
+    assert_eq!(s.undo_depth(), depth, "the commit joins the deletion's step");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "ab", "one Undo restores the deletion and its commit");
+
+    // Tab consumes the promise: the commit no longer joins the deletion.
+    let mut s = self::s();
+    run(&mut s, "text.insert", json!({"text": "ab"}));
+    run(&mut s, "text.backspace", json!({}));
+    s.join_next_ime_text_replacement();
+    let depth = s.undo_depth();
+    run(&mut s, "text.tab", json!({}));
+    let outcome = s.ime_edit_outcome();
+    assert!(!outcome.classified, "Tab is not an IME replacement receipt: {outcome:?}");
+    assert_eq!(s.undo_depth(), depth + 1, "Tab owns its Undo step");
+    run(&mut s, "text.insert", json!({"text": "c"}));
+    assert_eq!(text(&s), "a\tc");
+    assert_eq!(s.undo_depth(), depth + 2, "the commit after Tab starts its own Undo step");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "a\t", "Undo takes back only the commit");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "a", "then the Tab");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "ab", "and the IME deletion on its own");
+
+    // Returning directly to the promised selection must not resurrect a promise consumed by
+    // Tab. Do not use a caret command here: that command would itself consume a leaked promise.
+    let mut s = self::s();
+    run(&mut s, "text.insert", json!({"text": "ab"}));
+    run(&mut s, "text.backspace", json!({}));
+    s.join_next_ime_text_replacement();
+    let promised_selection = s.sel.clone();
+    run(&mut s, "text.tab", json!({}));
+    let depth = s.undo_depth();
+    s.sel = promised_selection;
+    run(&mut s, "text.insert", json!({"text": "c"}));
+    assert_eq!(text(&s), "ac\t");
+    assert_eq!(s.undo_depth(), depth + 1, "returning to the old selection cannot reuse the consumed promise");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "a\t", "only the new insert is undone");
+}
