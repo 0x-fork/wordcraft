@@ -940,12 +940,12 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
                         n.0 = n.0.saturating_add(1);
                     }
                     let fmt = wordcraft_layout::fields::format_switch(instr).unwrap_or_default();
-                    updates.push((k, if f.has('h') { String::new() } else { fmt.format(n.0) }));
+                    updates.push((k, if f.has('h') { String::new() } else { wordcraft_layout::fields::field_number(instr, fmt, n.0) }));
                 }
                 "STYLEREF" => {
                     let ix = styles.get_or_insert_with(|| wordcraft_layout::styleref::StyleIndex::build(&s.doc));
                     if let Some(i) = ix.index_of(&path) {
-                        updates.push((k, ix.eval(instr, wordcraft_layout::styleref::At::Body(i))));
+                        updates.push((k, text_result(instr, ix.eval(instr, wordcraft_layout::styleref::At::Body(i)))));
                     }
                 }
                 _ => {}
@@ -1038,7 +1038,7 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
             match name.as_str() {
                 "DATE" | "TIME" | "CREATEDATE" | "SAVEDATE" | "PRINTDATE" => {
                     let pic = date_picture(instr).unwrap_or_else(|| if name == "TIME" { "h:mm am/pm".into() } else { "M/d/yyyy".into() });
-                    updates.push((k, super::insert::format_date(&pic)));
+                    updates.push((k, text_result(instr, super::insert::format_date(&pic))));
                 }
                 "REF" | "PAGEREF" => {
                     let f = FieldCode::parse(instr);
@@ -1048,13 +1048,13 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                     } else if !has_switch(instr, 'p') {
                         pages.get(target).map(|(num, page_fmt)| {
                             let fmt = wordcraft_layout::fields::format_switch(instr).unwrap_or(*page_fmt);
-                            fmt.format(*num)
+                            wordcraft_layout::fields::field_number(instr, fmt, *num)
                         })
                     } else {
                         None
                     };
                     if let Some(r) = r {
-                        updates.push((k, r));
+                        updates.push((k, if name == "REF" { text_result(instr, r) } else { r }));
                     }
                 }
                 // The summary properties; a quoted text after the name replaces the property.
@@ -1062,9 +1062,9 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                     if let Some(v) = new_property_value(instr) {
                         set_summary_property(&mut core, &name, v);
                     }
-                    updates.push((k, summary_property(&core, &name).to_string()));
+                    updates.push((k, text_result(instr, summary_property(&core, &name).to_string())));
                 }
-                "LASTSAVEDBY" => updates.push((k, core.last_modified_by.clone())),
+                "LASTSAVEDBY" => updates.push((k, text_result(instr, core.last_modified_by.clone()))),
                 "NUMWORDS" => updates.push((k, count_text(instr, s.doc.word_count()))),
                 "NUMCHARS" => {
                     let chars = s.doc.plain_text(StoryRef::Body).chars().filter(|c| !c.is_whitespace()).count();
@@ -1076,13 +1076,13 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                     if let Some(name) = doc_property_arg(instr)
                         && let Some(v) = doc_property(&s.doc, &core, &name)
                     {
-                        updates.push((k, v));
+                        updates.push((k, text_result(instr, v)));
                     }
                 }
                 "FILENAME" => {
                     let (fn_name, fn_path) = s.resolved_filenames();
                     let text = if has_switch(instr, 'p') { fn_path } else { fn_name };
-                    updates.push((k, text));
+                    updates.push((k, text_result(instr, text)));
                 }
                 _ => {}
             }
@@ -1132,7 +1132,7 @@ pub fn refresh_date_fields(doc: &mut wordcraft_doc::Document) {
                 }
                 // Word's default picture when the code carries no `\@` switch.
                 let pic = date_picture(instr).unwrap_or_else(|| if name == "TIME" { "h:mm am/pm".into() } else { "M/d/yyyy".into() });
-                updates.push((k, super::insert::format_date(&pic)));
+                updates.push((k, text_result(instr, super::insert::format_date(&pic))));
             }
             if updates.is_empty() {
                 continue;
@@ -1182,9 +1182,17 @@ fn new_property_value(instr: &str) -> Option<String> {
     FieldCode::parse(instr).args.first().map(|a| a.chars().take(255).collect())
 }
 
-/// A count (NUMWORDS, NUMCHARS, REVNUM) in the field's `\*` number format, digits without one.
+/// A count (NUMWORDS, NUMCHARS, REVNUM) in the field's `\*` number format, digits without one,
+/// with the field's capitalization switch.
 fn count_text(instr: &str, n: usize) -> String {
-    wordcraft_layout::fields::format_switch(instr).unwrap_or(NumFormat::Decimal).format(u32::try_from(n).unwrap_or(u32::MAX))
+    let fmt = wordcraft_layout::fields::format_switch(instr).unwrap_or(NumFormat::Decimal);
+    wordcraft_layout::fields::field_number(instr, fmt, u32::try_from(n).unwrap_or(u32::MAX))
+}
+
+/// A field's computed text with its capitalization switch (`\* Upper`, `\* Lower`, `\* Caps`,
+/// `\* FirstCap`) applied.
+fn text_result(instr: &str, text: String) -> String {
+    wordcraft_layout::fields::apply_case_switch(instr, text)
 }
 
 /// The property name of a `DOCPROPERTY` field: the word (or quoted text) after the field name,
@@ -1614,6 +1622,67 @@ mod tests {
         let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
         assert_eq!(got, ["Old", "Grace", "Old"]);
         assert_eq!((s.doc.core.subject.as_str(), s.doc.core.creator.as_str()), ("Old", "Grace"));
+    }
+
+    /// `\* Upper`, `\* Lower`, `\* Caps` and `\* FirstCap` apply to the text Update Field computes,
+    /// and `\* CardText` and `\* OrdText` are lowercase unless one of them follows.
+    #[test]
+    fn update_fields_apply_the_capitalization_switches() {
+        let mut doc = wordcraft_doc::Document::from_text("one two three");
+        doc.core.subject = "budget".into();
+        doc.core.creator = "Ada LOVELACE".into();
+        doc.core.title = "weekly report on sales".into();
+        doc.core.description = "weekly report on sales".into();
+        doc.core.last_modified_by = "grace".into();
+        doc.core.revision = 7;
+        let codes = [
+            r"SUBJECT \* Upper",
+            r"AUTHOR \* Lower",
+            r"TITLE \* Caps \* MERGEFORMAT",
+            r"COMMENTS \*FirstCap",
+            r"LASTSAVEDBY \* upper",
+            r"NUMWORDS \* CardText",
+            r"NUMWORDS \* CardText \* Caps",
+            r"REVNUM \* OrdText",
+            r"REVNUM \* OrdText \* FirstCap",
+            r"DOCPROPERTY Subject \* Upper",
+            r#"SUBJECT "new \* Upper""#,
+        ];
+        let (mut s, hdr) = header_fields_session(doc, &codes);
+        s.run("references.updateFields", &json!({})).unwrap();
+        let got: Vec<String> = story_fields(&s, StoryRef::Part(hdr)).into_iter().map(|(_, r)| r).collect();
+        assert_eq!(
+            got,
+            [
+                "BUDGET",
+                "ada lovelace",
+                "Weekly Report On Sales",
+                "Weekly report on sales",
+                "GRACE",
+                "three",
+                "Three",
+                "seventh",
+                "Seventh",
+                "BUDGET",
+                "new \\* Upper"
+            ]
+        );
+    }
+
+    /// The capitalization switches also apply to REF, PAGEREF, SEQ and FILENAME results in the body.
+    #[test]
+    fn body_fields_apply_the_capitalization_switches() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Bookmark target text here.\nSecond paragraph."));
+        s.run("select.text", &json!({"text": "Bookmark target text"})).unwrap();
+        s.run("insert.bookmark", &json!({"name": "TargetMark"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        for instr in [r"REF TargetMark \* Upper", r"PAGEREF TargetMark \* CardText", r"SEQ Figure \* OrdText \* Caps", r"FILENAME \* Lower"] {
+            s.run("insert.field", &json!({"instr": instr, "result": "old"})).unwrap();
+        }
+        update_fields(&mut s).unwrap();
+        let got: Vec<String> = fields(&s).into_iter().map(|(_, r)| r).collect();
+        let name = s.resolved_filenames().0.to_lowercase();
+        assert_eq!(got, ["BOOKMARK TARGET TEXT".to_string(), "one".into(), "First".into(), name]);
     }
 
     /// #1706: `all: true` (printing) updates the whole document even with the caret in a header.

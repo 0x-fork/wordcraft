@@ -8774,6 +8774,30 @@ fn update_fields_recalculates_a_table_formula() {
     assert_eq!(formula_result(&s, 4, 1).as_deref(), Some("21"));
 }
 
+/// A formula's `\*` switches format its result when the formula is inserted and when Update Field
+/// works it out again.
+#[test]
+fn table_formula_results_take_the_format_switches() {
+    for (formula, inserted, updated) in [
+        (r"=SUM(ABOVE) \* CardText", "twelve", "twenty-one"),
+        (r"=SUM(ABOVE) \* CardText \* Caps", "Twelve", "Twenty-one"),
+        (r"=SUM(ABOVE) \* OrdText \* Upper", "TWELFTH", "TWENTY-FIRST"),
+        (r"=SUM(ABOVE) \* MERGEFORMAT", "12", "21"),
+    ] {
+        let mut s = formula_table();
+        let r = run(&mut s, "table.formula", json!({"formula": formula}));
+        assert_eq!((r["formula"].as_str(), r["result"].as_str()), (Some(formula), Some(inserted)));
+        run(
+            &mut s,
+            "select.range",
+            json!({"anchor": {"story": "body", "path": [1, 1, 1, 0], "off": 0}, "focus": {"story": "body", "path": [1, 1, 1, 0], "off": 1}}),
+        );
+        run(&mut s, "text.insert", json!({"text": "10"}));
+        run(&mut s, "references.updateFields", json!({}));
+        assert_eq!(formula_result(&s, 4, 1).as_deref(), Some(updated), "{formula}");
+    }
+}
+
 /// A one-column table (no header row) holding `cells`, in a document whose default language
 /// is `lang`; the caret ends in the last cell.
 fn column_table(lang: &str, cells: &[&str]) -> Session {

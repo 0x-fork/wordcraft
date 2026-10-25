@@ -1167,8 +1167,8 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"result": text, "formula": instr}))
 }
 
-/// A formula as a field stores it: upper case, with one leading `=`. A `\#` numeric picture is
-/// kept as typed.
+/// A formula as a field stores it: upper case, with one leading `=`. The `\#` numeric picture and
+/// the `\*` switches are kept as typed.
 pub(crate) fn formula_instr(raw: &str) -> String {
     let body = raw.trim();
     let body = body.strip_prefix('=').unwrap_or(body);
