@@ -846,11 +846,15 @@ enum Act {
     Skip,
 }
 
+/// The merge field a rule tests: the name in its first nested field, if that is a MERGEFIELD.
+fn rule_field(t: &str) -> Option<String> {
+    mergefield_name(t.split_once('{').and_then(|(_, r)| r.split('}').next())?)
+}
+
 /// Comparison of a rule condition `{ MERGEFIELD X } op "value" …` (IF, SKIPIF, NEXTIF) for
 /// `row`: whether it holds, and the quoted texts after the value (IF's true / false text).
 fn condition<'a>(s: &Session, t: &'a str, row: usize) -> (bool, Vec<&'a str>) {
-    let inner = t.split_once('{').and_then(|(_, r)| r.split('}').next()).unwrap_or("");
-    let field = mergefield_name(inner).unwrap_or_default();
+    let field = rule_field(t).unwrap_or_default();
     let rest = t.split_once('}').map(|(_, r)| r).unwrap_or("");
     let op: String = rest.trim_start().chars().take_while(|c| matches!(c, '<'..='>')).collect();
     let mut quoted = rest.split('"').skip(1).step_by(2);
@@ -893,7 +897,7 @@ fn act(s: &Session, instr: &str, row: usize) -> Option<Act> {
         "SKIPIF" if condition(s, t, row).0 => Act::Skip,
         "NEXTIF" | "SKIPIF" => Act::Text(String::new()),
         // IF { MERGEFIELD X } = "v" "then" "else" (an IF on other fields isn't ours to touch).
-        "IF" if t.to_ascii_uppercase().contains("MERGEFIELD") => {
+        "IF" if rule_field(t).is_some() => {
             let (holds, texts) = condition(s, t, row);
             Act::Text(texts.get(if holds { 0 } else { 1 }).copied().unwrap_or("").to_string())
         }
@@ -910,7 +914,7 @@ fn placeholder(instr: &str) -> Option<String> {
         "ADDRESSBLOCK" => Some("«AddressBlock»".into()),
         "GREETINGLINE" => Some("«GreetingLine»".into()),
         "NEXT" | "NEXTIF" | "SKIPIF" | "MERGEREC" => Some(String::new()),
-        "IF" if instr.to_ascii_uppercase().contains("MERGEFIELD") => Some(String::new()),
+        "IF" if rule_field(instr).is_some() => Some(String::new()),
         _ => None,
     }
 }
@@ -1568,6 +1572,23 @@ mod tests {
         s.run("insert.field", &json!({"instr": r#"if { mergefield Name } = "Beta" " (b)" """#, "result": ""})).unwrap();
         s.run("mailings.finish", &json!({})).unwrap();
         assert_eq!(s.doc.plain_text(StoryRef::Body), "Alpha\nBeta (b)");
+    }
+
+    /// An IF is a merge rule only when the field it tests is a MERGEFIELD: the word in a quoted
+    /// value doesn't make `IF { PAGE } = "mergefield" …` one.
+    #[test]
+    fn an_if_on_another_field_is_not_a_merge_rule() {
+        let other = r#"IF { PAGE } = "mergefield" "yes" "no""#;
+        assert_eq!(placeholder(other), None);
+        assert_eq!(placeholder(r#"IF { PAGE } = { MERGEFIELD City } "yes" "no""#), None);
+        assert_eq!(placeholder(r#"IF { MERGEFIELD City } = "mergefield" "yes" "no""#).as_deref(), Some(""));
+        let mut s = Session::new(Document::new());
+        s.run("mailings.recipients", &json!({"rows": [{"Name": "Alpha"}]})).unwrap();
+        s.run("mailings.start", &json!({"kind": "directory"})).unwrap();
+        s.run("insert.field", &json!({"instr": "mergefield Name", "result": ""})).unwrap();
+        s.run("insert.field", &json!({"instr": other, "result": " kept"})).unwrap();
+        s.run("mailings.finish", &json!({})).unwrap();
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Alpha kept");
     }
 
     #[test]
