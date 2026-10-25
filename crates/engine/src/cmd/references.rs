@@ -1145,14 +1145,14 @@ fn new_property_value(instr: &str) -> Option<String> {
 }
 
 /// A count (NUMWORDS, NUMCHARS, REVNUM) in the field's `\*` number format, digits without one,
-/// with the field's capitalization switch.
+/// with the field's capitalization switches.
 fn count_text(instr: &str, n: usize) -> String {
     let fmt = wordcraft_layout::fields::format_switch(instr).unwrap_or(NumFormat::Decimal);
     wordcraft_layout::fields::field_number(instr, fmt, u32::try_from(n).unwrap_or(u32::MAX))
 }
 
-/// A field's computed text with its capitalization switch (`\* Upper`, `\* Lower`, `\* Caps`,
-/// `\* FirstCap`) applied.
+/// A field's computed text with its capitalization switches (`\* Upper`, `\* Lower`, `\* Caps`,
+/// `\* FirstCap`) applied in order.
 fn text_result(instr: &str, text: String) -> String {
     wordcraft_layout::fields::apply_case_switch(instr, text)
 }

@@ -109,8 +109,8 @@ pub fn evaluate_field_with(
 /// with the `\#` picture, or in the cell's language when there is no picture. A number format such
 /// as `\* CardText`, `\* OrdText` or `\* roman` writes a whole number the format covers (up to
 /// 999,999 for CardText and OrdText, 1 to 50,000 for roman, 1 to 780 for alphabetic), in lowercase
-/// for CardText and OrdText. Any other result keeps its digits. A capitalization switch
-/// (`\* Upper`, `\* Lower`, `\* Caps`, `\* FirstCap`) then applies to the text. Other `\*` switches
+/// for CardText and OrdText. Any other result keeps its digits. The capitalization switches
+/// (`\* Upper`, `\* Lower`, `\* Caps`, `\* FirstCap`) then apply to the text in order. Other `\*` switches
 /// leave the text as it is. Quoted text, such as a `\#` picture, is not a switch.
 fn format_switches(switches: &str, value: f64, text: String) -> String {
     use wordcraft_doc::section::NumFormat;
