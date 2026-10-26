@@ -163,6 +163,7 @@ impl<'a> PartPages<'a> {
         let first = self.first.get_or_insert_with(|| {
             let mut first: HashMap<&'a Path, usize> = HashMap::new();
             for (pi, p) in lay.pages.iter().enumerate() {
+                crate::work::steps(1);
                 for it in items_of(p, story) {
                     if let Placed::Lines { story: s, path, .. } = it
                         && *s == story
