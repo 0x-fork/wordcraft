@@ -3412,6 +3412,26 @@ fn control_click_as_secondary(events: &mut [egui::Event], held: &mut bool) {
 #[cfg(test)]
 mod tests_perf;
 
+/// Every `.rs` file under `dir`, subdirectories included, in a fixed order: tests that scan the
+/// sources must keep seeing code that moves into a module directory.
+#[cfg(test)]
+pub(crate) fn rust_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = vec![];
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

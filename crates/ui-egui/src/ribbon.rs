@@ -3467,10 +3467,14 @@ mod tests {
         app.run("layout.pageSetup", json!({})).unwrap();
         assert!(matches!(app.dialog, Some(crate::dialogs::Dialog::PageSetup { .. })));
         // `ui.dialog` needs a dialog name, so it can't be a launcher.
-        let launchers: Vec<&str> = include_str!("ribbon.rs")
-            .split("group(ui, \"")
-            .filter_map(|g| g.split_once('"')?.1.strip_prefix(", Some(\"")?.split('"').next())
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let ribbon: String = crate::rust_sources(&src)
+            .iter()
+            .filter(|p| **p == src.join("ribbon.rs") || p.starts_with(src.join("ribbon")))
+            .map(|p| std::fs::read_to_string(p).unwrap())
             .collect();
+        let launchers: Vec<&str> =
+            ribbon.split("group(ui, \"").filter_map(|g| g.split_once('"')?.1.strip_prefix(", Some(\"")?.split('"').next()).collect();
         assert!(launchers.contains(&"layout.pageSetup"), "{launchers:?}");
         assert!(!launchers.contains(&"ui.dialog"), "{launchers:?}");
     }

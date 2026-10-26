@@ -499,8 +499,11 @@ mod tests {
         let mut offenders = vec![];
         for path in files {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // `io` and this module are the checked gateway; `tests*.rs` are test-only modules.
-            if path.parent() == Some(src.as_path()) && (name == "io.rs" || name == "file_access.rs" || name.starts_with("tests"))
+            // `io` and this module are the checked gateway; `tests*.rs` files and `tests/`
+            // directories are test-only modules.
+            if path.parent() == Some(src.as_path()) && (name == "io.rs" || name == "file_access.rs")
+                || name.starts_with("tests")
+                || path.strip_prefix(&src).is_ok_and(|rel| rel.components().any(|c| c.as_os_str() == "tests"))
                 || path.starts_with(src.join("io"))
                 || path == src.join("recovery/desktop.rs")
             {
