@@ -465,3 +465,27 @@ fn drawing_items_one_by_one_matches_a_page_display_of_each() {
         assert!(!markup || coloured > 0, "some tracked text is in an author's colour");
     }
 }
+
+/// #3866: a header paragraph on the hinted page is found there, without a walk of every page of a
+/// long document to find the first page that shows it.
+#[test]
+fn selecting_a_header_on_the_hinted_page_does_not_walk_every_page() {
+    let laid = |n: usize| {
+        let mut d = Document::from_text("n");
+        let huge = CharProps { size: Some(400.0), ..Default::default() };
+        d.body = (0..n).map(|_| wordcraft_doc::para_block(Paragraph::with_text("n", huge.clone()))).collect();
+        let id = d.add_part(wordcraft_doc::PartKind::Header, vec![wordcraft_doc::para_block(Paragraph::with_text("head", CharProps::default()))]);
+        d.last_section.headers.default = Some(id);
+        let l = lay(&d, &LayoutOptions::default());
+        let ends = (Pos::new(StoryRef::Part(id), Path::top(0), 0), Pos::new(StoryRef::Part(id), Path::top(0), 2));
+        (d, l, ends)
+    };
+    let steps = |n: usize| {
+        let (d, l, (a, b)) = laid(n);
+        assert!(l.pages.len() >= n, "a page to each paragraph: {}", l.pages.len());
+        work::count(|| drop(std::hint::black_box(l.selection_rects(&d, &a, &b, 0))))
+    };
+    let (small, big) = (steps(20), steps(160));
+    eprintln!("hinted header: {small} steps for 20 pages, {big} for 160");
+    assert!(small > 0 && big <= small + 8, "the pages aren't walked: {small} → {big}");
+}

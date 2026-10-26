@@ -543,8 +543,9 @@ impl DocLayout {
         if pages.story == StoryRef::Body {
             return self.pieces(StoryRef::Body, path, page_hint);
         }
-        let first = pages.first_page(self, path);
-        self.part_pieces(page_hint, &mut || first, &mut |pi| pages.on(self, pi, path))
+        // The first-page index is made only when the hinted page doesn't show the paragraph.
+        let pages = std::cell::RefCell::new(pages);
+        self.part_pieces(page_hint, &mut || pages.borrow_mut().first_page(self, path), &mut |pi| pages.borrow_mut().on(self, pi, path))
     }
 
     /// Pieces of a paragraph of story part `story` on page `pi`.
