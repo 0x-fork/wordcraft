@@ -59,6 +59,78 @@ fn agent_writes_a_formatted_document() {
     assert!(p["percent"].as_f64().unwrap() > 50.0);
 }
 
+/// The document's paragraphs as (text, in a list) from `inspect_document`.
+fn paragraphs(s: &mut Server) -> Vec<(String, bool)> {
+    let doc = tool(s, "inspect_document", json!({}));
+    doc["blocks"].as_array().unwrap().iter().map(|b| (b["text"].as_str().unwrap_or("").to_string(), !b["list"].is_null())).collect()
+}
+
+/// `type_text` with `paragraphs` is one command: it used to be a `text.newParagraph` and a
+/// `text.insert` per line, each snapshotting the whole document for Undo (quadratic: 10,000 lines
+/// took 2.8 s; one command takes 7 ms) and each its own Undo step (#3973). The document it makes
+/// is the one the per-line way made, a CRLF is one break, and one Undo takes all of it back.
+#[test]
+fn type_text_paragraphs_is_one_step_and_makes_the_same_paragraphs() {
+    let per_line = |s: &mut Server, text: &str| {
+        for (i, line) in text.split('\n').enumerate() {
+            if i > 0 {
+                tool(s, "execute", json!({"command": "text.newParagraph"}));
+            }
+            if !line.is_empty() {
+                tool(s, "type_text", json!({"text": line}));
+            }
+        }
+    };
+    let setup = |s: &mut Server, listed: bool| {
+        tool(s, "new_document", json!({}));
+        tool(s, "type_text", json!({"text": "Start"}));
+        if listed {
+            tool(s, "execute", json!({"command": "para.bullets"}));
+        }
+    };
+    for listed in [false, true] {
+        // Text AutoCorrect has nothing to change, so only the paragraphs are compared.
+        for text in ["One\nTwo\nThree", "One\n\n\nTwo", "\nLead", "Trail\n", "A b  c\n  Indented\n\tTabbed", "X"] {
+            let mut old = Server::new(Box::new(Headless::default()));
+            setup(&mut old, listed);
+            per_line(&mut old, text);
+            let mut new = Server::new(Box::new(Headless::default()));
+            setup(&mut new, listed);
+            tool(&mut new, "type_text", json!({"text": text, "paragraphs": true}));
+            assert_eq!(paragraphs(&mut new), paragraphs(&mut old), "{text:?} (in a list: {listed})");
+        }
+    }
+
+    // Each break is the Enter it stands for: Enter's AutoCorrect (a capital for a sentence's
+    // first word, a fixed typo) runs on the word the break ends, so "one" is capitalised and
+    // "teh" is fixed; the last line, which no Enter follows, is left as typed (#3692).
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    tool(&mut s, "type_text", json!({"text": "one\ntwo teh\nthree", "paragraphs": true}));
+    let texts: Vec<String> = paragraphs(&mut s).into_iter().map(|p| p.0).collect();
+    assert_eq!(texts, ["One", "two the", "three"]);
+
+    // CRLF is one break per line end.
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    tool(&mut s, "type_text", json!({"text": "a\r\nb\r\nc", "paragraphs": true}));
+    let texts: Vec<String> = paragraphs(&mut s).into_iter().map(|p| p.0).collect();
+    // A CRLF is one break, and each break capitalises the word it ends (Enter's AutoCorrect).
+    assert_eq!(texts, ["A", "B", "c"]);
+
+    // One Undo step takes all the lines back.
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    tool(&mut s, "type_text", json!({"text": "keep"}));
+    // Moving the caret ends the typing that "keep" was part of, so it isn't undone with the rest.
+    tool(&mut s, "execute", json!({"command": "caret.docEnd"}));
+    tool(&mut s, "type_text", json!({"text": "\none\ntwo\nthree\nfour", "paragraphs": true}));
+    assert_eq!(paragraphs(&mut s).len(), 5);
+    tool(&mut s, "execute", json!({"command": "edit.undo"}));
+    let texts: Vec<String> = paragraphs(&mut s).into_iter().map(|p| p.0).collect();
+    assert_eq!(texts, ["keep"], "one Undo removes every line");
+}
+
 #[test]
 fn resources() {
     let mut s = Server::new(Box::new(Headless::default()));
@@ -144,7 +216,7 @@ impl crate::backend::Backend for RefusesParagraph {
 /// #1356: a refused paragraph break is reported, and nothing of the text goes in without it: the
 /// lines are one command, all or nothing.
 #[test]
-fn type_text_stops_at_a_refused_paragraph_break() {
+fn type_text_paragraphs_reports_a_refusal_and_types_nothing_after_it() {
     let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut s = Server::new(Box::new(RefusesParagraph { calls: calls.clone() }));
     let r = call(&mut s, 11, "tools/call", json!({"name": "type_text", "arguments": {"text": "one\ntwo", "paragraphs": true}}));
@@ -223,4 +295,21 @@ fn type_text_paragraphs_autoformat_like_enter_in_one_undo_step() {
     assert_eq!(tool(&mut s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len(), 501);
     tool(&mut s, "execute", json!({"command": "edit.undo"}));
     assert_eq!(tool(&mut s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len(), 1, "one Undo");
+}
+
+/// #3685: an over-long request line gets an error reply and the server keeps serving.
+#[test]
+fn over_long_request_line_is_rejected_and_serving_continues() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let mut input = vec![b'a'; (1 << 20) + 10];
+    input.push(b'\n');
+    input.extend_from_slice(br#"{"jsonrpc":"2.0","id":5,"method":"ping"}"#);
+    input.push(b'\n');
+    let mut out = Vec::new();
+    s.serve(std::io::Cursor::new(input), &mut out).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(lines[0].contains("too long"), "{}", lines[0]);
+    assert!(lines[1].contains(r#""id":5"#), "{}", lines[1]);
 }
