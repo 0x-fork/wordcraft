@@ -2478,15 +2478,9 @@ impl WordApp {
         if self.ctx.is_none() {
             self.ctx = Some(ctx.clone());
         }
-        // Capture geometry/document identity is current before control admission and completion.
-        // The epoch is monotonic: resizing back to an earlier size is still a new epoch.
-        let capture_geometry = self.surface_geometry.map(|surface| surface.with_document(self.session.document_id()));
-        if let Some(geometry) = capture_geometry
-            && self.capture_geometry != Some(geometry)
-        {
-            self.capture_geometry = Some(geometry);
-            self.capture_epoch = self.capture_epoch.wrapping_add(1);
-        }
+        // Capture geometry/window/document identity is current before control admission and
+        // completion.
+        self.refresh_capture_geometry(ctx);
         let native = self.windows.native();
         if native {
             self.printing.poll(ctx);
@@ -2724,7 +2718,9 @@ impl WordApp {
         // Capture the surface from the raw input itself. `InputState::viewport_rect` and the
         // last painted screen rect are stale in a hidden `run_logic` tick; RawInput is the host's
         // current answer, including minimized/occluded and a Wayland `inner_rect: None`.
-        if let Some(geometry) = control::SurfaceGeometry::from_raw(raw, ctx) {
+        if raw.viewport_id == egui::ViewportId::ROOT
+            && let Some(geometry) = control::SurfaceGeometry::from_raw(raw, ctx)
+        {
             // A hidden resize and change back still invalidate an older capture, even if
             // neither intermediate geometry reaches a drawing or logic pass.
             if self.surface_geometry != Some(geometry) {
@@ -3089,6 +3085,17 @@ impl WordApp {
                 continue;
             }
             let _ = self.insert_or_change_picture(json!({"data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}));
+        }
+    }
+
+    /// Make the capture geometry the active window's surface, viewport and document. The epoch is
+    /// monotonic: resizing back to an earlier size is still a new epoch.
+    pub(crate) fn refresh_capture_geometry(&mut self, ctx: &egui::Context) {
+        let (viewport, surface) = self.active_surface_geometry(ctx);
+        let geometry = surface.map(|surface| surface.with_target(viewport, self.session.document_id()));
+        if self.capture_geometry != geometry {
+            self.capture_geometry = geometry;
+            self.capture_epoch = self.capture_epoch.wrapping_add(1);
         }
     }
 
@@ -9744,7 +9751,7 @@ mod tests {
         let mut raw = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
         raw.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(1.5);
         let surface = control::SurfaceGeometry::from_raw(&raw, &ctx).expect("screen rect fallback");
-        let geometry = surface.with_document(7);
+        let geometry = surface.with_target(egui::ViewportId::ROOT, 7);
         assert_eq!(geometry.expected_size(), Some([480, 300]));
         assert_eq!(geometry.expected_bytes(), Some(480 * 300 * 4));
     }

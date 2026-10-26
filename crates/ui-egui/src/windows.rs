@@ -270,6 +270,18 @@ impl WordApp {
         self.windows.viewport(key)
     }
 
+    /// The active window's viewport and surface, for `ui.screenshot`: the root's from this
+    /// frame's raw input, another window's from the input it last drew with (the host's raw-input
+    /// hook sees only the root's).
+    pub(crate) fn active_surface_geometry(&self, ctx: &egui::Context) -> (ViewportId, Option<crate::control::SurfaceGeometry>) {
+        let viewport = self.active_viewport();
+        if viewport == ViewportId::ROOT {
+            return (viewport, self.surface_geometry);
+        }
+        let (info, screen_rect, max_texture_side) = ctx.input_for(viewport, |i| (i.viewport().clone(), i.raw.screen_rect, i.raw.max_texture_side));
+        (viewport, crate::control::SurfaceGeometry::from_viewport(&info, screen_rect, max_texture_side, ctx))
+    }
+
     /// The viewport new windows start from: the host's size, icon and app id. Their title and
     /// place are the app's.
     pub fn set_window_builder(&mut self, builder: egui::ViewportBuilder) {
@@ -1063,6 +1075,45 @@ mod tests {
         focus(ViewportId::ROOT);
         frames(&ctx, &mut a, 2);
         assert_eq!(text(&a), "First", "the other window got none of it");
+    }
+
+    /// `ui.screenshot` captures the active window: the capture is sized from its viewport and the
+    /// command goes to that viewport. A capture still pending when another window comes forward
+    /// fails with an error instead of capturing that window.
+    #[test]
+    fn screenshot_captures_the_active_window() {
+        let ctx = backend();
+        let mut a = app("First");
+        frames(&ctx, &mut a, 2);
+        a.run("file.new", json!({})).unwrap();
+        let child = a.active_viewport();
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        INFOS.with(|i| i.borrow_mut().entry(child).or_default().inner_rect = Some(rect));
+        focus(child);
+        frames(&ctx, &mut a, 4);
+
+        let (reply, replies) = std::sync::mpsc::channel();
+        crate::control::admit_screenshot(&mut a, &ctx, None, reply);
+        assert!(replies.try_recv().is_err(), "the capture is admitted");
+        assert_eq!(a.shots.requests.iter().map(|s| (s.viewport, s.expected)).collect::<Vec<_>>(), [(child, [800, 600])]);
+        a.shots.requests.iter_mut().for_each(|s| s.ready_at = 0.0);
+        COMMANDS.with(|c| c.borrow_mut().clear());
+        frames(&ctx, &mut a, 4);
+        let shot_to =
+            |id: ViewportId| COMMANDS.with(|c| c.borrow().get(&id).is_some_and(|v| v.iter().any(|c| matches!(c, ViewportCommand::Screenshot(_)))));
+        assert!(shot_to(child), "the active window is captured");
+        assert!(!shot_to(ViewportId::ROOT), "the first window is not");
+
+        let (reply, later) = std::sync::mpsc::channel();
+        crate::control::admit_screenshot(&mut a, &ctx, None, reply);
+        focus(ViewportId::ROOT);
+        frames(&ctx, &mut a, 2);
+        for r in [replies, later] {
+            let v = r.try_recv().expect("the capture was answered");
+            assert_eq!(v["ok"], false);
+            assert!(v["error"].as_str().is_some_and(|e| e.contains("another window")), "{v}");
+        }
+        assert!(a.shots.requests.is_empty());
     }
 
     /// Quitting with two documents of unsaved changes asks about each in its window, the window
