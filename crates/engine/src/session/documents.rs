@@ -521,14 +521,18 @@ impl Session {
     pub fn with_document<R>(&mut self, id: u64, f: impl FnOnce(&mut Session) -> R) -> Result<R, CmdError> {
         let home = self.document_id;
         self.switch_to(id)?;
-        let queued = self.ui_requests.len();
+        // The queue drops its oldest entries when full, so `f`'s requests are told apart by
+        // collecting them on their own rather than by position.
+        let earlier = std::mem::take(&mut self.ui_requests);
         let r = f(self);
-        if id != home {
-            for q in self.ui_requests.iter_mut().skip(queued) {
-                if let Some(o) = q.as_object_mut() {
-                    o.entry("document").or_insert(json!(id));
-                }
+        let made = std::mem::replace(&mut self.ui_requests, earlier);
+        for mut q in made {
+            if id != home
+                && let Some(o) = q.as_object_mut()
+            {
+                o.entry("document").or_insert(json!(id));
             }
+            self.push_ui_request(q);
         }
         if self.document_id != home && self.is_open(home) {
             self.switch_to(home)?;
