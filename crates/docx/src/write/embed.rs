@@ -14,8 +14,7 @@ use wordcraft_doc::para::Float;
 
 use super::PartRels;
 use crate::package::{
-    CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, FONT_TABLE_PART, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART, VBA_RELATED,
-    rel_is, relative, rt,
+    CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART, VBA_RELATED, rel_is, relative, rt,
 };
 use crate::units::{MAX_LEN_PT, emu, int};
 use crate::xml::{self, El, MAX_DEPTH};
@@ -105,7 +104,8 @@ impl<'d> EmbedWriter<'d> {
     /// Write the font table kept from a file, with the fonts it embeds, relating it from `rels`.
     pub fn font_table(&mut self, rels: &mut PartRels) {
         let mut written = Vec::new();
-        if let Some(name) = self.copy_tree(FONT_TABLE_PART, &mut HashMap::new(), &mut written) {
+        let Some(root) = crate::package::font_table_key(self.passthrough).map(str::to_string) else { return };
+        if let Some(name) = self.copy_tree(&root, &mut HashMap::new(), &mut written) {
             rels.add(rt::FONT_TABLE, &relative(STORY_PART, &name), false);
         }
     }
@@ -747,7 +747,11 @@ fn scrub_private(bytes: &[u8], names: bool, dates: bool) -> Option<Vec<u8>> {
                         b"date" if dates && wml_attr => None,
                         b"dateUtc" if dates => None,
                         _ => {
-                            el.push_attribute(a);
+                            // `push_attribute` writes the value as given, so a value read from
+                            // single quotes (`'Say "hi"'`) must be escaped again (#3872).
+                            let plain = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok()?;
+                            let escaped = quick_xml::escape::escape(plain.as_ref());
+                            el.push_attribute(Attribute { key: a.key, value: Cow::Borrowed(escaped.as_bytes()) });
                             continue;
                         }
                     };
