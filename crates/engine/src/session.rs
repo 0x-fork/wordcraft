@@ -2059,7 +2059,7 @@ impl Session {
             }
         };
         if self.document_id != home || (result.is_err() && self.order.iter().any(|d| *d >= mark)) {
-            return self.finish_elsewhere(home, mark, result, before_doc, blocks_before, default_language_before);
+            return self.finish_elsewhere(home, mark, result, before_doc, blocks_before, default_language_before, pending_application_change_before);
         }
         // Restrict Editing: outside the exceptions nothing may change.
         if result.is_ok()
@@ -2240,13 +2240,22 @@ impl Session {
         before_doc: Option<RunSnapshot>,
         blocks_before: Option<std::collections::BTreeMap<String, Fragment>>,
         default_language_before: Option<String>,
+        pending_application_change_before: bool,
     ) -> Result<Value, CmdError> {
+        // Another document is a state change the input method has to see, never an IME edit.
+        self.ime_edit_outcome = ImeEditOutcome::default();
         match &result {
             Ok(_) => {
                 self.put_back_parked(home, before_doc);
                 self.clamp_selection();
+                self.ime_state_seen = Some(self.current_ime_caret_state());
+                self.reset_ime_state_revision();
+                if !self.ime_origin {
+                    self.pending_ime_application_change = true;
+                }
             }
             Err(e) => {
+                self.pending_ime_application_change = pending_application_change_before;
                 self.autocap = None;
                 self.prefs.default_language = default_language_before;
                 if self.is_open(home) {
