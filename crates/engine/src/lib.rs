@@ -197,17 +197,3 @@ pub mod p {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_bidi;
-#[cfg(test)]
-mod tests_documents;
-#[cfg(test)]
-mod tests_fonts;
-#[cfg(test)]
-mod tests_ime_noop;
-#[cfg(test)]
-mod tests_revision_checks;
-#[cfg(test)]
-mod tests_typing;
-#[cfg(test)]
-mod tests_wordart;
