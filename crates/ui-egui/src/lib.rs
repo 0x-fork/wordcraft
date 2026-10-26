@@ -35,7 +35,6 @@ pub mod credits;
 pub mod crop;
 pub mod desktop_theme;
 pub mod dialogs;
-pub mod dialogs_chart;
 pub mod dialogs_controls;
 pub mod dialogs_insert;
 pub mod dialogs_keyboard;
@@ -98,6 +97,7 @@ use serde_json::{Value, json};
 use wordcraft_engine::Session;
 
 pub use control::ControlRequest;
+pub use dialogs::dialogs_chart;
 pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 
 /// Platform services injected by the host (file dialogs, file I/O).
@@ -3408,7 +3408,6 @@ fn control_click_as_secondary(events: &mut [egui::Event], held: &mut bool) {
         }
     }
 }
-
 
 /// Every `.rs` file under `dir`, subdirectories included, in a fixed order: tests that scan the
 /// sources must keep seeing code that moves into a module directory.
