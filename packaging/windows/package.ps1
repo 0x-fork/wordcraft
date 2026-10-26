@@ -156,9 +156,11 @@ foreach ($build in @(@($Msi, 'perMachine'), @($UserMsi, 'perUserOrMachine'))) {
       -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext `
       -d "Version=$MsiVersion" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'assets\app-icon\wordcraft.ico')" `
       -d "LicenseRtf=$LicenseRtf" `
-      -d "AppNoticesDir=$AppNotices" -d "DocsDir=$Docs" -d "HasCraftFontLicences=$HasCraftFontLicences" -d "Scope=$($build[1])" `
+      -d "AppNoticesDir=$AppNotices" -d "DocsDir=$Docs" -d "HasCraftFontLicences=$HasCraftFontLicences" -d "Scope=perUserOrMachine" `
       -o $out
   }
+  # Check the compiled scope, path and registration contract before signing.
+  & (Join-Path $PSScriptRoot 'check-install-policy.ps1') -MsiPath $Msi
   # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
   Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($out, '.wixpdb'))
   & (Join-Path $PSScriptRoot 'sign.ps1') $out
