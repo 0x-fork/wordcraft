@@ -4384,5 +4384,6 @@ pub mod dialogs_review;
 pub mod dialogs_ribbon;
 pub mod dialogs_smart_art;
 pub mod dialogs_table_style;
+pub mod dialogs_templates;
 #[cfg(test)]
 mod tests;

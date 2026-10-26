@@ -35,7 +35,6 @@ pub mod credits;
 pub mod crop;
 pub mod desktop_theme;
 pub mod dialogs;
-pub mod dialogs_templates;
 pub mod documents;
 pub mod equation_tab;
 /// The built-in file browser, for desktops without a system file dialog (#576).
@@ -98,6 +97,7 @@ pub use dialogs::dialogs_review;
 pub use dialogs::dialogs_ribbon;
 pub use dialogs::dialogs_smart_art;
 pub use dialogs::dialogs_table_style;
+pub use dialogs::dialogs_templates;
 pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 
 /// Platform services injected by the host (file dialogs, file I/O).
