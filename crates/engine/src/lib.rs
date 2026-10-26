@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod cmd;
 pub(crate) mod doc_state;
 pub mod file_access;
+pub(crate) mod ime;
 pub mod io;
 mod io_ext;
 pub mod keymap;

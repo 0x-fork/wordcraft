@@ -17,7 +17,6 @@ use documents::{document_id_mark, next_document_id, untitled_name};
 pub use views::WindowView;
 mod history;
 mod ime;
-mod ime_state;
 mod layout;
 mod lifecycle;
 mod query;
@@ -25,6 +24,7 @@ mod run;
 mod snapshot;
 
 use crate::doc_state;
+use crate::ime as ime_state;
 use crate::locale;
 use crate::prefs;
 use crate::snapshot as snapshot_types;

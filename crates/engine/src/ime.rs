@@ -1,6 +1,8 @@
-use super::doc_state::Selection;
+use crate::doc_state::Selection;
 #[cfg(test)]
-use super::*;
+use crate::session::*;
+#[cfg(test)]
+use wordcraft_doc::{Document, Pos};
 
 /// The caret identity used for the process-monotonic IME state revision.
 #[derive(Clone, Debug, PartialEq, Eq)]
