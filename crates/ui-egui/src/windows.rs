@@ -741,7 +741,7 @@ impl WordApp {
     /// The id of the drawn window's own `name` in egui's memory, which every viewport shares: a
     /// search box's text, a gallery's first tile.
     pub(crate) fn window_id(&self, name: &'static str) -> egui::Id {
-        egui::Id::new(name).with(self.windows.shown)
+        egui::Id::unique(name).with(self.windows.shown)
     }
 
     /// The windows other than the drawn one, for state every window contributes to (the faces
@@ -793,7 +793,7 @@ mod tests {
     fn keep(out: egui::FullOutput, id: ViewportId) {
         DRAWN.with(|d| d.borrow_mut().push(id));
         UPLOADS.with(|u| *u.borrow_mut() += out.textures_delta.set.len());
-        IME.with(|i| i.borrow_mut().insert(id, out.platform_output.ime));
+        IME.with(|i| i.borrow_mut().insert(id, out.platform_output.ime.clone()));
         for (v, o) in &out.viewport_output {
             COMMANDS.with(|c| c.borrow_mut().entry(*v).or_default().extend(o.commands.iter().cloned()));
         }
@@ -823,7 +823,7 @@ mod tests {
     fn frame(ctx: &egui::Context, a: &mut WordApp) {
         DRAWN.with(|d| d.borrow_mut().clear());
         let mut raw = input(ViewportId::ROOT);
-        a.raw_input_hook(&mut raw);
+        a.raw_input_hook(ctx, &mut raw);
         let out = ctx.run_ui(raw, |ui| {
             a.logic(ui.ctx());
             a.ui(ui);

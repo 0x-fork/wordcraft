@@ -57,11 +57,15 @@ pub struct DocState {
     pub(super) redo: Vec<Arc<Undo>>,
     pub(super) typing_open: bool,
     pub(super) join_next: bool,
+    pub(super) equation_join_next: bool,
+    pub(super) ime_text_join: Option<Selection>,
+    pub(super) join_anchor: bool,
     pub(super) autocap: Option<crate::cmd::tools::AutoCap>,
     pub(super) rev: u64,
     pub(super) document_id: u64,
     pub(super) untitled: u32,
     pub(super) made_rev: u64,
+    pub(super) ime_body_epoch: u64,
     pub(super) cache: LayoutCache,
     pub(super) layout: LayoutSlots,
     pub(super) typing: Option<TypedWord>,
@@ -107,11 +111,15 @@ impl DocState {
             redo: Vec::new(),
             typing_open: false,
             join_next: false,
+            equation_join_next: false,
+            ime_text_join: None,
+            join_anchor: false,
             autocap: None,
             rev: 1,
             document_id: next_document_id(),
             untitled,
             made_rev: 1,
+            ime_body_epoch: 0,
             cache: LayoutCache::new(),
             layout: Default::default(),
             typing: None,
@@ -203,11 +211,15 @@ impl Session {
             redo: _,
             typing_open: _,
             join_next: _,
+            equation_join_next: _,
+            ime_text_join: _,
+            join_anchor: _,
             autocap: _,
             rev: _,
             document_id: _,
             untitled: _,
             made_rev: _,
+            ime_body_epoch: _,
             cache: _,
             layout: _,
             typing: _,
@@ -228,8 +240,6 @@ impl Session {
             edit_marks: _,
             go_back_step: _,
             // Shared by every open document.
-            // Keyed by document id, revision and author, so it never answers for another document.
-            protect_facts: _,
             user_dict_path: _,
             clipboard: _,
             clipboard_text: _,
@@ -253,6 +263,18 @@ impl Session {
             editing_lang: _,
             math_latex: _,
             math_normal_text: _,
+            last_highlight: _,
+            // Keyed by document id and revision, so one cache serves every document.
+            protect_facts: _,
+            // The input method talks to the window, whichever document it shows; the IME
+            // context is keyed by `document_id`.
+            ime_state_revision: _,
+            ime_state_seen: _,
+            ime_edit_outcome: _,
+            #[cfg(any(test, feature = "test-support"))]
+                ime_state_exhausted: _,
+            pending_ime_application_change: _,
+            ime_origin: _,
             others: _,
             order: _,
             untitled_count: _,
@@ -278,11 +300,15 @@ impl Session {
             redo,
             typing_open,
             join_next,
+            equation_join_next,
+            ime_text_join,
+            join_anchor,
             autocap,
             rev,
             document_id,
             untitled,
             made_rev,
+            ime_body_epoch,
             cache,
             layout,
             typing,
@@ -321,11 +347,15 @@ impl Session {
         swap(&mut self.redo, redo);
         swap(&mut self.typing_open, typing_open);
         swap(&mut self.join_next, join_next);
+        swap(&mut self.equation_join_next, equation_join_next);
+        swap(&mut self.ime_text_join, ime_text_join);
+        swap(&mut self.join_anchor, join_anchor);
         swap(&mut self.autocap, autocap);
         swap(&mut self.rev, rev);
         swap(&mut self.document_id, document_id);
         swap(&mut self.untitled, untitled);
         swap(&mut self.made_rev, made_rev);
+        swap(&mut self.ime_body_epoch, ime_body_epoch);
         swap(&mut self.cache, cache);
         swap(&mut self.layout, layout);
         swap(&mut self.typing, typing);
@@ -559,14 +589,18 @@ impl Session {
     pub fn with_document<R>(&mut self, id: u64, f: impl FnOnce(&mut Session) -> R) -> Result<R, CmdError> {
         let home = self.document_id;
         self.switch_to(id)?;
-        let queued = self.ui_requests.len();
+        // The queue drops its oldest entries when full, so `f`'s requests are told apart by
+        // collecting them on their own rather than by position.
+        let earlier = std::mem::take(&mut self.ui_requests);
         let r = f(self);
-        if id != home {
-            for q in self.ui_requests.iter_mut().skip(queued) {
-                if let Some(o) = q.as_object_mut() {
-                    o.entry("document").or_insert(json!(id));
-                }
+        let made = std::mem::replace(&mut self.ui_requests, earlier);
+        for mut q in made {
+            if id != home
+                && let Some(o) = q.as_object_mut()
+            {
+                o.entry("document").or_insert(json!(id));
             }
+            self.push_ui_request(q);
         }
         if self.document_id != home && self.is_open(home) {
             self.switch_to(home)?;
