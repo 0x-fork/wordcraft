@@ -747,11 +747,25 @@ fn scrub_private(bytes: &[u8], names: bool, dates: bool) -> Option<Vec<u8>> {
                         b"date" if dates && wml_attr => None,
                         b"dateUtc" if dates => None,
                         _ => {
-                            // `push_attribute` writes the value as given, so a value read from
-                            // single quotes (`'Say "hi"'`) must be escaped again (#3872).
-                            let plain = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok()?;
-                            let escaped = quick_xml::escape::escape(plain.as_ref());
-                            el.push_attribute(Attribute { key: a.key, value: Cow::Borrowed(escaped.as_bytes()) });
+                            // `push_attribute` writes the value as given, inside `"`. In well-formed
+                            // markup the raw value holds no `<` and every `&` starts a valid
+                            // reference, so only a `"` from a single-quoted value needs escaping;
+                            // references such as `&#10;` stay as written (#3872).
+                            let raw = a.value.as_ref();
+                            let value = if raw.contains(&b'"') {
+                                let mut v = Vec::with_capacity(raw.len() + 8);
+                                for &c in raw {
+                                    if c == b'"' {
+                                        v.extend_from_slice(b"&quot;");
+                                    } else {
+                                        v.push(c);
+                                    }
+                                }
+                                Cow::Owned(v)
+                            } else {
+                                Cow::Borrowed(raw)
+                            };
+                            el.push_attribute(Attribute { key: a.key, value });
                             continue;
                         }
                     };
