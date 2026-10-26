@@ -6867,6 +6867,70 @@ mod tests {
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
     }
 
+    /// PR #4241: Ctrl/Cmd+Shift+C copies the selection's formatting and Ctrl/Cmd+Shift+V pastes it
+    /// onto another selection, as in Word — not the text. egui 0.37 delivers those chords as keys
+    /// (only Cmd/Ctrl without extra modifiers become copy/paste events), so the registry's
+    /// `Mod+Shift+C`/`Mod+Shift+V` commands must run.
+    #[test]
+    fn ctrl_shift_c_and_v_copy_and_paste_formatting_not_text() {
+        // A native event carries ⌘ (mac_cmd and command) on macOS, Ctrl (ctrl and command)
+        // elsewhere; COMMAND+SHIFT is the logical chord both platforms resolve.
+        let native = if cfg!(target_os = "macos") {
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND | egui::Modifiers::SHIFT
+        } else {
+            egui::Modifiers::CTRL | egui::Modifiers::COMMAND | egui::Modifiers::SHIFT
+        };
+        let copied = |h: &egui_kittest::Harness<WordApp>| -> Vec<String> {
+            h.output()
+                .platform_output
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let bold = |h: &mut egui_kittest::Harness<WordApp>| -> Option<bool> {
+            h.state_mut().run("format.state", json!({})).unwrap().get("bold").and_then(Value::as_bool)
+        };
+        for modifiers in [egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, native] {
+            let mut a = app();
+            a.run("text.insert", json!({"text": "Bold plain"})).unwrap();
+            a.run("select.text", json!({"text": "Bold"})).unwrap();
+            a.run("format.bold", json!({})).unwrap();
+            a.run("select.text", json!({"text": "plain"})).unwrap();
+            a.run("edit.copy", json!({})).unwrap();
+            let clipboard_entries = a.session.clip_history.len();
+            assert_eq!(a.session.clipboard_text, "plain");
+            assert!(clipboard_entries > 0);
+            a.run("select.text", json!({"text": "Bold"})).unwrap();
+            let mut h = harness(a);
+            h.run_steps(6);
+            assert!(h.state().canvas.focused, "the canvas's key handler has the keyboard");
+            assert_eq!(bold(&mut h), Some(true), "the source selection is bold");
+            let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+            h.event(key(egui::Key::C, modifiers));
+            h.step();
+            assert!(h.state().session.painter.is_some(), "{modifiers:?}: Copy Formatting picked up the selection's formatting");
+            assert_eq!(h.state().session.clip_history.len(), clipboard_entries, "{modifiers:?}: Copy Formatting preserved clipboard history");
+            assert_eq!(h.state().session.clipboard_text, "plain", "{modifiers:?}: the existing clipboard text was preserved");
+            assert!(copied(&h).is_empty(), "{modifiers:?}: no text reached the system clipboard: {:?}", copied(&h));
+            assert_eq!(body_text(h.state()), "Bold plain", "{modifiers:?}: copying formatting left the document text alone");
+
+            h.state_mut().run("select.text", json!({"text": "plain"})).unwrap();
+            assert_eq!(bold(&mut h), Some(false), "the target selection is plain before the paste");
+            h.event(key(egui::Key::V, modifiers));
+            h.step();
+            assert_eq!(bold(&mut h), Some(true), "{modifiers:?}: Paste Formatting made the target bold");
+            assert!(h.state().session.painter.is_none(), "{modifiers:?}: the non-sticky painter is used up");
+            assert_eq!(body_text(h.state()), "Bold plain", "{modifiers:?}: pasting formatting left the document text alone");
+            assert_eq!(h.state().session.clip_history.len(), clipboard_entries, "{modifiers:?}: Paste Formatting preserved clipboard history");
+            assert_eq!(h.state().session.clipboard_text, "plain", "{modifiers:?}: Paste Formatting preserved the clipboard text");
+            assert!(copied(&h).is_empty(), "{modifiers:?}: pasting formatting put no text on the system clipboard: {:?}", copied(&h));
+        }
+    }
+
     /// #1669: with Shift held, Backspace still erases (#707) and Delete cuts the selection, doing
     /// nothing without one, as in Word for Windows. (Windows sends Shift+Delete as a Cut; macOS and
     /// Linux send the key, which reached no command.)
