@@ -6,7 +6,7 @@ use serde_json::Value;
 use wordcraft_doc::edit::Fragment;
 use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Document, PartKind, Path, Pos, StoryRef};
-use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
+use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, ViewMode};
 
 use crate::{CmdError, ImeEditOutcome, Registry};
 
@@ -23,11 +23,11 @@ mod lifecycle;
 mod query;
 mod run;
 mod snapshot;
-mod snapshot_types;
 
 use crate::doc_state;
 use crate::locale;
 use crate::prefs;
+use crate::snapshot as snapshot_types;
 use crate::view;
 pub(crate) use doc_state::Widened;
 pub use doc_state::{CellRange, ColumnBlock, FindState, MathEdit, Selection, UNDO_LIST_MAX, next_math_session};
