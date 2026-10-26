@@ -4801,6 +4801,7 @@ mod tests {
         let _ = app.run("mailings.recipients", json!({"csv": "Name\nAda\nAlan\nGrace"}));
         let _ = app.run("text.insert", json!({"text": "unsaved"}));
         assert!(app.session.dirty);
+        let source = app.session.document_id();
         app.dialog = Dialog::open("mergeRecords", &mut app);
         if let Some(Dialog::MergeRecords { choice, from, to, .. }) = &mut app.dialog {
             *choice = 2;
@@ -4836,8 +4837,9 @@ mod tests {
         for _ in 0..2 {
             h.step();
         }
-        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
-        assert!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("unsaved"), "nothing merged yet");
+        // The merged document opens beside the unsaved source, so nothing asks to save it.
+        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), None);
+        assert_ne!(h.state().session.document_id(), source, "the merge result is a new document");
     }
 
     #[test]
