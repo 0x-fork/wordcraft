@@ -1,6 +1,6 @@
 //! STYLEREF fields in headers and footers (#775): each page shows its own result.
 
-use super::*;
+use crate::*;
 use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{CharProps, NumRef};
 use wordcraft_doc::{ListKind, PartKind, Pos, para_block};

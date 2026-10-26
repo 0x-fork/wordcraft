@@ -2,7 +2,7 @@
 //! numbers and punctuation, caret and selection geometry.
 
 #[allow(unused_imports)]
-use super::*;
+use crate::*;
 use crate::para::{bidi_levels, visual_order};
 use wordcraft_doc::props::{Align, ParaProps};
 use wordcraft_doc::{Pos, StoryRef};

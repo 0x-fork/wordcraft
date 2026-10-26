@@ -394,7 +394,7 @@ fn hostile_trees_never_panic() {
 /// glyphs from the first.
 #[test]
 fn a_long_text_run_lays_out_in_linear_time() {
-    use crate::tests_linear::assert_linear_steps;
+    use crate::tests::linear::assert_linear_steps;
     use wordcraft_doc::math::*;
     let eq = |n: usize| Math { nodes: vec![MNode::Run(MRun { nor: true, ..MRun::new("a".repeat(n)) })], ..Default::default() };
     let lay = |m: &Math| drop(std::hint::black_box(lay_in(m, "", false, 1e6, &MathProps::default())));

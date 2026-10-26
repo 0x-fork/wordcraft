@@ -1,7 +1,7 @@
 //! Page geometry: mirrored margins, headers and footers taller than their margin (also when
 //! linked to the previous section), endnotes continuing over pages, and the caret in a footnote
 //! continued on the next page.
-use super::*;
+use crate::*;
 use wordcraft_doc::para::{InlineObject, NoteKind};
 use wordcraft_doc::{PartKind, Pos, para_block};
 
@@ -58,7 +58,7 @@ fn inside_and_outside_floats_swap_sides_on_even_pages() {
     // #1181: shapes Word places in the outside margin of a book (mirrored margins) all came out
     // in the right margin. Inside 108 plus a 10pt gutter, outside 36; the paragraph on page 2
     // carries the same six shapes as page 1's, told apart by their widths.
-    use super::tests::{rect_shape, shapes};
+    use super::{rect_shape, shapes};
     use wordcraft_doc::para::{Anchor, Float, FloatAlign, Wrap};
     let mut d = Document::from_text("Odd page\nEven page");
     d.last_section.margin_left = 108.0;

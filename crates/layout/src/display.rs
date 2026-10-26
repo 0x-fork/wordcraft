@@ -2231,7 +2231,7 @@ mod tests_clips {
     #[test]
     fn looking_up_many_clipped_cells_takes_linear_time() {
         let make = |n: usize| (0..n).map(|r| cell(StoryRef::Body, vec![0], r, 0, true, r as f32)).collect::<Vec<_>>();
-        crate::tests_linear::assert_linear_steps("clip lookups", 1000, make, |cells| {
+        crate::tests::linear::assert_linear_steps("clip lookups", 1000, make, |cells| {
             let clips = clipped_cells(cells);
             let hits = (0..cells.len() as u32).filter(|r| cell_clip(&clips, StoryRef::Body, &[0, *r, 0, 0]).is_some()).count();
             assert_eq!(hits, cells.len());

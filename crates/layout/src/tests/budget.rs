@@ -1,7 +1,7 @@
 //! Hostile documents whose layout work or memory would otherwise grow far past their size: each
 //! is bounded by a cap, and real documents stay well under it.
 
-use super::*;
+use crate::*;
 use wordcraft_doc::props::HeightRule;
 use wordcraft_doc::table::{MAX_COLS, Table};
 use wordcraft_doc::{Block, PartKind, Pos, TextBody, para_block};

@@ -1,7 +1,7 @@
 //! Numeral display modes (Word › File › Options › Advanced › Numeral): Western digits,
 //! Hindi digits, or context-following digits — display only, the text is untouched.
 
-use super::*;
+use crate::*;
 use wordcraft_doc::props::ParaProps;
 use wordcraft_doc::{Pos, StoryRef};
 

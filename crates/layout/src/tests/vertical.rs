@@ -1,7 +1,7 @@
 //! Vertical sections (`w:textDirection` in `w:sectPr`): lines run down the page and stack from
 //! the right (`tbRl`), or run up and stack from the left (`btLr`).
 
-use super::*;
+use crate::*;
 use wordcraft_doc::Pos;
 
 fn lay(doc: &Document) -> DocLayout {

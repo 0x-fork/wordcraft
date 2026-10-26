@@ -2,7 +2,7 @@
 //! breaking tests don't depend on installed fonts (a missing font draws .notdef boxes, but the
 //! clusters and breaks are the same); shaping tests use a system font when one is installed.
 
-use super::*;
+use crate::*;
 use wordcraft_doc::{Pos, StoryRef};
 
 fn lay(doc: &Document) -> DocLayout {

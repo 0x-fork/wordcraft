@@ -2,7 +2,7 @@
 //! to the pitch, never font metrics (fonts differ between machines; CJK glyphs may be missing).
 
 #[allow(unused_imports)]
-use super::*;
+use crate::*;
 use wordcraft_doc::props::LineSpacing;
 use wordcraft_doc::section::{DocGrid, DocGridType};
 

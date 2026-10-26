@@ -5,8 +5,8 @@
 //! machine can't make a linear lookup look quadratic or the other way round. Only proofing text,
 //! whose walk is the document model's, is timed.
 
-use super::tests::{SCALE, cost_ratio};
-use super::{
+use super::{SCALE, cost_ratio};
+use crate::{
     Block, CharProps, DocLayout, Document, HeaderSet, HeightRule, InlineObject, LayoutCache, LayoutOptions, Page, ParaLayout, Paragraph, Path,
     Placed, SectionProps, SectionStart, StoryRef, display, layout, para, work,
 };

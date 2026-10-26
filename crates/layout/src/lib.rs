@@ -4986,31 +4986,3 @@ pub fn now_ms() -> f64 {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_autospace;
-#[cfg(test)]
-mod tests_bidi;
-#[cfg(test)]
-mod tests_budget;
-#[cfg(test)]
-mod tests_complex;
-#[cfg(test)]
-mod tests_grid;
-#[cfg(test)]
-mod tests_ligature;
-#[cfg(test)]
-mod tests_linear;
-#[cfg(test)]
-mod tests_nbsp;
-#[cfg(test)]
-mod tests_numeral;
-#[cfg(test)]
-mod tests_pages;
-#[cfg(test)]
-mod tests_styleref;
-#[cfg(test)]
-mod tests_table_contact;
-#[cfg(test)]
-mod tests_textbox;
-#[cfg(test)]
-mod tests_vertical;

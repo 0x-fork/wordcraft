@@ -1,7 +1,7 @@
 //! Text boxes' text direction, alignment and linked boxes (Shape Format › Text).
 
 #[allow(unused_imports)]
-use super::*;
+use crate::*;
 use wordcraft_doc::props::{TextVert, VAlign};
 use wordcraft_doc::{PartKind, Pos, TextBody, para_block};
 
@@ -190,12 +190,12 @@ fn inline_box_that_resizes_to_fit_takes_its_texts_height() {
     let brk = wordcraft_doc::para::PAGE_BREAK;
     let doc = |auto_fit: bool| {
         let filler: Vec<String> = (1..=FILLER).map(|i| format!("Filler line {i}")).collect();
-        let mut d = super::tests::pagination_fixture_document(&format!("{}\n\n\n{brk}\nSecond page text.", filler.join("\n")));
+        let mut d = super::pagination_fixture_document(&format!("{}\n\n\n{brk}\nSecond page text.", filler.join("\n")));
         // Exact spacing is only for the filler/short text. The object paragraph must retain
         // automatic spacing so its inline box really contributes its physical height.
         d.para_mut(StoryRef::Body, &Path::top(FILLER)).unwrap().props.line_spacing = Some(wordcraft_doc::props::LineSpacing::Multiple(1.15));
         let probe = lay(&d);
-        super::tests::assert_pagination_fixture_font(&probe);
+        super::assert_pagination_fixture_font(&probe);
         let body_para = |layout: &DocLayout, index: usize| {
             layout
                 .pages
@@ -230,7 +230,7 @@ fn inline_box_that_resizes_to_fit_takes_its_texts_height() {
             })
             .collect();
         let l = lay(&d);
-        super::tests::assert_pagination_fixture_font(&l);
+        super::assert_pagination_fixture_font(&l);
         let (object_page, r) = l
             .pages
             .iter()
@@ -270,25 +270,25 @@ fn inline_box_that_resizes_to_fit_takes_its_texts_height() {
     assert!(
         r.h > 3.0 * 12.0 && r.h < 80.0,
         "the box fits its three lines: {r:?}{}",
-        super::tests::pagination_fixture_diagnostics("inline_autofit/height", Some(&d), &l)
+        super::pagination_fixture_diagnostics("inline_autofit/height", Some(&d), &l)
     );
     assert_eq!(
         pages,
         2,
         "the page break stays on the first page; filler={FILLER} box={r:?}{}",
-        super::tests::pagination_fixture_diagnostics("inline_autofit/pages", Some(&d), &l)
+        super::pagination_fixture_diagnostics("inline_autofit/pages", Some(&d), &l)
     );
     let (pages, saved, d, l) = doc(false);
     assert_eq!(
         pages,
         3,
         "a box keeping its 10 cm pushes the page break over; filler={FILLER} box={saved:?}{}",
-        super::tests::pagination_fixture_diagnostics("inline_fixed/pages", Some(&d), &l)
+        super::pagination_fixture_diagnostics("inline_fixed/pages", Some(&d), &l)
     );
     assert!(
         (saved.h - 283.46).abs() < 1.0,
         "without auto-fit the box keeps its saved height: {saved:?}{}",
-        super::tests::pagination_fixture_diagnostics("inline_fixed/height", Some(&d), &l)
+        super::pagination_fixture_diagnostics("inline_fixed/height", Some(&d), &l)
     );
 }
 

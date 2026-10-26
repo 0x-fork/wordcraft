@@ -2,7 +2,7 @@
 //! gives each letter an even share of its advance, so the caret, clicks and selection edges can
 //! land between the letters. A single grapheme cluster (letter plus combining mark) stays atomic.
 
-use super::*;
+use crate::*;
 use wordcraft_doc::{Pos, StoryRef};
 
 fn lay(doc: &Document) -> DocLayout {
