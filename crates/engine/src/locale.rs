@@ -1,4 +1,4 @@
-use super::*;
+use std::sync::OnceLock;
 
 /// The system locale (BCP 47 tag) the shell found at startup, for Numeral › System.
 pub(super) static SYSTEM_LOCALE: OnceLock<String> = OnceLock::new();

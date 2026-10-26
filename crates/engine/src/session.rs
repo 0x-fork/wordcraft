@@ -1,6 +1,6 @@
 //! The editing session: document, selection, undo/redo, layout, view state.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,7 +23,6 @@ mod ime;
 mod ime_state;
 mod layout;
 mod lifecycle;
-mod locale;
 mod prefs;
 mod query;
 mod run;
@@ -31,6 +30,7 @@ mod snapshot;
 mod snapshot_types;
 mod view;
 
+use crate::locale;
 pub(crate) use doc_state::Widened;
 pub use doc_state::{CellRange, ColumnBlock, FindState, MathEdit, Selection, UNDO_LIST_MAX, next_math_session};
 use doc_state::{TypedWord, Undo, doc_bib_style};

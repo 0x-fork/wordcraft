@@ -12,6 +12,7 @@ pub mod file_access;
 pub mod io;
 mod io_ext;
 pub mod keymap;
+pub(crate) mod locale;
 pub mod math_gallery;
 pub mod print;
 pub mod recovery;
