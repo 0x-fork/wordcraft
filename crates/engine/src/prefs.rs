@@ -1,4 +1,4 @@
-use super::*;
+use serde::{Deserialize, Serialize};
 
 /// Editing preferences that persist between runs (the front end saves and restores them).
 /// File › Options sets most of them (`file.options`).

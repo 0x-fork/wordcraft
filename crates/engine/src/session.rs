@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wordcraft_doc::edit::Fragment;
 use wordcraft_doc::props::CharProps;
@@ -21,7 +20,6 @@ mod ime;
 mod ime_state;
 mod layout;
 mod lifecycle;
-mod prefs;
 mod query;
 mod run;
 mod snapshot;
@@ -29,6 +27,7 @@ mod snapshot_types;
 
 use crate::doc_state;
 use crate::locale;
+use crate::prefs;
 use crate::view;
 pub(crate) use doc_state::Widened;
 pub use doc_state::{CellRange, ColumnBlock, FindState, MathEdit, Selection, UNDO_LIST_MAX, next_math_session};
