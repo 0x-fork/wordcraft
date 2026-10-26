@@ -1,4 +1,6 @@
-use super::*;
+use serde::{Deserialize, Serialize};
+use wordcraft_doc::props::CharProps;
+use wordcraft_doc::{Document, Path, Pos, StoryRef, Table};
 
 /// A selection: anchor (where it started) and focus (where the caret is).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
