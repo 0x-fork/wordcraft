@@ -304,6 +304,10 @@ pub struct UiState {
     /// Where each of the other task panes sits, by [`panes::Pane::key`] (#1756).
     #[serde(deserialize_with = "panes::lenient_places")]
     pub pane_places: std::collections::BTreeMap<String, panes::SavedPane>,
+    /// The task panes in the order the user put them, by [`panes::Pane::key`]: each edge shows its
+    /// panes in this order, the first outermost. Empty: the default order.
+    #[serde(deserialize_with = "panes::lenient_order", skip_serializing_if = "Vec::is_empty")]
+    pub pane_order: Vec<String>,
     /// Headings whose sub-headings the Navigation pane hides (#1997); per session, not saved.
     #[serde(skip)]
     pub nav_collapsed: std::collections::HashSet<wordcraft_doc::Path>,
@@ -425,6 +429,7 @@ impl Default for UiState {
             styles_pane_float: None,
             styles_pane_width: None,
             pane_places: Default::default(),
+            pane_order: Vec::new(),
             nav_collapsed: Default::default(),
             show_discord: true,
             author: String::new(),

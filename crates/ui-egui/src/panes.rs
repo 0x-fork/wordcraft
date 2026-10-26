@@ -17,7 +17,7 @@ use wordcraft_engine::StylesPaneDock;
 use crate::WordApp;
 use crate::theme::{Tokens, regular, semibold};
 
-/// The task panes, in the order they open: each edge's first pane is outermost.
+/// The task panes, in their default order: each edge's first pane is outermost.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Pane {
     /// SmartArt Design › Text Pane, while a SmartArt graphic WordCraft can edit is selected.
@@ -94,6 +94,10 @@ impl Pane {
         Self::Comments,
     ];
 
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|pane| pane.key() == key)
+    }
+
     /// The command that closes the pane; Restrict Editing has none and closes in [`close`].
     fn close_command(self) -> Option<&'static str> {
         match self {
@@ -111,11 +115,45 @@ impl Pane {
     }
 }
 
-/// The panes open now, from the session's view flags.
+/// Every pane in the order the user left them (`paneOrder` in `ui.json`), then the panes that
+/// list lacks in their default order. Each edge shows its panes in this order, the first outermost.
+fn order(app: &WordApp) -> Vec<Pane> {
+    let mut order: Vec<Pane> = app.ui.pane_order.iter().filter_map(|key| Pane::from_key(key)).collect();
+    for pane in Pane::ALL {
+        if !order.contains(&pane) {
+            order.push(pane);
+        }
+    }
+    order
+}
+
+/// Put `pane` directly before `before` in the order, outside it on their edge (`None`: after
+/// every pane).
+fn move_before(app: &mut WordApp, pane: Pane, before: Option<Pane>) {
+    let mut order = order(app);
+    order.retain(|p| *p != pane);
+    let at = before.and_then(|b| order.iter().position(|p| *p == b)).unwrap_or(order.len());
+    order.insert(at, pane);
+    app.ui.pane_order = order.iter().map(|p| p.key().to_string()).collect();
+}
+
+/// `paneOrder` as saved: unknown and repeated keys are dropped, not the whole file.
+pub(crate) fn lenient_order<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    let v = <Value as serde::Deserialize>::deserialize(d)?;
+    let mut keys: Vec<String> = Vec::new();
+    for key in v.as_array().map(Vec::as_slice).unwrap_or_default().iter().take(Pane::ALL.len() * 4).filter_map(Value::as_str) {
+        if Pane::from_key(key).is_some() && !keys.iter().any(|k| k == key) {
+            keys.push(key.to_string());
+        }
+    }
+    Ok(keys)
+}
+
+/// The panes open now, from the session's view flags, in the user's order.
 pub fn open(app: &WordApp) -> Vec<Pane> {
     let v = &app.session.view;
     let smart_art = v.smart_art_pane && wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).is_some();
-    [
+    let mut open = [
         (Pane::SmartArtText, smart_art),
         (Pane::Navigation, v.nav_pane),
         (Pane::Clipboard, v.clipboard_pane),
@@ -129,7 +167,10 @@ pub fn open(app: &WordApp) -> Vec<Pane> {
     ]
     .into_iter()
     .filter_map(|(pane, shown)| shown.then_some(pane))
-    .collect()
+    .collect::<Vec<_>>();
+    let order = order(app);
+    open.sort_by_key(|pane| order.iter().position(|p| p == pane).unwrap_or(usize::MAX));
+    open
 }
 
 /// Where a task pane other than Styles sits, kept in `ui.json` (#1756). Styles keeps its place in
@@ -345,16 +386,21 @@ pub(crate) fn apply(app: &mut WordApp, request: PaneRequest<Pane>) {
         }
         PaneRequest::Resize(pane, width) => app.ui.pane_places.entry(pane.key().into()).or_default().width = Some(width),
         PaneRequest::FloatRect(pane, rect) => app.ui.pane_places.entry(pane.key().into()).or_default().float = Some(rect),
+        PaneRequest::Before(pane, before) => {
+            let _ = app.run("ui.paneDock", json!({"pane": pane.key(), "before": before.map(Pane::key)}));
+        }
         PaneRequest::Focus(_) => {}
     }
 }
 
-/// `ui.paneDock {"pane": key, "dock"?: "left" | "right" | "float"}` (#1756): docks or floats a
-/// task pane, as its menu's Dock Left, Dock Right and Float do; without `dock` it reads the
-/// pane's place. `pane` is the pane's `panePlaces` key; Styles goes through `view.stylesPaneDock`.
+/// `ui.paneDock {"pane": key, "dock"?: "left" | "right" | "float", "before"?: key | null}` (#1756):
+/// docks or floats a task pane, as its menu's Dock Left, Dock Right and Float do; without `dock`
+/// it reads the pane's place. `pane` is the pane's `panePlaces` key; Styles goes through
+/// `view.stylesPaneDock`. `before` puts the pane directly before that pane in the order, outside
+/// it on their edge, as a drop over a docked pane does; `null` puts it after every pane.
 pub(crate) fn dock_command(app: &mut WordApp, p: &Value) -> Result<Value, String> {
     let key = p.get("pane").and_then(Value::as_str).ok_or("`pane` must be a task pane's key, such as \"navigation\"")?;
-    let pane = Pane::ALL.into_iter().find(|pane| pane.key() == key).ok_or_else(|| format!("unknown task pane `{key}`"))?;
+    let pane = Pane::from_key(key).ok_or_else(|| format!("unknown task pane `{key}`"))?;
     let dock = match p.get("dock") {
         None => None,
         Some(v) => Some(match v.as_str() {
@@ -364,6 +410,17 @@ pub(crate) fn dock_command(app: &mut WordApp, p: &Value) -> Result<Value, String
             _ => return Err("`dock` must be left, right or float".into()),
         }),
     };
+    let before = match p.get("before") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(v) => match v.as_str().and_then(Pane::from_key) {
+            Some(before) if before != pane => Some(Some(before)),
+            _ => return Err("`before` must be another task pane's key or null".into()),
+        },
+    };
+    if let Some(before) = before {
+        move_before(app, pane, before);
+    }
     if pane == Pane::Styles {
         let params = p.get("dock").map_or_else(|| json!({}), |d| json!({"dock": d}));
         let result = app.run("view.stylesPaneDock", params)?;
@@ -1334,6 +1391,62 @@ mod tests {
         assert!(h.state().session.view.full_screen);
         let docked = craft_ui::panes::Place::Docked(craft_ui::panes::Edge::Start);
         assert_eq!(super::pane_state(h.state(), Pane::Navigation).place, docked, "the drag was cancelled");
+    }
+
+    /// With Navigation docked left, Comments dropped over Navigation's outer third docks left of
+    /// it, where the preview showed, and the order survives a restart; over Navigation's inner
+    /// third it goes back inside.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn comments_dropped_over_navigations_outer_third_docks_left_of_it() {
+        use egui_kittest::kittest::Queryable;
+
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("")), crate::Services::default());
+        app.run("view.navigationPane", serde_json::json!({"value": true})).unwrap();
+        app.run("view.commentsPane", serde_json::json!({"value": true})).unwrap();
+        let mut h = pane_harness(app);
+        // A docked pane's title bar starts at its panel's left edge.
+        let panel = |h: &egui_kittest::Harness<'static, crate::WordApp>, pane: Pane| h.get_by_label(&format!("Move Pane: {}", pane.title())).rect();
+        let button =
+            |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let drag = |h: &mut egui_kittest::Harness<'static, crate::WordApp>, to: egui::Pos2| {
+            let from = h.get_by_label("Move Pane: Comments").rect().center();
+            h.input_mut().events.extend([egui::Event::PointerMoved(from), button(from, true)]);
+            h.run_steps(1);
+            h.input_mut().events.push(egui::Event::PointerMoved(from + egui::vec2(-8.0, 6.0)));
+            h.run_steps(1);
+            h.input_mut().events.push(egui::Event::PointerMoved(to));
+            h.run_steps(1);
+            h.input_mut().events.push(button(to, false));
+            h.run_steps(3);
+        };
+        let nav = panel(&h, Pane::Navigation);
+        drag(&mut h, egui::pos2(nav.left() + 60.0, nav.center().y));
+        let (comments, nav_after) = (panel(&h, Pane::Comments), panel(&h, Pane::Navigation));
+        assert_eq!(comments.left(), nav.left(), "Comments is outermost");
+        assert!(nav_after.left() > comments.right(), "Navigation sits inside it");
+        assert_eq!(super::open(h.state()), vec![Pane::Comments, Pane::Navigation]);
+
+        let saved = serde_json::to_vec(&h.state().prefs()).unwrap();
+        let mut next = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        next.apply_prefs(serde_json::from_slice(&saved).unwrap());
+        next.session.view.comments_pane = true;
+        assert_eq!(super::open(&next), vec![Pane::Comments, Pane::Navigation], "the order is kept");
+
+        let nav = panel(&h, Pane::Navigation);
+        let width = Pane::Navigation.default_state().size.unwrap();
+        drag(&mut h, egui::pos2(nav.left() + width * 0.85, nav.center().y));
+        assert_eq!(super::open(h.state()), vec![Pane::Navigation, Pane::Comments]);
+        assert!(panel(&h, Pane::Comments).left() > panel(&h, Pane::Navigation).right(), "back inside Navigation");
+
+        let mut junk = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        junk.apply_prefs(serde_json::from_str(r#"{"paneOrder": ["comments", 3, "nope", "comments", "navigation"], "navPane": true}"#).unwrap());
+        assert_eq!(junk.ui.pane_order, vec!["comments", "navigation"], "unknown and repeated keys are dropped");
+        for bad in [serde_json::json!({"pane": "comments", "before": "comments"}), serde_json::json!({"pane": "comments", "before": 7})] {
+            assert!(junk.run("ui.paneDock", bad.clone()).is_err(), "{bad}");
+        }
+        junk.run("ui.paneDock", serde_json::json!({"pane": "navigation", "before": null})).unwrap();
+        assert_eq!(junk.ui.pane_order.last().map(String::as_str), Some("navigation"));
     }
 
     /// An F6 the user bound runs its command; plain F6 still moves to the panes when only
