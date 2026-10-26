@@ -456,20 +456,29 @@ impl SurfaceGeometry {
     /// Derives this frame's capturable surface from raw viewport data, rejecting a missing, non-finite
     /// or zero-sized visible surface and recording minimized or occluded state.
     pub(crate) fn from_raw(raw: &egui::RawInput, ctx: &egui::Context) -> Option<Self> {
-        let viewport = raw.viewports.get(&raw.viewport_id)?;
+        Self::from_viewport(raw.viewports.get(&raw.viewport_id)?, raw.screen_rect, raw.max_texture_side, ctx)
+    }
+
+    /// [`Self::from_raw`] for one viewport's info, content rectangle and texture limit.
+    pub(crate) fn from_viewport(
+        viewport: &egui::ViewportInfo,
+        screen_rect: Option<egui::Rect>,
+        max_texture_side: Option<usize>,
+        ctx: &egui::Context,
+    ) -> Option<Self> {
         let minimized = viewport.minimized == Some(true);
         let occluded = viewport.occluded == Some(true);
         // A minimized/occluded surface may report no rectangle at all. Its stale size is harmless
         // because such a surface is never capturable; a visible surface without a rectangle is not
         // fresh enough to use.
-        let rect = match viewport.inner_rect.or(raw.screen_rect) {
+        let rect = match viewport.inner_rect.or(screen_rect) {
             Some(rect) => rect,
             None if minimized || occluded => ctx.content_rect(),
             None => return None,
         };
         let zoom = ctx.zoom_factor();
         let pixels_per_point = viewport.native_pixels_per_point.map_or_else(|| ctx.pixels_per_point(), |native| native * zoom);
-        let max_texture_side = raw.max_texture_side.filter(|side| *side > 0).unwrap_or_else(|| ctx.input(|i| i.max_texture_side));
+        let max_texture_side = max_texture_side.filter(|side| *side > 0).unwrap_or_else(|| ctx.input(|i| i.max_texture_side));
         if !rect.width().is_finite() || !rect.height().is_finite() || rect.width() <= 0.0 || rect.height() <= 0.0 {
             return None;
         }
@@ -479,9 +488,10 @@ impl SurfaceGeometry {
         Some(Self { viewport: rect.size(), pixels_per_point, max_texture_side, minimized, occluded })
     }
 
-    /// Pairs the surface geometry with the document id a capture belongs to.
-    pub(crate) fn with_document(self, document: u64) -> CaptureGeometry {
-        CaptureGeometry { surface: self, document }
+    /// Pairs the surface geometry with the window's viewport and the document id a capture
+    /// belongs to.
+    pub(crate) fn with_target(self, viewport: egui::ViewportId, document: u64) -> CaptureGeometry {
+        CaptureGeometry { surface: self, viewport, document }
     }
 }
 
@@ -491,6 +501,8 @@ impl SurfaceGeometry {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CaptureGeometry {
     surface: SurfaceGeometry,
+    /// The active window's viewport, which the capture command goes to.
+    viewport: egui::ViewportId,
     document: u64,
 }
 
@@ -498,6 +510,18 @@ impl CaptureGeometry {
     /// Returns the document id the capture was admitted for.
     pub(crate) fn document(self) -> u64 {
         self.document
+    }
+
+    /// Why a capture admitted for `viewport` and `document` can't go on against this geometry:
+    /// another window was brought forward, or the window shows another document.
+    fn moved_reason(self, viewport: egui::ViewportId, document: u64) -> Option<&'static str> {
+        if self.viewport != viewport {
+            Some("screenshot failed: another window was brought forward while the capture was queued")
+        } else if self.document != document {
+            Some("screenshot failed: the document changed while the capture was queued")
+        } else {
+            None
+        }
     }
 
     /// Explains why the surface cannot be captured, when it is minimized or fully occluded, and
@@ -569,6 +593,9 @@ pub(crate) struct Shot {
     pub(crate) retries: u32,
     /// The document the request was admitted for. It never changes; a document switch cancels.
     pub(crate) document: u64,
+    /// The viewport of the window the request was admitted for. It never changes; bringing
+    /// another window forward cancels.
+    pub(crate) viewport: egui::ViewportId,
     pub(crate) geometry: CaptureGeometry,
     pub(crate) epoch: u64,
     pub(crate) expected: [usize; 2],
@@ -623,6 +650,8 @@ fn next_token(app: &mut WordApp) -> u64 {
 /// earlier request.
 pub(crate) fn admit_screenshot(app: &mut WordApp, ctx: &egui::Context, path: Option<String>, reply: Sender<Value>) {
     let token = next_token(app);
+    // An earlier request in this batch may have brought another window forward.
+    app.refresh_capture_geometry(ctx);
     let Some(geometry) = app.capture_geometry.map(|g| CaptureGeometry { document: app.session.document_id(), ..g }) else {
         reject_shot(reply, token, "screenshot failed: the window geometry is not known yet");
         return;
@@ -684,6 +713,7 @@ pub(crate) fn admit_screenshot(app: &mut WordApp, ctx: &egui::Context, path: Opt
         issued: false,
         retries: 0,
         document: geometry.document(),
+        viewport: geometry.viewport,
         geometry,
         epoch: app.capture_epoch,
         expected,
@@ -708,7 +738,8 @@ pub(crate) fn issue_screenshots(app: &mut WordApp, ctx: &egui::Context) {
             let shot = &app.shots.requests[i];
             (shot.issued, shot.ready_at, shot.frames)
         };
-        if issued {
+        // Each window issues its own captures, from a pass that drew its layout.
+        if issued || app.shots.requests[i].viewport != ctx.viewport_id() {
             continue;
         }
         let frames = if first_pass { frames.saturating_add(1) } else { frames };
@@ -724,8 +755,8 @@ pub(crate) fn issue_screenshots(app: &mut WordApp, ctx: &egui::Context) {
             failures.push((i, format!("screenshot failed: {reason} while the capture was queued")));
             continue;
         }
-        if current.document() != app.shots.requests[i].document {
-            failures.push((i, "screenshot failed: the document changed while the capture was queued".into()));
+        if let Some(reason) = current.moved_reason(app.shots.requests[i].viewport, app.shots.requests[i].document) {
+            failures.push((i, reason.into()));
             continue;
         }
         let Some(expected) = current.expected_size() else {
@@ -762,7 +793,7 @@ pub(crate) fn issue_screenshots(app: &mut WordApp, ctx: &egui::Context) {
         shot.bytes = bytes;
         shot.epoch = epoch;
         if let Some(callback) = shot.callback.take() {
-            ctx.send_viewport_cmd_to(shot.viewport(), egui::ViewportCommand::Screenshot(callback));
+            ctx.send_viewport_cmd_to(shot.viewport, egui::ViewportCommand::Screenshot(callback));
             shot.issued = true;
         }
     }
@@ -775,13 +806,6 @@ pub(crate) fn issue_screenshots(app: &mut WordApp, ctx: &egui::Context) {
     }
     if app.shots.in_flight() {
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
-    }
-}
-
-impl Shot {
-    /// The screenshot callback's viewport: the root window.
-    fn viewport(&self) -> egui::ViewportId {
-        egui::ViewportId::ROOT
     }
 }
 
@@ -850,6 +874,13 @@ fn take_screenshot_action(app: &mut WordApp, index: usize, now: f64, current: Op
             }
             return ShotAction::Remove(error_reply(shot.token, "no frame was presented before the screenshot timeout"));
         }
+        // Before the issue check: a window that closed never draws to issue its capture.
+        if let Some(reason) = current.and_then(|geometry| geometry.moved_reason(shot.viewport, shot.document)) {
+            if let Some(slot) = shot.slot.take() {
+                slot.cancel();
+            }
+            return ShotAction::Remove(error_reply(shot.token, reason));
+        }
         if !shot.issued {
             return ShotAction::Keep;
         }
@@ -858,12 +889,6 @@ fn take_screenshot_action(app: &mut WordApp, index: usize, now: f64, current: Op
                 slot.cancel();
             }
             return ShotAction::Remove(error_reply(shot.token, format!("screenshot failed: {reason} while the capture was pending")));
-        }
-        if current.is_some_and(|geometry| geometry.document() != shot.document) {
-            if let Some(slot) = shot.slot.take() {
-                slot.cancel();
-            }
-            return ShotAction::Remove(error_reply(shot.token, "screenshot failed: the document changed while the capture was queued"));
         }
         shot.slot.as_ref().and_then(|slot| slot.take())
     };
@@ -1080,7 +1105,7 @@ mod tests {
 
     /// Builds a capture geometry fixture for document id 7.
     fn geometry(viewport: egui::Vec2, pixels_per_point: f32, max_texture_side: usize) -> CaptureGeometry {
-        CaptureGeometry { surface: surface(viewport, pixels_per_point, max_texture_side), document: 7 }
+        CaptureGeometry { surface: surface(viewport, pixels_per_point, max_texture_side), viewport: egui::ViewportId::ROOT, document: 7 }
     }
 
     /// Creates a black test image of the given size.
