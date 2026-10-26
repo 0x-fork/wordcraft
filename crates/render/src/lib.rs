@@ -2674,6 +2674,7 @@ mod tests {
             stroke: Some(Rgb(0, 0, 0)),
             stroke_width: 2.0,
             dash,
+            cap: Default::default(),
         };
         let start = std::time::Instant::now();
         for dash in [vec![1e-30, 1e-30], vec![1e-30], vec![-1.0, 2.0], vec![f32::NAN, 1.0], vec![f32::INFINITY, 1.0], vec![0.0, 0.0]] {
