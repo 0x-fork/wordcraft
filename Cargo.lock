@@ -6671,6 +6671,7 @@ name = "wordcraft-doc"
 version = "0.11.0"
 dependencies = [
  "base64 0.23.1",
+ "log",
  "proptest",
  "serde",
  "serde_json",
@@ -6755,6 +6756,7 @@ dependencies = [
 name = "wordcraft-fonts"
 version = "0.11.0"
 dependencies = [
+ "brotli-decompressor",
  "harfrust 0.13.3",
  "kurbo",
  "log",
