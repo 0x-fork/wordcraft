@@ -4383,5 +4383,6 @@ pub mod dialogs_refs;
 pub mod dialogs_review;
 pub mod dialogs_ribbon;
 pub mod dialogs_smart_art;
+pub mod dialogs_table_style;
 #[cfg(test)]
 mod tests;
