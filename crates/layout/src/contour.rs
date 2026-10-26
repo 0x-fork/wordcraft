@@ -246,10 +246,8 @@ fn decode_alpha(bytes: &[u8], decoded: &mut u64) -> Result<Option<Alpha>, OverBu
         return Ok(None);
     }
     // Only the header is read here (a PNG's `tRNS` counts as transparency).
-    let has_alpha = image::ImageReader::with_format(std::io::Cursor::new(bytes), pic.format)
-        .into_decoder()
-        .ok()
-        .is_some_and(|d| d.color_type().has_alpha());
+    let has_alpha =
+        image::ImageReader::with_format(std::io::Cursor::new(bytes), pic.format).into_decoder().ok().is_some_and(|d| d.color_type().has_alpha());
     if !has_alpha {
         return Ok(None);
     }
