@@ -4382,5 +4382,6 @@ pub mod dialogs_para;
 pub mod dialogs_refs;
 pub mod dialogs_review;
 pub mod dialogs_ribbon;
+pub mod dialogs_smart_art;
 #[cfg(test)]
 mod tests;
