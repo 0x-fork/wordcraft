@@ -7,7 +7,7 @@
 //!   port while Zotero wasn't running is refused. A listener the tables don't show (WSL2
 //!   mirrored networking with Zotero on Windows, a local proxy) leaves only the loopback rule,
 //!   but only when the tables were read in full: a read error, or an open error other than
-//!   "not found" (a sandbox that denies `/proc/net/tcp`: AppArmor, Snap, Flatpak), refuses.
+//!   "not found" (e.g. a sandbox profile that denies `/proc/net/tcp`), refuses.
 //!
 //! On Windows, macOS and the BSDs there is **no same-user check**: the loopback rule is the
 //! only one, so any local account's listener on the port is taken for Zotero. Those systems have
@@ -54,6 +54,7 @@ fn owner_check(_local: SocketAddr, _peer: SocketAddr) -> Result<(), ZoteroError>
 
 /// Scan the tables named by `paths` (opened by `open`) in order, stopping once both rows are
 /// found. A table that doesn't exist (no IPv6) is skipped; any other open or read error refuses.
+#[cfg_attr(not(any(target_os = "linux", target_os = "android")), allow(dead_code))]
 fn scan_tables<R: std::io::Read>(
     paths: [&str; 2],
     open: impl Fn(&str) -> std::io::Result<R>,
@@ -153,7 +154,7 @@ fn read_line_capped(r: &mut impl std::io::BufRead, out: &mut Vec<u8>) -> std::io
 
 /// Refuse when the connection's rows show another user. Our uid is our own socket's row, else
 /// `me` (this process's). When the listener isn't listed in a table that was read in full (WSL2,
-/// a proxy, a sandbox) or our uid is unknown, its owner is unknown and the loopback rule decides.
+/// a proxy) or our uid is unknown, its owner is unknown and the loopback rule decides.
 fn decide(rows: &Rows, peer: SocketAddr, me: Option<u32>) -> Result<(), ZoteroError> {
     match (rows.ours.or(me), rows.theirs) {
         (Some(a), Some(b)) if a == b => Ok(()),
@@ -248,14 +249,14 @@ mod tests {
         assert_eq!(same_owner(&junk, local, peer, None), Ok(()));
     }
 
-    /// WSL2 mirrored networking (Zotero on Windows), a local proxy or a sandbox: the listener
+    /// WSL2 mirrored networking (Zotero on Windows) or a local proxy: the listener
     /// isn't in our table, so the loopback rule decides, as on other systems.
     #[test]
     fn an_unlisted_listener_falls_back_to_the_loopback_rule() {
         let (local, peer) = addrs();
         let missing = format!("{HEADER}{}", row(local, peer, 1000));
         assert_eq!(same_owner(&missing, local, peer, None), Ok(()));
-        // The table couldn't be read.
+        // An empty table: the listener isn't listed.
         assert_eq!(same_owner("", local, peer, None), Ok(()));
         assert_eq!(same_owner("", local, peer, Some(1000)), Ok(()));
     }

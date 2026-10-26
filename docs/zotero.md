@@ -77,7 +77,7 @@ isn't another user's. On Windows and macOS (and the BSDs) the loopback rule is t
   listener (WSL2 mirrored networking with Zotero running on Windows, a local proxy), its owner
   is unknown and only the loopback rule applies, as below. That holds only when the tables were
   read in full: a read error, or an open error other than "not found", **refuses**. Sandboxes
-  that deny `/proc/net/tcp` (AppArmor, Snap, Flatpak confinement) are therefore refused.
+  that deny `/proc/net/tcp` (some AppArmor or Snap profiles, for example) are therefore refused.
 - Windows, macOS and the BSDs: **no same-user check.** They have no such table to read
   without OS calls WordCraft doesn't make (it uses no `unsafe` code), so only the loopback rule
   applies there (and on Linux when the listener isn't in the table). Remaining risk: on a
