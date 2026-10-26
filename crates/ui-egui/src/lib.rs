@@ -35,7 +35,6 @@ pub mod credits;
 pub mod crop;
 pub mod desktop_theme;
 pub mod dialogs;
-pub mod dialogs_notes;
 pub mod dialogs_para;
 pub mod dialogs_refs;
 pub mod dialogs_review;
@@ -98,6 +97,7 @@ pub use dialogs::dialogs_insert;
 pub use dialogs::dialogs_keyboard;
 pub use dialogs::dialogs_layout;
 pub use dialogs::dialogs_lists;
+pub use dialogs::dialogs_notes;
 pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 
 /// Platform services injected by the host (file dialogs, file I/O).

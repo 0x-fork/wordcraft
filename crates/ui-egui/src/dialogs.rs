@@ -4377,5 +4377,6 @@ pub mod dialogs_insert;
 pub mod dialogs_keyboard;
 pub mod dialogs_layout;
 pub mod dialogs_lists;
+pub mod dialogs_notes;
 #[cfg(test)]
 mod tests;
