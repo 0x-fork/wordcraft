@@ -1228,9 +1228,10 @@ struct BalloonFontFixture {
 /// Optional-input builds always exercise Latin; qualification must exercise both RTL faces.
 fn balloon_font_fixtures() -> (egui::FontDefinitions, Vec<BalloonFontFixture>) {
     let mut fonts = egui::FontDefinitions::empty();
-    fonts
-        .font_data
-        .insert("Balloon Latin".into(), std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../../assets/fonts/Inter-Regular.ttf"))));
+    fonts.font_data.insert(
+        "Balloon Latin".into(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../../assets/fonts/Inter-Regular.ttf"))),
+    );
     let mut names = vec!["Balloon Latin".to_string()];
     let mut fixtures = vec![BalloonFontFixture { family: "Balloon Latin", probe: "Reading", text: "Reading long_unbreakable_text\n123\nLatin\n" }];
     for (family, script, probe, text) in [
