@@ -1,9 +1,9 @@
 //! Right-to-left and bidirectional layout: Persian paragraphs, mixed Persian/Latin lines,
 //! numbers and punctuation, caret and selection geometry.
 
+use crate::para::{bidi_levels, visual_order};
 #[allow(unused_imports)]
 use crate::*;
-use crate::para::{bidi_levels, visual_order};
 use wordcraft_doc::props::{Align, ParaProps};
 use wordcraft_doc::{Pos, StoryRef};
 

@@ -3,8 +3,8 @@
 //! at 16 pt. Assertions compare a layout with the flags on to the same layout with them off, never
 //! font metrics (fonts differ between machines; CJK glyphs may be missing).
 
-use crate::*;
 use crate::para::ClKind;
+use crate::*;
 use wordcraft_doc::props::Align;
 use wordcraft_doc::section::{DocGrid, DocGridType};
 
