@@ -6,7 +6,10 @@
 //! whose walk is the document model's, is timed.
 
 use super::tests::{SCALE, cost_ratio};
-use super::*;
+use super::{
+    Block, CharProps, DocLayout, Document, HeaderSet, HeightRule, InlineObject, LayoutCache, LayoutOptions, ParaLayout, Paragraph, Path, Placed,
+    SectionProps, SectionStart, StoryRef, display, layout, para, work,
+};
 use wordcraft_doc::para::Run;
 use wordcraft_doc::{Pos, Table};
 
