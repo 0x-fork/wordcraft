@@ -2188,3 +2188,53 @@ fn upright_east_asian(items: Vec<Draw>) -> Vec<Draw> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests_clips {
+    use super::*;
+    use wordcraft_doc::Path as DocPath;
+
+    /// A cell whose area is told apart by `x`.
+    fn cell(story: StoryRef, table: Vec<u32>, row: usize, cell: usize, clip: bool, x: f32) -> Placed {
+        Placed::Cell { rect: Rect::new(x, 0.0, 1.0, 1.0), covered: false, table: DocPath(table), row, cell, story, clip }
+    }
+
+    /// Which cell (by its `x`) clips a line at `path` of `story`.
+    fn found(clips: &Clips, story: StoryRef, path: &[u32]) -> Option<f32> {
+        cell_clip(clips, story, path).map(|r| r.x)
+    }
+
+    /// A line in a cell cut off at its edge is drawn with that cell's clip, found by path in an
+    /// index built once per page: every line used to look through every clipped cell on the page,
+    /// so a page of exact-height rows cost lines x cells.
+    #[test]
+    fn a_line_finds_its_clipped_cell_by_path() {
+        let mut page = Page {
+            items: vec![cell(StoryRef::Body, vec![0], 0, 1, false, 1.0), cell(StoryRef::Body, vec![2], 1, 0, true, 2.0)],
+            ..Default::default()
+        };
+        // A nested clipped cell inside the second one; the outer one comes first in the page.
+        page.items.push(cell(StoryRef::Body, vec![2, 1, 0, 3], 0, 0, true, 3.0));
+        page.footer.push(cell(StoryRef::Part(7), vec![0], 0, 0, true, 4.0));
+        // The page's cells in header, footer, items order, as the PDF export and layout see them.
+        let all: Vec<Placed> = page.header.iter().chain(&page.footer).chain(&page.items).cloned().collect();
+        let clips = clipped_cells(&all);
+        assert_eq!(found(&clips, StoryRef::Body, &[2, 1, 0, 0]), Some(2.0));
+        assert_eq!(found(&clips, StoryRef::Body, &[2, 1, 0, 3, 0, 0, 1]), Some(2.0), "the first cell in page order wins, as in layout");
+        assert_eq!(found(&clips, StoryRef::Body, &[0, 0, 1, 0]), None, "that cell isn't clipped");
+        assert_eq!(found(&clips, StoryRef::Body, &[2, 0, 0, 0]), None, "another row");
+        assert_eq!(found(&clips, StoryRef::Part(7), &[0, 0, 0, 2]), Some(4.0));
+        assert_eq!(found(&clips, StoryRef::Body, &[0, 0, 0, 2]), None, "another story");
+    }
+
+    /// Thousands of clipped cells and as many lines: a lookup each, not a pass over the cells each.
+    #[test]
+    fn looking_up_many_clipped_cells_takes_linear_time() {
+        let make = |n: usize| (0..n).map(|r| cell(StoryRef::Body, vec![0], r, 0, true, r as f32)).collect::<Vec<_>>();
+        crate::tests_linear::assert_linear_steps("clip lookups", 1000, make, |cells| {
+            let clips = clipped_cells(cells);
+            let hits = (0..cells.len() as u32).filter(|r| cell_clip(&clips, StoryRef::Body, &[0, *r, 0, 0]).is_some()).count();
+            assert_eq!(hits, cells.len());
+        });
+    }
+}
