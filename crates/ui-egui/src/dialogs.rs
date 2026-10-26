@@ -4374,5 +4374,6 @@ fn page_valign_value(v: wordcraft_doc::section::PageVAlign) -> &'static str {
 pub mod dialogs_chart;
 pub mod dialogs_controls;
 pub mod dialogs_insert;
+pub mod dialogs_keyboard;
 #[cfg(test)]
 mod tests;
