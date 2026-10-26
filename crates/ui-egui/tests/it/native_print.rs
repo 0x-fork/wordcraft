@@ -5,6 +5,9 @@ use wordcraft_engine::Session;
 use wordcraft_ui_egui::printing::{Duplex, Feedback, Printer};
 use wordcraft_ui_egui::{Services, WordApp};
 
+/// Print command metadata lists engine and app commands, exposes the settings and status fields,
+/// and keeps submission disabled until a printer is selected. It never discovers printers,
+/// submits, opens a dialog or Print page, or dirties the document.
 #[test]
 fn control_print_discovery_reports_metadata_without_host_side_effects() {
     use std::cell::Cell;
@@ -55,6 +58,8 @@ fn control_print_discovery_reports_metadata_without_host_side_effects() {
     assert!(!app.printing.busy() && !app.session.dirty);
 }
 
+/// Submission passes the current grayscale setting and collates by default; a spool failure
+/// becomes Failed feedback and a status message.
 #[test]
 fn native_print_uses_selected_settings_and_reports_spool_errors() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
@@ -89,6 +94,8 @@ fn native_print_uses_selected_settings_and_reports_spool_errors() {
     assert!(app.status_msg.as_ref().unwrap().0.contains("printer is offline"));
 }
 
+/// At 800 by 700 the print page keeps Refresh printers and Grayscale enabled; toggling Grayscale
+/// updates the settings and readiness.
 #[test]
 fn print_settings_are_visible_in_a_narrow_window() {
     use egui_kittest::kittest::{NodeT, Queryable};
@@ -124,6 +131,7 @@ fn print_settings_are_visible_in_a_narrow_window() {
     assert!(harness.state().printing.ready());
 }
 
+/// Every invalid settings payload is rejected and leaves the previous settings unchanged.
 #[test]
 fn invalid_print_settings_are_rejected_without_partial_changes() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
@@ -147,6 +155,7 @@ fn invalid_print_settings_are_rejected_without_partial_changes() {
     }
 }
 
+/// Two fast jobs each surface the same receipt, and consuming it clears the status.
 #[test]
 fn repeated_fast_jobs_each_surface_an_identical_receipt() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
@@ -170,6 +179,8 @@ fn repeated_fast_jobs_each_surface_an_identical_receipt() {
     }
 }
 
+/// Invalid range, parity, copy and collate values send nothing; odd pages from 1-3 appear once in
+/// one PDF, while three uncollated copies are delegated to the spooler.
 #[test]
 fn native_ranges_and_parity_do_not_duplicate_spooler_copies() {
     // A fixed creation date: without one each PDF is stamped with the current time, and the two
@@ -210,6 +221,8 @@ fn native_ranges_and_parity_do_not_duplicate_spooler_copies() {
     assert!(!jobs[0].2, "uncollated copies reach the spooler");
 }
 
+/// Default or auto orientation sends `orientation-requested=3`, landscape sends 4 plus
+/// `landscape=true`, and portrait sends 3.
 #[test]
 fn native_print_passes_orientation_options_to_spooler() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
