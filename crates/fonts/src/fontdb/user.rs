@@ -813,10 +813,18 @@ pub(crate) mod tests {
         // #3703: the decoder reads the contour count as unsigned (only 0xFFFF is a composite), so
         // 0x8000..=0xFFFE are that many contours; read as negative they counted no points and the
         // decoder then allocated about 1 GB for a 1.3 MB font.
-        for n in [0x8000u16, 0xFFFE] {
+        for n in [0x7FFFu16, 0x8000, 0xFFFE] {
             let file = woff2_glyph_with_contours(n, &vec![3; usize::from(n)], 3 * usize::from(n));
             assert_eq!(decode_font_file(&file), Err(UserFontError::BadWebFont(TOO_MANY_POINTS.into())), "{n:#x}");
         }
+    }
+
+    #[test]
+    fn a_woff2_composite_glyph_is_not_counted_as_having_points() {
+        // 0xFFFF marks a composite glyph: the point check skips it (the decoder reads its own
+        // streams), so it is not refused for its points.
+        let file = woff2_glyph_with_contours(0xFFFF, &[], 0);
+        assert!(matches!(decode_font_file(&file), Err(UserFontError::BadWebFont(e)) if e != TOO_MANY_POINTS));
     }
 
     #[test]

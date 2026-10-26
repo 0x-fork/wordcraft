@@ -96,6 +96,7 @@ pub struct FontFace {
     hint_slow: std::sync::atomic::AtomicU32,
     hinting_off: std::sync::atomic::AtomicBool,
     /// A hinted draw slower than this is a strike ([`HINT_STRIKE`]; tests shorten it).
+    #[cfg(not(target_arch = "wasm32"))]
     hint_strike: std::time::Duration,
 }
 
@@ -1025,6 +1026,7 @@ fn make_face(bytes: FontBytes, index: u32, family: String, style: String, legacy
         hint_draws: Default::default(),
         hint_slow: Default::default(),
         hinting_off: Default::default(),
+        #[cfg(not(target_arch = "wasm32"))]
         hint_strike: HINT_STRIKE,
     })
 }
