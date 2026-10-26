@@ -2110,7 +2110,8 @@ mod tests {
         use wordcraft_doc::{CharProps, Document, Paragraph, StoryRef, para_block};
         let cases = ["Shopping\n- milk\n# not a heading", "a\n1. x", "a\n2) x", "a\n+ x", "a\n---", "a\n***", "a\n==", "a\n--", "a\n> q"];
         for s in cases {
-            let d = Document { body: vec![para_block(Paragraph::with_text(s, CharProps::default()))], ..Default::default() };
+            let mut d = Document::new();
+            d.body = vec![para_block(Paragraph::with_text(s, CharProps::default()))];
             let md = export(&d);
             let back = import(&md);
             assert_eq!(back.body.len(), 1, "{s:?} -> {md:?}");
