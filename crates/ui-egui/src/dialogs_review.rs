@@ -643,14 +643,16 @@ fn setup_ui(app: &mut WordApp, ui: &mut Ui, st: &mut RestrictPane) {
         });
     }
     heading(ui, "2. Editing restrictions");
-    ui.checkbox(&mut st.editing, tl!("Only allow this kind of editing:"));
+    let editing = ui.checkbox(&mut st.editing, tl!("Only allow this kind of editing:"));
     ui.add_enabled_ui(st.editing, |ui| {
         let current = EDIT_MODES.get(st.mode).map(|m| m.1).unwrap_or("");
-        egui::ComboBox::from_id_salt("restrict_mode").selected_text(tl!(current)).width(ui.available_width().min(220.0)).show_ui(ui, |ui| {
-            for (i, (_, label)) in EDIT_MODES.iter().enumerate() {
-                ui.selectable_value(&mut st.mode, i, tl!(label));
-            }
-        });
+        let combo =
+            egui::ComboBox::from_id_salt("restrict_mode").selected_text(tl!(current)).width(ui.available_width().min(220.0)).show_ui(ui, |ui| {
+                for (i, (_, label)) in EDIT_MODES.iter().enumerate() {
+                    ui.selectable_value(&mut st.mode, i, tl!(label));
+                }
+            });
+        combo.response.labelled_by(editing.id);
     });
     let mode = EDIT_MODES.get(st.mode).map(|m| m.0).unwrap_or("readOnly");
     if st.editing && matches!(mode, "readOnly" | "comments") {
@@ -718,11 +720,11 @@ fn setup_ui(app: &mut WordApp, ui: &mut Ui, st: &mut RestrictPane) {
 /// Each label above its field, so both fit the narrowest pane.
 fn passwords(ui: &mut Ui, st: &mut RestrictPane, confirm: bool) {
     let width = ui.available_width().min(220.0);
-    ui.label(tl!("Password:"));
-    ui.add(egui::TextEdit::singleline(st.password.as_mut_string()).password(true).desired_width(width));
+    let label = ui.label(tl!("Password:"));
+    ui.add(egui::TextEdit::singleline(st.password.as_mut_string()).password(true).desired_width(width)).labelled_by(label.id);
     if confirm {
-        ui.label(tl!("Confirm password:"));
-        ui.add(egui::TextEdit::singleline(st.confirm.as_mut_string()).password(true).desired_width(width));
+        let label = ui.label(tl!("Confirm password:"));
+        ui.add(egui::TextEdit::singleline(st.confirm.as_mut_string()).password(true).desired_width(width)).labelled_by(label.id);
     }
 }
 
