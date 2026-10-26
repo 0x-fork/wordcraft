@@ -1208,4 +1208,4 @@ mod screenshot_tests {
 
 #[cfg(test)]
 #[path = "control_tests.rs"]
-mod tests;
+mod doc_tests;
