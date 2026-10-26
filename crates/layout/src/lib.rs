@@ -695,11 +695,6 @@ enum Pass {
 /// Walk state while paginating.
 struct Ctx<'a> {
     doc: &'a Document,
-    /// The body's sections ([`Document::sections`]) for one pass, with the block index each
-    /// starts after: header and footer wrap work asks for them per page, and rebuilding the
-    /// list walked the whole body every time, so a long document paid a body-length scan per
-    /// page. The document does not change during a pass.
-    sections: Vec<(usize, &'a SectionProps)>,
     cache: &'a mut LayoutCache,
     opts: &'a LayoutOptions,
     counters: Counters,
@@ -2309,7 +2304,6 @@ fn layout_pass(
     });
     let mut ctx = Ctx {
         doc,
-        sections: doc.sections(),
         cache,
         opts,
         hide_deleted: opts.hides_deleted(StoryRef::Body),
