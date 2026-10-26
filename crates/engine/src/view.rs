@@ -1,4 +1,5 @@
-use super::*;
+use serde::{Deserialize, Serialize};
+use wordcraft_layout::{NumeralMode, ViewMode};
 
 /// View state that commands can change (ribbon View tab, status bar).
 #[derive(Clone, Debug, Serialize, Deserialize)]

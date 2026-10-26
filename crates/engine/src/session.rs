@@ -26,10 +26,10 @@ mod query;
 mod run;
 mod snapshot;
 mod snapshot_types;
-mod view;
 
 use crate::doc_state;
 use crate::locale;
+use crate::view;
 pub(crate) use doc_state::Widened;
 pub use doc_state::{CellRange, ColumnBlock, FindState, MathEdit, Selection, UNDO_LIST_MAX, next_math_session};
 use doc_state::{TypedWord, Undo, doc_bib_style};
