@@ -7,7 +7,7 @@
 use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Pos, StoryRef};
 
-use super::{ColumnBlock, MathEdit, Selection, Session, TypedWord, ViewState, Widened};
+use super::{ColumnBlock, MathEdit, Selection, Session, TypedWord, ViewState, Widened, next_math_session};
 
 /// One window's view of a document: its selection and caret state, and how it shows the page
 /// (zoom, view mode, panes, ruler…). Positions in it may be stale after edits made through
@@ -21,6 +21,8 @@ pub struct WindowView {
     hf_return: Option<Selection>,
     typing_open: bool,
     join_next: bool,
+    equation_join_next: bool,
+    ime_text_join: Option<Selection>,
     typing: Option<TypedWord>,
     math: Option<MathEdit>,
     also_selected: Vec<Pos>,
@@ -65,6 +67,8 @@ impl Session {
             hf_return: self.hf_return.take(),
             typing_open: take(&mut self.typing_open),
             join_next: take(&mut self.join_next),
+            equation_join_next: take(&mut self.equation_join_next),
+            ime_text_join: self.ime_text_join.take(),
             typing: self.typing.take(),
             math: self.math.take(),
             also_selected: take(&mut self.also_selected),
@@ -88,8 +92,11 @@ impl Session {
             // The new window hasn't typed: its first key starts an undo step of its own.
             typing_open: false,
             join_next: false,
+            equation_join_next: false,
+            ime_text_join: None,
             typing: None,
-            math: self.math.clone(),
+            // An equation editing session is an input method's owner: the new window's is its own.
+            math: self.math.clone().and_then(|m| Some(MathEdit { session: next_math_session()?, ..m })),
             also_selected: self.also_selected.clone(),
             column: self.column.clone(),
             column_mode: self.column_mode,
@@ -114,6 +121,8 @@ impl Session {
             hf_return,
             typing_open,
             join_next,
+            equation_join_next,
+            ime_text_join,
             typing,
             math,
             also_selected,
@@ -135,6 +144,8 @@ impl Session {
             self.hf_return = hf_return;
             self.typing_open = typing_open;
             self.join_next = join_next;
+            self.equation_join_next = equation_join_next;
+            self.ime_text_join = ime_text_join;
             self.typing = typing;
             self.also_selected = also_selected;
             self.column = column;
@@ -144,6 +155,8 @@ impl Session {
         self.hf_return = hf_return.map(|s| Selection { anchor: self.doc.clamp(&s.anchor), focus: self.doc.clamp(&s.focus) });
         self.typing_open = false;
         self.join_next = false;
+        self.equation_join_next = false;
+        self.ime_text_join = None;
         self.typing = None;
         self.also_selected = Vec::new();
         self.column = None;

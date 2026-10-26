@@ -329,3 +329,20 @@ fn two_views_of_one_document_keep_their_own_caret_and_share_undo() {
     assert!(!text(&s).contains('z') && text(&s).contains('x') && text(&s).contains('y'), "{}", text(&s));
     drop(b);
 }
+
+/// An input method's promise that the next insertion joins its replacement belongs to the
+/// window that made it: another window on the document typing at the same place gets an undo
+/// step of its own.
+#[test]
+fn input_method_joins_stay_with_their_window() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    s.join_next_ime_text_replacement();
+    let b = s.copy_view();
+    let a = s.take_view();
+    s.put_view(b);
+    run(&mut s, "text.insert", json!({"text": "y"}));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s).trim(), "Hello", "B's typing is its own undo step");
+    drop(a);
+}
