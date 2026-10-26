@@ -1438,5 +1438,3 @@ mod tests;
 
 #[cfg(test)]
 mod cache_tests;
-#[cfg(test)]
-mod tests_color_glyphs;

@@ -5,7 +5,7 @@ use wordcraft_fonts::FontDb;
 use wordcraft_layout::display::{DisplayOptions, Draw, page_display};
 use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
 
-use super::{RenderOptions, Rendered, render_page};
+use crate::{RenderOptions, Rendered, render_page};
 
 /// Colour emoji families the system fallback may pick.
 const COLOR_EMOJI: &[&str] = &["Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji"];
