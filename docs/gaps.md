@@ -35,6 +35,8 @@ Document renaming: desktop renaming requires a filesystem that supports hard lin
 
 Comment command safety (#1690, finding 3): Delete, Resolve, Reply and Edit reject explicit fractional, negative or wrong-type IDs before editing, rather than truncating floats or using the caret. Synthetic tests cover refusal without document or history changes, valid operations with undo/redo and repeated DOCX saves. This narrows the data-path risks in gap #3; the other audit findings and broader stability gate are outside this change.
 
+Proofing robustness (security audit, #3613 part, #3661, #3657, #3625): installed Hunspell dictionaries with thousands of self-continuing rules check each word in linear time and list a bounded number of forms; dictionary files are read with a bounded read (Turkish included) and the hyphenation dictionary inflates under a 64 MiB limit; Russian hyphenation and Turkish suggestions no longer grow with the square of the word's length. This narrows the freeze risks in gap #3; distinct-strip rule chains and proofing off the UI thread remain (#3613).
+
 Font-menu reliability: clearing a query with no matches now shows the recent section from its first row, including its heading, in a scrollable list. Fixed synthetic-family widget and full-ribbon tests cover this case and matching-query controls (#2068).
 
 Additive paragraph spacing retains the full before-space after a section page break; ordinary overlapping spacing is unchanged. Other pagination gaps remain open.
@@ -158,6 +160,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 | 2026-10-23 | trivial | cu20we: paragraph-relative box floats use the pre-spacing origin; header/footer/cell/text-box regressions; readiness estimates unchanged |
 | 2026-10-24 | trivial | Exact-spacing table contact uses the specified line height in row selection and word skipping; large/small mark regressions in modes 11/12/14/15 (#3977); shape estimates unchanged |
 | 2026-10-24 | trivial | Floating tables count exact line-bottom contact; shapes keep strict overlap (#3977); original boundary/skip regressions in modes 11/12/14/15, expected Word rule from cyril265; readiness estimates unchanged |
+| 2026-10-22 | trivial | Gap 3: proofing robustness — linear affix rule walks, bounded dictionary reads, linear Russian hyphenation, Turkish word cap (#3613 part, #3661, #3657, #3625); readiness estimates unchanged |
 | 2026-10-22 | trivial | Gap 10: group connector rerouting preserves rotated/flipped free and unresolved endpoints under nonuniform scaling, with safe degenerate-dimension and display-size-cap handling; routing around shapes and readiness estimates unchanged |
 | 2026-10-21 | trivial | The ranked gap list held two rows each for #19, #20 and #21; the stale copies are gone, so each gap appears once, and the #20 row carries the measured figure (#3411) |
 | 2026-10-21 | trivial | #20 narrowed: a document with many relationships opens in the time its part takes (#3411) |
