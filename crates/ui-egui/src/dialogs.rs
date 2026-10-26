@@ -4379,5 +4379,6 @@ pub mod dialogs_layout;
 pub mod dialogs_lists;
 pub mod dialogs_notes;
 pub mod dialogs_para;
+pub mod dialogs_refs;
 #[cfg(test)]
 mod tests;
