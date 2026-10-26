@@ -283,6 +283,12 @@ impl WordApp {
             print_backgrounds: _,
             update_fields_before_print: _,
             dictionary: _,
+            // Where each task pane sits, and their order.
+            styles_pane_dock: _,
+            styles_pane_float: _,
+            styles_pane_width: _,
+            pane_places: _,
+            pane_order: _,
             // Per window.
             tab,
             backstage,
