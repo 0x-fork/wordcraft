@@ -1232,5 +1232,4 @@ mod screenshot_tests {
 }
 
 #[cfg(test)]
-#[path = "control_tests.rs"]
 mod doc_tests;
