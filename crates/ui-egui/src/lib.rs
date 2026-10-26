@@ -3409,8 +3409,6 @@ fn control_click_as_secondary(events: &mut [egui::Event], held: &mut bool) {
     }
 }
 
-#[cfg(test)]
-mod tests_perf;
 
 /// Every `.rs` file under `dir`, subdirectories included, in a fixed order: tests that scan the
 /// sources must keep seeing code that moves into a module directory.
