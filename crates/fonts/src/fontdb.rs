@@ -2058,9 +2058,4 @@ impl OutlinePen for FlipPen {
 }
 
 #[cfg(test)]
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "tests_sysfonts.rs"]
-mod tests_sysfonts;
-
-#[cfg(test)]
 mod tests;

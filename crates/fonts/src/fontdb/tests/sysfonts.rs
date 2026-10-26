@@ -2,7 +2,7 @@
 #[allow(unused_imports)]
 use std::path::{Path, PathBuf};
 
-use super::*;
+use crate::fontdb::*;
 
 const FAMILY: &str = "Sysfont Sans3";
 

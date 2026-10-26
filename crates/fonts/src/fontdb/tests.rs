@@ -1,3 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
+mod sysfonts;
+
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn occasional_slow_hinted_glyphs_do_not_turn_hinting_off() {
