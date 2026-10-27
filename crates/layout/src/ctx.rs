@@ -43,6 +43,9 @@ pub(crate) struct Ctx<'a> {
     /// Empty body paragraphs with hidden marks or continuous section breaks, in order:
     /// they take no room (see [`place_para`]).
     pub(crate) quiet_marks: Vec<usize>,
+    /// Empty paragraphs closing a continuous section right after another section's mark, in
+    /// order: each takes its line while it fits, then stays at the page's bottom (#3907).
+    pub(crate) stacked_marks: Vec<usize>,
     /// Whether even pages are mirrored (mirrored margins, on pages): see [`mirror_even_pages`].
     pub(crate) mirror: bool,
     /// Cache-key hashes of the table-style text formatting cells were laid out with
