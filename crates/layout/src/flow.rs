@@ -70,7 +70,8 @@ pub(crate) fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, blo
 }
 
 /// Take the list label off the lines a mark added to `page` after its first `drawn` items; its
-/// other items (shading, borders) stay only when `keep_others`. The lines stay for the caret.
+/// other items (shading, borders, its line number) stay only when `keep_others`. Its own lines
+/// stay for the caret.
 fn strip_mark(page: &mut Page, drawn: usize, keep_others: bool) {
     let tail = page.items.split_off(drawn.min(page.items.len()));
     page.items.extend(tail.into_iter().filter_map(|item| match item {
@@ -79,6 +80,7 @@ fn strip_mark(page: &mut Page, drawn: usize, keep_others: bool) {
             bare.label = None;
             Some(Placed::Lines { story, path, para: Arc::new(bare), l0, l1, x, y, turn })
         }
+        Placed::Lines { story, .. } if story == DECOR_STORY && !keep_others => None,
         line @ Placed::Lines { .. } => Some(line),
         other => keep_others.then_some(other),
     }));
