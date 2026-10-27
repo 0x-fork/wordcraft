@@ -143,10 +143,10 @@ $rtf = '{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fswiss\fcharset0 Tahoma;}}\vi
   ($paragraphs -join "\par`r`n") + "\par`r`n}`r`n"
 [System.IO.File]::WriteAllText($LicenseRtf, $rtf, [System.Text.Encoding]::ASCII)
 
-# Two MSIs from one source: per-machine (Program Files, needs admin) and per-user (#39: no admin,
-# into %LOCALAPPDATA%\Programs; see wordcraft.wxs). The per-user name puts "user" before the arch
-# so the per-machine MSI sorts first: the shared windows-arm64 workflow installs the first *.msi
-# it finds and checks Program Files.
+# Two MSI file names from one dual-scope source (see wordcraft.wxs and install-policy.wxi): per user by
+# default into %LOCALAPPDATA%\Programs\ArtCraft\WordCraft (#39), per machine into Program Files\ArtCraft
+# on request. The user name puts "user" before the arch so the plain name sorts first: the shared
+# windows-arm64 workflow installs the first *.msi it finds and checks the per-user folder.
 $Msi = Join-Path $Dist "wordcraft-$Version-windows-$Arch.msi"
 $UserMsi = Join-Path $Dist "wordcraft-$Version-windows-user-$Arch.msi"
 foreach ($build in @(@($Msi, 'perMachine'), @($UserMsi, 'perUserOrMachine'))) {
