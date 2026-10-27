@@ -160,7 +160,9 @@ foreach ($build in @(@($Msi, 'perMachine'), @($UserMsi, 'perUserOrMachine'))) {
       -o $out
   }
   # Check the compiled scope, path and registration contract before signing.
-  & (Join-Path $PSScriptRoot 'check-install-policy.ps1') -MsiPath $Msi
+  $shell = (Get-Process -Id $PID).Path
+  & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-install-policy.ps1') -MsiPath $out
+  if ($LASTEXITCODE -ne 0) { throw "Compiled installer policy failed for $out." }
   # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
   Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($out, '.wixpdb'))
   & (Join-Path $PSScriptRoot 'sign.ps1') $out
