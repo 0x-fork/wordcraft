@@ -229,7 +229,7 @@ closer pagination fidelity, a stability sweep and native printing. Details and e
 
 The installer is one dual-scope package. By default it installs for your account only,
 into `%LOCALAPPDATA%\Programs\ArtCraft\WordCraft`, and needs no administrator rights; choosing
-"Everyone on this computer" on the first page installs into `C:\Program Files\ArtCraft\WordCraft`
+"Everyone on this computer" on the first page installs into `C:\Program Files\ArtCraft\WordCraft` (`Program Files (x86)` for the 32-bit build)
 and asks for an administrator. Install only one copy: a copy for another scope is refused, so
 uninstall first to change who WordCraft is installed for. Installers and executables are code-signed.
 
