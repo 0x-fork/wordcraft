@@ -676,26 +676,31 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize, counte
             let rp = ctx.doc.styles.resolve_para(&p.props);
             let label =
                 p.props.numbering.or(rp.numbering).filter(|n| n.num != 0).and_then(|n| counters.next_label(&ctx.doc.numbering, n.num, n.level));
-            let env = para::ParaEnv {
-                doc: ctx.doc,
-                width,
-                label,
-                fields: &ctx.fields,
-                show_hidden: ctx.opts.show_hidden,
-                field_codes: ctx.opts.field_codes,
-                hide_deleted: ctx.opts.hides_deleted(StoryRef::Body),
-                table: None,
-                proofing: None,
-                typing_word: None,
-                numeral: ctx.opts.numeral,
-                exclusions: &[],
-                eq_number: ctx.eq_count,
-                read_line_spacing: if ctx.opts.view == ViewMode::Read { ctx.opts.read_line_spacing } else { None },
-                grid: ctx.grid,
-                fit_objects: false,
-                fitted: &[],
+            let pl = match ctx.para_ahead(p, width, label.clone()) {
+                Some(pl) => pl,
+                None => {
+                    let env = para::ParaEnv {
+                        doc: ctx.doc,
+                        width,
+                        label,
+                        fields: &ctx.fields,
+                        show_hidden: ctx.opts.show_hidden,
+                        field_codes: ctx.opts.field_codes,
+                        hide_deleted: ctx.opts.hides_deleted(StoryRef::Body),
+                        table: None,
+                        proofing: None,
+                        typing_word: None,
+                        numeral: ctx.opts.numeral,
+                        exclusions: &[],
+                        eq_number: ctx.eq_count,
+                        read_line_spacing: if ctx.opts.view == ViewMode::Read { ctx.opts.read_line_spacing } else { None },
+                        grid: ctx.grid,
+                        fit_objects: false,
+                        fitted: &[],
+                    };
+                    Arc::new(para::layout_para(p, &env))
+                }
             };
-            let pl = para::layout_para(p, &env);
             // Its border room, unless it joins the paragraph before (or after) in one box.
             let own = Edges::own(&pl, 0, pl.lines.len());
             let top = if joined(ctx.doc, &ctx.doc.body, block + 1, Some(block), None) { 0.0 } else { own.top };

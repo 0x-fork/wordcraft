@@ -229,6 +229,36 @@ impl Ctx<'_> {
         pl
     }
 
+    /// `p` laid out on its own, as the paragraph after a kept one is measured before it is placed
+    /// (no wrap areas, proofing, typed word or resized text boxes), through the cache when
+    /// [`Ctx::para_labelled`] would lay it out with those same inputs: it is then not laid out a
+    /// second time when it is placed. Counts nothing (list labels, equation numbers, page totals).
+    /// `None` when the inputs differ.
+    pub(crate) fn para_ahead(&mut self, p: &Paragraph, width: f32, label: Option<(String, Level)>) -> Option<Arc<ParaLayout>> {
+        let resized = p
+            .objects
+            .iter()
+            .any(|o| matches!(o, InlineObject::Shape { story: Some(_), float, .. } if float.wrap == Wrap::Inline && float.rot == 0.0));
+        if self.opts.proofing || self.boxes.inside() || resized || self.hide_deleted != self.opts.hides_deleted(StoryRef::Body) {
+            return None;
+        }
+        let kept = (self.eq_count, self.uses_totals);
+        let (key, eq_number) = self.para_key(p, width, None, &[], label.as_ref(), &[]);
+        (self.eq_count, self.uses_totals) = kept;
+        if key.typing.is_some() {
+            return None;
+        }
+        self.cache.used.insert(key.clone());
+        if let Some(pl) = self.cache.paras.get(&key) {
+            self.cache.hits += 1;
+            return Some(pl.clone());
+        }
+        self.cache.misses += 1;
+        let pl = Arc::new(para::layout_para(p, &self.para_env(width, label, None, &[], eq_number, None, &[])));
+        self.cache.paras.insert(key, pl.clone());
+        Some(pl)
+    }
+
     /// What `measure` reads from `p` laid out as [`Ctx::para_labelled`] would, remembering only
     /// the result: a table's columns measure every cell once at an unbounded width, and keeping
     /// those layouts would double what a long table holds (and walk them all again on each pass).
