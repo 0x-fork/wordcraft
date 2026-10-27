@@ -133,7 +133,9 @@ pub fn feature_value(tag: &[u8; 4], value: u32) -> Feature {
 /// A strong right-to-left character (Hebrew, Arabic, …)?
 pub fn is_rtl(c: char) -> bool {
     use unicode_bidi::BidiClass::{AL, R};
-    matches!(unicode_bidi::bidi_class(c), R | AL)
+    // Nothing before the Hebrew block is right to left: Latin, Greek and Cyrillic text skips the
+    // table search.
+    c >= '\u{590}' && matches!(unicode_bidi::bidi_class(c), R | AL)
 }
 
 /// Maximal runs of one direction (neutrals join the run they're in): (byte range, right-to-left).
@@ -253,6 +255,15 @@ pub fn first_glyph(face: &FontFace, chars: &[char]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shortcut before the Hebrew block gives the bidi class's answer for every character.
+    #[test]
+    fn is_rtl_matches_the_bidi_class() {
+        use unicode_bidi::BidiClass::{AL, R};
+        for c in (0..=0x10ffff).filter_map(char::from_u32) {
+            assert_eq!(is_rtl(c), matches!(unicode_bidi::bidi_class(c), R | AL), "{:04x}", c as u32);
+        }
+    }
 
     #[test]
     fn last_resort_face_parses() {
