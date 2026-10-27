@@ -28,11 +28,16 @@ pub(crate) fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, blo
         }
         // Its (empty) line stays where the text ended, even at the bottom of a full column.
         let (y, prev, bottom, content_bottom, at) = (pb.y, pb.prev.clone(), pb.bottom, pb.content_bottom, (pb.pages.len(), pb.col));
+        let drawn = pb.page().map_or(0, |page| page.items.len());
         pb.bottom = f32::MAX / 4.0;
         place_para_in_flow(ctx, pb, p, block, body_top);
         pb.bottom = bottom;
         if (pb.pages.len(), pb.col) == at {
             (pb.y, pb.prev, pb.content_bottom) = (y, prev, content_bottom);
+            // Taking no room, it draws no list label either (Word, #3907 review); still counted.
+            if let Some(page) = pb.page() {
+                strip_mark(page, drawn, true);
+            }
         }
         return;
     }
@@ -40,6 +45,7 @@ pub(crate) fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, blo
         // Measured in Word (#3907): each takes its line while it fits; past the bottom it stays
         // there instead of starting a page, so the text after a long run starts the next page.
         let (y, prev, bottom, content_bottom, at) = (pb.y, pb.prev.clone(), pb.bottom, pb.content_bottom, (pb.pages.len(), pb.col));
+        let drawn = pb.page().map_or(0, |page| page.items.len());
         pb.bottom = f32::MAX / 4.0;
         place_para_in_flow(ctx, pb, p, block, body_top);
         // A break before it starts a page with its own bottom.
@@ -49,10 +55,33 @@ pub(crate) fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, blo
         if (pb.pages.len(), pb.col) == at && pb.y > bottom + 0.01 {
             // At the bottom: nothing more fits on the page, even a line smaller than the mark's.
             (pb.y, pb.prev, pb.content_bottom) = (bottom.max(y), prev, content_bottom);
+            // Nothing of it is drawn below the margin, not even its list label or shading (Word):
+            // its line stays only for the caret.
+            // ponytail: a mark anchoring objects keeps everything; strip those too if one shows up
+            if p.objects.is_empty()
+                && let Some(page) = pb.page()
+            {
+                strip_mark(page, drawn, false);
+            }
         }
         return;
     }
     place_para_in_flow(ctx, pb, p, block, body_top);
+}
+
+/// Take the list label off the lines a mark added to `page` after its first `drawn` items; its
+/// other items (shading, borders) stay only when `keep_others`. The lines stay for the caret.
+fn strip_mark(page: &mut Page, drawn: usize, keep_others: bool) {
+    let tail = page.items.split_off(drawn.min(page.items.len()));
+    page.items.extend(tail.into_iter().filter_map(|item| match item {
+        Placed::Lines { story, path, para, l0, l1, x, y, turn } if para.label.is_some() => {
+            let mut bare = (*para).clone();
+            bare.label = None;
+            Some(Placed::Lines { story, path, para: Arc::new(bare), l0, l1, x, y, turn })
+        }
+        line @ Placed::Lines { .. } => Some(line),
+        other => keep_others.then_some(other),
+    }));
 }
 
 /// How many times one body paragraph is laid out again for the page numbers of the later pages

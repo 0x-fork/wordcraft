@@ -87,7 +87,10 @@ pub(crate) fn layout_pass(
         .filter(|w| w[1].1.start == SectionStart::Continuous)
         .map(|w| w[0].0)
         .filter(|end| doc.body.get(*end).and_then(|b| b.as_para()).is_some_and(|p| p.text.is_empty()))
-        .partition(|end| end.checked_sub(1).and_then(|i| doc.body.get(i)).and_then(|b| b.as_para()).is_some_and(|p| p.section.is_some()));
+        .partition(|end| {
+            // After a text paragraph closing a section the mark is still quiet, as after any text.
+            end.checked_sub(1).and_then(|i| doc.body.get(i)).and_then(|b| b.as_para()).is_some_and(|p| p.section.is_some() && p.text.is_empty())
+        });
     if !opts.show_hidden {
         ctx.quiet_marks.extend(
             doc.body

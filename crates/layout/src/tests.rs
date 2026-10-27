@@ -11728,3 +11728,88 @@ fn continuous_sections_running_off_a_page_go_onto_the_next() {
     assert!(end.page > 0, "End past the first page: {end:?}");
     assert_eq!((end.page, (end.top * 10.0).round()), (plain.page, (plain.top * 10.0).round()), "sections {end:?}, plain {plain:?}");
 }
+
+/// Bulleted empty marks past a full page's bottom draw nothing there, not even their bullets;
+/// those that fit keep theirs (#3907 review: a stray bullet below the column).
+#[test]
+fn stacked_marks_past_the_bottom_draw_no_label() {
+    use wordcraft_doc::ListKind;
+    use wordcraft_doc::section::{SectionProps, SectionStart};
+    let marks = 100;
+    let mut d = Document::from_text(&format!("Start\n{}End", "\n".repeat(marks)));
+    let id = d.numbering.add_list(ListKind::Bullet);
+    for i in 1..=marks {
+        let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
+        p.section = Some(Box::new(SectionProps { start: SectionStart::Continuous, ..Default::default() }));
+        p.props.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 });
+    }
+    d.last_section.start = SectionStart::Continuous;
+    let l = lay(&d);
+    let page = &l.pages[0];
+    let bottom = page.body.y + page.body.h;
+    let (mut inside, mut below) = (0, 0);
+    for it in &page.items {
+        let Placed::Lines { para, y, .. } = it else { continue };
+        if para.label.is_none() {
+            continue;
+        }
+        if *y < bottom - 0.01 { inside += 1 } else { below += 1 }
+    }
+    assert!(inside > 10, "marks that fit keep their bullets: {inside}");
+    assert_eq!(below, 0, "no bullet at or below the body's bottom ({bottom})");
+    assert_eq!(l.caret(&Pos::body(marks + 1, 0)).unwrap().page, 1, "End still starts page 2");
+}
+
+/// An empty mark after a text paragraph that itself closes a continuous section takes no room,
+/// as after any text: only marks after an empty mark stack (#3907 review).
+#[test]
+fn an_empty_mark_after_a_text_section_mark_stays_quiet() {
+    use wordcraft_doc::section::{SectionProps, SectionStart};
+    let gap = |text_closes: bool| {
+        let mut d = Document::from_text("Start\n\nEnd");
+        let cont = || Some(Box::new(SectionProps { start: SectionStart::Continuous, ..Default::default() }));
+        if text_closes {
+            d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().section = cont();
+        }
+        d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().section = cont();
+        d.last_section.start = SectionStart::Continuous;
+        let l = lay(&d);
+        l.caret(&Pos::body(2, 0)).unwrap().top - l.caret(&Pos::body(0, 0)).unwrap().top
+    };
+    assert!((gap(true) - gap(false)).abs() < 0.01, "text closing a section: {}, plain text: {}", gap(true), gap(false));
+}
+
+/// dpkruse's Genuine Steps Certificate (#3907 review): a bulleted text paragraph closes a
+/// two-column continuous section, then an empty bulleted paragraph closes another. Word draws no
+/// bullet for the empty one wherever the text above ends, down to the foot of the page.
+#[test]
+fn an_empty_bulleted_mark_after_a_bulleted_section_closer_draws_no_bullet() {
+    use wordcraft_doc::ListKind;
+    use wordcraft_doc::section::{SectionProps, SectionStart};
+    for filler in (40..140).step_by(3) {
+        let mut d = Document::from_text(&format!("{}file this form\n\nFailure to comply", "Instructions\n".repeat(filler)));
+        let id = d.numbering.add_list(ListKind::Bullet);
+        let mut two = SectionProps { start: SectionStart::Continuous, ..Default::default() };
+        two.columns.count = 2;
+        for i in [filler, filler + 1] {
+            let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
+            p.section = Some(Box::new(two.clone()));
+            p.props.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 });
+        }
+        d.last_section.start = SectionStart::Continuous;
+        let l = lay(&d);
+        let bullets = l
+            .pages
+            .iter()
+            .flat_map(|page| &page.items)
+            .filter(|it| matches!(it, Placed::Lines { path, para, .. } if *path == Path::top(filler + 1) && para.label.is_some()))
+            .count();
+        assert_eq!(bullets, 0, "{filler} lines above: the empty mark draws no bullet");
+        let text = l
+            .pages
+            .iter()
+            .flat_map(|page| &page.items)
+            .any(|it| matches!(it, Placed::Lines { path, para, .. } if *path == Path::top(filler) && para.label.is_some()));
+        assert!(text, "{filler} lines above: the text closer keeps its bullet");
+    }
+}
