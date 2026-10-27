@@ -211,9 +211,8 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         let need = height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0, &mut ctx.counters.clone()) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
         // Room in the next column, or on the next page when this is the last.
-        let next_top = if pb.col + 1 < pb.cols.len() { pb.top } else { pb.page_top };
         // With the 0.01 pt of slack the other fit checks take.
-        if pb.y + need > pb.bottom + 0.01 && !pb.fresh() && need <= pb.uncapped_bottom() - next_top {
+        if pb.y + need > pb.bottom + 0.01 && !pb.fresh() && need <= pb.next_room(body_top) {
             pb.advance(block, body_top);
             pb.y += pl.rp.space_before.min(0.0);
             applied_before = pl.rp.space_before.min(0.0);

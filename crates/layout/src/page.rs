@@ -106,9 +106,13 @@ pub(crate) fn page_border_rules(s: &SectionProps) -> Vec<Placed> {
 impl PageBuilder<'_> {
     /// Space footnotes take at the bottom of the page.
     pub(crate) fn notes_h(&self) -> f32 {
-        match self.notes.first() {
+        self.stack_h(&self.notes)
+    }
+    /// The height of a page's note area holding `notes`, with its separator.
+    fn stack_h(&self, notes: &[NoteBox]) -> f32 {
+        match notes.first() {
             None => 0.0,
-            Some(first) => self.seps.sep_h(first.cont) + self.notes.iter().map(|n| n.h).sum::<f32>(),
+            Some(first) => self.seps.sep_h(first.cont) + notes.iter().map(|n| n.h).sum::<f32>(),
         }
     }
     /// The lowest bottom of the body text and tables on the current page.
@@ -292,9 +296,7 @@ impl PageBuilder<'_> {
         let s = self.sect;
         self.number = self.restart_at.take().unwrap_or_else(|| self.number.saturating_add(1));
         let (w, h) = if self.web { (s.page_w, f32::MAX / 4.0) } else { (s.page_w, s.page_h) };
-        // A footer taller than the bottom margin pushes the body up (Word: no gap), leaving it at
-        // least a little room.
-        let bottom = (s.page_h - s.margin_bottom).min(self.foot_top.max(body_top + 36.0));
+        let bottom = self.body_bottom(body_top);
         let body = Rect::new(s.margin_left + s.gutter, body_top, s.text_width(), (bottom - body_top).max(36.0));
         let mut decor = Vec::new();
         if !self.web {
@@ -341,6 +343,23 @@ impl PageBuilder<'_> {
             && page + 1 == self.pages.len()
         {
             self.bottom = self.bottom.min(self.top + h);
+        }
+    }
+    /// The bottom of the body on a page started with its body at `body_top`: a footer taller than
+    /// the bottom margin pushes it up (Word: no gap), leaving it at least a little room.
+    fn body_bottom(&self, body_top: f32) -> f32 {
+        (self.sect.page_h - self.sect.margin_bottom).min(self.foot_top.max(body_top + 36.0))
+    }
+    /// The room for text in the next column, or on the page [`Self::advance`] starts after the
+    /// last: there, below its body top (`body_top`) and above its footer and the notes carried
+    /// onto it (#3907 CodeRabbit: a different first page's header or footer doesn't shrink it).
+    pub(crate) fn next_room(&self, body_top: f32) -> f32 {
+        if self.col + 1 < self.cols.len() {
+            self.uncapped_bottom() - self.top
+        } else if self.web {
+            f32::MAX / 8.0 - body_top
+        } else {
+            self.body_bottom(body_top) - self.stack_h(&self.carry) - body_top
         }
     }
     /// The bottom of the columns without balancing: above the footnotes.
