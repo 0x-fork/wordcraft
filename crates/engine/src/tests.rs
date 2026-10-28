@@ -136,12 +136,15 @@ fn every_shortcut_runs_one_command() {
     assert_eq!(reg.by_shortcut("Shift+F3").map(|c| c.id), Some("format.changeCase"));
 }
 
+/// The command a shortcut runs.
+fn id(k: &str) -> Option<&'static str> {
+    cmd::registry().by_shortcut(k).map(|c| c.id)
+}
+
 #[test]
 fn word_default_shortcuts_resolve() {
     // #330: Word's documented default shortcuts reach the matching commands, with Word for
     // Mac's keys where macOS takes Word's (⌘Q quits, ⌘Space is Spotlight, ⌘⇧G is Find Previous).
-    let reg = cmd::registry();
-    let id = |k: &str| reg.by_shortcut(k).map(|c| c.id);
     assert_eq!(id("Mod+Alt+1"), Some("para.heading1"));
     assert_eq!(id("Mod+Alt+P"), Some("view.printLayout"));
     assert_eq!(id("Mod+Alt+O"), Some("view.outline"));
@@ -170,6 +173,10 @@ fn word_default_shortcuts_resolve() {
     assert_eq!(id("Alt+Shift+F2"), Some("file.save"));
     assert_eq!(id("Mod+Alt+I"), Some("file.print"));
     assert_eq!(id("Alt+Shift+F1"), Some("fields.previous"));
+}
+
+#[test]
+fn word_default_shortcuts_resolve_per_platform() {
     if cfg!(target_os = "macos") {
         assert_eq!(id("Mod+Shift+G"), Some("edit.findPrevious"));
         // Word for Mac's own keys: ⌘⇧S Save As, ⌘⌥E endnote (⌘⌥D hides the Dock), ⌘⌥A comment, ⌃H Replace.
@@ -194,6 +201,10 @@ fn word_default_shortcuts_resolve() {
         assert_eq!(id("Alt+F2"), Some("file.saveAs"));
         assert_eq!(id("Alt+F1"), Some("fields.next"));
     }
+}
+
+#[test]
+fn word_default_shortcuts_resolve_function_keys() {
     assert_eq!(id("Mod+PageUp"), Some("edit.findPrevious"));
     // The Spike: Word's Ctrl+F3 and Ctrl+Shift+F3 (⌘F3 and ⌘⇧F3 in Word for Mac).
     assert_eq!(id("Mod+F3"), Some("edit.spike"));
