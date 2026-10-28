@@ -1,5 +1,5 @@
 use super::shell::{Next, go};
-use super::*;
+use super::{AfterPick, Asked, FileDialogRequest, RefsDialog, Serialize, Source, Tokens, Ui, Value, WordApp, buttons, json, vec2};
 
 // ---------------------------------------------------------------------------------------------
 // Sources
