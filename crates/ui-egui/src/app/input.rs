@@ -1,4 +1,4 @@
-use super::*;
+use super::{WordApp, i18n, json};
 
 impl WordApp {
     /// Read a Control-click as the right-click on macOS, then offer at most one synthetic gesture

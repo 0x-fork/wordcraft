@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    WordApp, backstage, canvas, chrome, colors, content_controls, dialogs, documents, file_browser, keys, now_ms, panes, read_aloud, ribbon, theme,
+    updates_ui, zotero,
+};
 
 impl WordApp {
     pub fn status(&mut self, s: impl Into<String>) {
